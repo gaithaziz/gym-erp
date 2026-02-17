@@ -1,0 +1,386 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "Gym ERP System API",
+    "version": "1.0.0",
+    "description": "Strict API Contract for Gym Management System. Agents must not modify paths without approval."
+  },
+  "servers": [
+    {
+      "url": "http://localhost:8000/api/v1",
+      "description": "Local Development Server"
+    },
+    {
+      "url": "https://api.gym-erp.com/api/v1",
+      "description": "Production Server"
+    }
+  ],
+  "components": {
+    "securitySchemes": {
+      "BearerAuth": {
+        "type": "http",
+        "scheme": "bearer",
+        "bearerFormat": "JWT"
+      }
+    },
+    "schemas": {
+      "Token": {
+        "type": "object",
+        "properties": {
+          "access_token": {
+            "type": "string"
+          },
+          "refresh_token": {
+            "type": "string"
+          },
+          "token_type": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "access_token",
+          "refresh_token",
+          "token_type"
+        ]
+      },
+      "LoginRequest": {
+        "type": "object",
+        "properties": {
+          "email": {
+            "type": "string",
+            "format": "email"
+          },
+          "password": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "email",
+          "password"
+        ]
+      },
+      "QRTokenResponse": {
+        "type": "object",
+        "properties": {
+          "qr_token": {
+            "type": "string",
+            "description": "JWT signed token containing user_id and expiry"
+          },
+          "expires_in_seconds": {
+            "type": "integer",
+            "default": 30
+          }
+        },
+        "required": [
+          "qr_token",
+          "expires_in_seconds"
+        ]
+      },
+      "AccessScanRequest": {
+        "type": "object",
+        "properties": {
+          "qr_token": {
+            "type": "string"
+          },
+          "kiosk_id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "qr_token"
+        ]
+      },
+      "AccessScanResponse": {
+        "type": "object",
+        "properties": {
+          "status": {
+            "type": "string",
+            "enum": [
+              "GRANTED",
+              "DENIED"
+            ]
+          },
+          "user_name": {
+            "type": "string"
+          },
+          "reason": {
+            "type": "string",
+            "nullable": true
+          }
+        },
+        "required": [
+          "status"
+        ]
+      },
+      "FinancialDashboard": {
+        "type": "object",
+        "properties": {
+          "total_revenue": {
+            "type": "number"
+          },
+          "total_expenses": {
+            "type": "number"
+          },
+          "net_profit": {
+            "type": "number"
+          },
+          "visits_today": {
+            "type": "integer"
+          }
+        },
+        "required": [
+          "total_revenue",
+          "total_expenses",
+          "net_profit"
+        ]
+      },
+      "PayrollPreview": {
+        "type": "object",
+        "properties": {
+          "employee_id": {
+            "type": "integer"
+          },
+          "total_hours": {
+            "type": "number"
+          },
+          "calculated_salary": {
+            "type": "number"
+          }
+        }
+      },
+      "WorkoutLogRequest": {
+        "type": "object",
+        "properties": {
+          "plan_id": {
+            "type": "integer"
+          },
+          "difficulty_rating": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 5
+          },
+          "comment": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "plan_id",
+          "difficulty_rating"
+        ]
+      }
+    }
+  },
+  "security": [
+    {
+      "BearerAuth": []
+    }
+  ],
+  "paths": {
+    "/auth/login": {
+      "post": {
+        "summary": "Authenticate user",
+        "operationId": "auth_login",
+        "security": [],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/LoginRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Login",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Token"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Invalid credentials"
+          }
+        }
+      }
+    },
+    "/auth/refresh": {
+      "post": {
+        "summary": "Refresh access token",
+        "operationId": "auth_refresh",
+        "responses": {
+          "200": {
+            "description": "New Token Issued",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Token"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/access/qr": {
+      "get": {
+        "summary": "Generate entry QR code",
+        "tags": [
+          "Access"
+        ],
+        "operationId": "generate_qr",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/QRTokenResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/access/scan": {
+      "post": {
+        "summary": "Verify QR code (Kiosk)",
+        "tags": [
+          "Access"
+        ],
+        "operationId": "scan_qr",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AccessScanRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AccessScanResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/access/check-in": {
+      "post": {
+        "summary": "Staff Clock-In",
+        "tags": [
+          "HR"
+        ],
+        "operationId": "staff_check_in",
+        "responses": {
+          "200": {
+            "description": "Clocked In Successfully"
+          }
+        }
+      }
+    },
+    "/access/check-out": {
+      "post": {
+        "summary": "Staff Clock-Out",
+        "tags": [
+          "HR"
+        ],
+        "operationId": "staff_check_out",
+        "responses": {
+          "200": {
+            "description": "Clocked Out & Hours Calculated"
+          }
+        }
+      }
+    },
+    "/admin/payroll/preview": {
+      "get": {
+        "summary": "Preview Salaries",
+        "tags": [
+          "HR"
+        ],
+        "operationId": "payroll_preview",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/PayrollPreview"
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/admin/finance/dashboard": {
+      "get": {
+        "summary": "Get Financial KPIs",
+        "tags": [
+          "Admin"
+        ],
+        "operationId": "finance_dashboard",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FinancialDashboard"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/fitness/plans/active": {
+      "get": {
+        "summary": "Get my current workout plan",
+        "tags": [
+          "Fitness"
+        ],
+        "operationId": "get_active_plan",
+        "responses": {
+          "200": {
+            "description": "Active Plan JSON Object"
+          }
+        }
+      }
+    },
+    "/fitness/log": {
+      "post": {
+        "summary": "Log Workout Feedback",
+        "tags": [
+          "Fitness"
+        ],
+        "operationId": "log_workout",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/WorkoutLogRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Feedback Logged"
+          }
+        }
+      }
+    }
+  }
+}
