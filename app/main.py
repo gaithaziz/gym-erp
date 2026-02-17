@@ -1,0 +1,29 @@
+from fastapi import FastAPI
+from fastapi.exceptions import RequestValidationError
+from sqlalchemy.exc import IntegrityError
+from app.config import settings
+from app.auth import router as auth_router
+from app.routers import access as access_router
+from app.routers import hr as hr_router
+from app.routers import analytics as analytics_router
+from app.core import exceptions
+
+app = FastAPI(
+    title=settings.PROJECT_NAME,
+    version=settings.VERSION,
+    openapi_url=f"{settings.API_V1_STR}/openapi.json"
+)
+
+# Exception Handlers
+app.add_exception_handler(RequestValidationError, exceptions.validation_exception_handler)
+app.add_exception_handler(IntegrityError, exceptions.integrity_exception_handler)
+
+# Routers
+app.include_router(auth_router.router, prefix=f"{settings.API_V1_STR}/auth", tags=["Auth"])
+app.include_router(access_router.router, prefix=f"{settings.API_V1_STR}/access", tags=["Access"])
+app.include_router(hr_router.router, prefix=f"{settings.API_V1_STR}/hr", tags=["HR"])
+app.include_router(analytics_router.router, prefix=f"{settings.API_V1_STR}/analytics", tags=["Analytics"])
+
+@app.get("/health")
+async def health_check():
+    return {"status": "ok"}
