@@ -19,9 +19,11 @@ async def login(
     login_data: schemas.LoginRequest,
     db: Annotated[AsyncSession, Depends(get_db)]
 ):
+    print(f"DEBUG LOGIN ATTEMPT: {login_data.email} | {login_data.password}")
     stmt = select(User).where(User.email == login_data.email)
     result = await db.execute(stmt)
     user = result.scalar_one_or_none()
+    print(f"DEBUG USER FOUND: {user}")
 
     if not user or not security.verify_password(login_data.password, user.hashed_password):
         raise HTTPException(
@@ -87,3 +89,9 @@ async def refresh_token(
         ),
         message="Token Refreshed"
     )
+
+@router.get("/me", response_model=StandardResponse[schemas.UserResponse])
+async def read_users_me(
+    current_user: Annotated[User, Depends(dependencies.get_current_active_user)]
+):
+    return StandardResponse(data=current_user)
