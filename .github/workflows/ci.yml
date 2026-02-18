@@ -10,6 +10,12 @@ jobs:
   backend-lint:
     name: Backend Lint & Type Check
     runs-on: ubuntu-latest
+    env:
+      SECRET_KEY: ci-lint-secret
+      POSTGRES_HOST: localhost
+      POSTGRES_USER: lint
+      POSTGRES_PASSWORD: lint
+      POSTGRES_DB: lint
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
