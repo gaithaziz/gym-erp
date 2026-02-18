@@ -55,3 +55,40 @@ async def client(db_session) -> AsyncGenerator[AsyncClient, None]:
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as c:
         yield c
     app.dependency_overrides.clear()
+
+@pytest.fixture
+async def admin_token_headers(client, db_session):
+    from app.models.user import User
+    from app.models.enums import Role
+    from app.auth.security import get_password_hash
+    import uuid
+
+    # Create Admin User
+    admin_data = {
+        "email": "admin@test.com",
+        "password": "password",
+        "full_name": "Admin User",
+        "role": Role.ADMIN
+    }
+    
+    # Check if exists (unlikely in new db but good practice)
+    from sqlalchemy import select
+    res = await db_session.execute(select(User).where(User.email == admin_data["email"]))
+    if not res.scalar_one_or_none():
+        user = User(
+            email=admin_data["email"],
+            hashed_password=get_password_hash(admin_data["password"]),
+            full_name=admin_data["full_name"],
+            role=admin_data["role"],
+            is_active=True
+        )
+        db_session.add(user)
+        await db_session.commit()
+
+    # Login
+    response = await client.post(
+        "/api/v1/auth/login",
+        json={"email": admin_data["email"], "password": admin_data["password"]}
+    )
+    token = response.json()["data"]["access_token"]
+    return {"Authorization": f"Bearer {token}"}

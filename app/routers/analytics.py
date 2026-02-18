@@ -27,3 +27,12 @@ async def get_attendance_trends(
 ):
     trends = await AnalyticsService.get_attendance_trends(days, db)
     return StandardResponse(data=trends)
+
+@router.get("/revenue-chart", response_model=StandardResponse)
+async def get_revenue_chart(
+    current_user: Annotated[User, Depends(dependencies.RoleChecker([Role.ADMIN]))],
+    db: Annotated[AsyncSession, Depends(get_db)],
+    days: int = 30
+):
+    data = await AnalyticsService.get_revenue_vs_expenses(days, db)
+    return StandardResponse(data=data)

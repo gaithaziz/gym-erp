@@ -12,6 +12,9 @@ from app.config import settings
 from app.models import user  # Import models to register metadata
 from app.models import access
 from app.models import hr
+from app.models import finance
+from app.models import fitness
+from app.models import workout_log
 
 
 # this is the Alembic Config object, which provides

@@ -9,6 +9,7 @@ class ContractType(str, Enum):
     FULL_TIME = "FULL_TIME"
     PART_TIME = "PART_TIME"
     CONTRACTOR = "CONTRACTOR"
+    HYBRID = "HYBRID"
 
 class PayrollStatus(str, Enum):
     DRAFT = "DRAFT"
@@ -26,6 +27,9 @@ class Contract(Base):
     
     # Simple logic: Standard hours per month
     standard_hours: Mapped[int] = mapped_column(Integer, default=160, nullable=False)
+    
+    # For Hybrid/Commission based
+    commission_rate: Mapped[float] = mapped_column(Float, default=0.0, nullable=True)
 
     user = relationship("User", backref="contract")
 

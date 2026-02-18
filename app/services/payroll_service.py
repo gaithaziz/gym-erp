@@ -70,6 +70,21 @@ class PayrollService:
             hourly_rate = contract.base_salary
             base_pay = total_hours * hourly_rate
             
+        elif contract.contract_type == ContractType.HYBRID:
+            # Base + Commission
+            # Ideally commission comes from sales tracking. 
+            # For now, we will trust the base_salary is the Fixed Part, 
+            # AND we need a way to input "Sales Amount" or "Commission Amount" for this month.
+            # Since we don't have a Sales module yet, we will assume:
+            # base_pay = contract.base_salary
+            # And user will manually edit the Payroll later or we pass it in (TODO: Add sales_commission input to calculate_payroll)
+            base_pay = contract.base_salary
+            
+            # Placeholder for commission calculation
+            # commission = sales_volume * contract.commission_rate
+            # For this Phase 1, we just set base.
+            pass
+            
         total_pay = base_pay + overtime_pay
         
         # 4. Create/Update Payroll Record

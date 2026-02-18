@@ -2,65 +2,182 @@
 
 import { useAuth } from '@/context/AuthContext';
 import { api } from '@/lib/api';
-import { useRouter } from 'next/navigation';
 import { useEffect, useState } from 'react';
+import { Users, DollarSign, Clock, TrendingUp } from 'lucide-react';
+import {
+    BarChart, Bar, LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend
+} from 'recharts';
 
 interface DashboardStats {
+    live_headcount: number;
+    todays_revenue: number;
     active_members: number;
-    estimated_monthly_revenue: number;
-    total_expenses_to_date: number;
+    monthly_revenue: number;
+    monthly_expenses: number;
+    pending_salaries: number;
 }
 
 export default function DashboardPage() {
-    const { user, logout, isLoading } = useAuth();
-    const router = useRouter();
+    const { user } = useAuth();
     const [stats, setStats] = useState<DashboardStats | null>(null);
+    const [attendanceData, setAttendanceData] = useState<any[]>([]);
+    const [revenueData, setRevenueData] = useState<any[]>([]);
 
     useEffect(() => {
-        if (!isLoading && !user) {
-            router.push('/login');
-        } else if (user) {
+        if (user) {
             api.get('/analytics/dashboard')
                 .then(res => setStats(res.data.data))
                 .catch(err => console.error("Failed to fetch dashboard stats", err));
-        }
-    }, [user, isLoading, router]);
 
-    if (isLoading || !user) {
-        return <div className="flex h-screen items-center justify-center">Loading...</div>;
-    }
+            api.get('/analytics/attendance?days=7')
+                .then(res => setAttendanceData(res.data.data || []))
+                .catch(() => { });
+
+            api.get('/analytics/revenue-chart?days=30')
+                .then(res => setRevenueData(res.data.data || []))
+                .catch(() => { });
+        }
+    }, [user]);
+
+    const kpiCards = [
+        {
+            title: 'Live Headcount',
+            value: stats?.live_headcount ?? '--',
+            subtitle: 'Currently in the gym',
+            icon: Users,
+            iconClass: 'icon-blue',
+            live: true,
+        },
+        {
+            title: "Today's Revenue",
+            value: stats ? `${stats.todays_revenue.toFixed(2)} JOD` : '--',
+            subtitle: 'Collected today',
+            icon: DollarSign,
+            iconClass: 'icon-green',
+        },
+        {
+            title: 'Pending Salaries',
+            value: stats ? `${stats.pending_salaries.toFixed(2)} JOD` : '--',
+            subtitle: 'Owed this month',
+            icon: Clock,
+            iconClass: 'icon-amber',
+        },
+        {
+            title: 'Active Members',
+            value: stats?.active_members ?? '--',
+            subtitle: 'Active subscriptions',
+            icon: TrendingUp,
+            iconClass: 'icon-red',
+        },
+    ];
+
+    // Placeholder activity log
+    const recentActivity = [
+        { text: 'System ready — no recent activity yet', time: 'Just now', color: 'bg-blue-500' },
+    ];
 
     return (
-        <div className="min-h-screen bg-gray-100 p-8">
-            <div className="flex justify-between items-center mb-8">
-                <h1 className="text-3xl font-bold">Dashboard</h1>
-                <div className="flex items-center gap-4">
-                    <span>Welcome, {user.full_name} ({user.role})</span>
-                    <button
-                        onClick={logout}
-                        className="bg-red-500 hover:bg-red-600 text-white px-4 py-2 rounded"
-                    >
-                        Logout
-                    </button>
+        <div className="space-y-8">
+            {/* Header */}
+            <div>
+                <h1 className="text-2xl font-bold text-slate-800">Dashboard</h1>
+                <p className="text-sm text-slate-400 mt-1">Welcome back, {user?.full_name}</p>
+            </div>
+
+            {/* KPI Cards */}
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-5">
+                {kpiCards.map((card, i) => (
+                    <div key={i} className="kpi-card">
+                        <div className="flex items-start justify-between">
+                            <div>
+                                <p className="text-xs font-medium text-slate-400 uppercase tracking-wider">{card.title}</p>
+                                <p className="text-3xl font-bold text-slate-800 mt-2">{card.value}</p>
+                                <p className="text-xs text-slate-400 mt-1">{card.subtitle}</p>
+                            </div>
+                            <div className={`${card.iconClass} h-11 w-11 rounded-xl flex items-center justify-center shadow-lg`}>
+                                <card.icon size={20} className="text-white" />
+                            </div>
+                        </div>
+                        {card.live && (
+                            <div className="flex items-center gap-1.5 mt-3">
+                                <span className="h-2 w-2 rounded-full bg-green-500 pulse-dot" />
+                                <span className="text-xs text-green-600 font-medium">Live</span>
+                            </div>
+                        )}
+                    </div>
+                ))}
+            </div>
+
+            {/* Charts Row */}
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                {/* Visits by Hour */}
+                <div className="chart-card">
+                    <h3 className="text-sm font-semibold text-slate-700 mb-4">Visits by Hour (Last 7 Days)</h3>
+                    <div className="h-64">
+                        {attendanceData.length > 0 ? (
+                            <ResponsiveContainer width="100%" height="100%">
+                                <BarChart data={attendanceData}>
+                                    <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" />
+                                    <XAxis dataKey="hour" tick={{ fontSize: 12, fill: '#94a3b8' }} />
+                                    <YAxis tick={{ fontSize: 12, fill: '#94a3b8' }} />
+                                    <Tooltip
+                                        contentStyle={{ borderRadius: '0.5rem', border: '1px solid #e2e8f0', fontSize: '0.85rem' }}
+                                    />
+                                    <Bar dataKey="visits" fill="url(#blueGrad)" radius={[6, 6, 0, 0]} />
+                                    <defs>
+                                        <linearGradient id="blueGrad" x1="0" y1="0" x2="0" y2="1">
+                                            <stop offset="0%" stopColor="#3b82f6" />
+                                            <stop offset="100%" stopColor="#8b5cf6" />
+                                        </linearGradient>
+                                    </defs>
+                                </BarChart>
+                            </ResponsiveContainer>
+                        ) : (
+                            <div className="flex items-center justify-center h-full text-slate-300 text-sm">
+                                No attendance data yet
+                            </div>
+                        )}
+                    </div>
+                </div>
+
+                {/* Revenue vs Expenses */}
+                <div className="chart-card">
+                    <h3 className="text-sm font-semibold text-slate-700 mb-4">Revenue vs. Expenses (30 Days)</h3>
+                    <div className="h-64">
+                        {revenueData.length > 0 ? (
+                            <ResponsiveContainer width="100%" height="100%">
+                                <LineChart data={revenueData}>
+                                    <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" />
+                                    <XAxis dataKey="date" tick={{ fontSize: 12, fill: '#94a3b8' }} />
+                                    <YAxis tick={{ fontSize: 12, fill: '#94a3b8' }} />
+                                    <Tooltip
+                                        contentStyle={{ borderRadius: '0.5rem', border: '1px solid #e2e8f0', fontSize: '0.85rem' }}
+                                    />
+                                    <Legend />
+                                    <Line type="monotone" dataKey="revenue" stroke="#10b981" strokeWidth={2} dot={false} />
+                                    <Line type="monotone" dataKey="expenses" stroke="#ef4444" strokeWidth={2} dot={false} />
+                                </LineChart>
+                            </ResponsiveContainer>
+                        ) : (
+                            <div className="flex items-center justify-center h-full text-slate-300 text-sm">
+                                No financial data yet
+                            </div>
+                        )}
+                    </div>
                 </div>
             </div>
 
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-                <div className="bg-white p-6 rounded shadow">
-                    <h3 className="text-gray-500 text-sm font-medium">Active Members</h3>
-                    <p className="text-4xl font-bold mt-2">{stats ? stats.active_members : '--'}</p>
-                </div>
-                <div className="bg-white p-6 rounded shadow">
-                    <h3 className="text-gray-500 text-sm font-medium">Monthly Revenue (Est.)</h3>
-                    <p className="text-4xl font-bold mt-2 text-green-600">
-                        {stats ? `$${stats.estimated_monthly_revenue.toFixed(2)}` : '--'}
-                    </p>
-                </div>
-                <div className="bg-white p-6 rounded shadow">
-                    <h3 className="text-gray-500 text-sm font-medium">Total Expenses</h3>
-                    <p className="text-4xl font-bold mt-2 text-red-600">
-                        {stats ? `$${stats.total_expenses_to_date.toFixed(2)}` : '--'}
-                    </p>
+            {/* Recent Activity Log */}
+            <div className="chart-card">
+                <h3 className="text-sm font-semibold text-slate-700 mb-4">Recent Activity</h3>
+                <div className="space-y-0">
+                    {recentActivity.map((item, i) => (
+                        <div key={i} className="flex items-center gap-3 py-3 border-b border-slate-100 last:border-0">
+                            <span className={`h-2.5 w-2.5 rounded-full ${item.color} shrink-0`} />
+                            <span className="text-sm text-slate-600 flex-1">{item.text}</span>
+                            <span className="text-xs text-slate-400">{item.time}</span>
+                        </div>
+                    ))}
                 </div>
             </div>
         </div>

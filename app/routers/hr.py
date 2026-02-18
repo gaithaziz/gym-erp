@@ -1,6 +1,6 @@
-from datetime import date
-from typing import Annotated, List
-from fastapi import APIRouter, Depends, HTTPException, status
+from datetime import date, datetime
+from typing import Annotated, List, Optional
+from fastapi import APIRouter, Depends, HTTPException, status, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 from pydantic import BaseModel, Field
@@ -10,6 +10,7 @@ from app.auth import dependencies
 from app.models.user import User
 from app.models.enums import Role
 from app.models.hr import Contract, Payroll, ContractType
+from app.models.access import AttendanceLog
 from app.services.payroll_service import PayrollService
 from app.core.responses import StandardResponse
 import uuid
@@ -24,6 +25,7 @@ class ContractCreate(BaseModel):
     base_salary: float
     contract_type: ContractType
     standard_hours: int = 160
+    commission_rate: float = 0.0
 
 class PayrollRequest(BaseModel):
     user_id: uuid.UUID
@@ -54,6 +56,7 @@ async def create_contract(
         contract.base_salary = contract_data.base_salary
         contract.contract_type = contract_data.contract_type
         contract.standard_hours = contract_data.standard_hours
+        contract.commission_rate = contract_data.commission_rate
         msg = "Contract Updated"
     else:
         contract = Contract(**contract_data.model_dump())
@@ -102,3 +105,143 @@ async def get_payrolls(
             "status": p.status
         } for p in payrolls
     ])
+
+@router.get("/staff", response_model=StandardResponse)
+async def get_staff(
+    current_user: Annotated[User, Depends(dependencies.RoleChecker([Role.ADMIN]))],
+    db: Annotated[AsyncSession, Depends(get_db)]
+):
+    """List all users with roles COACH or EMPLOYEE, including their contract info."""
+    stmt = select(User).where(User.role.in_([Role.COACH, Role.EMPLOYEE])).order_by(User.full_name)
+    result = await db.execute(stmt)
+    staff_members = result.scalars().all()
+    
+    # We might want to fetch contracts too. 
+    # For now, let's just return User info. 
+    # Ideal: join with Contract.
+    
+    data = []
+    for staff in staff_members:
+        # Lazy load contract if needed, or just return basic info
+        # Let's do a separate query or join for better performance, but for V1 loop is okay for small staff
+        contract_stmt = select(Contract).where(Contract.user_id == staff.id)
+        c_result = await db.execute(contract_stmt)
+        contract = c_result.scalar_one_or_none()
+        
+        data.append({
+            "id": str(staff.id),
+            "full_name": staff.full_name,
+            "email": staff.email,
+            "role": staff.role.value,
+            "contract": {
+                "type": contract.contract_type.value if contract else None,
+                "base_salary": contract.base_salary if contract else None,
+                "commission_rate": contract.commission_rate if contract else None
+            } if contract else None
+        })
+        
+    return StandardResponse(data=data)
+
+
+class AttendanceCorrection(BaseModel):
+    check_in_time: datetime | None = None
+    check_out_time: datetime | None = None
+
+
+@router.get("/attendance", response_model=StandardResponse)
+async def list_attendance(
+    current_user: Annotated[User, Depends(dependencies.RoleChecker([Role.ADMIN]))],
+    db: Annotated[AsyncSession, Depends(get_db)],
+    user_id: Optional[uuid.UUID] = Query(None),
+    limit: int = 100
+):
+    """List attendance logs (timesheet). Optionally filter by user_id."""
+    stmt = select(AttendanceLog).order_by(AttendanceLog.check_in_time.desc())
+    if user_id:
+        stmt = stmt.where(AttendanceLog.user_id == user_id)
+    stmt = stmt.limit(limit)
+    result = await db.execute(stmt)
+    logs = result.scalars().all()
+
+    # Also fetch user names for display
+    data = []
+    for log in logs:
+        user_stmt = select(User).where(User.id == log.user_id)
+        user_result = await db.execute(user_stmt)
+        user = user_result.scalar_one_or_none()
+        data.append({
+            "id": str(log.id),
+            "user_id": str(log.user_id),
+            "user_name": user.full_name if user else "Unknown",
+            "check_in_time": log.check_in_time.isoformat() if log.check_in_time else None,
+            "check_out_time": log.check_out_time.isoformat() if log.check_out_time else None,
+            "hours_worked": log.hours_worked
+        })
+
+    return StandardResponse(data=data)
+
+
+@router.put("/attendance/{attendance_id}", response_model=StandardResponse)
+async def correct_attendance(
+    attendance_id: uuid.UUID,
+    correction: AttendanceCorrection,
+    current_user: Annotated[User, Depends(dependencies.RoleChecker([Role.ADMIN]))],
+    db: Annotated[AsyncSession, Depends(get_db)]
+):
+    """Admin manually corrects an attendance record."""
+    stmt = select(AttendanceLog).where(AttendanceLog.id == attendance_id)
+    result = await db.execute(stmt)
+    log = result.scalar_one_or_none()
+
+    if not log:
+        raise HTTPException(status_code=404, detail="Attendance record not found")
+
+    if correction.check_in_time is not None:
+        log.check_in_time = correction.check_in_time
+    if correction.check_out_time is not None:
+        log.check_out_time = correction.check_out_time
+
+    # Recalculate hours if both times present
+    if log.check_in_time and log.check_out_time:
+        from datetime import timezone
+        cin = log.check_in_time if log.check_in_time.tzinfo else log.check_in_time.replace(tzinfo=timezone.utc)
+        cout = log.check_out_time if log.check_out_time.tzinfo else log.check_out_time.replace(tzinfo=timezone.utc)
+        duration = cout - cin
+        log.hours_worked = round(duration.total_seconds() / 3600.0, 2)
+
+    await db.commit()
+    return StandardResponse(message="Attendance record corrected")
+
+
+@router.get("/members", response_model=StandardResponse)
+async def list_members(
+    current_user: Annotated[User, Depends(dependencies.RoleChecker([Role.ADMIN, Role.COACH]))],
+    db: Annotated[AsyncSession, Depends(get_db)]
+):
+    """List all users with MEMBER role."""
+    from app.models.access import Subscription, SubscriptionStatus
+    stmt = select(User).where(User.role == Role.CUSTOMER).order_by(User.full_name)
+    result = await db.execute(stmt)
+    users = result.scalars().all()
+
+    data = []
+    for u in users:
+        # Get subscription status
+        sub_stmt = select(Subscription).where(Subscription.user_id == u.id).order_by(Subscription.end_date.desc()).limit(1)
+        sub_result = await db.execute(sub_stmt)
+        sub = sub_result.scalar_one_or_none()
+
+        data.append({
+            "id": str(u.id),
+            "full_name": u.full_name,
+            "email": u.email,
+            "role": u.role.value,
+            "subscription": {
+                "status": sub.status.value if sub else "NONE",
+                "end_date": sub.end_date.isoformat() if sub and sub.end_date else None,
+            } if sub else None
+        })
+
+    return StandardResponse(data=data)
+
+

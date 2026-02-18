@@ -42,9 +42,21 @@ class AccessService:
         if not user:
             return {"status": "DENIED", "reason": "USER_NOT_FOUND", "user_name": "Unknown"}
 
+        # Duplicate scan protection: check if user scanned within the last 60 seconds
+        now = datetime.now(timezone.utc)
+        cooldown = now - timedelta(seconds=60)
+        stmt_recent = select(AccessLog).where(
+            AccessLog.user_id == user.id,
+            AccessLog.scan_time >= cooldown,
+            AccessLog.status == "GRANTED"
+        )
+        result_recent = await db.execute(stmt_recent)
+        recent_scan = result_recent.scalar_one_or_none()
+        if recent_scan:
+            return {"status": "ALREADY_SCANNED", "user_name": user.full_name, "reason": "Scanned within the last 60 seconds"}
+
         # Fetch active subscription
         # Logic: Must be ACTIVE and end_date >= now
-        now = datetime.now(timezone.utc)
         stmt_sub = select(Subscription).where(
             Subscription.user_id == user.id,
             Subscription.status == SubscriptionStatus.ACTIVE,
