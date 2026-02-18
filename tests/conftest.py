@@ -18,19 +18,27 @@ from app.main import app
 
 @pytest.fixture(scope="session")
 async def db_engine():
-    # Use SQLite for testing to avoid dependency on running Postgres
-    from sqlalchemy.pool import StaticPool
-    engine = create_async_engine(
-        "sqlite+aiosqlite:///:memory:",
-        connect_args={"check_same_thread": False},
-        poolclass=StaticPool,
-    )
-    async with engine.begin() as conn:
-        await conn.run_sync(Base.metadata.create_all)
-    yield engine
-    async with engine.begin() as conn:
-        await conn.run_sync(Base.metadata.drop_all)
-    await engine.dispose()
+    import os
+    if os.getenv("CI"):
+        # Use Postgres in CI (provided by service container)
+        from app.config import settings
+        engine = create_async_engine(str(settings.SQLALCHEMY_DATABASE_URI))
+        yield engine
+        await engine.dispose()
+    else:
+        # Use SQLite for local testing
+        from sqlalchemy.pool import StaticPool
+        engine = create_async_engine(
+            "sqlite+aiosqlite:///:memory:",
+            connect_args={"check_same_thread": False},
+            poolclass=StaticPool,
+        )
+        async with engine.begin() as conn:
+            await conn.run_sync(Base.metadata.create_all)
+        yield engine
+        async with engine.begin() as conn:
+            await conn.run_sync(Base.metadata.drop_all)
+        await engine.dispose()
 
 @pytest.fixture(scope="function")
 async def db_session(db_engine) -> AsyncGenerator[AsyncSession, None]:
