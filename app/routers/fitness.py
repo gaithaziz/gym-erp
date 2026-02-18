@@ -1,5 +1,5 @@
-from typing import Annotated, List, Optional
-from fastapi import APIRouter, Depends, HTTPException, status
+from typing import Annotated, List
+from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 from sqlalchemy.orm import selectinload
@@ -266,5 +266,5 @@ async def get_workout_logs(
     stmt = select(WorkoutLog).where(WorkoutLog.plan_id == plan_id).order_by(WorkoutLog.date.desc())
     result = await db.execute(stmt)
     logs = result.scalars().all()
-    return StandardResponse(data=[WorkoutLogResponse.model_validate(l) for l in logs])
+    return StandardResponse(data=[WorkoutLogResponse.model_validate(log) for log in logs])
 

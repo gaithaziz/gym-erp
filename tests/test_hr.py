@@ -3,7 +3,6 @@ from httpx import AsyncClient
 from sqlalchemy.ext.asyncio import AsyncSession
 from app.config import settings
 from app.models.user import User
-from app.models.hr import Contract, ContractType
 from app.auth.security import get_password_hash
 from datetime import date, datetime, timedelta, timezone
 from app.models.access import AttendanceLog

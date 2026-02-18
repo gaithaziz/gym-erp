@@ -1,6 +1,6 @@
 from datetime import date, datetime
-from typing import Annotated, List, Optional
-from fastapi import APIRouter, Depends, HTTPException, status, Query
+from typing import Annotated, Optional
+from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 from pydantic import BaseModel, Field
@@ -219,7 +219,7 @@ async def list_members(
     db: Annotated[AsyncSession, Depends(get_db)]
 ):
     """List all users with MEMBER role."""
-    from app.models.access import Subscription, SubscriptionStatus
+    from app.models.access import Subscription
     stmt = select(User).where(User.role == Role.CUSTOMER).order_by(User.full_name)
     result = await db.execute(stmt)
     users = result.scalars().all()

@@ -7,7 +7,6 @@ from app.database import AsyncSessionLocal
 from app.models.user import User
 from app.models.fitness import DietPlan, WorkoutPlan
 from app.models.workout_log import WorkoutLog
-from app.models.enums import Role
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)

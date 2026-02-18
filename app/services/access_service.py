@@ -1,15 +1,13 @@
 from datetime import datetime, timedelta, timezone
-from typing import Optional
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, and_
+from sqlalchemy import select
 from jose import jwt, JWTError
-from fastapi import HTTPException, status
+from fastapi import HTTPException
 import uuid
 
 from app.config import settings
 from app.models.user import User
 from app.models.access import AccessLog, AttendanceLog, Subscription, SubscriptionStatus
-from app.auth.security import create_access_token # Can reuse logic but needs custom expiry
 
 class AccessService:
     @staticmethod

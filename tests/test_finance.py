@@ -5,7 +5,6 @@ from app.config import settings
 from app.models.user import User
 from app.models.enums import Role
 from app.auth.security import get_password_hash
-from datetime import datetime, timezone
 
 @pytest.mark.asyncio
 async def test_finance_flow(client: AsyncClient, db_session: AsyncSession):

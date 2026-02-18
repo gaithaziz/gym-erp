@@ -1,9 +1,8 @@
-from datetime import datetime, date, timedelta, timezone
+from datetime import datetime, timedelta, timezone
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, func, and_, case
+from sqlalchemy import select, func
 from app.models.access import Subscription, SubscriptionStatus, AttendanceLog
 from app.models.hr import Payroll
-from app.models.user import User
 
 class AnalyticsService:
     @staticmethod

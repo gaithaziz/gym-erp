@@ -1,9 +1,8 @@
 from typing import Annotated, Optional
-from fastapi import APIRouter, Depends, HTTPException, status, Query
+from fastapi import APIRouter, Depends, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func, extract
 from pydantic import BaseModel
-from datetime import datetime
 
 from app.database import get_db
 from app.auth import dependencies

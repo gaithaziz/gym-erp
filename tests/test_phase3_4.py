@@ -33,8 +33,6 @@ async def test_create_diet_plan(client: AsyncClient, admin_token_headers):
 async def test_hr_members_list(client: AsyncClient, admin_token_headers, db_session):
     # Seed a customer
     from app.models.user import User
-    from app.models.enums import Role
-    import uuid
     from app.auth.security import get_password_hash
     
     customer = User(

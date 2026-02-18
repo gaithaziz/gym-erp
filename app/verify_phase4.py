@@ -5,7 +5,6 @@ from app.database import AsyncSessionLocal
 from app.models.user import User
 from app.models.access import Subscription, SubscriptionStatus, AttendanceLog
 from app.models.hr import Payroll
-from sqlalchemy import select, delete
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("VerifyPhase4")

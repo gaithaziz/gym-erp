@@ -2,7 +2,7 @@ import asyncio
 import logging
 from app.database import AsyncSessionLocal
 from app.models.user import User
-from app.models.access import Subscription, AccessLog
+from app.models.access import Subscription
 from sqlalchemy import select
 from app.auth import security
 

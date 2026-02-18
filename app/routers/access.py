@@ -1,5 +1,5 @@
 from typing import Annotated
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import get_db
@@ -8,7 +8,6 @@ from app.models.user import User
 from app.models.enums import Role
 from app.services.access_service import AccessService
 from app.core.responses import StandardResponse
-from app.models.access import AccessLog, AttendanceLog
 from pydantic import BaseModel
 
 router = APIRouter()

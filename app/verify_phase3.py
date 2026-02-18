@@ -1,10 +1,10 @@
 import asyncio
 import logging
-from datetime import datetime, timedelta, timezone, date
+from datetime import datetime, timedelta, timezone
 from sqlalchemy import select
 from app.database import AsyncSessionLocal
 from app.models.user import User
-from app.models.hr import Contract, Payroll
+from app.models.hr import Contract
 from app.models.access import AttendanceLog
 from app.services.payroll_service import PayrollService
 

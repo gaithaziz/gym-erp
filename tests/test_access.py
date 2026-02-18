@@ -6,7 +6,6 @@ from app.config import settings
 from app.models.user import User
 from app.models.access import Subscription, SubscriptionStatus
 from app.auth.security import get_password_hash
-from app.services.access_service import AccessService
 from datetime import datetime, timedelta, timezone
 
 # Shared Fixture for populating test data?

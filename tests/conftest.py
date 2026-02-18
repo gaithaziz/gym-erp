@@ -1,9 +1,7 @@
 import pytest
-import asyncio
-from typing import AsyncGenerator, Generator
+from typing import AsyncGenerator
 from httpx import AsyncClient
 from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession, async_sessionmaker
-from app.config import settings
 from app.database import Base, get_db
 from app.main import app
 
@@ -61,7 +59,6 @@ async def admin_token_headers(client, db_session):
     from app.models.user import User
     from app.models.enums import Role
     from app.auth.security import get_password_hash
-    import uuid
 
     # Create Admin User
     admin_data = {
