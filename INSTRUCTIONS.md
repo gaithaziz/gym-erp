@@ -11,6 +11,10 @@ git add .
 git commit -m "Description of your changes"
 
 # 3. Push to the remote repository
+# If it's your first time or you want to be sure:
+git push origin main
+
+# OR simply (if upstream is already set):
 git push
 ```
 

@@ -56,64 +56,66 @@ export default function AttendancePage() {
 
     if (loading) return (
         <div className="flex h-64 items-center justify-center">
-            <div className="h-8 w-8 animate-spin rounded-full border-4 border-blue-500 border-t-transparent" />
+            <div className="h-8 w-8 animate-spin rounded-full border-4 border-[#FF6B00] border-t-transparent" />
         </div>
     );
 
     return (
         <div className="space-y-8">
             <div>
-                <h1 className="text-2xl font-bold text-slate-800">Attendance Timesheet</h1>
-                <p className="text-sm text-slate-400 mt-1">View and correct staff attendance records</p>
+                <h1 className="text-2xl font-bold text-white">Attendance Timesheet</h1>
+                <p className="text-sm text-[#6B6B6B] mt-1">View and correct staff attendance records</p>
             </div>
 
             <div className="chart-card overflow-hidden !p-0">
-                <table className="w-full text-left text-sm">
-                    <thead className="bg-slate-50 text-slate-500 text-xs uppercase tracking-wider">
-                        <tr>
-                            <th className="px-6 py-3 font-medium">Employee</th>
-                            <th className="px-6 py-3 font-medium">Clock In</th>
-                            <th className="px-6 py-3 font-medium">Clock Out</th>
-                            <th className="px-6 py-3 font-medium text-right">Hours</th>
-                            <th className="px-6 py-3 font-medium text-center">Actions</th>
-                        </tr>
-                    </thead>
-                    <tbody className="divide-y divide-slate-100">
-                        {logs.length === 0 && (
-                            <tr><td colSpan={5} className="text-center py-8 text-slate-300 text-sm">No attendance records</td></tr>
-                        )}
-                        {logs.map((log) => (
-                            <tr key={log.id} className="hover:bg-slate-50/50 transition-colors">
-                                <td className="px-6 py-4 font-medium text-slate-700">{log.user_name}</td>
-                                <td className="px-6 py-4 text-slate-500">
-                                    {editingId === log.id ? (
-                                        <input type="datetime-local" className="border border-slate-200 rounded-lg px-2 py-1 text-sm" value={editIn} onChange={e => setEditIn(e.target.value)} />
-                                    ) : fmt(log.check_in_time)}
-                                </td>
-                                <td className="px-6 py-4 text-slate-500">
-                                    {editingId === log.id ? (
-                                        <input type="datetime-local" className="border border-slate-200 rounded-lg px-2 py-1 text-sm" value={editOut} onChange={e => setEditOut(e.target.value)} />
-                                    ) : fmt(log.check_out_time)}
-                                </td>
-                                <td className="px-6 py-4 text-right font-mono text-sm">
-                                    {log.hours_worked != null ? `${log.hours_worked}h` : '—'}
-                                </td>
-                                <td className="px-6 py-4 text-center">
-                                    {editingId === log.id ? (
-                                        <div className="flex justify-center gap-2">
-                                            <button onClick={saveEdit} className="text-emerald-500 hover:text-emerald-700"><Check size={16} /></button>
-                                            <button onClick={() => setEditingId(null)} className="text-red-400 hover:text-red-600"><X size={16} /></button>
-                                        </div>
-                                    ) : (
-                                        <button onClick={() => startEdit(log)} className="text-slate-400 hover:text-blue-500 transition-colors">
-                                            <Edit2 size={16} />
-                                        </button>
-                                    )}
-                                </td>
+                <div className="overflow-x-auto">
+                    <table className="w-full text-left table-dark min-w-[600px]">
+                        <thead>
+                            <tr>
+                                <th>Employee</th>
+                                <th>Clock In</th>
+                                <th>Clock Out</th>
+                                <th className="text-right">Hours</th>
+                                <th className="text-center">Actions</th>
                             </tr>
-                        ))}
-                    </tbody>
-                </table>
+                        </thead>
+                        <tbody>
+                            {logs.length === 0 && (
+                                <tr><td colSpan={5} className="text-center py-8 text-[#333] text-sm">No attendance records</td></tr>
+                            )}
+                            {logs.map((log) => (
+                                <tr key={log.id}>
+                                    <td className="!text-white font-medium">{log.user_name}</td>
+                                    <td>
+                                        {editingId === log.id ? (
+                                            <input type="datetime-local" className="input-dark !p-1.5 text-xs !rounded-lg" value={editIn} onChange={e => setEditIn(e.target.value)} />
+                                        ) : fmt(log.check_in_time)}
+                                    </td>
+                                    <td>
+                                        {editingId === log.id ? (
+                                            <input type="datetime-local" className="input-dark !p-1.5 text-xs !rounded-lg" value={editOut} onChange={e => setEditOut(e.target.value)} />
+                                        ) : fmt(log.check_out_time)}
+                                    </td>
+                                    <td className="text-right font-mono text-sm !text-white">
+                                        {log.hours_worked != null ? `${log.hours_worked}h` : '—'}
+                                    </td>
+                                    <td className="text-center">
+                                        {editingId === log.id ? (
+                                            <div className="flex justify-center gap-2">
+                                                <button onClick={saveEdit} className="text-[#34d399] hover:text-[#10b981] p-1 rounded hover:bg-[#10b981]/10"><Check size={16} /></button>
+                                                <button onClick={() => setEditingId(null)} className="text-[#f87171] hover:text-[#ef4444] p-1 rounded hover:bg-[#ef4444]/10"><X size={16} /></button>
+                                            </div>
+                                        ) : (
+                                            <button onClick={() => startEdit(log)} className="text-[#6B6B6B] hover:text-[#FF6B00] transition-colors">
+                                                <Edit2 size={16} />
+                                            </button>
+                                        )}
+                                    </td>
+                                </tr>
+                            ))}
+                        </tbody>
+                    </table>
+                </div>
             </div>
         </div>
     );

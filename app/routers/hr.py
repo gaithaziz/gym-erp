@@ -246,3 +246,76 @@ async def list_members(
     return StandardResponse(data=data)
 
 
+# ==================== SUBSCRIPTION MANAGEMENT ====================
+
+class SubscriptionCreate(BaseModel):
+    user_id: uuid.UUID
+    plan_name: str = "Monthly"
+    duration_days: int = 30
+
+class SubscriptionUpdate(BaseModel):
+    status: str  # ACTIVE, FROZEN, EXPIRED
+
+
+@router.post("/subscriptions", response_model=StandardResponse)
+async def create_subscription(
+    data: SubscriptionCreate,
+    current_user: Annotated[User, Depends(dependencies.RoleChecker([Role.ADMIN]))],
+    db: Annotated[AsyncSession, Depends(get_db)]
+):
+    """Create or renew a subscription for a member."""
+    from app.models.access import Subscription
+    from app.models.subscription_enums import SubscriptionStatus
+    from datetime import timedelta, timezone
+
+    stmt = select(Subscription).where(Subscription.user_id == data.user_id)
+    result = await db.execute(stmt)
+    existing = result.scalar_one_or_none()
+
+    now = datetime.now(timezone.utc)
+    end = now + timedelta(days=data.duration_days)
+
+    if existing:
+        existing.plan_name = data.plan_name
+        existing.start_date = now
+        existing.end_date = end
+        existing.status = SubscriptionStatus.ACTIVE
+        msg = "Subscription renewed"
+    else:
+        sub = Subscription(
+            user_id=data.user_id,
+            plan_name=data.plan_name,
+            start_date=now,
+            end_date=end,
+            status=SubscriptionStatus.ACTIVE
+        )
+        db.add(sub)
+        msg = "Subscription created"
+
+    await db.commit()
+    return StandardResponse(message=msg)
+
+
+@router.put("/subscriptions/{user_id}", response_model=StandardResponse)
+async def update_subscription(
+    user_id: uuid.UUID,
+    data: SubscriptionUpdate,
+    current_user: Annotated[User, Depends(dependencies.RoleChecker([Role.ADMIN]))],
+    db: Annotated[AsyncSession, Depends(get_db)]
+):
+    """Update subscription status: FREEZE, CANCEL, ACTIVATE."""
+    from app.models.access import Subscription
+    from app.models.subscription_enums import SubscriptionStatus
+
+    stmt = select(Subscription).where(Subscription.user_id == user_id)
+    result = await db.execute(stmt)
+    sub = result.scalar_one_or_none()
+    if not sub:
+        raise HTTPException(status_code=404, detail="No subscription found")
+
+    sub.status = SubscriptionStatus(data.status)
+    await db.commit()
+    return StandardResponse(message=f"Subscription status updated to {data.status}")
+
+
+

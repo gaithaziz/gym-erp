@@ -50,11 +50,11 @@ export default function FeedbackPage() {
     };
 
     const renderStars = (rating: number | null) => {
-        if (!rating) return <span className="text-slate-300 text-xs">No rating</span>;
+        if (!rating) return <span className="text-[#333] text-xs">No rating</span>;
         return (
             <div className="flex gap-0.5">
                 {[1, 2, 3, 4, 5].map(i => (
-                    <Star key={i} size={14} className={i <= rating ? 'text-amber-400 fill-amber-400' : 'text-slate-200'} />
+                    <Star key={i} size={14} className={i <= rating ? 'text-amber-400 fill-amber-400' : 'text-[#333]'} />
                 ))}
             </div>
         );
@@ -62,21 +62,21 @@ export default function FeedbackPage() {
 
     if (loading) return (
         <div className="flex h-64 items-center justify-center">
-            <div className="h-8 w-8 animate-spin rounded-full border-4 border-blue-500 border-t-transparent" />
+            <div className="h-8 w-8 animate-spin rounded-full border-4 border-[#FF6B00] border-t-transparent" />
         </div>
     );
 
     return (
         <div className="space-y-8">
             <div>
-                <h1 className="text-2xl font-bold text-slate-800">Trainee Feedback</h1>
-                <p className="text-sm text-slate-400 mt-1">View workout feedback from your trainees</p>
+                <h1 className="text-2xl font-bold text-white">Trainee Feedback</h1>
+                <p className="text-sm text-[#6B6B6B] mt-1">View workout feedback from your trainees</p>
             </div>
 
             <div className="max-w-sm">
-                <label className="block text-xs font-medium text-slate-500 mb-1.5">Select Workout Plan</label>
+                <label className="block text-xs font-medium text-[#6B6B6B] mb-1.5">Select Workout Plan</label>
                 <select
-                    className="w-full border border-slate-200 rounded-xl p-2.5 text-sm focus:ring-2 focus:ring-blue-200 focus:border-blue-400 outline-none"
+                    className="input-dark"
                     value={selectedPlan}
                     onChange={e => handlePlanChange(e.target.value)}
                 >
@@ -91,30 +91,30 @@ export default function FeedbackPage() {
                 <div className="space-y-4">
                     {logs.length === 0 ? (
                         <div className="chart-card text-center py-12">
-                            <MessageSquare size={40} className="mx-auto text-slate-200 mb-3" />
-                            <p className="text-slate-400 text-sm">No feedback yet for this plan</p>
+                            <MessageSquare size={40} className="mx-auto text-[#333] mb-3" />
+                            <p className="text-[#6B6B6B] text-sm">No feedback yet for this plan</p>
                         </div>
                     ) : (
                         logs.map(log => (
                             <div key={log.id} className="kpi-card">
                                 <div className="flex justify-between items-start mb-3">
                                     <div className="flex items-center gap-3">
-                                        <div className={`h-3 w-3 rounded-full ${log.completed ? 'bg-emerald-400' : 'bg-amber-400'}`} />
-                                        <span className="text-sm font-medium text-slate-700">
+                                        <div className={`h-3 w-3 rounded-full ${log.completed ? 'bg-[#34d399]' : 'bg-amber-400'}`} />
+                                        <span className="text-sm font-medium text-white">
                                             {log.completed ? 'Completed' : 'Partial'}
                                         </span>
                                     </div>
-                                    <span className="text-xs text-slate-400">
+                                    <span className="text-xs text-[#6B6B6B]">
                                         {new Date(log.date).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' })}
                                     </span>
                                 </div>
                                 <div className="flex items-center gap-2 mb-2">
-                                    <span className="text-xs text-slate-500">Difficulty:</span>
+                                    <span className="text-xs text-[#6B6B6B]">Difficulty:</span>
                                     {renderStars(log.difficulty_rating)}
                                 </div>
                                 {log.comment && (
-                                    <div className="bg-slate-50 rounded-lg p-3 text-sm text-slate-600 mt-2">
-                                        "{log.comment}"
+                                    <div className="rounded-lg p-3 text-sm text-[#A3A3A3] mt-2" style={{ background: '#2a2a2a' }}>
+                                        &quot;{log.comment}&quot;
                                     </div>
                                 )}
                             </div>

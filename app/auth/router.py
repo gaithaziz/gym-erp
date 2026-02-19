@@ -13,6 +13,34 @@ from app.core.responses import StandardResponse
 
 router = APIRouter()
 
+@router.post("/register", response_model=StandardResponse[schemas.UserResponse])
+async def register(
+    user_in: schemas.UserCreate,
+    db: Annotated[AsyncSession, Depends(get_db)]
+):
+    # Check if user exists
+    stmt = select(User).where(User.email == user_in.email)
+    result = await db.execute(stmt)
+    if result.scalar_one_or_none():
+        raise HTTPException(
+            status_code=400,
+            detail="The user with this email already exists in the system.",
+        )
+    
+    # Create new user
+    user = User(
+        email=user_in.email,
+        hashed_password=security.get_password_hash(user_in.password),
+        full_name=user_in.full_name,
+        role=user_in.role,
+        is_active=True
+    )
+    db.add(user)
+    await db.commit()
+    await db.refresh(user)
+    
+    return StandardResponse(data=user, message="User registered successfully")
+
 @router.post("/login", response_model=StandardResponse[schemas.Token])
 async def login(
     login_data: schemas.LoginRequest,
