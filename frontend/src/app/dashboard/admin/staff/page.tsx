@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import { api } from '@/lib/api';
-import { Users, FileText, Plus, Save, Pencil, Calculator } from 'lucide-react';
+import { FileText, Pencil, Calculator, Save, Plus } from 'lucide-react';
 import Modal from '@/components/Modal';
 
 interface StaffMember {
@@ -44,9 +44,7 @@ export default function StaffPage() {
     const [isPayrollOpen, setIsPayrollOpen] = useState(false);
     const [payrollTarget, setPayrollTarget] = useState<StaffMember | null>(null);
     const [payrollForm, setPayrollForm] = useState({ month: new Date().getMonth() + 1, year: new Date().getFullYear(), sales_volume: 0 });
-    const [payrollResult, setPayrollResult] = useState<any>(null);
-
-    useEffect(() => { fetchStaff(); }, []);
+    const [payrollResult, setPayrollResult] = useState<any>(null); // eslint-disable-line @typescript-eslint/no-explicit-any
 
     const fetchStaff = async () => {
         try {
@@ -55,6 +53,8 @@ export default function StaffPage() {
         } catch (err) { console.error(err); }
         setLoading(false);
     };
+
+    useEffect(() => { setTimeout(() => fetchStaff(), 0); }, []);
 
     const handleAdd = async (e: React.FormEvent) => {
         e.preventDefault();
@@ -129,8 +129,8 @@ export default function StaffPage() {
         <div className="space-y-8">
             <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
                 <div>
-                    <h1 className="text-2xl font-bold text-white">Staff Management</h1>
-                    <p className="text-sm text-[#6B6B6B] mt-1">{staff.length} staff members</p>
+                    <h1 className="text-2xl font-bold text-foreground">Staff Management</h1>
+                    <p className="text-sm text-muted-foreground mt-1">{staff.length} staff members</p>
                 </div>
                 <button onClick={() => setIsAddOpen(true)} className="btn-primary">
                     <Plus size={18} /> Add New Staff
@@ -138,7 +138,7 @@ export default function StaffPage() {
             </div>
 
             {/* Table */}
-            <div className="chart-card overflow-hidden !p-0">
+            <div className="chart-card overflow-hidden !p-0 border border-border">
                 <div className="overflow-x-auto">
                     <table className="w-full text-left table-dark min-w-[600px]">
                         <thead>
@@ -152,13 +152,13 @@ export default function StaffPage() {
                         </thead>
                         <tbody>
                             {staff.length === 0 && (
-                                <tr><td colSpan={5} className="text-center py-8 text-[#333] text-sm">No staff members yet</td></tr>
+                                <tr><td colSpan={5} className="text-center py-8 text-muted-foreground text-sm">No staff members yet</td></tr>
                             )}
                             {staff.map((member) => (
                                 <tr key={member.id}>
                                     <td>
-                                        <div className="font-medium text-white">{member.full_name}</div>
-                                        <div className="text-xs text-[#6B6B6B]">{member.email}</div>
+                                        <div className="font-medium text-foreground">{member.full_name}</div>
+                                        <div className="text-xs text-muted-foreground">{member.email}</div>
                                     </td>
                                     <td>
                                         <span className={`badge ${member.role === 'COACH' ? 'badge-orange' : member.role === 'ADMIN' ? 'badge-blue' : 'badge-gray'}`}>
@@ -167,30 +167,30 @@ export default function StaffPage() {
                                     </td>
                                     <td>
                                         {member.contract ? (
-                                            <div className="flex items-center gap-1.5 text-[#A3A3A3]">
-                                                <FileText size={14} className="text-[#6B6B6B]" />
+                                            <div className="flex items-center gap-1.5 text-muted-foreground">
+                                                <FileText size={14} className="text-muted-foreground" />
                                                 {member.contract.type}
                                             </div>
                                         ) : (
                                             <span className="badge badge-amber">No Contract</span>
                                         )}
                                     </td>
-                                    <td className="font-mono text-sm text-white">
+                                    <td className="font-mono text-sm text-foreground">
                                         {member.contract ? (
                                             <div>
                                                 <div>{member.contract.base_salary.toLocaleString()} JOD</div>
                                                 {member.contract.commission_rate > 0 && (
-                                                    <div className="text-[#34d399] text-xs">+{(member.contract.commission_rate * 100).toFixed(0)}% Comm.</div>
+                                                    <div className="text-emerald-500 text-xs">+{(member.contract.commission_rate * 100).toFixed(0)}% Comm.</div>
                                                 )}
                                             </div>
                                         ) : '—'}
                                     </td>
                                     <td>
                                         <div className="flex items-center justify-center gap-2">
-                                            <button onClick={() => openEdit(member)} className="flex items-center gap-1 text-[#FF6B00] hover:text-[#FF8533] text-xs font-medium px-2 py-1 rounded-lg hover:bg-[#FF6B00]/10 transition-colors">
+                                            <button onClick={() => openEdit(member)} className="flex items-center gap-1 text-primary hover:text-primary/80 text-xs font-medium px-2 py-1 rounded-lg hover:bg-primary/10 transition-colors">
                                                 <Pencil size={13} /> Edit
                                             </button>
-                                            <button onClick={() => openPayroll(member)} className="flex items-center gap-1 text-[#34d399] hover:text-[#10b981] text-xs font-medium px-2 py-1 rounded-lg hover:bg-[#10b981]/10 transition-colors">
+                                            <button onClick={() => openPayroll(member)} className="flex items-center gap-1 text-emerald-500 hover:text-emerald-400 text-xs font-medium px-2 py-1 rounded-lg hover:bg-emerald-500/10 transition-colors">
                                                 <Calculator size={13} /> Payroll
                                             </button>
                                         </div>
@@ -206,16 +206,16 @@ export default function StaffPage() {
             <Modal isOpen={isAddOpen} onClose={() => setIsAddOpen(false)} title="Add New Staff Member">
                 <form onSubmit={handleAdd} className="space-y-4">
                     <div>
-                        <label className="block text-xs font-medium text-[#6B6B6B] mb-1.5">Full Name</label>
+                        <label className="block text-xs font-medium text-muted-foreground mb-1.5">Full Name</label>
                         <input type="text" required className="input-dark" value={addForm.full_name} onChange={e => setAddForm({ ...addForm, full_name: e.target.value })} />
                     </div>
                     <div>
-                        <label className="block text-xs font-medium text-[#6B6B6B] mb-1.5">Email</label>
+                        <label className="block text-xs font-medium text-muted-foreground mb-1.5">Email</label>
                         <input type="email" required className="input-dark" value={addForm.email} onChange={e => setAddForm({ ...addForm, email: e.target.value })} />
                     </div>
                     <div className="grid grid-cols-2 gap-4">
                         <div>
-                            <label className="block text-xs font-medium text-[#6B6B6B] mb-1.5">Role</label>
+                            <label className="block text-xs font-medium text-muted-foreground mb-1.5">Role</label>
                             <select className="input-dark" value={addForm.role} onChange={e => setAddForm({ ...addForm, role: e.target.value })}>
                                 <option value="COACH">Coach</option>
                                 <option value="ADMIN">Admin</option>
@@ -223,7 +223,7 @@ export default function StaffPage() {
                             </select>
                         </div>
                         <div>
-                            <label className="block text-xs font-medium text-[#6B6B6B] mb-1.5">Contract</label>
+                            <label className="block text-xs font-medium text-muted-foreground mb-1.5">Contract</label>
                             <select className="input-dark" value={addForm.contract_type} onChange={e => setAddForm({ ...addForm, contract_type: e.target.value })}>
                                 <option value="FULL_TIME">Full Time</option>
                                 <option value="PART_TIME">Part Time</option>
@@ -234,15 +234,15 @@ export default function StaffPage() {
                     </div>
                     <div className="grid grid-cols-2 gap-4">
                         <div>
-                            <label className="block text-xs font-medium text-[#6B6B6B] mb-1.5">Base Salary (JOD)</label>
+                            <label className="block text-xs font-medium text-muted-foreground mb-1.5">Base Salary (JOD)</label>
                             <input type="number" className="input-dark" value={addForm.base_salary} onChange={e => setAddForm({ ...addForm, base_salary: Number(e.target.value) })} />
                         </div>
                         <div>
-                            <label className="block text-xs font-medium text-[#6B6B6B] mb-1.5">Commission (0-1)</label>
+                            <label className="block text-xs font-medium text-muted-foreground mb-1.5">Commission (0-1)</label>
                             <input type="number" step="0.01" max="1" className="input-dark" value={addForm.commission_rate} onChange={e => setAddForm({ ...addForm, commission_rate: Number(e.target.value) })} />
                         </div>
                     </div>
-                    <div className="flex justify-end gap-3 pt-4 border-t border-white/5">
+                    <div className="flex justify-end gap-3 pt-4 border-t border-border">
                         <button type="button" onClick={() => setIsAddOpen(false)} className="btn-ghost">Cancel</button>
                         <button type="submit" className="btn-primary"><Save size={16} /> Save Staff</button>
                     </div>
@@ -253,7 +253,7 @@ export default function StaffPage() {
             <Modal isOpen={isEditOpen} onClose={() => setIsEditOpen(false)} title={`Edit Contract — ${editTarget?.full_name}`}>
                 <form onSubmit={handleEdit} className="space-y-4">
                     <div>
-                        <label className="block text-xs font-medium text-[#6B6B6B] mb-1.5">Contract Type</label>
+                        <label className="block text-xs font-medium text-muted-foreground mb-1.5">Contract Type</label>
                         <select className="input-dark" value={editForm.contract_type} onChange={e => setEditForm({ ...editForm, contract_type: e.target.value })}>
                             <option value="FULL_TIME">Full Time</option>
                             <option value="PART_TIME">Part Time</option>
@@ -263,15 +263,15 @@ export default function StaffPage() {
                     </div>
                     <div className="grid grid-cols-2 gap-4">
                         <div>
-                            <label className="block text-xs font-medium text-[#6B6B6B] mb-1.5">Base Salary (JOD)</label>
+                            <label className="block text-xs font-medium text-muted-foreground mb-1.5">Base Salary (JOD)</label>
                             <input type="number" className="input-dark" value={editForm.base_salary} onChange={e => setEditForm({ ...editForm, base_salary: Number(e.target.value) })} />
                         </div>
                         <div>
-                            <label className="block text-xs font-medium text-[#6B6B6B] mb-1.5">Commission Rate (0-1)</label>
+                            <label className="block text-xs font-medium text-muted-foreground mb-1.5">Commission Rate (0-1)</label>
                             <input type="number" step="0.01" max="1" className="input-dark" value={editForm.commission_rate} onChange={e => setEditForm({ ...editForm, commission_rate: Number(e.target.value) })} />
                         </div>
                     </div>
-                    <div className="flex justify-end gap-3 pt-4 border-t border-white/5">
+                    <div className="flex justify-end gap-3 pt-4 border-t border-border">
                         <button type="button" onClick={() => setIsEditOpen(false)} className="btn-ghost">Cancel</button>
                         <button type="submit" className="btn-primary"><Save size={16} /> Update Contract</button>
                     </div>
@@ -284,7 +284,7 @@ export default function StaffPage() {
                     <form onSubmit={handlePayroll} className="space-y-4">
                         <div className="grid grid-cols-2 gap-4">
                             <div>
-                                <label className="block text-xs font-medium text-[#6B6B6B] mb-1.5">Month</label>
+                                <label className="block text-xs font-medium text-muted-foreground mb-1.5">Month</label>
                                 <select className="input-dark" value={payrollForm.month} onChange={e => setPayrollForm({ ...payrollForm, month: Number(e.target.value) })}>
                                     {[...Array(12)].map((_, i) => (
                                         <option key={i + 1} value={i + 1}>{new Date(2024, i).toLocaleString('default', { month: 'long' })}</option>
@@ -292,35 +292,35 @@ export default function StaffPage() {
                                 </select>
                             </div>
                             <div>
-                                <label className="block text-xs font-medium text-[#6B6B6B] mb-1.5">Year</label>
+                                <label className="block text-xs font-medium text-muted-foreground mb-1.5">Year</label>
                                 <input type="number" className="input-dark" value={payrollForm.year} onChange={e => setPayrollForm({ ...payrollForm, year: Number(e.target.value) })} />
                             </div>
                         </div>
                         {payrollTarget?.contract?.type === 'HYBRID' && (
                             <div>
-                                <label className="block text-xs font-medium text-[#6B6B6B] mb-1.5">Sales Volume (JOD)</label>
+                                <label className="block text-xs font-medium text-muted-foreground mb-1.5">Sales Volume (JOD)</label>
                                 <input type="number" step="0.01" className="input-dark" value={payrollForm.sales_volume} onChange={e => setPayrollForm({ ...payrollForm, sales_volume: Number(e.target.value) })} placeholder="Enter sales for commission..." />
                             </div>
                         )}
-                        <div className="flex justify-end gap-3 pt-4 border-t border-white/5">
+                        <div className="flex justify-end gap-3 pt-4 border-t border-border">
                             <button type="button" onClick={() => setIsPayrollOpen(false)} className="btn-ghost">Cancel</button>
                             <button type="submit" className="btn-primary"><Calculator size={16} /> Generate</button>
                         </div>
                     </form>
                 ) : (
                     <div className="space-y-4">
-                        <div className="rounded-xl p-4 text-center" style={{ background: 'rgba(16,185,129,0.1)', border: '1px solid rgba(16,185,129,0.2)' }}>
-                            <p className="text-sm text-[#34d399] font-medium mb-1">Payroll Generated Successfully</p>
-                            <p className="text-3xl font-bold text-[#10b981]">{payrollResult.total_pay?.toFixed(2)} JOD</p>
+                        <div className="rounded-xl p-4 text-center bg-emerald-500/10 border border-emerald-500/20">
+                            <p className="text-sm text-emerald-500 font-medium mb-1">Payroll Generated Successfully</p>
+                            <p className="text-3xl font-bold text-emerald-500">{payrollResult.total_pay?.toFixed(2)} JOD</p>
                         </div>
                         <div className="grid grid-cols-2 gap-3 text-sm">
-                            <div className="rounded-lg p-3" style={{ background: '#2a2a2a' }}>
-                                <p className="text-xs text-[#6B6B6B]">Base Pay</p>
-                                <p className="font-mono font-semibold text-white">{payrollResult.base_pay?.toFixed(2)} JOD</p>
+                            <div className="rounded-lg p-3 bg-card border border-border">
+                                <p className="text-xs text-muted-foreground">Base Pay</p>
+                                <p className="font-mono font-semibold text-foreground">{payrollResult.base_pay?.toFixed(2)} JOD</p>
                             </div>
-                            <div className="rounded-lg p-3" style={{ background: '#2a2a2a' }}>
-                                <p className="text-xs text-[#6B6B6B]">Overtime Pay</p>
-                                <p className="font-mono font-semibold text-white">{payrollResult.overtime_pay?.toFixed(2)} JOD</p>
+                            <div className="rounded-lg p-3 bg-card border border-border">
+                                <p className="text-xs text-muted-foreground">Overtime Pay</p>
+                                <p className="font-mono font-semibold text-foreground">{payrollResult.overtime_pay?.toFixed(2)} JOD</p>
                             </div>
                         </div>
                         <button onClick={() => { setIsPayrollOpen(false); setPayrollResult(null); }} className="btn-ghost w-full">Close</button>

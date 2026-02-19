@@ -90,30 +90,30 @@ export default function FeedbackPage() {
             {selectedPlan && (
                 <div className="space-y-4">
                     {logs.length === 0 ? (
-                        <div className="chart-card text-center py-12">
-                            <MessageSquare size={40} className="mx-auto text-[#333] mb-3" />
-                            <p className="text-[#6B6B6B] text-sm">No feedback yet for this plan</p>
+                        <div className="chart-card text-center py-12 border border-dashed border-border">
+                            <MessageSquare size={40} className="mx-auto text-muted-foreground mb-3 opacity-50" />
+                            <p className="text-muted-foreground text-sm">No feedback yet for this plan</p>
                         </div>
                     ) : (
                         logs.map(log => (
                             <div key={log.id} className="kpi-card">
                                 <div className="flex justify-between items-start mb-3">
                                     <div className="flex items-center gap-3">
-                                        <div className={`h-3 w-3 rounded-full ${log.completed ? 'bg-[#34d399]' : 'bg-amber-400'}`} />
-                                        <span className="text-sm font-medium text-white">
+                                        <div className={`h-3 w-3 rounded-full ${log.completed ? 'bg-emerald-500' : 'bg-amber-500'}`} />
+                                        <span className="text-sm font-medium text-foreground">
                                             {log.completed ? 'Completed' : 'Partial'}
                                         </span>
                                     </div>
-                                    <span className="text-xs text-[#6B6B6B]">
+                                    <span className="text-xs text-muted-foreground">
                                         {new Date(log.date).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' })}
                                     </span>
                                 </div>
                                 <div className="flex items-center gap-2 mb-2">
-                                    <span className="text-xs text-[#6B6B6B]">Difficulty:</span>
+                                    <span className="text-xs text-muted-foreground">Difficulty:</span>
                                     {renderStars(log.difficulty_rating)}
                                 </div>
                                 {log.comment && (
-                                    <div className="rounded-lg p-3 text-sm text-[#A3A3A3] mt-2" style={{ background: '#2a2a2a' }}>
+                                    <div className="rounded-sm p-3 text-sm text-muted-foreground mt-2 bg-muted/40 border border-border">
                                         &quot;{log.comment}&quot;
                                     </div>
                                 )}

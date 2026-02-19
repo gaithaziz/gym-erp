@@ -2,12 +2,17 @@
 
 import { useAuth } from '@/context/AuthContext';
 import { api } from '@/lib/api';
-import { useEffect, useState } from 'react';
-import { Users, DollarSign, Clock, TrendingUp, QrCode, Dumbbell, Utensils, CalendarCheck, Shield, ChevronRight, MessageSquare, ClipboardList, Plus } from 'lucide-react';
+import { useEffect, useState, useCallback } from 'react';
+import { Users, DollarSign, Clock, TrendingUp, QrCode, Dumbbell, Utensils, ChevronRight, MessageSquare, UserCheck, ClipboardList, Trophy } from 'lucide-react';
 import {
     BarChart, Bar, LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend
 } from 'recharts';
 import Link from 'next/link';
+import { DateRangePicker } from '@/components/DateRangePicker';
+import { DashboardGrid } from '@/components/DashboardGrid';
+import { DateRange } from 'react-day-picker';
+import { subDays } from 'date-fns';
+import { Move } from 'lucide-react';
 
 // ======================== ADMIN DASHBOARD ========================
 
@@ -27,26 +32,77 @@ interface ActivityItem {
     type: string;
 }
 
+interface Plan {
+    id: string;
+    name: string;
+    description?: string;
+    exercises?: {
+        name: string;
+        sets: number;
+        reps: number;
+        exercise?: { name: string };
+    }[];
+}
+
+interface Diet {
+    id: string;
+    name: string;
+    description?: string;
+    content: string;
+}
+
+
+interface AttendanceData {
+    hour: string;
+    visits: number;
+}
+
+interface RevenueData {
+    date: string;
+    revenue: number;
+    expenses: number;
+}
+
 function AdminDashboard({ userName }: { userName: string }) {
     const [stats, setStats] = useState<DashboardStats | null>(null);
-    const [attendanceData, setAttendanceData] = useState<any[]>([]);
-    const [revenueData, setRevenueData] = useState<any[]>([]);
+    const [attendanceData, setAttendanceData] = useState<AttendanceData[]>([]);
+    const [revenueData, setRevenueData] = useState<RevenueData[]>([]);
     const [recentActivity, setRecentActivity] = useState<ActivityItem[]>([]);
+    const [dateRange, setDateRange] = useState<DateRange | undefined>({
+        from: subDays(new Date(), 30),
+        to: new Date(),
+    });
 
-    useEffect(() => {
-        api.get('/analytics/dashboard')
+    const fetchData = useCallback(() => {
+        const from = dateRange?.from ? dateRange.from.toISOString().split('T')[0] : '';
+        const to = dateRange?.to ? dateRange.to.toISOString().split('T')[0] : '';
+        const dateQuery = from && to ? `?from=${from}&to=${to}` : '';
+
+        // API calls (mocking query implementation on backend for now if not ready)
+        // Ideally backend should accept date range params
+        api.get('/analytics/dashboard' + dateQuery)
             .then(res => setStats(res.data.data))
             .catch(err => console.error("Failed to fetch dashboard stats", err));
-        api.get('/analytics/attendance?days=7')
+
+        api.get('/analytics/attendance?days=7') // Keeping this fixed for now as it's hourly
             .then(res => setAttendanceData(res.data.data || []))
             .catch(() => { });
+
+        // Use date range for revenue chart query if applicable on backend
+        // For now requesting 30 days as default or based on selection logic if implemented
         api.get('/analytics/revenue-chart?days=30')
             .then(res => setRevenueData(res.data.data || []))
             .catch(() => { });
+
         api.get('/analytics/recent-activity')
             .then(res => setRecentActivity(res.data.data || []))
             .catch(() => setRecentActivity([]));
-    }, []);
+    }, [dateRange]);
+
+    useEffect(() => {
+        fetchData();
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [dateRange]);
 
     const formatTime = (iso: string) => {
         if (!iso) return '';
@@ -64,106 +120,134 @@ function AdminDashboard({ userName }: { userName: string }) {
     };
 
     const kpiCards = [
-        { title: 'Live Headcount', value: stats?.live_headcount ?? '--', subtitle: 'Currently in the gym', icon: Users, iconClass: 'icon-blue', live: true },
-        { title: "Today's Revenue", value: stats ? `${stats.todays_revenue.toFixed(2)} JOD` : '--', subtitle: 'Collected today', icon: DollarSign, iconClass: 'icon-green' },
-        { title: 'Pending Salaries', value: stats ? `${stats.pending_salaries.toFixed(2)} JOD` : '--', subtitle: 'Owed this month', icon: Clock, iconClass: 'icon-amber' },
-        { title: 'Active Members', value: stats?.active_members ?? '--', subtitle: 'Active subscriptions', icon: TrendingUp, iconClass: 'icon-red' },
+        { title: 'Live Headcount', value: stats?.live_headcount ?? '--', subtitle: 'Currently in the gym', icon: Users, badge: 'badge-blue', live: true },
+        { title: "Today's Revenue", value: stats ? `${stats.todays_revenue.toFixed(2)} JOD` : '--', subtitle: 'Collected today', icon: DollarSign, badge: 'badge-green' },
+        { title: 'Pending Salaries', value: stats ? `${stats.pending_salaries.toFixed(2)} JOD` : '--', subtitle: 'Owed this month', icon: Clock, badge: 'badge-amber' },
+        { title: 'Active Members', value: stats?.active_members ?? '--', subtitle: 'Active subscriptions', icon: TrendingUp, badge: 'badge-orange' },
     ];
 
     return (
-        <div className="space-y-8">
-            <div>
-                <h1 className="text-2xl font-bold text-white">Dashboard</h1>
-                <p className="text-sm text-[#6B6B6B] mt-1">Welcome back, {userName}</p>
+        <div className="space-y-4">
+            <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 mb-6">
+                <div>
+                    <h1 className="text-2xl font-bold text-foreground font-serif tracking-tight">Dashboard</h1>
+                    <p className="text-sm text-muted-foreground mt-1">Gym Operations Center • {userName}</p>
+                </div>
+                <div className="flex items-center gap-2">
+                    <DateRangePicker date={dateRange} setDate={setDateRange} className="z-10" />
+                </div>
             </div>
 
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-5">
+            <DashboardGrid layoutId="admin_dashboard_v1">
+                {/* KPI Cards */}
                 {kpiCards.map((card, i) => (
-                    <div key={i} className="kpi-card">
-                        <div className="flex items-start justify-between">
-                            <div>
-                                <p className="text-[0.65rem] font-semibold text-[#6B6B6B] uppercase tracking-wider">{card.title}</p>
-                                <p className="text-3xl font-bold text-white mt-2">{card.value}</p>
-                                <p className="text-xs text-[#6B6B6B] mt-1">{card.subtitle}</p>
+                    <div key={`stats-${i}`} className="kpi-card group h-full relative" data-grid={{ w: 3, h: 4, x: i * 3, y: 0 }}>
+                        <div className="absolute top-2 right-2 text-muted-foreground/30 cursor-move drag-handle opacity-0 group-hover:opacity-100 transition-opacity z-10">
+                            <Move size={14} />
+                        </div>
+                        <div className="flex items-start justify-between h-full flex-col">
+                            <div className="w-full flex justify-between items-start">
+                                <div>
+                                    <p className="text-[0.65rem] font-bold text-muted-foreground uppercase tracking-wider font-mono">{card.title}</p>
+                                    <p className="text-3xl font-bold text-foreground mt-2 font-mono tracking-tighter">{card.value}</p>
+                                </div>
+                                <div className="p-2 border border-border bg-muted/50 mt-1">
+                                    <card.icon size={18} className="text-foreground" />
+                                </div>
                             </div>
-                            <div className={`${card.iconClass} h-11 w-11 rounded-xl flex items-center justify-center`}>
-                                <card.icon size={20} className="text-white" />
+                            <div className="mt-auto w-full pt-2">
+                                <p className="text-xs text-muted-foreground">{card.subtitle}</p>
+                                {card.live && (
+                                    <div className="flex items-center gap-2 mt-2 pt-2 border-t border-border w-full">
+                                        <span className="h-2 w-2 bg-primary animate-pulse" />
+                                        <span className="text-xs text-primary font-bold uppercase tracking-wider">Live</span>
+                                    </div>
+                                )}
                             </div>
                         </div>
-                        {card.live && (
-                            <div className="flex items-center gap-1.5 mt-3">
-                                <span className="h-2 w-2 rounded-full bg-[#FF6B00] pulse-dot" />
-                                <span className="text-xs text-[#FF6B00] font-medium">Live</span>
-                            </div>
-                        )}
                     </div>
                 ))}
-            </div>
 
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-                <div className="chart-card">
-                    <h3 className="text-sm font-semibold text-[#A3A3A3] mb-4">Visits by Hour (Last 7 Days)</h3>
-                    <div className="h-64">
+                {/* Charts */}
+                <div key="chart-visits" className="kpi-card p-6 h-full relative group">
+                    <div className="absolute top-2 right-2 text-muted-foreground/30 cursor-move drag-handle opacity-0 group-hover:opacity-100 transition-opacity z-10">
+                        <Move size={14} />
+                    </div>
+                    <h3 className="text-sm font-bold text-muted-foreground mb-6 uppercase tracking-wider font-mono">Visits by Hour (Last 7 Days)</h3>
+                    <div className="h-[calc(100%-2rem)]">
                         {attendanceData.length > 0 ? (
                             <ResponsiveContainer width="100%" height="100%">
                                 <BarChart data={attendanceData}>
-                                    <CartesianGrid strokeDasharray="3 3" stroke="#2a2a2a" />
-                                    <XAxis dataKey="hour" tick={{ fontSize: 11, fill: '#6B6B6B' }} />
-                                    <YAxis tick={{ fontSize: 11, fill: '#6B6B6B' }} />
-                                    <Tooltip contentStyle={{ background: '#1e1e1e', border: '1px solid #333', borderRadius: '0.5rem', fontSize: '0.8rem', color: '#f5f5f5' }} />
-                                    <Bar dataKey="visits" fill="url(#orangeGrad)" radius={[6, 6, 0, 0]} />
-                                    <defs>
-                                        <linearGradient id="orangeGrad" x1="0" y1="0" x2="0" y2="1">
-                                            <stop offset="0%" stopColor="#FF6B00" />
-                                            <stop offset="100%" stopColor="#FF8533" stopOpacity={0.6} />
-                                        </linearGradient>
-                                    </defs>
+                                    <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" vertical={false} />
+                                    <XAxis dataKey="hour" tick={{ fontSize: 11, fill: 'var(--muted-foreground)', fontFamily: 'var(--font-mono)' }} axisLine={false} tickLine={false} />
+                                    <YAxis tick={{ fontSize: 11, fill: 'var(--muted-foreground)', fontFamily: 'var(--font-mono)' }} axisLine={false} tickLine={false} />
+                                    <Tooltip
+                                        cursor={{ fill: 'var(--muted)' }}
+                                        contentStyle={{ background: 'var(--card)', border: '1px solid var(--border)', borderRadius: '0px', fontSize: '0.8rem', color: 'var(--foreground)' }}
+                                    />
+                                    <Bar dataKey="visits" fill="var(--primary)" barSize={32} />
                                 </BarChart>
                             </ResponsiveContainer>
                         ) : (
-                            <div className="flex items-center justify-center h-full text-[#333] text-sm">No attendance data yet</div>
+                            <div className="flex items-center justify-center h-full text-muted-foreground text-sm font-mono">NO DATA AVAILABLE</div>
                         )}
                     </div>
                 </div>
 
-                <div className="chart-card">
-                    <h3 className="text-sm font-semibold text-[#A3A3A3] mb-4">Revenue vs. Expenses (30 Days)</h3>
-                    <div className="h-64">
+                <div key="chart-revenue" className="kpi-card p-6 h-full relative group">
+                    <div className="absolute top-2 right-2 text-muted-foreground/30 cursor-move drag-handle opacity-0 group-hover:opacity-100 transition-opacity z-10">
+                        <Move size={14} />
+                    </div>
+                    <h3 className="text-sm font-bold text-muted-foreground mb-6 uppercase tracking-wider font-mono">Revenue vs. Expenses (30 Days)</h3>
+                    <div className="h-[calc(100%-2rem)]">
                         {revenueData.length > 0 ? (
                             <ResponsiveContainer width="100%" height="100%">
                                 <LineChart data={revenueData}>
-                                    <CartesianGrid strokeDasharray="3 3" stroke="#2a2a2a" />
-                                    <XAxis dataKey="date" tick={{ fontSize: 11, fill: '#6B6B6B' }} />
-                                    <YAxis tick={{ fontSize: 11, fill: '#6B6B6B' }} />
-                                    <Tooltip contentStyle={{ background: '#1e1e1e', border: '1px solid #333', borderRadius: '0.5rem', fontSize: '0.8rem', color: '#f5f5f5' }} />
-                                    <Legend wrapperStyle={{ fontSize: '0.75rem', color: '#6B6B6B' }} />
-                                    <Line type="monotone" dataKey="revenue" stroke="#10b981" strokeWidth={2} dot={false} />
-                                    <Line type="monotone" dataKey="expenses" stroke="#ef4444" strokeWidth={2} dot={false} />
+                                    <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" vertical={false} />
+                                    <XAxis dataKey="date" tick={{ fontSize: 11, fill: 'var(--muted-foreground)', fontFamily: 'var(--font-mono)' }} axisLine={false} tickLine={false} />
+                                    <YAxis tick={{ fontSize: 11, fill: 'var(--muted-foreground)', fontFamily: 'var(--font-mono)' }} axisLine={false} tickLine={false} />
+                                    <Tooltip
+                                        contentStyle={{ background: 'var(--card)', border: '1px solid var(--border)', borderRadius: '0px', fontSize: '0.8rem', color: 'var(--foreground)' }}
+                                    />
+                                    <Legend wrapperStyle={{ fontSize: '0.75rem', color: 'var(--muted-foreground)', fontFamily: 'var(--font-mono)' }} />
+                                    <Line type="step" dataKey="revenue" stroke="var(--primary)" strokeWidth={2} dot={false} activeDot={{ r: 4, fill: 'var(--primary)' }} />
+                                    <Line type="step" dataKey="expenses" stroke="var(--destructive)" strokeWidth={2} dot={false} activeDot={{ r: 4, fill: 'var(--destructive)' }} />
                                 </LineChart>
                             </ResponsiveContainer>
                         ) : (
-                            <div className="flex items-center justify-center h-full text-[#333] text-sm">No financial data yet</div>
+                            <div className="flex items-center justify-center h-full text-muted-foreground text-sm font-mono">NO FINANCIAL DATA</div>
                         )}
                     </div>
                 </div>
-            </div>
 
-            <div className="chart-card">
-                <h3 className="text-sm font-semibold text-[#A3A3A3] mb-4">Recent Activity</h3>
-                <div className="space-y-0">
-                    {recentActivity.length > 0 ? (
-                        recentActivity.map((item, i) => (
-                            <div key={i} className="flex items-center gap-3 py-3 border-b border-[#2a2a2a] last:border-0">
-                                <span className={`h-2 w-2 rounded-full shrink-0 ${item.color}`} />
-                                <span className="text-sm text-[#A3A3A3] flex-1">{item.text}</span>
-                                <span className="text-xs text-[#6B6B6B]">{formatTime(item.time)}</span>
-                            </div>
-                        ))
-                    ) : (
-                        <div className="text-center py-6 text-[#333] text-sm">No recent activity yet</div>
-                    )}
+                {/* Recent Activity */}
+                <div key="activity" className="kpi-card p-0 h-full relative group overflow-hidden flex flex-col">
+                    <div className="absolute top-2 right-2 text-muted-foreground/30 cursor-move drag-handle opacity-0 group-hover:opacity-100 transition-opacity z-10">
+                        <Move size={14} />
+                    </div>
+                    <div className="p-4 border-b border-border flex-shrink-0">
+                        <h3 className="text-sm font-bold text-muted-foreground uppercase tracking-wider font-mono">Recent System Activity</h3>
+                    </div>
+                    <div className="divide-y divide-border overflow-y-auto flex-1">
+                        {recentActivity.length > 0 ? (
+                            recentActivity.map((item, i) => (
+                                <div key={i} className="flex items-center gap-4 p-4 hover:bg-muted/30 transition-colors">
+                                    <div className={`w-2 h-2 rounded-full flex-shrink-0 ${item.type === 'CHECK_IN' ? 'bg-emerald-500' :
+                                        item.type === 'SALE' ? 'bg-blue-500' :
+                                            item.type === 'ALERT' ? 'bg-amber-500' : 'bg-gray-500'
+                                        }`} />
+                                    <div className="flex-1 min-w-0">
+                                        <p className="text-sm font-medium text-foreground truncate">{item.text}</p>
+                                        <p className="text-xs text-muted-foreground font-mono">{formatTime(item.time)}</p>
+                                    </div>
+                                </div>
+                            ))
+                        ) : (
+                            <div className="p-8 text-center text-muted-foreground text-sm font-mono">No recent activity</div>
+                        )}
+                    </div>
                 </div>
-            </div>
+            </DashboardGrid>
         </div>
     );
 }
@@ -173,7 +257,7 @@ function AdminDashboard({ userName }: { userName: string }) {
 function CoachDashboard({ userName }: { userName: string }) {
     const [plansCount, setPlansCount] = useState(0);
     const [dietsCount, setDietsCount] = useState(0);
-    const [plans, setPlans] = useState<any[]>([]);
+    const [plans, setPlans] = useState<Plan[]>([]);
     const [loading, setLoading] = useState(true);
 
     useEffect(() => {
@@ -192,132 +276,124 @@ function CoachDashboard({ userName }: { userName: string }) {
 
     if (loading) return (
         <div className="flex h-64 items-center justify-center">
-            <div className="h-8 w-8 animate-spin rounded-full border-4 border-[#FF6B00] border-t-transparent" />
+            <div className="h-8 w-8 animate-spin rounded-full border-2 border-primary border-t-transparent" />
         </div>
     );
 
     return (
         <div className="space-y-8">
             <div>
-                <h1 className="text-2xl font-bold text-white">Coach Dashboard</h1>
-                <p className="text-sm text-[#6B6B6B] mt-1">Welcome back, {userName}</p>
+                <h1 className="text-2xl font-bold text-foreground font-serif tracking-tight">Coach Dashboard</h1>
+                <p className="text-sm text-muted-foreground mt-1">Trainer Portal • {userName}</p>
             </div>
 
             {/* KPI Summary */}
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-5">
-                <div className="kpi-card">
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                <div className="kpi-card group">
                     <div className="flex items-start justify-between">
                         <div>
-                            <p className="text-[0.65rem] font-semibold text-[#6B6B6B] uppercase tracking-wider">Workout Plans</p>
-                            <p className="text-3xl font-bold text-white mt-2">{plansCount}</p>
-                            <p className="text-xs text-[#6B6B6B] mt-1">Plans you&apos;ve created</p>
+                            <p className="text-[0.65rem] font-bold text-muted-foreground uppercase tracking-wider font-mono">Workout Plans</p>
+                            <p className="text-3xl font-bold text-foreground mt-2 font-mono tracking-tighter">{plansCount}</p>
+                            <p className="text-xs text-muted-foreground mt-1">Plans created</p>
                         </div>
-                        <div className="icon-blue h-11 w-11 rounded-xl flex items-center justify-center">
-                            <Dumbbell size={20} className="text-white" />
+                        <div className="p-2 border border-border bg-muted/50">
+                            <Dumbbell size={18} className="text-foreground" />
                         </div>
                     </div>
                 </div>
-                <div className="kpi-card">
+                <div className="kpi-card group">
                     <div className="flex items-start justify-between">
                         <div>
-                            <p className="text-[0.65rem] font-semibold text-[#6B6B6B] uppercase tracking-wider">Diet Plans</p>
-                            <p className="text-3xl font-bold text-white mt-2">{dietsCount}</p>
-                            <p className="text-xs text-[#6B6B6B] mt-1">Nutrition programs</p>
+                            <p className="text-[0.65rem] font-bold text-muted-foreground uppercase tracking-wider font-mono">Diet Plans</p>
+                            <p className="text-3xl font-bold text-foreground mt-2 font-mono tracking-tighter">{dietsCount}</p>
+                            <p className="text-xs text-muted-foreground mt-1">Nutrition programs</p>
                         </div>
-                        <div className="icon-green h-11 w-11 rounded-xl flex items-center justify-center">
-                            <Utensils size={20} className="text-white" />
+                        <div className="p-2 border border-border bg-muted/50">
+                            <Utensils size={18} className="text-foreground" />
                         </div>
                     </div>
                 </div>
-                <div className="kpi-card">
+                <div className="kpi-card group">
                     <div className="flex items-start justify-between">
                         <div>
-                            <p className="text-[0.65rem] font-semibold text-[#6B6B6B] uppercase tracking-wider">My QR Code</p>
-                            <p className="text-lg font-bold text-white mt-2">Access Pass</p>
-                            <p className="text-xs text-[#6B6B6B] mt-1">For gym entry</p>
+                            <p className="text-[0.65rem] font-bold text-muted-foreground uppercase tracking-wider font-mono">My QR Code</p>
+                            <p className="text-lg font-bold text-foreground mt-2 font-mono">Access Pass</p>
+                            <p className="text-xs text-muted-foreground mt-1">Gym Entry</p>
                         </div>
-                        <div className="icon-amber h-11 w-11 rounded-xl flex items-center justify-center">
-                            <QrCode size={20} className="text-white" />
+                        <div className="p-2 border border-border bg-muted/50">
+                            <QrCode size={18} className="text-foreground" />
                         </div>
                     </div>
                 </div>
             </div>
 
             {/* Quick Actions */}
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
-                <Link href="/dashboard/coach/plans" className="chart-card group cursor-pointer hover:border-[#FF6B00]/30 transition-all">
-                    <div className="flex items-center justify-between">
-                        <div className="flex items-center gap-4">
-                            <div className="icon-blue h-12 w-12 rounded-xl flex items-center justify-center">
-                                <Dumbbell size={22} className="text-white" />
-                            </div>
-                            <div>
-                                <h3 className="text-white font-semibold">Workout Plans</h3>
-                                <p className="text-[#6B6B6B] text-sm">Create & manage training programs</p>
-                            </div>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <Link href="/dashboard/coach/plans" className="kpi-card flex items-center justify-between group hover:border-primary transition-colors">
+                    <div className="flex items-center gap-4">
+                        <div className="p-2 bg-muted/30 border border-border text-primary">
+                            <Dumbbell size={20} />
                         </div>
-                        <ChevronRight size={20} className="text-[#333] group-hover:text-[#FF6B00] transition-colors" />
+                        <div>
+                            <h3 className="text-foreground font-bold text-sm uppercase tracking-wide">Workout Plans</h3>
+                            <p className="text-muted-foreground text-xs">Create & manage programs</p>
+                        </div>
                     </div>
+                    <ChevronRight size={18} className="text-muted-foreground group-hover:text-primary transition-colors" />
                 </Link>
-                <Link href="/dashboard/coach/diets" className="chart-card group cursor-pointer hover:border-[#FF6B00]/30 transition-all">
-                    <div className="flex items-center justify-between">
-                        <div className="flex items-center gap-4">
-                            <div className="icon-green h-12 w-12 rounded-xl flex items-center justify-center">
-                                <Utensils size={22} className="text-white" />
-                            </div>
-                            <div>
-                                <h3 className="text-white font-semibold">Diet Plans</h3>
-                                <p className="text-[#6B6B6B] text-sm">Create nutrition programs</p>
-                            </div>
+                <Link href="/dashboard/coach/diets" className="kpi-card flex items-center justify-between group hover:border-primary transition-colors">
+                    <div className="flex items-center gap-4">
+                        <div className="p-2 bg-muted/30 border border-border text-primary">
+                            <Utensils size={20} />
                         </div>
-                        <ChevronRight size={20} className="text-[#333] group-hover:text-[#FF6B00] transition-colors" />
+                        <div>
+                            <h3 className="text-foreground font-bold text-sm uppercase tracking-wide">Diet Plans</h3>
+                            <p className="text-muted-foreground text-xs">Manage nutrition</p>
+                        </div>
                     </div>
+                    <ChevronRight size={18} className="text-muted-foreground group-hover:text-primary transition-colors" />
                 </Link>
-                <Link href="/dashboard/coach/feedback" className="chart-card group cursor-pointer hover:border-[#FF6B00]/30 transition-all">
-                    <div className="flex items-center justify-between">
-                        <div className="flex items-center gap-4">
-                            <div className="icon-red h-12 w-12 rounded-xl flex items-center justify-center">
-                                <MessageSquare size={22} className="text-white" />
-                            </div>
-                            <div>
-                                <h3 className="text-white font-semibold">Trainee Feedback</h3>
-                                <p className="text-[#6B6B6B] text-sm">View workout logs & ratings</p>
-                            </div>
+                <Link href="/dashboard/coach/feedback" className="kpi-card flex items-center justify-between group hover:border-primary transition-colors">
+                    <div className="flex items-center gap-4">
+                        <div className="p-2 bg-muted/30 border border-border text-primary">
+                            <MessageSquare size={20} />
                         </div>
-                        <ChevronRight size={20} className="text-[#333] group-hover:text-[#FF6B00] transition-colors" />
+                        <div>
+                            <h3 className="text-foreground font-bold text-sm uppercase tracking-wide">Trainee Feedback</h3>
+                            <p className="text-muted-foreground text-xs">Logs & ratings</p>
+                        </div>
                     </div>
+                    <ChevronRight size={18} className="text-muted-foreground group-hover:text-primary transition-colors" />
                 </Link>
-                <Link href="/dashboard/qr" className="chart-card group cursor-pointer hover:border-[#FF6B00]/30 transition-all">
-                    <div className="flex items-center justify-between">
-                        <div className="flex items-center gap-4">
-                            <div className="icon-amber h-12 w-12 rounded-xl flex items-center justify-center">
-                                <QrCode size={22} className="text-white" />
-                            </div>
-                            <div>
-                                <h3 className="text-white font-semibold">My QR Code</h3>
-                                <p className="text-[#6B6B6B] text-sm">Show at entrance for access</p>
-                            </div>
+                <Link href="/dashboard/qr" className="kpi-card flex items-center justify-between group hover:border-primary transition-colors">
+                    <div className="flex items-center gap-4">
+                        <div className="p-2 bg-muted/30 border border-border text-primary">
+                            <QrCode size={20} />
                         </div>
-                        <ChevronRight size={20} className="text-[#333] group-hover:text-[#FF6B00] transition-colors" />
+                        <div>
+                            <h3 className="text-foreground font-bold text-sm uppercase tracking-wide">My QR Code</h3>
+                            <p className="text-muted-foreground text-xs">Entrance access</p>
+                        </div>
                     </div>
+                    <ChevronRight size={18} className="text-muted-foreground group-hover:text-primary transition-colors" />
                 </Link>
             </div>
 
             {/* Recent Plans */}
             {plans.length > 0 && (
-                <div className="chart-card">
-                    <div className="flex items-center justify-between mb-4">
-                        <h3 className="text-sm font-semibold text-[#A3A3A3]">Recently Created Plans</h3>
-                        <Link href="/dashboard/coach/plans" className="text-xs text-[#FF6B00] hover:text-[#FF8533] transition-colors">View All →</Link>
+                <div className="kpi-card p-0">
+                    <div className="flex items-center justify-between p-4 border-b border-border">
+                        <h3 className="text-sm font-bold text-muted-foreground uppercase tracking-wider font-mono">Recently Created Plans</h3>
+                        <Link href="/dashboard/coach/plans" className="text-xs text-primary hover:text-primary/80 font-mono">VIEW ALL →</Link>
                     </div>
-                    <div className="space-y-0">
-                        {plans.slice(0, 5).map((plan: any, i: number) => (
-                            <div key={plan.id || i} className="flex items-center justify-between py-3 border-b border-[#2a2a2a] last:border-0">
+                    <div className="divide-y divide-border">
+                        {plans.slice(0, 5).map((plan: Plan, i: number) => (
+                            <div key={plan.id || i} className="flex items-center justify-between p-4 hover:bg-muted/30 transition-colors">
                                 <div className="flex items-center gap-3">
-                                    <Dumbbell size={16} className="text-[#FF6B00]" />
-                                    <span className="text-sm text-white font-medium">{plan.name}</span>
+                                    <Dumbbell size={16} className="text-primary" />
+                                    <span className="text-sm text-foreground font-medium">{plan.name}</span>
                                 </div>
-                                <span className="text-xs text-[#6B6B6B]">{plan.exercises?.length || 0} exercises</span>
+                                <span className="text-xs text-muted-foreground font-mono">{plan.exercises?.length || 0} EXERCISES</span>
                             </div>
                         ))}
                     </div>
@@ -329,106 +405,215 @@ function CoachDashboard({ userName }: { userName: string }) {
 
 // ======================== CUSTOMER DASHBOARD ========================
 
+interface GamificationStats {
+    total_visits: number;
+    streak: {
+        current_streak: number;
+        best_streak: number;
+        last_visit_date: string | null;
+    };
+    badges: {
+        id: string;
+        badge_type: string;
+        badge_name: string;
+        badge_description: string;
+        earned_at: string;
+    }[];
+    weekly_progress?: {
+        current: number;
+        goal: number;
+    };
+}
+
 function CustomerDashboard({ userName }: { userName: string }) {
-    const [plans, setPlans] = useState<any[]>([]);
-    const [diets, setDiets] = useState<any[]>([]);
+    const [plans, setPlans] = useState<Plan[]>([]);
+    const [diets, setDiets] = useState<Diet[]>([]);
+    const [stats, setStats] = useState<GamificationStats | null>(null);
     const [loading, setLoading] = useState(true);
 
     useEffect(() => {
-        Promise.all([
-            api.get('/fitness/plans').catch(() => ({ data: { data: [] } })),
-            api.get('/fitness/diets').catch(() => ({ data: { data: [] } })),
-        ]).then(([plansRes, dietsRes]) => {
-            setPlans(plansRes.data.data || []);
-            setDiets(dietsRes.data.data || []);
-            setLoading(false);
-        });
+        const loadData = async () => {
+            try {
+                const [plansRes, dietsRes, statsRes] = await Promise.all([
+                    api.get('/fitness/plans').catch(() => ({ data: { data: [] } })),
+                    api.get('/fitness/diets').catch(() => ({ data: { data: [] } })),
+                    api.get('/gamification/stats').catch(() => ({ data: { data: null } }))
+                ]);
+                setPlans(plansRes.data.data || []);
+                setDiets(dietsRes.data.data || []);
+                setStats(statsRes.data.data);
+            } catch (err) { console.error(err); }
+            finally { setLoading(false); }
+        };
+        loadData();
     }, []);
 
     if (loading) return (
         <div className="flex h-64 items-center justify-center">
-            <div className="h-8 w-8 animate-spin rounded-full border-4 border-[#FF6B00] border-t-transparent" />
+            <div className="h-8 w-8 animate-spin rounded-full border-2 border-primary border-t-transparent" />
         </div>
     );
 
+    const weeklyProgress = stats?.weekly_progress?.current || 0;
+    const weeklyGoal = stats?.weekly_progress?.goal || 3;
+    const progressPercent = Math.min(100, (weeklyProgress / weeklyGoal) * 100);
+
     return (
         <div className="space-y-8">
-            <div>
-                <h1 className="text-2xl font-bold text-white">Welcome, {userName}</h1>
-                <p className="text-sm text-[#6B6B6B] mt-1">Your fitness hub — everything in one place</p>
+            <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
+                <div>
+                    <h1 className="text-2xl font-bold text-foreground font-serif tracking-tight">Welcome, {userName}</h1>
+                    <p className="text-sm text-muted-foreground mt-1">Your Fitness Journey</p>
+                </div>
+                {stats?.streak && stats.streak.current_streak > 0 && (
+                    <div className="flex items-center gap-2 px-3 py-1.5 bg-orange-500/10 border border-orange-500/20 rounded-full">
+                        <span className="text-orange-500">🔥</span>
+                        <span className="text-sm font-bold text-orange-500">{stats.streak.current_streak} Day Streak!</span>
+                    </div>
+                )}
+            </div>
+
+            {/* Weekly Goal Widget */}
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                <div className="col-span-1 md:col-span-2 grid grid-cols-1 sm:grid-cols-3 gap-4">
+                    {/* Weekly Progress Card */}
+                    <div className="kpi-card relative overflow-hidden group">
+                        <div className="absolute inset-0 bg-gradient-to-br from-primary/5 to-transparent opacity-0 group-hover:opacity-100 transition-opacity" />
+                        <div className="flex flex-col justify-between h-full relative z-10">
+                            <div>
+                                <h3 className="text-xs font-bold text-muted-foreground uppercase tracking-wider mb-2">Weekly Goal</h3>
+                                <div className="flex items-end gap-2 mb-1">
+                                    <span className="text-3xl font-bold text-foreground">{weeklyProgress}</span>
+                                    <span className="text-sm text-muted-foreground mb-1.5">/ {weeklyGoal} visits</span>
+                                </div>
+                            </div>
+                            <div className="w-full bg-muted/30 h-2 rounded-full overflow-hidden mt-3">
+                                <div
+                                    className="bg-primary h-full transition-all duration-1000 ease-out"
+                                    style={{ width: `${progressPercent}%` }}
+                                />
+                            </div>
+                            <p className="text-[10px] text-muted-foreground mt-2">
+                                {progressPercent >= 100 ? "🎉 Goal reached! Amazing work!" : "Keep it up, you're doing great!"}
+                            </p>
+                        </div>
+                    </div>
+
+                    {/* Stats Summary */}
+                    <div className="kpi-card">
+                        <div className="flex items-start justify-between">
+                            <div>
+                                <p className="text-[0.65rem] font-bold text-muted-foreground uppercase tracking-wider font-mono">Total Visits</p>
+                                <p className="text-2xl font-bold text-foreground mt-2 font-mono">{stats?.total_visits || 0}</p>
+                            </div>
+                            <div className="p-2 border border-border bg-muted/50 rounded-sm">
+                                <UserCheck size={18} className="text-foreground" />
+                            </div>
+                        </div>
+                    </div>
+
+                    <div className="kpi-card">
+                        <div className="flex items-start justify-between">
+                            <div>
+                                <p className="text-[0.65rem] font-bold text-muted-foreground uppercase tracking-wider font-mono">Badges Earned</p>
+                                <p className="text-2xl font-bold text-foreground mt-2 font-mono">{stats?.badges.length || 0}</p>
+                            </div>
+                            <div className="p-2 border border-border bg-muted/50 rounded-sm">
+                                <Trophy size={18} className="text-foreground" />
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                {/* Recent Badges / Quick Links */}
+                <div className="col-span-1 space-y-4">
+                    <div className="kpi-card p-4">
+                        <h3 className="text-xs font-bold text-muted-foreground uppercase tracking-wider mb-3">Recent Badges</h3>
+                        {stats?.badges && stats.badges.length > 0 ? (
+                            <div className="space-y-3">
+                                {stats.badges.slice(0, 3).map(badge => (
+                                    <div key={badge.id} className="flex items-center gap-3">
+                                        <div className="w-8 h-8 rounded-full bg-yellow-500/10 flex items-center justify-center text-lg">
+                                            🏆
+                                        </div>
+                                        <div>
+                                            <p className="text-sm font-medium text-foreground">{badge.badge_name}</p>
+                                            <p className="text-[10px] text-muted-foreground">{new Date(badge.earned_at).toLocaleDateString()}</p>
+                                        </div>
+                                    </div>
+                                ))}
+                            </div>
+                        ) : (
+                            <p className="text-xs text-muted-foreground italic">No badges yet. Keep training!</p>
+                        )}
+                        <Link href="/dashboard/member/achievements" className="block mt-3 text-xs text-primary hover:underline text-center">View All Achievements →</Link>
+                    </div>
+                </div>
             </div>
 
             {/* Quick Access Cards */}
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-5">
-                <Link href="/dashboard/qr" className="kpi-card group cursor-pointer hover:border-[#FF6B00]/30 transition-all">
+            <h3 className="text-sm font-bold text-muted-foreground uppercase tracking-wider font-mono">Quick Access</h3>
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                <Link href="/dashboard/qr" className="kpi-card group cursor-pointer hover:border-primary transition-colors">
                     <div className="flex items-start justify-between">
                         <div>
-                            <p className="text-[0.65rem] font-semibold text-[#6B6B6B] uppercase tracking-wider">Access Pass</p>
-                            <p className="text-lg font-bold text-white mt-2">My QR Code</p>
-                            <p className="text-xs text-[#6B6B6B] mt-1">Tap to view your code</p>
+                            <p className="text-lg font-bold text-foreground font-mono">My QR Code</p>
+                            <p className="text-xs text-muted-foreground mt-1">Tap to view</p>
                         </div>
-                        <div className="icon-blue h-11 w-11 rounded-xl flex items-center justify-center">
-                            <QrCode size={20} className="text-white" />
-                        </div>
+                        <QrCode size={20} className="text-foreground" />
                     </div>
                 </Link>
-                <div className="kpi-card">
+                <Link href="/dashboard/member/profile" className="kpi-card group cursor-pointer hover:border-primary transition-colors">
                     <div className="flex items-start justify-between">
                         <div>
-                            <p className="text-[0.65rem] font-semibold text-[#6B6B6B] uppercase tracking-wider">Workout Plans</p>
-                            <p className="text-3xl font-bold text-white mt-2">{plans.length}</p>
-                            <p className="text-xs text-[#6B6B6B] mt-1">Assigned to you</p>
+                            <p className="text-lg font-bold text-foreground font-mono">My Profile</p>
+                            <p className="text-xs text-muted-foreground mt-1">Manage Account</p>
                         </div>
-                        <div className="icon-amber h-11 w-11 rounded-xl flex items-center justify-center">
-                            <Dumbbell size={20} className="text-white" />
-                        </div>
+                        <UserCheck size={20} className="text-foreground" />
                     </div>
-                </div>
-                <div className="kpi-card">
+                </Link>
+                <Link href="/dashboard/member/history" className="kpi-card group cursor-pointer hover:border-primary transition-colors">
                     <div className="flex items-start justify-between">
                         <div>
-                            <p className="text-[0.65rem] font-semibold text-[#6B6B6B] uppercase tracking-wider">Diet Plans</p>
-                            <p className="text-3xl font-bold text-white mt-2">{diets.length}</p>
-                            <p className="text-xs text-[#6B6B6B] mt-1">Nutrition programs</p>
+                            <p className="text-lg font-bold text-foreground font-mono">History</p>
+                            <p className="text-xs text-muted-foreground mt-1">Logs & Payments</p>
                         </div>
-                        <div className="icon-green h-11 w-11 rounded-xl flex items-center justify-center">
-                            <Utensils size={20} className="text-white" />
-                        </div>
+                        <ClipboardList size={20} className="text-foreground" />
                     </div>
-                </div>
+                </Link>
             </div>
 
             {/* Workout Plans */}
-            <div className="chart-card">
-                <h3 className="text-sm font-semibold text-[#A3A3A3] mb-4">My Workout Plans</h3>
+            <div className="kpi-card p-6">
+                <h3 className="text-sm font-bold text-muted-foreground mb-4 uppercase tracking-wider font-mono">My Workout Plans</h3>
                 {plans.length > 0 ? (
                     <div className="space-y-3">
-                        {plans.map((plan: any) => (
-                            <div key={plan.id} className="rounded-xl p-4 border border-[#2a2a2a] hover:border-[#FF6B00]/20 transition-all" style={{ background: '#1a1a1a' }}>
-                                <div className="flex items-start justify-between mb-2">
+                        {plans.map((plan: Plan) => (
+                            <div key={plan.id} className="p-4 border border-border bg-muted/10 hover:border-primary transition-colors">
+                                <div className="flex items-start justify-between mb-3">
                                     <div className="flex items-center gap-3">
-                                        <div className="icon-blue h-9 w-9 rounded-lg flex items-center justify-center">
-                                            <Dumbbell size={16} className="text-white" />
+                                        <div className="p-2 bg-muted/30 border border-border text-primary">
+                                            <Dumbbell size={16} />
                                         </div>
                                         <div>
-                                            <h4 className="text-white font-semibold text-sm">{plan.name}</h4>
-                                            <p className="text-[#6B6B6B] text-xs">{plan.description || 'No description'}</p>
+                                            <h4 className="text-foreground font-bold text-sm uppercase">{plan.name}</h4>
+                                            <p className="text-muted-foreground text-xs">{plan.description || 'No description'}</p>
                                         </div>
                                     </div>
-                                    <span className="text-xs text-[#6B6B6B] px-2 py-1 rounded-full" style={{ background: '#2a2a2a' }}>
+                                    <span className="text-xs text-muted-foreground px-2 py-1 bg-muted/30 font-mono">
                                         {plan.exercises?.length || 0} exercises
                                     </span>
                                 </div>
-                                {plan.exercises?.length > 0 && (
-                                    <div className="ml-12 space-y-1 mt-2">
-                                        {plan.exercises.slice(0, 4).map((ex: any, i: number) => (
-                                            <div key={i} className="flex justify-between text-xs py-1">
-                                                <span className="text-[#A3A3A3]">{ex.exercise?.name || ex.name || `Exercise ${i + 1}`}</span>
-                                                <span className="text-[#6B6B6B]">{ex.sets}×{ex.reps}</span>
+                                {plan.exercises && plan.exercises.length > 0 && (
+                                    <div className="ml-11 space-y-1 mt-2 border-l border-border pl-3">
+                                        {plan.exercises.slice(0, 4).map((ex, i: number) => (
+                                            <div key={i} className="flex justify-between text-xs py-0.5">
+                                                <span className="text-muted-foreground">{ex.exercise?.name || ex.name || `Exercise ${i + 1}`}</span>
+                                                <span className="text-muted-foreground font-mono">{ex.sets}×{ex.reps}</span>
                                             </div>
                                         ))}
                                         {plan.exercises.length > 4 && (
-                                            <p className="text-xs text-[#FF6B00]">+{plan.exercises.length - 4} more</p>
+                                            <p className="text-xs text-primary font-mono pt-1">+{plan.exercises.length - 4} MORE</p>
                                         )}
                                     </div>
                                 )}
@@ -436,41 +621,41 @@ function CustomerDashboard({ userName }: { userName: string }) {
                         ))}
                     </div>
                 ) : (
-                    <div className="text-center py-8">
-                        <Dumbbell size={36} className="mx-auto text-[#333] mb-3" />
-                        <p className="text-[#6B6B6B] text-sm">No workout plans assigned yet.</p>
-                        <p className="text-[#555] text-xs mt-1">Your coach will assign plans to you</p>
+                    <div className="text-center py-10 border border-dashed border-border">
+                        <Dumbbell size={32} className="mx-auto text-muted-foreground mb-3 opacity-50" />
+                        <p className="text-muted-foreground text-sm">No workout plans assigned yet.</p>
+                        <p className="text-muted-foreground/60 text-xs mt-1">Your coach will assign plans to you</p>
                     </div>
                 )}
             </div>
 
             {/* Diet Plans */}
-            <div className="chart-card">
-                <h3 className="text-sm font-semibold text-[#A3A3A3] mb-4">My Diet Plans</h3>
+            <div className="kpi-card p-6">
+                <h3 className="text-sm font-bold text-muted-foreground mb-4 uppercase tracking-wider font-mono">My Diet Plans</h3>
                 {diets.length > 0 ? (
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                        {diets.map((diet: any) => (
-                            <div key={diet.id} className="rounded-xl p-4 border border-[#2a2a2a] hover:border-[#FF6B00]/20 transition-all" style={{ background: '#1a1a1a' }}>
-                                <div className="flex items-center gap-3 mb-2">
-                                    <div className="icon-green h-9 w-9 rounded-lg flex items-center justify-center">
-                                        <Utensils size={16} className="text-white" />
+                        {diets.map((diet: Diet) => (
+                            <div key={diet.id} className="p-4 border border-border bg-muted/10 hover:border-primary transition-colors">
+                                <div className="flex items-center gap-3 mb-3">
+                                    <div className="p-2 bg-muted/30 border border-border text-primary">
+                                        <Utensils size={16} />
                                     </div>
                                     <div>
-                                        <h4 className="text-white font-semibold text-sm">{diet.name}</h4>
-                                        <p className="text-[#6B6B6B] text-xs">{diet.description || 'No description'}</p>
+                                        <h4 className="text-foreground font-bold text-sm uppercase">{diet.name}</h4>
+                                        <p className="text-muted-foreground text-xs">{diet.description || 'No description'}</p>
                                     </div>
                                 </div>
-                                <div className="rounded-lg p-3 text-xs text-[#A3A3A3] max-h-20 overflow-y-auto whitespace-pre-wrap mt-2" style={{ background: '#2a2a2a' }}>
+                                <div className="bg-muted/20 p-3 text-xs text-muted-foreground max-h-24 overflow-y-auto whitespace-pre-wrap font-mono">
                                     {diet.content}
                                 </div>
                             </div>
                         ))}
                     </div>
                 ) : (
-                    <div className="text-center py-8">
-                        <Utensils size={36} className="mx-auto text-[#333] mb-3" />
-                        <p className="text-[#6B6B6B] text-sm">No diet plans assigned yet.</p>
-                        <p className="text-[#555] text-xs mt-1">Your coach will create a nutrition program for you</p>
+                    <div className="text-center py-10 border border-dashed border-border">
+                        <Utensils size={32} className="mx-auto text-muted-foreground mb-3 opacity-50" />
+                        <p className="text-muted-foreground text-sm">No diet plans assigned yet.</p>
+                        <p className="text-muted-foreground/60 text-xs mt-1">Your coach will create a nutrition program for you</p>
                     </div>
                 )}
             </div>

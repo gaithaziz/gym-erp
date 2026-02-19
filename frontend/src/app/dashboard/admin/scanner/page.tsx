@@ -50,7 +50,7 @@ export default function ScannerPage() {
             for (const scan of pending) {
                 try {
                     await api.post('/access/scan', { qr_token: scan.qr_token, kiosk_id: scan.kiosk_id });
-                } catch (e) { /* handled */ }
+                } catch { /* handled */ }
             }
             localStorage.setItem('pending_scans', '[]');
         };
@@ -71,7 +71,7 @@ export default function ScannerPage() {
             const data = res.data.data;
             setResult({ status: data.status, message: data.reason || 'Access Granted', user: data.user_name });
             setOfflineMode(false);
-        } catch (err: any) {
+        } catch {
             setOfflineMode(true);
             verifyOffline(token);
         }
@@ -102,15 +102,15 @@ export default function ScannerPage() {
             } else {
                 setResult({ status: 'DENIED', message: 'No Active Subscription (Offline Check)', user: memberName });
             }
-        } catch (e) {
-            setResult({ status: 'ERROR', message: 'Invalid QR Code' });
+        } catch {
+            setResult({ status: 'DENIED', message: 'Scan failed' });
         }
     };
 
     return (
         <div className="max-w-xl mx-auto py-12 px-4">
             <div className="mb-8 flex justify-between items-center">
-                <h1 className="text-2xl font-bold text-white flex items-center gap-2">
+                <h1 className="text-2xl font-bold text-foreground flex items-center gap-2">
                     <Scan className="w-6 h-6" />
                     Access Scanner
                 </h1>
@@ -120,12 +120,12 @@ export default function ScannerPage() {
                             <CloudOff size={16} /> Offline Mode
                         </span>
                     ) : (
-                        <span className="text-[#34d399] text-sm">Online • Synced: {lastSync}</span>
+                        <span className="text-emerald-500 text-sm">Online • Synced: {lastSync}</span>
                     )}
                 </div>
             </div>
 
-            <div className="chart-card mb-8">
+            <div className="chart-card mb-8 border border-border">
                 <form onSubmit={handleScan} className="flex gap-4">
                     <input
                         type="text"
@@ -142,25 +142,25 @@ export default function ScannerPage() {
             </div>
 
             {result && (
-                <div className={`p-6 rounded-xl border-l-4 ${result.status === 'GRANTED' || result.status === 'ALREADY_SCANNED'
-                        ? 'border-[#10b981]' : 'border-[#ef4444]'
-                    }`} style={{ background: result.status === 'GRANTED' || result.status === 'ALREADY_SCANNED' ? 'rgba(16,185,129,0.1)' : 'rgba(239,68,68,0.1)' }}>
+                <div className={`p-6 rounded-sm border-l-4 ${result.status === 'GRANTED' || result.status === 'ALREADY_SCANNED'
+                    ? 'border-emerald-500 bg-emerald-500/10' : 'border-destructive bg-destructive/10'
+                    }`}>
                     <div className="flex items-start gap-4">
                         {result.status === 'GRANTED' ? (
-                            <CheckCircle className="w-8 h-8 text-[#34d399] flex-shrink-0" />
+                            <CheckCircle className="w-8 h-8 text-emerald-500 flex-shrink-0" />
                         ) : result.status === 'ALREADY_SCANNED' ? (
-                            <AlertTriangle className="w-8 h-8 text-amber-400 flex-shrink-0" />
+                            <AlertTriangle className="w-8 h-8 text-amber-500 flex-shrink-0" />
                         ) : (
-                            <XCircle className="w-8 h-8 text-[#f87171] flex-shrink-0" />
+                            <XCircle className="w-8 h-8 text-destructive flex-shrink-0" />
                         )}
                         <div>
-                            <h2 className={`text-xl font-bold ${result.status === 'GRANTED' ? 'text-[#34d399]' : 'text-[#f87171]'
+                            <h2 className={`text-xl font-bold ${result.status === 'GRANTED' ? 'text-emerald-500' : 'text-destructive'
                                 }`}>
                                 {result.status}
                             </h2>
-                            <p className="text-[#A3A3A3] mt-1">{result.message}</p>
+                            <p className="text-muted-foreground mt-1">{result.message}</p>
                             {result.user && (
-                                <p className="text-lg font-medium text-white mt-2">
+                                <p className="text-lg font-medium text-foreground mt-2">
                                     User: {result.user}
                                 </p>
                             )}
@@ -169,7 +169,7 @@ export default function ScannerPage() {
                 </div>
             )}
 
-            <div className="mt-12 text-center text-xs text-[#6B6B6B]">
+            <div className="mt-12 text-center text-xs text-muted-foreground">
                 <p>Scanner Kiosk ID: scanner-01</p>
                 <p>Local Cache: {typeof window !== 'undefined' ? localStorage.getItem('offline_active_members')?.length || 0 : 0} bytes</p>
             </div>

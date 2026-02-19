@@ -2,7 +2,8 @@
 
 import { useEffect, useState } from 'react';
 import { api } from '@/lib/api';
-import { Plus, Dumbbell, Trash2, Video, ChevronDown, ChevronUp } from 'lucide-react';
+import { Plus, Dumbbell, Trash2, ChevronDown, ChevronUp, Copy, UserPlus, Pencil, Save, X } from 'lucide-react';
+import Modal from '@/components/Modal';
 
 interface Exercise {
     id: string;
@@ -29,7 +30,13 @@ interface Plan {
     id: string;
     name: string;
     description: string;
-    exercises: any[];
+    exercises: {
+        name: string;
+        sets: number;
+        reps: number;
+        exercise?: { name: string; id: string };
+        exercise_id?: string;
+    }[];
 }
 
 export default function WorkoutPlansPage() {
@@ -37,8 +44,16 @@ export default function WorkoutPlansPage() {
     const [exercises, setExercises] = useState<Exercise[]>([]);
     const [members, setMembers] = useState<Member[]>([]);
     const [loading, setLoading] = useState(true);
+
+    // Create / Edit Modal
     const [showModal, setShowModal] = useState(false);
+    const [editingPlan, setEditingPlan] = useState<Plan | null>(null);
     const [expandedPlan, setExpandedPlan] = useState<string | null>(null);
+
+    // Assign Modal
+    const [assignModalOpen, setAssignModalOpen] = useState(false);
+    const [assigningPlan, setAssigningPlan] = useState<Plan | null>(null);
+    const [assignMemberId, setAssignMemberId] = useState('');
 
     const [planName, setPlanName] = useState('');
     const [planDesc, setPlanDesc] = useState('');
@@ -47,8 +62,6 @@ export default function WorkoutPlansPage() {
     const [currentExId, setCurrentExId] = useState('');
     const [currentSets, setCurrentSets] = useState(3);
     const [currentReps, setCurrentReps] = useState(10);
-
-    useEffect(() => { fetchData(); }, []);
 
     const fetchData = async () => {
         try {
@@ -63,8 +76,21 @@ export default function WorkoutPlansPage() {
                 setMembers(membersRes.data.data || []);
             } catch { /* non-admin, skip */ }
             setLoading(false);
-        } catch (err) { console.error(err); setLoading(false); }
+        } catch { setLoading(false); }
     };
+
+    useEffect(() => { setTimeout(() => fetchData(), 0); }, []);
+
+    // Reset form when modal closes or switches mode
+    useEffect(() => {
+        if (!showModal) {
+            setEditingPlan(null);
+            setPlanName('');
+            setPlanDesc('');
+            setAssignedMemberId('');
+            setSelectedExercises([]);
+        }
+    }, [showModal]);
 
     const addExerciseToPlan = () => {
         if (!currentExId) return;
@@ -76,19 +102,80 @@ export default function WorkoutPlansPage() {
         ]);
     };
 
+    const handleEditClick = (plan: Plan) => {
+        setEditingPlan(plan);
+        setPlanName(plan.name);
+        setPlanDesc(plan.description);
+        // Map existing exercises to form format
+        // Note: The backend response structure for exercises might need careful mapping.
+        // Assuming plan.exercises has exercise details nested.
+        const mappedEx = plan.exercises.map((ex, i) => ({
+            exercise_id: ex.exercise?.id || ex.exercise_id || '', // Fallback if ID is missing in one place
+            sets: ex.sets,
+            reps: ex.reps,
+            order: i + 1,
+            name: ex.exercise?.name || ex.name
+        })).filter(e => e.exercise_id); // Filter out any malformed ones
+
+        setSelectedExercises(mappedEx);
+        setShowModal(true);
+    };
+
     const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
         try {
-            await api.post('/fitness/plans', {
+            const payload = {
                 name: planName,
                 description: planDesc,
                 member_id: assignedMemberId || undefined,
                 exercises: selectedExercises
-            });
+            };
+
+            if (editingPlan) {
+                await api.put(`/fitness/plans/${editingPlan.id}`, payload);
+            } else {
+                await api.post('/fitness/plans', payload);
+            }
+
             setShowModal(false);
-            setPlanName(''); setPlanDesc(''); setAssignedMemberId(''); setSelectedExercises([]);
             fetchData();
-        } catch (err) { alert("Failed to create plan"); }
+        } catch { alert(`Failed to ${editingPlan ? 'update' : 'create'} plan`); }
+    };
+
+    const openAssign = (plan: Plan) => {
+        setAssigningPlan(plan);
+        setAssignMemberId('');
+        setAssignModalOpen(true);
+    };
+
+    const handleAssignSubmit = async (e: React.FormEvent) => {
+        e.preventDefault();
+        if (!assigningPlan || !assignMemberId) return;
+
+        try {
+            // Clone the plan for the user
+            // We need to fetch the full plan details first? We have them in `assigningPlan` mostly.
+            // But let's construct the payload from `assigningPlan`.
+
+            const payload = {
+                name: assigningPlan.name, // Keep same name
+                description: assigningPlan.description,
+                member_id: assignMemberId,
+                exercises: assigningPlan.exercises.map((ex, i) => ({
+                    exercise_id: ex.exercise?.id || ex.exercise_id || '',
+                    sets: ex.sets,
+                    reps: ex.reps,
+                    order: i + 1
+                }))
+            };
+
+            await api.post('/fitness/plans', payload);
+            setAssignModalOpen(false);
+            alert(`Plan assigned to ${members.find(m => m.id === assignMemberId)?.full_name}`);
+            fetchData();
+        } catch {
+            alert("Failed to assign plan.");
+        }
     };
 
     const handleDelete = async (planId: string) => {
@@ -96,7 +183,7 @@ export default function WorkoutPlansPage() {
         try {
             await api.delete(`/fitness/plans/${planId}`);
             fetchData();
-        } catch (err) { alert("Failed to delete plan"); }
+        } catch { alert("Failed to delete plan"); }
     };
 
     const toggleExpand = (planId: string) => {
@@ -121,47 +208,45 @@ export default function WorkoutPlansPage() {
                 </button>
             </div>
 
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
-                {plans.map(plan => (
-                    <div key={plan.id} className="kpi-card">
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                {plans.map((plan) => (
+                    <div key={plan.id} className="kpi-card group relative">
                         <div className="flex justify-between items-start mb-4">
-                            <div className="icon-blue h-11 w-11 rounded-xl flex items-center justify-center">
-                                <Dumbbell size={20} className="text-white" />
+                            <div>
+                                <h3 className="text-lg font-bold text-foreground group-hover:text-primary transition-colors">{plan.name}</h3>
+                                <p className="text-xs text-muted-foreground mt-1 line-clamp-2">{plan.description}</p>
                             </div>
-                            <div className="flex items-center gap-2">
-                                <span className="text-xs font-medium text-[#6B6B6B] px-2.5 py-1 rounded-full" style={{ background: '#2a2a2a' }}>
-                                    {plan.exercises?.length || 0} Exercises
-                                </span>
-                                <button
-                                    onClick={() => handleDelete(plan.id)}
-                                    className="text-[#555] hover:text-[#f87171] transition-colors p-1"
-                                    title="Delete plan"
-                                >
-                                    <Trash2 size={14} />
-                                </button>
-                            </div>
+                            <span className="badge badge-orange rounded-sm">
+                                {plan.exercises?.length || 0} Ex
+                            </span>
                         </div>
-                        <h3 className="font-bold text-lg text-white mb-1">{plan.name}</h3>
-                        <p className="text-[#6B6B6B] text-sm mb-4 line-clamp-2">{plan.description}</p>
 
-                        {plan.exercises?.length > 0 && (
-                            <div className="space-y-1.5 mb-4">
-                                {(expandedPlan === plan.id ? plan.exercises : plan.exercises.slice(0, 3)).map((ex: any, i: number) => (
-                                    <div key={i} className="flex justify-between items-center text-xs px-3 py-1.5 rounded-lg" style={{ background: '#2a2a2a' }}>
-                                        <span className="text-[#A3A3A3]">{ex.exercise?.name || ex.exercise_name || ex.name || `Exercise ${i + 1}`}</span>
-                                        <div className="flex items-center gap-2">
-                                            {ex.exercise?.video_url && (
-                                                <a href={ex.exercise.video_url} target="_blank" rel="noopener" className="text-[#FF6B00] hover:text-[#FF8533]">
-                                                    <Video size={14} />
-                                                </a>
-                                            )}
-                                            <span className="text-[#6B6B6B]">{ex.sets}×{ex.reps}</span>
-                                        </div>
-                                    </div>
-                                ))}
-                            </div>
-                        )}
+                        <div className="space-y-2 mb-4">
+                            {plan.exercises?.slice(0, 3).map((ex, i: number) => (
+                                <div key={i} className="flex justify-between items-center text-xs px-3 py-1.5 rounded-sm bg-muted/30 border border-border">
+                                    <span className="text-foreground font-medium">{ex.exercise?.name || ex.name || 'Exercise'}</span>
+                                    <span className="text-muted-foreground font-mono">{ex.sets}x{ex.reps}</span>
+                                </div>
+                            ))}
+                            {plan.exercises?.length > 3 && (
+                                <p className="text-[10px] text-center text-muted-foreground font-mono uppercase tracking-wider">+{plan.exercises.length - 3} more</p>
+                            )}
+                        </div>
 
+                        <div className="flex gap-2 mt-4 pt-4 border-t border-border">
+                            <button onClick={() => handleEditClick(plan)} className="flex-1 btn-ghost text-xs py-1.5 h-8 hover:text-blue-400">
+                                <Pencil size={14} className="mr-1" /> Edit
+                            </button>
+                            <button onClick={() => openAssign(plan)} className="flex-1 btn-ghost text-xs py-1.5 h-8 hover:text-green-400">
+                                <UserPlus size={14} className="mr-1" /> Assign
+                            </button>
+                            <button
+                                onClick={() => handleDelete(plan.id)}
+                                className="flex-1 btn-ghost text-xs py-1.5 h-8 text-destructive hover:text-destructive hover:bg-destructive/10"
+                            >
+                                <Trash2 size={14} className="mr-1" /> Del
+                            </button>
+                        </div>
                         <div className="border-t border-white/5 pt-3">
                             <button
                                 onClick={() => toggleExpand(plan.id)}
@@ -185,25 +270,30 @@ export default function WorkoutPlansPage() {
                 )}
             </div>
 
-            {/* Create Plan Modal */}
+            {/* Create/Edit Plan Modal */}
             {showModal && (
-                <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center p-4 z-50">
-                    <div className="rounded-2xl p-6 w-full max-w-2xl max-h-[90vh] overflow-y-auto shadow-2xl" style={{ background: '#1e1e1e', border: '1px solid #333' }}>
-                        <h2 className="text-lg font-bold text-white mb-5">Create New Workout Plan</h2>
+                <div className="fixed inset-0 bg-background/80 backdrop-blur-sm flex items-center justify-center p-4 z-50">
+                    <div className="rounded-sm border border-border bg-card p-6 w-full max-w-2xl max-h-[90vh] overflow-y-auto shadow-lg">
+                        <div className="flex justify-between items-center mb-5">
+                            <h2 className="text-lg font-bold text-foreground">{editingPlan ? 'Edit Workout Plan' : 'Create New Workout Plan'}</h2>
+                            <button onClick={() => setShowModal(false)}><X size={20} className="text-muted-foreground" /></button>
+                        </div>
                         <form onSubmit={handleSubmit} className="space-y-5">
-                            <div className="grid grid-cols-2 gap-4">
+                            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                                 <div>
-                                    <label className="block text-xs font-medium text-[#6B6B6B] mb-1.5">Plan Name</label>
+                                    <label className="block text-xs font-medium text-muted-foreground mb-1.5">Plan Name</label>
                                     <input type="text" required className="input-dark" value={planName} onChange={e => setPlanName(e.target.value)} placeholder="e.g. Beginner Chest" />
                                 </div>
                                 <div>
-                                    <label className="block text-xs font-medium text-[#6B6B6B] mb-1.5">Description</label>
+                                    <label className="block text-xs font-medium text-muted-foreground mb-1.5">Description</label>
                                     <input type="text" className="input-dark" value={planDesc} onChange={e => setPlanDesc(e.target.value)} placeholder="Goal of this plan..." />
                                 </div>
                             </div>
-                            {members.length > 0 && (
+
+                            {/* Only show assignment on Create. On Edit, we might not want to change assignment easily here, or keep it optional. */}
+                            {!editingPlan && members.length > 0 && (
                                 <div>
-                                    <label className="block text-xs font-medium text-[#6B6B6B] mb-1.5">Assign to Member (optional)</label>
+                                    <label className="block text-xs font-medium text-muted-foreground mb-1.5">Assign to Member (optional)</label>
                                     <select className="input-dark" value={assignedMemberId} onChange={e => setAssignedMemberId(e.target.value)}>
                                         <option value="">Unassigned (template)</option>
                                         {members.map(m => (
@@ -214,11 +304,11 @@ export default function WorkoutPlansPage() {
                             )}
 
                             {/* Exercise Builder */}
-                            <div className="p-4 rounded-xl border border-[#333]" style={{ background: '#2a2a2a' }}>
-                                <h3 className="text-xs font-semibold text-[#6B6B6B] uppercase tracking-wider mb-3">Add Exercises</h3>
+                            <div className="p-4 rounded-sm border border-border bg-muted/20">
+                                <h3 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-3">Add Exercises</h3>
                                 <div className="flex gap-2 items-end">
                                     <div className="flex-1">
-                                        <label className="block text-xs font-medium text-[#555] mb-1">Exercise</label>
+                                        <label className="block text-xs font-medium text-muted-foreground mb-1">Exercise</label>
                                         <select className="input-dark" value={currentExId} onChange={e => setCurrentExId(e.target.value)}>
                                             <option value="">Select Exercise...</option>
                                             {exercises.map(ex => (
@@ -227,32 +317,32 @@ export default function WorkoutPlansPage() {
                                         </select>
                                     </div>
                                     <div className="w-20">
-                                        <label className="block text-xs font-medium text-[#555] mb-1">Sets</label>
+                                        <label className="block text-xs font-medium text-muted-foreground mb-1">Sets</label>
                                         <input type="number" className="input-dark text-center" value={currentSets} onChange={e => setCurrentSets(parseInt(e.target.value))} />
                                     </div>
                                     <div className="w-20">
-                                        <label className="block text-xs font-medium text-[#555] mb-1">Reps</label>
+                                        <label className="block text-xs font-medium text-muted-foreground mb-1">Reps</label>
                                         <input type="number" className="input-dark text-center" value={currentReps} onChange={e => setCurrentReps(parseInt(e.target.value))} />
                                     </div>
-                                    <button type="button" onClick={addExerciseToPlan} className="p-2.5 rounded-xl transition-colors" style={{ background: '#FF6B00' }}>
-                                        <Plus size={18} className="text-white" />
+                                    <button type="button" onClick={addExerciseToPlan} className="p-2.5 rounded-sm transition-colors btn-primary">
+                                        <Plus size={18} className="text-primary-foreground" />
                                     </button>
                                 </div>
                             </div>
 
                             {selectedExercises.length > 0 && (
                                 <div>
-                                    <h3 className="text-xs font-semibold text-[#6B6B6B] uppercase tracking-wider mb-2">Plan Content</h3>
+                                    <h3 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-2">Plan Content</h3>
                                     <ul className="space-y-2">
                                         {selectedExercises.map((ex, idx) => (
-                                            <li key={idx} className="flex justify-between items-center border border-[#333] p-3 rounded-xl text-sm" style={{ background: '#2a2a2a' }}>
+                                            <li key={idx} className="flex justify-between items-center border border-border p-3 rounded-sm text-sm bg-muted/10">
                                                 <div className="flex items-center gap-3">
-                                                    <span className="w-7 h-7 flex items-center justify-center rounded-lg text-xs font-bold" style={{ background: 'rgba(255,107,0,0.15)', color: '#FF6B00' }}>{idx + 1}</span>
-                                                    <span className="font-medium text-white">{ex.name}</span>
+                                                    <span className="w-7 h-7 flex items-center justify-center rounded-sm text-xs font-bold bg-primary/10 text-primary">{idx + 1}</span>
+                                                    <span className="font-medium text-foreground">{ex.name}</span>
                                                 </div>
                                                 <div className="flex items-center gap-4">
-                                                    <span className="text-[#6B6B6B] text-sm">{ex.sets} × {ex.reps}</span>
-                                                    <button type="button" onClick={() => setSelectedExercises(prev => prev.filter((_, i) => i !== idx))} className="text-[#555] hover:text-[#f87171] transition-colors">
+                                                    <span className="text-muted-foreground text-sm">{ex.sets} × {ex.reps}</span>
+                                                    <button type="button" onClick={() => setSelectedExercises(prev => prev.filter((_, i) => i !== idx))} className="text-muted-foreground hover:text-destructive transition-colors">
                                                         <Trash2 size={16} />
                                                     </button>
                                                 </div>
@@ -262,14 +352,41 @@ export default function WorkoutPlansPage() {
                                 </div>
                             )}
 
-                            <div className="flex justify-end gap-3 pt-4 border-t border-white/5">
+                            <div className="flex justify-end gap-3 pt-4 border-t border-border">
                                 <button type="button" onClick={() => setShowModal(false)} className="btn-ghost">Cancel</button>
-                                <button type="submit" className="btn-primary">Save Plan</button>
+                                <button type="submit" className="btn-primary"><Save size={16} /> {editingPlan ? 'Update Plan' : 'Save Plan'}</button>
                             </div>
                         </form>
                     </div>
                 </div>
             )}
+
+            {/* Assign Modal */}
+            <Modal isOpen={assignModalOpen} onClose={() => setAssignModalOpen(false)} title={`Assign: ${assigningPlan?.name}`}>
+                <form onSubmit={handleAssignSubmit} className="space-y-4">
+                    <p className="text-sm text-muted-foreground">
+                        Select a member to assign this workout plan to. A copy of the plan will be created for them.
+                    </p>
+                    <div>
+                        <label className="block text-xs font-medium text-muted-foreground mb-1.5">Member</label>
+                        <select
+                            required
+                            className="input-dark w-full"
+                            value={assignMemberId}
+                            onChange={e => setAssignMemberId(e.target.value)}
+                        >
+                            <option value="">Select Member...</option>
+                            {members.map(m => (
+                                <option key={m.id} value={m.id}>{m.full_name}</option>
+                            ))}
+                        </select>
+                    </div>
+                    <div className="flex justify-end gap-3 pt-4 border-t border-border">
+                        <button type="button" onClick={() => setAssignModalOpen(false)} className="btn-ghost">Cancel</button>
+                        <button type="submit" className="btn-primary"><UserPlus size={16} /> Assign Plan</button>
+                    </div>
+                </form>
+            </Modal>
         </div>
     );
 }

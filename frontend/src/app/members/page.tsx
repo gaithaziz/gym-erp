@@ -3,7 +3,10 @@
 import { useAuth } from '@/context/AuthContext';
 import { api } from '@/lib/api';
 import { useRouter } from 'next/navigation';
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useCallback } from 'react';
+
+
+import Modal from '@/components/Modal';
 
 interface User {
     id: string;
@@ -24,24 +27,24 @@ export default function MembersPage() {
     const [newName, setNewName] = useState('');
     const [newRole, setNewRole] = useState('CUSTOMER');
 
-    useEffect(() => {
-        if (!isLoading) {
-            if (!user) {
-                router.push('/login');
-            } else {
-                fetchMembers();
-            }
-        }
-    }, [user, isLoading, router]);
-
-    const fetchMembers = async () => {
+    const fetchMembers = useCallback(async () => {
         try {
             const res = await api.get('/auth/users');
             setMembers(res.data.data);
         } catch (err) {
             console.error("Failed to fetch members", err);
         }
-    };
+    }, []);
+
+    useEffect(() => {
+        if (!isLoading) {
+            if (!user) {
+                router.push('/login');
+            } else {
+                setTimeout(() => fetchMembers(), 0);
+            }
+        }
+    }, [user, isLoading, router, fetchMembers]);
 
     const handleAddMember = async (e: React.FormEvent) => {
         e.preventDefault();
@@ -62,45 +65,45 @@ export default function MembersPage() {
     };
 
     if (isLoading || !user) return (
-        <div className="flex h-screen items-center justify-center" style={{ background: '#111111' }}>
-            <div className="h-8 w-8 animate-spin rounded-full border-4 border-[#FF6B00] border-t-transparent" />
+        <div className="flex h-screen items-center justify-center bg-background">
+            <div className="h-8 w-8 animate-spin rounded-full border-2 border-primary border-t-transparent" />
         </div>
     );
 
     return (
-        <div className="min-h-screen p-8" style={{ background: '#111111' }}>
+        <div className="min-h-screen p-8 bg-background">
             <div className="flex justify-between items-center mb-8">
-                <h1 className="text-3xl font-bold text-white">Member Management</h1>
+                <h1 className="text-3xl font-bold text-foreground font-serif tracking-tight">Member Management</h1>
                 <button
                     onClick={() => setShowAddModal(true)}
-                    className="btn-primary"
+                    className="btn-primary rounded-sm shadow-none"
                 >
                     Add Member
                 </button>
             </div>
 
-            <div className="chart-card overflow-hidden !p-0">
+            <div className="rounded-sm border border-border bg-card overflow-hidden">
                 <table className="w-full table-dark">
                     <thead>
                         <tr>
-                            <th>Name</th>
-                            <th>Email</th>
-                            <th>Role</th>
-                            <th>Status</th>
+                            <th className="font-mono text-xs uppercase tracking-wider bg-muted/20">Name</th>
+                            <th className="font-mono text-xs uppercase tracking-wider bg-muted/20">Email</th>
+                            <th className="font-mono text-xs uppercase tracking-wider bg-muted/20">Role</th>
+                            <th className="font-mono text-xs uppercase tracking-wider bg-muted/20">Status</th>
                         </tr>
                     </thead>
-                    <tbody>
+                    <tbody className="divide-y divide-border">
                         {members.map((member) => (
-                            <tr key={member.id}>
-                                <td className="!text-white font-medium">{member.full_name}</td>
-                                <td>{member.email}</td>
+                            <tr key={member.id} className="hover:bg-muted/10 transition-colors">
+                                <td className="text-foreground font-medium">{member.full_name}</td>
+                                <td className="text-muted-foreground font-mono text-sm">{member.email}</td>
                                 <td>
-                                    <span className={`badge ${member.role === 'ADMIN' ? 'badge-blue' : 'badge-green'}`}>
+                                    <span className={`badge ${member.role === 'ADMIN' ? 'badge-blue' : 'badge-green'} rounded-sm`}>
                                         {member.role}
                                     </span>
                                 </td>
                                 <td>
-                                    <span className={`badge ${member.is_active ? 'badge-green' : 'badge-red'}`}>
+                                    <span className={`badge ${member.is_active ? 'badge-green' : 'badge-red'} rounded-sm`}>
                                         {member.is_active ? 'Active' : 'Inactive'}
                                     </span>
                                 </td>
@@ -111,29 +114,40 @@ export default function MembersPage() {
             </div>
 
             {/* Add Modal */}
-            {showAddModal && (
-                <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50">
-                    <div className="rounded-2xl p-8 w-96 shadow-2xl" style={{ background: '#1e1e1e', border: '1px solid #333' }}>
-                        <h2 className="text-xl font-bold text-white mb-4">Add New Member</h2>
-                        <form onSubmit={handleAddMember}>
-                            <div className="space-y-4">
-                                <input placeholder="Full Name" value={newName} onChange={e => setNewName(e.target.value)} className="input-dark" required />
-                                <input placeholder="Email" type="email" value={newEmail} onChange={e => setNewEmail(e.target.value)} className="input-dark" required />
-                                <input placeholder="Password" type="password" value={newPassword} onChange={e => setNewPassword(e.target.value)} className="input-dark" required />
-                                <select value={newRole} onChange={e => setNewRole(e.target.value)} className="input-dark">
-                                    <option value="CUSTOMER">Customer</option>
-                                    <option value="COACH">Coach</option>
-                                    <option value="ADMIN">Admin</option>
-                                </select>
-                                <div className="flex justify-end gap-2 mt-4">
-                                    <button type="button" onClick={() => setShowAddModal(false)} className="btn-ghost">Cancel</button>
-                                    <button type="submit" className="btn-primary">Save</button>
-                                </div>
-                            </div>
-                        </form>
+            <Modal
+                isOpen={showAddModal}
+                onClose={() => setShowAddModal(false)}
+                title="Add New Member"
+            >
+                <form onSubmit={handleAddMember}>
+                    <div className="space-y-4">
+                        <div>
+                            <label className="block text-xs font-bold text-muted-foreground mb-1.5 uppercase tracking-wider">Full Name</label>
+                            <input placeholder="Full Name" value={newName} onChange={e => setNewName(e.target.value)} className="input-dark rounded-sm" required />
+                        </div>
+                        <div>
+                            <label className="block text-xs font-bold text-muted-foreground mb-1.5 uppercase tracking-wider">Email</label>
+                            <input placeholder="Email" type="email" value={newEmail} onChange={e => setNewEmail(e.target.value)} className="input-dark rounded-sm" required />
+                        </div>
+                        <div>
+                            <label className="block text-xs font-bold text-muted-foreground mb-1.5 uppercase tracking-wider">Password</label>
+                            <input placeholder="Password" type="password" value={newPassword} onChange={e => setNewPassword(e.target.value)} className="input-dark rounded-sm" required />
+                        </div>
+                        <div>
+                            <label className="block text-xs font-bold text-muted-foreground mb-1.5 uppercase tracking-wider">Rule</label>
+                            <select value={newRole} onChange={e => setNewRole(e.target.value)} className="input-dark rounded-sm appearance-none">
+                                <option value="CUSTOMER">Customer</option>
+                                <option value="COACH">Coach</option>
+                                <option value="ADMIN">Admin</option>
+                            </select>
+                        </div>
+                        <div className="flex justify-end gap-2 mt-6">
+                            <button type="button" onClick={() => setShowAddModal(false)} className="px-4 py-2 text-sm font-medium text-muted-foreground hover:text-foreground transition-colors">Cancel</button>
+                            <button type="submit" className="btn-primary rounded-sm shadow-none">Save Member</button>
+                        </div>
                     </div>
-                </div>
-            )}
+                </form>
+            </Modal>
         </div>
     );
 }

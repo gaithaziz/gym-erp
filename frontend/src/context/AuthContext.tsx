@@ -1,7 +1,6 @@
 'use client';
 
 import React, { createContext, useContext, useState, useEffect } from 'react';
-import { api } from '@/lib/api';
 import { useRouter } from 'next/navigation';
 
 interface User {
@@ -30,9 +29,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         const storedUser = localStorage.getItem('user');
 
         if (token && storedUser) {
-            setUser(JSON.parse(storedUser));
+            setTimeout(() => setUser(JSON.parse(storedUser)), 0);
         }
-        setIsLoading(false);
+        setTimeout(() => setIsLoading(false), 0);
     }, []);
 
     const login = (token: string, userData: User) => {

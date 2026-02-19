@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import { api } from '@/lib/api';
-import { Clock, Edit2, Check, X } from 'lucide-react';
+import { Check, X, Edit2 } from 'lucide-react';
 
 interface AttendanceLog {
     id: string;
@@ -20,15 +20,15 @@ export default function AttendancePage() {
     const [editIn, setEditIn] = useState('');
     const [editOut, setEditOut] = useState('');
 
-    useEffect(() => { fetchLogs(); }, []);
-
     const fetchLogs = async () => {
         try {
             const res = await api.get('/hr/attendance');
             setLogs(res.data.data);
-        } catch (err) { console.error(err); }
+        } catch { }
         setLoading(false);
     };
+
+    useEffect(() => { setTimeout(() => fetchLogs(), 0); }, []);
 
     const startEdit = (log: AttendanceLog) => {
         setEditingId(log.id);
@@ -45,7 +45,7 @@ export default function AttendancePage() {
             });
             setEditingId(null);
             fetchLogs();
-        } catch (err) { alert('Failed to update'); }
+        } catch { alert('Failed to update'); }
     };
 
     const fmt = (iso: string | null) => {

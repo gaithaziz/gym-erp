@@ -32,7 +32,8 @@ export default function QRCodePage() {
         }
         const timer = setTimeout(() => setCountdown(c => c - 1), 1000);
         return () => clearTimeout(timer);
-    }, [countdown, fetchQR]);
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [countdown]);
 
     if (loading) return (
         <div className="flex h-64 items-center justify-center">
@@ -43,21 +44,21 @@ export default function QRCodePage() {
     return (
         <div className="max-w-md mx-auto text-center space-y-8 py-12">
             <div>
-                <h1 className="text-2xl font-bold text-white">Your Access QR Code</h1>
-                <p className="text-sm text-[#6B6B6B] mt-1">Show this code at the gym entrance</p>
+                <h1 className="text-2xl font-bold text-foreground">Your Access QR Code</h1>
+                <p className="text-sm text-muted-foreground mt-1">Show this code at the gym entrance</p>
             </div>
 
             <div className="kpi-card p-8 flex flex-col items-center gap-6">
-                <div className="h-48 w-48 rounded-2xl border-2 border-[#333] flex items-center justify-center p-4" style={{ background: '#f5f5f5' }}>
+                <div className="h-48 w-48 rounded-sm border-2 border-border flex items-center justify-center p-4 bg-white">
                     {qrToken ? (
                         <div className="text-center">
-                            <QrCode size={100} className="text-[#111] mx-auto mb-2" />
-                            <p className="text-[8px] text-[#999] font-mono break-all leading-tight">
+                            <QrCode size={100} className="text-black mx-auto mb-2" />
+                            <p className="text-[8px] text-zinc-500 font-mono break-all leading-tight">
                                 {qrToken.slice(0, 40)}...
                             </p>
                         </div>
                     ) : (
-                        <p className="text-[#999]">No QR Available</p>
+                        <p className="text-muted-foreground">No QR Available</p>
                     )}
                 </div>
 
@@ -65,30 +66,30 @@ export default function QRCodePage() {
                 <div className="flex items-center gap-3">
                     <div className="relative h-10 w-10">
                         <svg className="h-10 w-10 -rotate-90" viewBox="0 0 40 40">
-                            <circle cx="20" cy="20" r="16" fill="none" stroke="#2a2a2a" strokeWidth="3" />
+                            <circle cx="20" cy="20" r="16" fill="none" className="stroke-muted" strokeWidth="3" />
                             <circle
                                 cx="20" cy="20" r="16"
                                 fill="none"
-                                stroke={countdown > 10 ? '#FF6B00' : '#ef4444'}
+                                stroke={countdown > 10 ? 'var(--primary)' : 'var(--destructive)'}
                                 strokeWidth="3"
                                 strokeDasharray={`${(countdown / expiresIn) * 100.53} 100.53`}
                                 strokeLinecap="round"
                                 className="transition-all duration-1000"
                             />
                         </svg>
-                        <span className="absolute inset-0 flex items-center justify-center text-xs font-bold text-white">
+                        <span className="absolute inset-0 flex items-center justify-center text-xs font-bold text-foreground">
                             {countdown}
                         </span>
                     </div>
                     <div className="text-left">
-                        <p className="text-sm font-medium text-[#A3A3A3]">Refreshes in {countdown}s</p>
-                        <p className="text-xs text-[#6B6B6B]">Auto-refreshes every {expiresIn}s</p>
+                        <p className="text-sm font-medium text-foreground">Refreshes in {countdown}s</p>
+                        <p className="text-xs text-muted-foreground">Auto-refreshes every {expiresIn}s</p>
                     </div>
                 </div>
 
                 <button
                     onClick={fetchQR}
-                    className="flex items-center gap-2 text-sm text-[#FF6B00] hover:text-[#FF8533] transition-colors"
+                    className="flex items-center gap-2 text-sm text-primary hover:text-primary/80 transition-colors"
                 >
                     <RefreshCw size={14} />
                     Refresh Now
