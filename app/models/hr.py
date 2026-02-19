@@ -44,6 +44,7 @@ class Payroll(Base):
     base_pay: Mapped[float] = mapped_column(Float, default=0.0)
     overtime_hours: Mapped[float] = mapped_column(Float, default=0.0)
     overtime_pay: Mapped[float] = mapped_column(Float, default=0.0)
+    commission_pay: Mapped[float] = mapped_column(Float, default=0.0)
     total_pay: Mapped[float] = mapped_column(Float, default=0.0)
     
     status: Mapped[PayrollStatus] = mapped_column(SAEnum(PayrollStatus, native_enum=False), default=PayrollStatus.DRAFT, nullable=False)

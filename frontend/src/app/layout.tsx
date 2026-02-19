@@ -24,6 +24,13 @@ export default function RootLayout({
 }: Readonly<{
   children: React.ReactNode;
 }>) {
+  // Register Service Worker
+  if (typeof window !== 'undefined' && 'serviceWorker' in navigator) {
+    navigator.serviceWorker.register('/sw.js')
+      .then(reg => console.log('SW Registered', reg))
+      .catch(err => console.log('SW Failed', err));
+  }
+
   return (
     <html lang="en">
       <body

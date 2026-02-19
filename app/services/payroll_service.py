@@ -7,7 +7,19 @@ from app.models.access import AttendanceLog
 
 class PayrollService:
     @staticmethod
-    async def calculate_payroll(user_id: uuid.UUID, month: int, year: int, db: AsyncSession) -> Payroll:
+    async def calculate_payroll(user_id: uuid.UUID, month: int, year: int, sales_volume: float, db: AsyncSession) -> Payroll:
+        # ... (lines 11-39 same) ...
+        
+        # 3. Calculate Hours (re-fetching context for diff stability, assuming surrounding lines exist)
+        # Note: I'll use a larger chunk to be safe or just target the specific lines if I can.
+        # Let's replace the signature first, then the logic.
+        pass
+
+    # Actually, let's do it in one chunk if possible or multiple.
+    # The tool suggests using multi_replace or careful replace.
+    # I will replace the whole function content or key parts.
+    # Let's replace the signature first.
+
         # 1. Fetch Contract
         stmt = select(Contract).where(Contract.user_id == user_id)
         result = await db.execute(stmt)
@@ -72,20 +84,16 @@ class PayrollService:
             
         elif contract.contract_type == ContractType.HYBRID:
             # Base + Commission
-            # Ideally commission comes from sales tracking. 
-            # For now, we will trust the base_salary is the Fixed Part, 
-            # AND we need a way to input "Sales Amount" or "Commission Amount" for this month.
-            # Since we don't have a Sales module yet, we will assume:
-            # base_pay = contract.base_salary
-            # And user will manually edit the Payroll later or we pass it in (TODO: Add sales_commission input to calculate_payroll)
             base_pay = contract.base_salary
             
-            # Placeholder for commission calculation
-            # commission = sales_volume * contract.commission_rate
-            # For this Phase 1, we just set base.
-            pass
+            # Commission calculation
+            # commission_pay = sales_volume * commission_rate
+            commission_pay = sales_volume * contract.commission_rate
             
-        total_pay = base_pay + overtime_pay
+            total_pay = base_pay + commission_pay
+
+        else:   
+            total_pay = base_pay + overtime_pay
         
         # 4. Create/Update Payroll Record
         # Check if exists
@@ -112,6 +120,7 @@ class PayrollService:
                 overtime_hours=round(overtime_hours, 2),
                 overtime_pay=round(overtime_pay, 2),
                 total_pay=round(total_pay, 2),
+                commission_pay=round(commission_pay if 'commission_pay' in locals() else 0.0, 2),
                 status=PayrollStatus.DRAFT
             )
             db.add(payroll)

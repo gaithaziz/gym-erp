@@ -31,6 +31,7 @@ class PayrollRequest(BaseModel):
     user_id: uuid.UUID
     month: int = Field(..., ge=1, le=12)
     year: int = Field(..., ge=2000, le=2100)
+    sales_volume: float = 0.0 # Input for commission calculation
 
 @router.post("/contracts", response_model=StandardResponse)
 async def create_contract(
@@ -72,7 +73,7 @@ async def generate_payroll(
     current_user: Annotated[User, Depends(dependencies.RoleChecker([Role.ADMIN]))],
     db: Annotated[AsyncSession, Depends(get_db)]
 ):
-    payroll = await PayrollService.calculate_payroll(request.user_id, request.month, request.year, db)
+    payroll = await PayrollService.calculate_payroll(request.user_id, request.month, request.year, request.sales_volume, db)
     return StandardResponse(
         message=f"Payroll generated for {request.month}/{request.year}",
         data={

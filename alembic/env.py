@@ -10,6 +10,14 @@ from alembic import context
 from app.database import Base
 from app.config import settings
 
+# Import all models to ensure they are attached to Base.metadata
+from app.models.user import User
+from app.models.access import AccessLog, AttendanceLog, Subscription
+from app.models.hr import Contract, Payroll
+from app.models.finance import Transaction
+from app.models.fitness import Exercise, WorkoutPlan, DietPlan
+from app.models.workout_log import WorkoutLog
+
 
 # this is the Alembic Config object, which provides
 # access to the values within the .ini file in use.
