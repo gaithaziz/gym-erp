@@ -15,6 +15,16 @@ class PayrollStatus(str, Enum):
     DRAFT = "DRAFT"
     PAID = "PAID"
 
+class LeaveStatus(str, Enum):
+    PENDING = "PENDING"
+    APPROVED = "APPROVED"
+    DENIED = "DENIED"
+
+class LeaveType(str, Enum):
+    SICK = "SICK"
+    VACATION = "VACATION"
+    OTHER = "OTHER"
+
 class Contract(Base):
     __tablename__ = "contracts"
 
@@ -45,8 +55,26 @@ class Payroll(Base):
     overtime_hours: Mapped[float] = mapped_column(Float, default=0.0)
     overtime_pay: Mapped[float] = mapped_column(Float, default=0.0)
     commission_pay: Mapped[float] = mapped_column(Float, default=0.0)
+    bonus_pay: Mapped[float] = mapped_column(Float, default=0.0)
+    deductions: Mapped[float] = mapped_column(Float, default=0.0)
     total_pay: Mapped[float] = mapped_column(Float, default=0.0)
     
     status: Mapped[PayrollStatus] = mapped_column(SAEnum(PayrollStatus, native_enum=False), default=PayrollStatus.DRAFT, nullable=False)
 
+    user = relationship("User")
+
+class LeaveRequest(Base):
+    __tablename__ = "leave_requests"
+    
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
+    user_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id"), nullable=False)
+    
+    start_date: Mapped[date] = mapped_column(Date, nullable=False)
+    end_date: Mapped[date] = mapped_column(Date, nullable=False)
+    
+    leave_type: Mapped[LeaveType] = mapped_column(SAEnum(LeaveType, native_enum=False), default=LeaveType.SICK, nullable=False)
+    status: Mapped[LeaveStatus] = mapped_column(SAEnum(LeaveStatus, native_enum=False), default=LeaveStatus.PENDING, nullable=False)
+    
+    reason: Mapped[str] = mapped_column(nullable=True)
+    
     user = relationship("User")

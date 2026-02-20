@@ -134,12 +134,14 @@ body {
   /* Hard edges */
   padding: 1.5rem;
   position: relative;
+  transition: border-color 0.2s ease, transform 0.2s ease;
   /* No box-shadow or transition for hover glow */
 }
 
 /* Interactive Elements: Hover effects are change in brightness or border color, not glow */
 .kpi-card:hover {
   border-color: var(--primary);
+  transform: translateY(-2px);
 }
 
 /* Buttons: Solid, utilitarian */
@@ -157,15 +159,43 @@ body {
   font-weight: 600;
   border: none;
   cursor: pointer;
-  transition: opacity 0.2s ease;
+  transition: opacity 0.2s ease, transform 0.1s ease;
+}
+
+.btn-primary:active {
+  transform: scale(0.97);
 }
 
 .btn-primary:hover {
   opacity: 0.9;
-  transform: none;
-  /* No movement */
   box-shadow: none;
   /* No glow */
+}
+
+/* Secondary / Ghost Buttons */
+.btn-ghost {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  background: transparent;
+  color: var(--muted-foreground);
+  padding: 0.625rem 1.25rem;
+  border-radius: 2px;
+  font-size: 0.875rem;
+  font-weight: 600;
+  border: none;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.btn-ghost:active {
+  transform: scale(0.97);
+}
+
+.btn-ghost:hover {
+  color: var(--foreground);
+  background: var(--muted);
 }
 
 /* Inputs: Flat */

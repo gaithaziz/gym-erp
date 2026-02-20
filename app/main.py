@@ -11,6 +11,7 @@ from app.routers.analytics import router as analytics_router
 from app.routers.gamification import router as gamification_router
 from app.routers.inventory import router as inventory_router
 from app.routers.users import router as users_router
+from app.routers.audit import router as audit_router
 from app.core import exceptions
 
 from fastapi.middleware.cors import CORSMiddleware
@@ -44,6 +45,7 @@ app.include_router(analytics_router, prefix=f"{settings.API_V1_STR}/analytics", 
 app.include_router(gamification_router, prefix=f"{settings.API_V1_STR}/gamification", tags=["Gamification"])
 app.include_router(inventory_router, prefix=f"{settings.API_V1_STR}/inventory", tags=["Inventory"])
 app.include_router(users_router, prefix=f"{settings.API_V1_STR}/users", tags=["Users"])
+app.include_router(audit_router, prefix=f"{settings.API_V1_STR}/audit", tags=["Audit"])
 
 @app.get("/health")
 async def health_check():

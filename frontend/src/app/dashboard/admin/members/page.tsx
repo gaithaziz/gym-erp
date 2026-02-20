@@ -204,7 +204,7 @@ export default function MembersPage() {
                                                 className="btn-ghost py-1 px-2 h-auto text-xs"
                                                 title="Manage Subscription"
                                             >
-                                                <Shield size={14} className="mr-1" /> Sub
+                                                <Shield size={14} /> Sub
                                             </button>
                                             <button
                                                 onClick={() => openEdit(m)}

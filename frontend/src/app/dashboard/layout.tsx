@@ -19,6 +19,7 @@ import {
     Trophy,
     Package,
     ShoppingCart,
+    ShieldAlert
 } from "lucide-react";
 import { ThemeToggle } from "@/components/ThemeToggle";
 import { useEffect, useState } from 'react';
@@ -61,14 +62,17 @@ export default function DashboardLayout({
         { href: '/dashboard/admin/members', label: 'Members', icon: UserCheck, roles: ['ADMIN'] },
         { href: '/dashboard/admin/staff', label: 'Staff', icon: Users, roles: ['ADMIN'] },
         { href: '/dashboard/admin/staff/attendance', label: 'Attendance', icon: ClipboardList, roles: ['ADMIN'] },
+        { href: '/dashboard/admin/leaves', label: 'HR Leaves', icon: ClipboardList, roles: ['ADMIN'] },
         { href: '/dashboard/admin/finance', label: 'Financials', icon: Wallet, roles: ['ADMIN'] },
         { href: '/dashboard/admin/scanner', label: 'Scanner', icon: QrCode, roles: ['ADMIN'] },
         { href: '/dashboard/admin/inventory', label: 'Inventory', icon: Package, roles: ['ADMIN'] },
         { href: '/dashboard/admin/pos', label: 'POS', icon: ShoppingCart, roles: ['ADMIN'] },
+        { href: '/dashboard/admin/audit', label: 'Audit Logs', icon: ShieldAlert, roles: ['ADMIN'] },
         { href: '/dashboard/coach/plans', label: 'Workout Plans', icon: Dumbbell, roles: ['ADMIN', 'COACH'] },
         { href: '/dashboard/coach/diets', label: 'Diet Plans', icon: Utensils, roles: ['ADMIN', 'COACH'] },
         { href: '/dashboard/coach/feedback', label: 'Feedback', icon: MessageSquare, roles: ['ADMIN', 'COACH'] },
         { href: '/dashboard/qr', label: 'My QR Code', icon: QrCode, roles: ['CUSTOMER', 'COACH', 'ADMIN'] },
+        { href: '/dashboard/leaves', label: 'My Leaves', icon: ClipboardList, roles: ['ADMIN', 'COACH'] },
         { href: '/dashboard/member/profile', label: 'My Profile', icon: UserCheck, roles: ['CUSTOMER'] },
         { href: '/dashboard/member/history', label: 'History', icon: ClipboardList, roles: ['CUSTOMER'] },
         { href: '/dashboard/member/achievements', label: 'Achievements', icon: Trophy, roles: ['CUSTOMER'] },

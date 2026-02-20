@@ -9,9 +9,10 @@ from app.database import get_db
 from app.auth import dependencies
 from app.models.user import User
 from app.models.enums import Role
-from app.models.hr import Contract, Payroll, ContractType
+from app.models.hr import Contract, Payroll, ContractType, LeaveRequest, LeaveType, LeaveStatus
 from app.models.access import AttendanceLog
 from app.services.payroll_service import PayrollService
+from app.services.audit_service import AuditService
 from app.core.responses import StandardResponse
 import uuid
 
@@ -32,6 +33,15 @@ class PayrollRequest(BaseModel):
     month: int = Field(..., ge=1, le=12)
     year: int = Field(..., ge=2000, le=2100)
     sales_volume: float = 0.0 # Input for commission calculation
+
+class LeaveRequestCreate(BaseModel):
+    start_date: date
+    end_date: date
+    leave_type: LeaveType
+    reason: Optional[str] = None
+
+class LeaveRequestUpdate(BaseModel):
+    status: LeaveStatus
 
 @router.post("/contracts", response_model=StandardResponse)
 async def create_contract(
@@ -65,6 +75,16 @@ async def create_contract(
         msg = "Contract Created"
         
     await db.commit()
+    
+    await AuditService.log_action(
+        db=db,
+        user_id=current_user.id,
+        action="UPDATE_CONTRACT" if existing else "CREATE_CONTRACT",
+        target_id=str(contract_data.user_id),
+        details=f"Type: {contract_data.contract_type.value}, Base: {contract_data.base_salary}"
+    )
+    await db.commit() # Commit the audit log
+    
     return StandardResponse(message=msg)
 
 @router.post("/payroll/generate", response_model=StandardResponse)
@@ -77,6 +97,7 @@ async def generate_payroll(
     return StandardResponse(
         message=f"Payroll generated for {request.month}/{request.year}",
         data={
+            "id": str(payroll.id),
             "user_id": str(payroll.user_id),
             "base_pay": payroll.base_pay,
             "overtime_pay": payroll.overtime_pay,
@@ -100,12 +121,56 @@ async def get_payrolls(
     
     return StandardResponse(data=[
         {
+            "id": str(p.id),
             "month": p.month,
             "year": p.year,
             "total_pay": p.total_pay,
             "status": p.status
         } for p in payrolls
     ])
+
+@router.get("/payroll/{payroll_id}/payslip", response_model=StandardResponse)
+async def generate_payslip(
+    payroll_id: uuid.UUID,
+    current_user: Annotated[User, Depends(dependencies.get_current_active_user)],
+    db: Annotated[AsyncSession, Depends(get_db)]
+):
+    """Generate a simple JSON layout for a printable payslip."""
+    stmt = select(Payroll).where(Payroll.id == payroll_id)
+    result = await db.execute(stmt)
+    payroll = result.scalar_one_or_none()
+    
+    if not payroll:
+        raise HTTPException(status_code=404, detail="Payroll record not found")
+        
+    if current_user.role != Role.ADMIN and current_user.id != payroll.user_id:
+        raise HTTPException(status_code=403, detail="Cannot access this payslip")
+        
+    # Get user and contract info
+    user_stmt = select(User).where(User.id == payroll.user_id)
+    u_res = await db.execute(user_stmt)
+    u = u_res.scalar_one_or_none()
+    
+    contract_stmt = select(Contract).where(Contract.user_id == payroll.user_id)
+    c_res = await db.execute(contract_stmt)
+    c = c_res.scalar_one_or_none()
+    
+    payslip_data = {
+        "payslip_id": str(payroll.id).split('-')[0].upper(),
+        "employee_name": u.full_name if u else "Unknown",
+        "email": u.email if u else "Unknown",
+        "period": f"{payroll.month:02d}/{payroll.year}",
+        "base_pay": payroll.base_pay,
+        "overtime_pay": payroll.overtime_pay,
+        "bonus_pay": payroll.bonus_pay,
+        "deductions": payroll.deductions,
+        "total_pay": payroll.total_pay,
+        "status": payroll.status,
+        "contract_type": c.contract_type.value if c else "Unknown",
+        "generated_on": datetime.now().isoformat()
+    }
+    
+    return StandardResponse(data=payslip_data)
 
 @router.get("/staff", response_model=StandardResponse)
 async def get_staff(
@@ -293,6 +358,16 @@ async def create_subscription(
         msg = "Subscription created"
 
     await db.commit()
+    
+    await AuditService.log_action(
+        db=db,
+        user_id=current_user.id,
+        action="RENEW_SUBSCRIPTION" if existing else "CREATE_SUBSCRIPTION",
+        target_id=str(data.user_id),
+        details=f"Plan: {data.plan_name}, Duration: {data.duration_days} days"
+    )
+    await db.commit()
+
     return StandardResponse(message=msg)
 
 
@@ -315,7 +390,104 @@ async def update_subscription(
 
     sub.status = SubscriptionStatus(data.status)
     await db.commit()
+    
+    await AuditService.log_action(
+        db=db,
+        user_id=current_user.id,
+        action="UPDATE_SUBSCRIPTION_STATUS",
+        target_id=str(user_id),
+        details=f"Status changed to {data.status}"
+    )
+    await db.commit()
+    
     return StandardResponse(message=f"Subscription status updated to {data.status}")
 
 
 
+
+
+@router.post("/leaves", response_model=StandardResponse)
+async def create_leave_request(
+    request: LeaveRequestCreate,
+    current_user: Annotated[User, Depends(dependencies.get_current_active_user)],
+    db: Annotated[AsyncSession, Depends(get_db)]
+):
+    """Employee requests leave"""
+    leave = LeaveRequest(
+        user_id=current_user.id,
+        start_date=request.start_date,
+        end_date=request.end_date,
+        leave_type=request.leave_type,
+        status=LeaveStatus.PENDING,
+        reason=request.reason
+    )
+    db.add(leave)
+    await db.commit()
+    await AuditService.log_action(db, current_user.id, "LEAVE_REQUESTED", f"Requested leave from {request.start_date} to {request.end_date}")
+    return StandardResponse(message="Leave requested successfully")
+
+@router.get("/leaves", response_model=StandardResponse)
+async def get_all_leaves(
+    current_user: Annotated[User, Depends(dependencies.RoleChecker([Role.ADMIN]))],
+    db: Annotated[AsyncSession, Depends(get_db)]
+):
+    """Admin gets all leaves"""
+    stmt = select(LeaveRequest, User).join(User, LeaveRequest.user_id == User.id).order_by(LeaveRequest.start_date.desc())
+    res = await db.execute(stmt)
+    records = res.all()
+    
+    data = []
+    for leave, user in records:
+        data.append({
+            "id": str(leave.id),
+            "user_id": str(leave.user_id),
+            "user_name": user.full_name,
+            "start_date": leave.start_date.isoformat(),
+            "end_date": leave.end_date.isoformat(),
+            "leave_type": leave.leave_type.value,
+            "status": leave.status.value,
+            "reason": leave.reason
+        })
+    return StandardResponse(data=data)
+
+@router.get("/leaves/me", response_model=StandardResponse)
+async def get_my_leaves(
+    current_user: Annotated[User, Depends(dependencies.get_current_active_user)],
+    db: Annotated[AsyncSession, Depends(get_db)]
+):
+    """Employee gets their own leaves"""
+    stmt = select(LeaveRequest).where(LeaveRequest.user_id == current_user.id).order_by(LeaveRequest.start_date.desc())
+    res = await db.execute(stmt)
+    leaves = res.scalars().all()
+    
+    data = [{
+        "id": str(l.id),
+        "start_date": l.start_date.isoformat(),
+        "end_date": l.end_date.isoformat(),
+        "leave_type": l.leave_type.value,
+        "status": l.status.value,
+        "reason": l.reason
+    } for l in leaves]
+    return StandardResponse(data=data)
+
+@router.put("/leaves/{leave_id}", response_model=StandardResponse)
+async def update_leave_status(
+    leave_id: uuid.UUID,
+    request: LeaveRequestUpdate,
+    current_user: Annotated[User, Depends(dependencies.RoleChecker([Role.ADMIN]))],
+    db: Annotated[AsyncSession, Depends(get_db)]
+):
+    """Admin updates leave status"""
+    stmt = select(LeaveRequest).where(LeaveRequest.id == leave_id)
+    res = await db.execute(stmt)
+    leave = res.scalar_one_or_none()
+    
+    if not leave:
+        raise HTTPException(status_code=404, detail="Leave request not found")
+        
+    old_status = leave.status
+    leave.status = request.status
+    await db.commit()
+    
+    await AuditService.log_action(db, current_user.id, "LEAVE_STATUS_UPDATED", f"Leave {leave_id} status changed from {old_status} to {request.status}")
+    return StandardResponse(message=f"Leave status updated to {request.status.value}")

@@ -53,6 +53,8 @@ class PayrollService:
         overtime_pay = 0.0
         overtime_hours = 0.0
         commission_pay = 0.0
+        bonus_pay = 0.0
+        deductions = 0.0
         
         if contract.contract_type == ContractType.FULL_TIME:
             # Fixed Base Salary
@@ -84,8 +86,33 @@ class PayrollService:
             # Commission calculation
             commission_pay = sales_volume * contract.commission_rate
             
+        # Calculate Unpaid Leave Deductions
+        from app.models.hr import LeaveRequest, LeaveStatus
+        from datetime import timedelta
+        
+        stmt_leave = select(LeaveRequest).where(
+            LeaveRequest.user_id == user_id,
+            LeaveRequest.status == LeaveStatus.APPROVED,
+            LeaveRequest.start_date < end_date.date(),
+            LeaveRequest.end_date >= start_date.date()
+        )
+        res_leave = await db.execute(stmt_leave)
+        leaves = res_leave.scalars().all()
+        
+        leave_days = 0
+        for l in leaves:
+            l_start = max(l.start_date, start_date.date())
+            month_end_date = end_date.date() - timedelta(days=1)
+            l_end = min(l.end_date, month_end_date)
+            if l_end >= l_start:
+                leave_days += (l_end - l_start).days + 1
+        
+        if leave_days > 0 and contract.contract_type in [ContractType.FULL_TIME, ContractType.HYBRID]:
+            daily_rate = contract.base_salary / 30.0
+            deductions = leave_days * daily_rate
+            
         # Calculate Total Pay
-        total_pay = base_pay + overtime_pay + commission_pay
+        total_pay = base_pay + overtime_pay + commission_pay + bonus_pay - deductions
         
         # 4. Create/Update Payroll Record
         # Check if exists
@@ -102,8 +129,10 @@ class PayrollService:
             payroll.base_pay = round(base_pay, 2)
             payroll.overtime_hours = round(overtime_hours, 2)
             payroll.overtime_pay = round(overtime_pay, 2)
-            payroll.total_pay = round(total_pay, 2)
             payroll.commission_pay = round(commission_pay, 2)
+            payroll.bonus_pay = round(bonus_pay, 2)
+            payroll.deductions = round(deductions, 2)
+            payroll.total_pay = round(total_pay, 2)
         else:
             payroll = Payroll(
                 user_id=user_id,
@@ -114,6 +143,8 @@ class PayrollService:
                 overtime_pay=round(overtime_pay, 2),
                 total_pay=round(total_pay, 2),
                 commission_pay=round(commission_pay, 2),
+                bonus_pay=round(bonus_pay, 2),
+                deductions=round(deductions, 2),
                 status=PayrollStatus.DRAFT
             )
             db.add(payroll)

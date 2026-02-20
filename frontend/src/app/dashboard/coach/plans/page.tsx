@@ -37,6 +37,7 @@ interface Plan {
         exercise?: { name: string; id: string };
         exercise_id?: string;
     }[];
+    member_id?: string | null;
 }
 
 export default function WorkoutPlansPage() {
@@ -207,8 +208,11 @@ export default function WorkoutPlansPage() {
                 </button>
             </div>
 
+            <div className="flex justify-between items-center mt-8 mb-4">
+                <h2 className="text-xl font-bold text-foreground">Workout Templates</h2>
+            </div>
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-                {plans.map((plan) => (
+                {plans.filter(p => !p.member_id).map((plan) => (
                     <div key={plan.id} className="kpi-card group relative">
                         <div className="flex justify-between items-start mb-4">
                             <div>
@@ -232,18 +236,29 @@ export default function WorkoutPlansPage() {
                             )}
                         </div>
 
+                        {expandedPlan === plan.id && (
+                            <div className="mb-4 space-y-2 border-t border-border pt-3">
+                                {plan.exercises?.slice(3).map((ex, i: number) => (
+                                    <div key={i + 3} className="flex justify-between items-center text-xs px-3 py-1.5 rounded-sm bg-muted/30 border border-border">
+                                        <span className="text-foreground font-medium">{ex.exercise?.name || ex.name || 'Exercise'}</span>
+                                        <span className="text-muted-foreground font-mono">{ex.sets}x{ex.reps}</span>
+                                    </div>
+                                ))}
+                            </div>
+                        )}
+
                         <div className="flex gap-2 mt-4 pt-4 border-t border-border">
                             <button onClick={() => handleEditClick(plan)} className="flex-1 btn-ghost text-xs py-1.5 h-8 hover:text-blue-400">
-                                <Pencil size={14} className="mr-1" /> Edit
+                                <Pencil size={14} /> Edit
                             </button>
                             <button onClick={() => openAssign(plan)} className="flex-1 btn-ghost text-xs py-1.5 h-8 hover:text-green-400">
-                                <UserPlus size={14} className="mr-1" /> Assign
+                                <UserPlus size={14} /> Assign
                             </button>
                             <button
                                 onClick={() => handleDelete(plan.id)}
                                 className="flex-1 btn-ghost text-xs py-1.5 h-8 text-destructive hover:text-destructive hover:bg-destructive/10"
                             >
-                                <Trash2 size={14} className="mr-1" /> Del
+                                <Trash2 size={14} /> Del
                             </button>
                         </div>
                         <div className="border-t border-white/5 pt-3">
@@ -261,10 +276,50 @@ export default function WorkoutPlansPage() {
                     </div>
                 ))}
 
-                {plans.length === 0 && (
+                {plans.filter(p => !p.member_id).length === 0 && (
                     <div className="col-span-full text-center py-16 chart-card border-dashed !border-[#333]">
                         <Dumbbell size={40} className="mx-auto text-[#333] mb-3" />
-                        <p className="text-[#6B6B6B] text-sm">No workout plans yet. Create your first one!</p>
+                        <p className="text-[#6B6B6B] text-sm">No workout templates yet. Create your first one!</p>
+                    </div>
+                )}
+            </div>
+
+            <div className="flex justify-between items-center mt-12 mb-4 border-t border-border pt-8">
+                <h2 className="text-xl font-bold text-foreground">Active Assigned Plans</h2>
+            </div>
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                {plans.filter(p => p.member_id).map((plan) => (
+                    <div key={plan.id} className="kpi-card group relative border-l-4 border-l-emerald-500">
+                        <div className="flex justify-between items-start mb-2">
+                            <div>
+                                <h3 className="text-lg font-bold text-foreground">{plan.name}</h3>
+                                <div className="text-xs text-muted-foreground mt-1 flex items-center gap-1">
+                                    <span className="text-emerald-500 font-medium">Assigned to:</span>
+                                    {members.find(m => m.id === plan.member_id)?.full_name || 'Unknown Member'}
+                                </div>
+                            </div>
+                            <span className="badge badge-gray rounded-sm">
+                                {plan.exercises?.length || 0} Ex
+                            </span>
+                        </div>
+
+                        <div className="flex gap-2 mt-4 pt-4 border-t border-border">
+                            <button onClick={() => handleEditClick(plan)} className="flex-1 btn-ghost text-xs py-1.5 h-8 hover:text-blue-400">
+                                <Pencil size={14} /> Edit
+                            </button>
+                            <button
+                                onClick={() => handleDelete(plan.id)}
+                                className="flex-1 btn-ghost text-xs py-1.5 h-8 text-destructive hover:text-destructive hover:bg-destructive/10"
+                            >
+                                <Trash2 size={14} /> Unassign
+                            </button>
+                        </div>
+                    </div>
+                ))}
+
+                {plans.filter(p => p.member_id).length === 0 && (
+                    <div className="col-span-full text-center py-8 text-muted-foreground text-sm">
+                        No active plans assigned to members.
                     </div>
                 )}
             </div>

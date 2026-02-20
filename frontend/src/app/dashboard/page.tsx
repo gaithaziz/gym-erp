@@ -3,7 +3,7 @@
 import { useAuth } from '@/context/AuthContext';
 import { api } from '@/lib/api';
 import { useEffect, useState, useCallback } from 'react';
-import { Users, DollarSign, Clock, TrendingUp, QrCode, Dumbbell, Utensils, ChevronRight, MessageSquare, UserCheck, ClipboardList, Trophy } from 'lucide-react';
+import { Users, DollarSign, Clock, TrendingUp, QrCode, Dumbbell, Utensils, ChevronRight, MessageSquare, UserCheck, ClipboardList, Trophy, Activity } from 'lucide-react';
 import {
     BarChart, Bar, LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend
 } from 'recharts';
@@ -23,6 +23,13 @@ interface DashboardStats {
     monthly_revenue: number;
     monthly_expenses: number;
     pending_salaries: number;
+}
+
+interface LowStockItem {
+    id: string;
+    name: string;
+    stock_quantity: number;
+    low_stock_threshold: number;
 }
 
 interface ActivityItem {
@@ -68,6 +75,7 @@ function AdminDashboard({ userName }: { userName: string }) {
     const [attendanceData, setAttendanceData] = useState<AttendanceData[]>([]);
     const [revenueData, setRevenueData] = useState<RevenueData[]>([]);
     const [recentActivity, setRecentActivity] = useState<ActivityItem[]>([]);
+    const [lowStockItems, setLowStockItems] = useState<LowStockItem[]>([]);
     const [dateRange, setDateRange] = useState<DateRange | undefined>({
         from: subDays(new Date(), 30),
         to: new Date(),
@@ -97,6 +105,10 @@ function AdminDashboard({ userName }: { userName: string }) {
         api.get('/analytics/recent-activity')
             .then(res => setRecentActivity(res.data.data || []))
             .catch(() => setRecentActivity([]));
+
+        api.get('/inventory/products/low-stock')
+            .then(res => setLowStockItems(res.data.data || []))
+            .catch(() => setLowStockItems([]));
     }, [dateRange]);
 
     useEffect(() => {
@@ -123,7 +135,7 @@ function AdminDashboard({ userName }: { userName: string }) {
         { title: 'Live Headcount', value: stats?.live_headcount ?? '--', subtitle: 'Currently in the gym', icon: Users, badge: 'badge-blue', live: true },
         { title: "Today's Revenue", value: stats ? `${stats.todays_revenue.toFixed(2)} JOD` : '--', subtitle: 'Collected today', icon: DollarSign, badge: 'badge-green' },
         { title: 'Pending Salaries', value: stats ? `${stats.pending_salaries.toFixed(2)} JOD` : '--', subtitle: 'Owed this month', icon: Clock, badge: 'badge-amber' },
-        { title: 'Active Members', value: stats?.active_members ?? '--', subtitle: 'Active subscriptions', icon: TrendingUp, badge: 'badge-orange' },
+        { title: 'Low Stock Alerts', value: lowStockItems.length, subtitle: 'Products need order', icon: TrendingUp, badge: 'badge-destructive', isAlert: lowStockItems.length > 0 },
     ];
 
     return (
@@ -161,6 +173,12 @@ function AdminDashboard({ userName }: { userName: string }) {
                                     <div className="flex items-center gap-2 mt-2 pt-2 border-t border-border w-full">
                                         <span className="h-2 w-2 bg-primary animate-pulse" />
                                         <span className="text-xs text-primary font-bold uppercase tracking-wider">Live</span>
+                                    </div>
+                                )}
+                                {card.isAlert && (
+                                    <div className="flex items-center gap-2 mt-2 pt-2 border-t border-destructive/20 w-full">
+                                        <span className="h-2 w-2 bg-destructive animate-ping" />
+                                        <span className="text-xs text-destructive font-bold uppercase tracking-wider">Attention</span>
                                     </div>
                                 )}
                             </div>
@@ -429,24 +447,56 @@ function CustomerDashboard({ userName }: { userName: string }) {
     const [plans, setPlans] = useState<Plan[]>([]);
     const [diets, setDiets] = useState<Diet[]>([]);
     const [stats, setStats] = useState<GamificationStats | null>(null);
+    const [workoutStats, setWorkoutStats] = useState<{ date: string, workouts: number }[]>([]);
+    interface BiometricLogResponse {
+        id: string; date: string; weight_kg: number; body_fat_pct?: number;
+    }
+    const [biometrics, setBiometrics] = useState<BiometricLogResponse[]>([]);
+    const [weight, setWeight] = useState('');
+    const [bodyFat, setBodyFat] = useState('');
+    const [loggingBiometrics, setLoggingBiometrics] = useState(false);
     const [loading, setLoading] = useState(true);
 
     useEffect(() => {
         const loadData = async () => {
             try {
-                const [plansRes, dietsRes, statsRes] = await Promise.all([
+                const [plansRes, dietsRes, statsRes, workoutStatsRes, bioRes] = await Promise.all([
                     api.get('/fitness/plans').catch(() => ({ data: { data: [] } })),
                     api.get('/fitness/diets').catch(() => ({ data: { data: [] } })),
-                    api.get('/gamification/stats').catch(() => ({ data: { data: null } }))
+                    api.get('/gamification/stats').catch(() => ({ data: { data: null } })),
+                    api.get('/fitness/stats').catch(() => ({ data: { data: [] } })),
+                    api.get('/fitness/biometrics').catch(() => ({ data: { data: [] } }))
                 ]);
                 setPlans(plansRes.data.data || []);
                 setDiets(dietsRes.data.data || []);
                 setStats(statsRes.data.data);
+                setWorkoutStats(workoutStatsRes.data.data || []);
+                setBiometrics(bioRes.data.data || []);
             } catch (err) { console.error(err); }
             finally { setLoading(false); }
         };
         loadData();
     }, []);
+
+    const handleLogBiometrics = async (e: React.FormEvent) => {
+        e.preventDefault();
+        setLoggingBiometrics(true);
+        try {
+            await api.post('/fitness/biometrics', {
+                weight_kg: weight ? parseFloat(weight) : null,
+                body_fat_pct: bodyFat ? parseFloat(bodyFat) : null
+            });
+            const res = await api.get('/fitness/biometrics');
+            setBiometrics(res.data.data || []);
+            setWeight('');
+            setBodyFat('');
+        } catch (err) {
+            console.error('Failed to log biometrics', err);
+            alert('Failed to log biometrics.');
+        } finally {
+            setLoggingBiometrics(false);
+        }
+    };
 
     if (loading) return (
         <div className="flex h-64 items-center justify-center">
@@ -551,8 +601,92 @@ function CustomerDashboard({ userName }: { userName: string }) {
                 </div>
             </div>
 
+            {/* Progress & Biometrics */}
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                <div className="kpi-card p-6">
+                    <h3 className="text-sm font-bold text-muted-foreground mb-6 uppercase tracking-wider font-mono">Workout Consistency (Last 30 Days)</h3>
+                    <div className="h-64">
+                        {workoutStats.length > 0 ? (
+                            <ResponsiveContainer width="100%" height="100%">
+                                <BarChart data={workoutStats}>
+                                    <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" vertical={false} />
+                                    <XAxis
+                                        dataKey="date"
+                                        tick={{ fontSize: 11, fill: 'var(--muted-foreground)', fontFamily: 'var(--font-mono)' }}
+                                        axisLine={false}
+                                        tickLine={false}
+                                        tickFormatter={(val) => {
+                                            const d = new Date(val);
+                                            return `${d.getMonth() + 1}/${d.getDate()}`;
+                                        }}
+                                    />
+                                    <YAxis
+                                        tick={{ fontSize: 11, fill: 'var(--muted-foreground)', fontFamily: 'var(--font-mono)' }}
+                                        axisLine={false}
+                                        tickLine={false}
+                                        allowDecimals={false}
+                                    />
+                                    <Tooltip
+                                        cursor={{ fill: 'var(--muted)' }}
+                                        contentStyle={{ background: 'var(--card)', border: '1px solid var(--border)', borderRadius: '0px', fontSize: '0.8rem', color: 'var(--foreground)' }}
+                                        labelFormatter={(label) => new Date(label as string).toLocaleDateString()}
+                                    />
+                                    <Bar dataKey="workouts" fill="var(--primary)" barSize={24} name="Workouts Logged" radius={[2, 2, 0, 0]} />
+                                </BarChart>
+                            </ResponsiveContainer>
+                        ) : (
+                            <div className="flex items-center justify-center h-full text-muted-foreground text-sm font-mono border border-dashed border-border flex-col">
+                                <Activity size={24} className="mb-2 opacity-50" />
+                                <span>NO WORKOUT DATA</span>
+                            </div>
+                        )}
+                    </div>
+                </div>
+
+                <div className="space-y-6">
+                    <div className="kpi-card p-6">
+                        <h3 className="text-sm font-bold text-muted-foreground mb-4 uppercase tracking-wider font-mono">Weight Tracking</h3>
+                        <div className="h-40">
+                            {biometrics.length > 0 ? (
+                                <ResponsiveContainer width="100%" height="100%">
+                                    <LineChart data={biometrics}>
+                                        <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" vertical={false} />
+                                        <XAxis dataKey="date" tickFormatter={(val) => new Date(val).toLocaleDateString()} tick={{ fontSize: 11, fill: 'var(--muted-foreground)', fontFamily: 'var(--font-mono)' }} axisLine={false} tickLine={false} />
+                                        <YAxis tick={{ fontSize: 11, fill: 'var(--muted-foreground)', fontFamily: 'var(--font-mono)' }} axisLine={false} tickLine={false} />
+                                        <Tooltip contentStyle={{ background: 'var(--card)', border: '1px solid var(--border)', borderRadius: '0px', fontSize: '0.8rem', color: 'var(--foreground)' }} labelFormatter={(label) => new Date(label as string).toLocaleDateString()} />
+                                        <Line type="monotone" dataKey="weight_kg" stroke="var(--primary)" strokeWidth={2} name="Weight (kg)" dot={{ r: 3, fill: 'var(--primary)' }} />
+                                    </LineChart>
+                                </ResponsiveContainer>
+                            ) : (
+                                <div className="flex items-center justify-center h-full text-muted-foreground text-sm font-mono border border-dashed border-border flex-col">
+                                    <Activity size={24} className="mb-2 opacity-50" />
+                                    <span>NO BIOMETRIC DATA</span>
+                                </div>
+                            )}
+                        </div>
+                    </div>
+
+                    <div className="kpi-card p-4">
+                        <h3 className="text-sm font-bold text-muted-foreground mb-3 uppercase tracking-wider font-mono">Log New Entry</h3>
+                        <form onSubmit={handleLogBiometrics} className="flex gap-2 items-end">
+                            <div className="flex-1">
+                                <label className="block text-[10px] uppercase font-bold text-muted-foreground mb-1">Weight (kg)</label>
+                                <input type="number" step="0.1" className="input-dark py-1.5 text-sm" value={weight} onChange={e => setWeight(e.target.value)} placeholder="e.g. 75" />
+                            </div>
+                            <div className="flex-1">
+                                <label className="block text-[10px] uppercase font-bold text-muted-foreground mb-1">Body Fat (%)</label>
+                                <input type="number" step="0.1" className="input-dark py-1.5 text-sm" value={bodyFat} onChange={e => setBodyFat(e.target.value)} placeholder="e.g. 15" />
+                            </div>
+                            <button type="submit" disabled={loggingBiometrics || (!weight && !bodyFat)} className="btn-primary py-1.5 px-4 text-sm whitespace-nowrap">
+                                {loggingBiometrics ? 'Saving...' : 'Log'}
+                            </button>
+                        </form>
+                    </div>
+                </div>
+            </div>
+
             {/* Quick Access Cards */}
-            <h3 className="text-sm font-bold text-muted-foreground uppercase tracking-wider font-mono">Quick Access</h3>
+            <h3 className="text-sm font-bold text-muted-foreground uppercase tracking-wider font-mono mt-8">Quick Access</h3>
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
                 <Link href="/dashboard/qr" className="kpi-card group cursor-pointer hover:border-primary transition-colors">
                     <div className="flex items-start justify-between">

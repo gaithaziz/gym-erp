@@ -1,0 +1,13 @@
+﻿
+> frontend@0.1.0 lint
+> eslint
+
+
+C:\Users\user\gym-erp\frontend\src\app\dashboard\page.tsx
+  451:12  warning  'biometrics' is assigned a value but never used           @typescript-eslint/no-unused-vars
+  451:50  error    Unexpected any. Specify a different type                  @typescript-eslint/no-explicit-any
+  454:12  warning  'loggingBiometrics' is assigned a value but never used    @typescript-eslint/no-unused-vars
+  478:11  warning  'handleLogBiometrics' is assigned a value but never used  @typescript-eslint/no-unused-vars
+
+Γ£û 4 problems (1 error, 3 warnings)
+

@@ -10,7 +10,7 @@ from app.database import get_db
 from app.auth import dependencies
 from app.models.user import User
 from app.models.enums import Role
-from app.models.fitness import Exercise, WorkoutPlan, WorkoutExercise, DietPlan
+from app.models.fitness import Exercise, WorkoutPlan, WorkoutExercise, DietPlan, BiometricLog
 from app.models.workout_log import WorkoutLog
 from app.core.responses import StandardResponse
 from pydantic import Field
@@ -284,6 +284,20 @@ async def get_diet_plan(
 
 # ===== WORKOUT FEEDBACK SCHEMAS =====
 
+class BiometricLogCreate(BaseModel):
+    weight_kg: float | None = None
+    height_cm: float | None = None
+    body_fat_pct: float | None = None
+    muscle_mass_kg: float | None = None
+
+class BiometricLogResponse(BiometricLogCreate):
+    id: uuid.UUID
+    member_id: uuid.UUID
+    date: datetime
+
+    class Config:
+        from_attributes = True
+
 class WorkoutLogCreate(BaseModel):
     plan_id: uuid.UUID
     completed: bool = False
@@ -333,4 +347,62 @@ async def get_workout_logs(
     result = await db.execute(stmt)
     logs = result.scalars().all()
     return StandardResponse(data=[WorkoutLogResponse.model_validate(log) for log in logs])
+
+@router.get("/stats", response_model=StandardResponse)
+async def get_workout_stats(
+    current_user: Annotated[User, Depends(dependencies.get_current_active_user)],
+    db: Annotated[AsyncSession, Depends(get_db)]
+):
+    """Get aggregated workout stats for the current user (e.g., workouts per day over last 30 days)."""
+    from datetime import timedelta
+    from sqlalchemy import func
+    
+    thirty_days_ago = datetime.now() - timedelta(days=30)
+    
+    # We want to group by date (ignoring time) and count completed workouts
+    # Use func.date for SQLite/Postgres compatibility, but here we just cast or extract
+    # For a general approach, it's easiest to process in memory if the dataset is small,
+    # or use database specific date truncation. AsyncPG handles func.date().
+    
+    stmt = (
+        select(func.date(WorkoutLog.date).label('day'), func.count(WorkoutLog.id).label('count'))
+        .where(WorkoutLog.member_id == current_user.id)
+        .where(WorkoutLog.completed == True)
+        .where(WorkoutLog.date >= thirty_days_ago)
+        .group_by('day')
+        .order_by('day')
+    )
+    result = await db.execute(stmt)
+    rows = result.all()
+    
+    data = [{"date": str(row.day), "workouts": row.count} for row in rows]
+    return StandardResponse(data=data)
+
+# ===== BIOMETRICS ENDPOINTS =====
+
+@router.post("/biometrics", response_model=StandardResponse)
+async def log_biometrics(
+    data: BiometricLogCreate,
+    current_user: Annotated[User, Depends(dependencies.get_current_active_user)],
+    db: Annotated[AsyncSession, Depends(get_db)]
+):
+    """Log a new biometric entry for the current user."""
+    log = BiometricLog(
+        member_id=current_user.id,
+        **data.model_dump(exclude_unset=True)
+    )
+    db.add(log)
+    await db.commit()
+    return StandardResponse(message="Biometrics logged", data={"id": str(log.id)})
+
+@router.get("/biometrics", response_model=StandardResponse[List[BiometricLogResponse]])
+async def get_biometrics(
+    current_user: Annotated[User, Depends(dependencies.get_current_active_user)],
+    db: Annotated[AsyncSession, Depends(get_db)]
+):
+    """Get biometric history for the current user."""
+    stmt = select(BiometricLog).where(BiometricLog.member_id == current_user.id).order_by(BiometricLog.date.asc())
+    result = await db.execute(stmt)
+    logs = result.scalars().all()
+    return StandardResponse(data=[BiometricLogResponse.model_validate(log) for log in logs])
 

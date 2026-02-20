@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import { api } from '@/lib/api';
-import { Plus, ArrowUpCircle, ArrowDownCircle, Wallet } from 'lucide-react';
+import { Plus, ArrowUpCircle, ArrowDownCircle, Wallet, Printer } from 'lucide-react';
 
 interface Transaction {
     id: string;
@@ -45,6 +45,49 @@ export default function FinancePage() {
     };
 
     useEffect(() => { setTimeout(() => fetchData(), 0); }, []);
+
+    const handlePrintReceipt = async (txId: string) => {
+        try {
+            const res = await api.get(`/finance/transactions/${txId}/receipt`);
+            const data = res.data.data;
+
+            const printWindow = window.open('', '_blank');
+            if (!printWindow) return;
+
+            const html = `
+                <html>
+                    <head>
+                        <title>Receipt - ${data.receipt_no}</title>
+                        <style>
+                            body { font-family: monospace; padding: 20px; max-width: 400px; margin: 0 auto; color: #000; }
+                            h2 { text-align: center; border-bottom: 1px dashed #000; padding-bottom: 10px; }
+                            .row { display: flex; justify-content: space-between; margin-bottom: 8px; }
+                            .total { font-weight: bold; border-top: 1px dashed #000; padding-top: 10px; margin-top: 10px; }
+                            .footer { text-align: center; margin-top: 30px; font-size: 0.8rem; border-top: 1px dashed #000; padding-top: 10px; }
+                        </style>
+                    </head>
+                    <body>
+                        <h2>${data.gym_name}</h2>
+                        <div class="row"><span>Receipt No:</span> <span>${data.receipt_no}</span></div>
+                        <div class="row"><span>Date:</span> <span>${new Date(data.date).toLocaleString()}</span></div>
+                        <div class="row"><span>Billed To:</span> <span>${data.billed_to}</span></div>
+                        <br/>
+                        <div class="row"><span>Item:</span> <span>${data.description}</span></div>
+                        <div class="row"><span>Type:</span> <span>${data.type} / ${data.category.replace(/_/g, ' ')}</span></div>
+                        <div class="row"><span>Method:</span> <span>${data.payment_method}</span></div>
+                        <div class="row total"><span>TOTAL:</span> <span>${data.amount.toFixed(2)} JOD</span></div>
+                        
+                        <div class="footer">Thank you for your business!</div>
+                        <script>window.onload = function() { window.print(); window.close(); }</script>
+                    </body>
+                </html>
+            `;
+            printWindow.document.write(html);
+            printWindow.document.close();
+        } catch {
+            alert("Failed to generate receipt");
+        }
+    };
 
     const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
@@ -126,11 +169,12 @@ export default function FinancePage() {
                                 <th>Category</th>
                                 <th>Type</th>
                                 <th className="text-right">Amount</th>
+                                <th className="text-right">Action</th>
                             </tr>
                         </thead>
                         <tbody>
                             {transactions.length === 0 && (
-                                <tr><td colSpan={5} className="text-center py-8 text-muted-foreground text-sm">No transactions yet</td></tr>
+                                <tr><td colSpan={7} className="text-center py-8 text-muted-foreground text-sm">No transactions yet</td></tr>
                             )}
                             {transactions.map((tx) => (
                                 <tr key={tx.id}>
@@ -144,6 +188,11 @@ export default function FinancePage() {
                                     </td>
                                     <td className={`text-right font-mono text-sm font-semibold ${tx.type === 'INCOME' ? 'text-emerald-500' : 'text-red-500'}`}>
                                         {tx.type === 'INCOME' ? '+' : '-'}{tx.amount.toFixed(2)}
+                                    </td>
+                                    <td className="text-right">
+                                        <button onClick={() => handlePrintReceipt(tx.id)} className="text-muted-foreground hover:text-primary transition-colors p-1" title="Print Receipt">
+                                            <Printer size={16} />
+                                        </button>
                                     </td>
                                 </tr>
                             ))}

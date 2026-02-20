@@ -1,6 +1,7 @@
 import uuid
-from sqlalchemy import String, Integer, ForeignKey, Text
+from sqlalchemy import String, Integer, ForeignKey, Text, Float, DateTime
 from sqlalchemy.orm import Mapped, mapped_column, relationship
+from datetime import datetime, timezone
 from app.database import Base
 
 class Exercise(Base):
@@ -53,4 +54,19 @@ class DietPlan(Base):
     member_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id"), nullable=True)
 
     creator = relationship("User", foreign_keys=[creator_id])
+    creator = relationship("User", foreign_keys=[creator_id])
+    member = relationship("User", foreign_keys=[member_id])
+
+class BiometricLog(Base):
+    __tablename__ = "biometric_logs"
+
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
+    member_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id"), nullable=False)
+    
+    date: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
+    weight_kg: Mapped[float] = mapped_column(Float, nullable=True)
+    height_cm: Mapped[float] = mapped_column(Float, nullable=True)
+    body_fat_pct: Mapped[float] = mapped_column(Float, nullable=True)
+    muscle_mass_kg: Mapped[float] = mapped_column(Float, nullable=True)
+    
     member = relationship("User", foreign_keys=[member_id])

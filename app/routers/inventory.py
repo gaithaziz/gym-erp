@@ -12,6 +12,7 @@ from app.models.user import User
 from app.models.enums import Role
 from app.models.inventory import Product, ProductCategory
 from app.models.finance import Transaction, TransactionType, TransactionCategory, PaymentMethod
+from app.services.audit_service import AuditService
 from app.core.responses import StandardResponse
 
 router = APIRouter()
@@ -86,6 +87,16 @@ async def create_product(
     db.add(product)
     await db.commit()
     await db.refresh(product)
+    
+    await AuditService.log_action(
+        db=db,
+        user_id=current_user.id,
+        action="CREATE_PRODUCT",
+        target_id=str(product.id),
+        details=f"Name: {product.name}, SKU: {product.sku}, Price: {product.price}"
+    )
+    await db.commit()
+    
     return StandardResponse(data=ProductResponse.model_validate(product))
 
 
@@ -112,6 +123,23 @@ async def list_products(
     return StandardResponse(data=[ProductResponse.model_validate(p) for p in products])
 
 
+@router.get("/products/low-stock", response_model=StandardResponse[list[ProductResponse]])
+async def get_low_stock_products(
+    current_user: Annotated[User, Depends(dependencies.RoleChecker([Role.ADMIN, Role.EMPLOYEE]))],
+    db: Annotated[AsyncSession, Depends(get_db)]
+):
+    """Fetch products that have reached or fallen below their low stock threshold."""
+    stmt = (
+        select(Product)
+        .where(Product.is_active.is_(True))
+        .where(Product.stock_quantity <= Product.low_stock_threshold)
+        .order_by(Product.stock_quantity.asc())
+    )
+    result = await db.execute(stmt)
+    products = result.scalars().all()
+    return StandardResponse(data=[ProductResponse.model_validate(p) for p in products])
+
+
 @router.put("/products/{product_id}", response_model=StandardResponse[ProductResponse])
 async def update_product(
     product_id: uuid.UUID,
@@ -131,6 +159,16 @@ async def update_product(
 
     await db.commit()
     await db.refresh(product)
+    
+    await AuditService.log_action(
+        db=db,
+        user_id=current_user.id,
+        action="UPDATE_PRODUCT",
+        target_id=str(product.id),
+        details=f"Updated product {product.name}. Fields: {list(update_data.keys())}"
+    )
+    await db.commit()
+
     return StandardResponse(data=ProductResponse.model_validate(product))
 
 
@@ -148,6 +186,16 @@ async def delete_product(
 
     product.is_active = False
     await db.commit()
+    
+    await AuditService.log_action(
+        db=db,
+        user_id=current_user.id,
+        action="DELETE_PRODUCT",
+        target_id=str(product.id),
+        details=f"Deactivated product {product.name}"
+    )
+    await db.commit()
+    
     return StandardResponse(message="Product deactivated")
 
 
@@ -186,6 +234,15 @@ async def pos_sell(
     db.add(transaction)
     await db.commit()
     await db.refresh(product)
+
+    await AuditService.log_action(
+        db=db,
+        user_id=current_user.id,
+        action="POS_SALE",
+        target_id=str(transaction.id),
+        details=f"Sold {data.quantity}x {product.name} (Total: {total})"
+    )
+    await db.commit()
 
     return StandardResponse(data=POSSaleResponse(
         transaction_id=transaction.id,

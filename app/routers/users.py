@@ -9,6 +9,7 @@ from app.database import get_db
 from app.auth import dependencies
 from app.models.user import User
 from app.models.enums import Role
+from app.services.audit_service import AuditService
 from app.core.responses import StandardResponse
 
 router = APIRouter()
@@ -39,6 +40,16 @@ async def update_user(
         setattr(user, key, value)
         
     await db.commit()
+    
+    await AuditService.log_action(
+        db=db,
+        user_id=current_user.id,
+        action="UPDATE_USER",
+        target_id=str(user.id),
+        details=f"Updated user {user.email}. Fields: {list(update_data.keys())}"
+    )
+    await db.commit()
+    
     return StandardResponse(message="User updated successfully")
 
 @router.delete("/{user_id}", response_model=StandardResponse)
@@ -57,4 +68,14 @@ async def delete_user(
         
     user.is_active = False
     await db.commit()
+    
+    await AuditService.log_action(
+        db=db,
+        user_id=current_user.id,
+        action="DEACTIVATE_USER",
+        target_id=str(user.id),
+        details=f"Deactivated user {user.email}"
+    )
+    await db.commit()
+    
     return StandardResponse(message="User deactivated")

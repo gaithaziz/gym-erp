@@ -1,6 +1,6 @@
 from typing import Annotated, Optional
 from datetime import datetime
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, Query, HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func, extract
 from pydantic import BaseModel
@@ -10,6 +10,7 @@ from app.auth import dependencies
 from app.models.user import User
 from app.models.enums import Role
 from app.models.finance import Transaction, TransactionType, TransactionCategory, PaymentMethod
+from app.services.audit_service import AuditService
 from app.core.responses import StandardResponse
 import uuid
 
@@ -41,6 +42,16 @@ async def create_transaction(
     transaction = Transaction(**data.model_dump())
     db.add(transaction)
     await db.commit()
+    
+    await AuditService.log_action(
+        db=db,
+        user_id=current_user.id,
+        action="MANUAL_TRANSACTION",
+        target_id=str(transaction.id),
+        details=f"Logged {data.type.value} of {data.amount} for {data.category.value}"
+    )
+    await db.commit()
+    
     return StandardResponse(message="Transaction Logged", data={"id": str(transaction.id)})
 
 @router.get("/transactions", response_model=StandardResponse)
@@ -110,3 +121,42 @@ async def get_my_transactions(
     transactions = result.scalars().all()
     serialized = [TransactionResponse.model_validate(t).model_dump(mode="json") for t in transactions]
     return StandardResponse(data=serialized)
+
+@router.get("/transactions/{transaction_id}/receipt", response_model=StandardResponse)
+async def generate_receipt(
+    transaction_id: uuid.UUID,
+    current_user: Annotated[User, Depends(dependencies.get_current_active_user)],
+    db: Annotated[AsyncSession, Depends(get_db)]
+):
+    """Generate a simple JSON layout for a printable receipt."""
+    stmt = select(Transaction).where(Transaction.id == transaction_id)
+    result = await db.execute(stmt)
+    transaction = result.scalar_one_or_none()
+    
+    if not transaction:
+        raise HTTPException(status_code=404, detail="Transaction not found")
+        
+    current_admin_or_owner = current_user.role == Role.ADMIN or current_user.id == transaction.user_id
+    if not current_admin_or_owner:
+        raise HTTPException(status_code=403, detail="Not authorized to view this receipt")
+        
+    user_name = "Guest/System"
+    if transaction.user_id:
+        user_stmt = select(User).where(User.id == transaction.user_id)
+        user_result = await db.execute(user_stmt)
+        u = user_result.scalar_one_or_none()
+        if u:
+            user_name = u.full_name
+            
+    receipt_data = {
+        "receipt_no": str(transaction.id).split('-')[0].upper(),
+        "date": transaction.date.isoformat(),
+        "amount": transaction.amount,
+        "type": transaction.type.value,
+        "category": transaction.category.value,
+        "payment_method": transaction.payment_method.value,
+        "description": transaction.description or "Gym Service/Item",
+        "billed_to": user_name,
+        "gym_name": "Gym ERP Management",
+    }
+    return StandardResponse(data=receipt_data)

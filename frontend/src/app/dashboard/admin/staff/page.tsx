@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import { api } from '@/lib/api';
-import { FileText, Pencil, Calculator, Save, Plus } from 'lucide-react';
+import { FileText, Pencil, Calculator, Save, Plus, Download } from 'lucide-react';
 import Modal from '@/components/Modal';
 
 interface StaffMember {
@@ -117,6 +117,64 @@ export default function StaffPage() {
             });
             setPayrollResult(res.data.data);
         } catch (err) { console.error(err); alert('Failed to generate payroll.'); }
+    };
+
+    const handlePrintPayslip = async (payrollId: string) => {
+        try {
+            const res = await api.get(`/hr/payroll/${payrollId}/payslip`);
+            const data = res.data.data;
+
+            const printWindow = window.open('', '_blank');
+            if (!printWindow) return;
+
+            const html = `
+                <html>
+                    <head>
+                        <title>Payslip - ${data.payslip_id}</title>
+                        <style>
+                            body { font-family: sans-serif; padding: 40px; max-width: 600px; margin: 0 auto; color: #000; }
+                            h2 { text-align: center; border-bottom: 2px solid #000; padding-bottom: 10px; margin-bottom: 30px; }
+                            .header-row { display: flex; justify-content: space-between; margin-bottom: 10px; font-size: 0.9rem; }
+                            table { width: 100%; border-collapse: collapse; margin-top: 30px; }
+                            th, td { border: 1px solid #ccc; padding: 10px; text-align: left; }
+                            th { background-color: #f5f5f5; }
+                            .total-row { font-weight: bold; font-size: 1.1rem; }
+                            .footer { text-align: center; margin-top: 50px; font-size: 0.8rem; color: #666; }
+                        </style>
+                    </head>
+                    <body>
+                        <h2>SALARY PAYSLIP</h2>
+                        <div class="header-row">
+                            <div><strong>Employee:</strong> ${data.employee_name}</div>
+                            <div><strong>Period:</strong> ${data.period}</div>
+                        </div>
+                        <div class="header-row">
+                            <div><strong>Role/Contract:</strong> ${data.contract_type}</div>
+                            <div><strong>Payslip ID:</strong> ${data.payslip_id}</div>
+                        </div>
+                        
+                        <table>
+                            <tr><th>Description</th><th style="text-align: right;">Amount (JOD)</th></tr>
+                            <tr><td>Base Pay</td><td style="text-align: right;">${data.base_pay.toFixed(2)}</td></tr>
+                            <tr><td>Overtime Pay</td><td style="text-align: right;">${data.overtime_pay.toFixed(2)}</td></tr>
+                            <tr><td>Bonus / Commission</td><td style="text-align: right;">${data.bonus_pay.toFixed(2)}</td></tr>
+                            <tr><td>Deductions</td><td style="text-align: right; color: red;">-${data.deductions.toFixed(2)}</td></tr>
+                            <tr class="total-row"><td>NET PAY</td><td style="text-align: right;">${data.total_pay.toFixed(2)}</td></tr>
+                        </table>
+                        
+                        <div class="footer">
+                            <p>Generated on ${new Date(data.generated_on).toLocaleString()}</p>
+                            <p>Gym ERP Management System</p>
+                        </div>
+                        <script>window.onload = function() { window.print(); window.close(); }</script>
+                    </body>
+                </html>
+            `;
+            printWindow.document.write(html);
+            printWindow.document.close();
+        } catch {
+            alert("Failed to generate payslip");
+        }
     };
 
     if (loading) return (
@@ -323,7 +381,12 @@ export default function StaffPage() {
                                 <p className="font-mono font-semibold text-foreground">{payrollResult.overtime_pay?.toFixed(2)} JOD</p>
                             </div>
                         </div>
-                        <button onClick={() => { setIsPayrollOpen(false); setPayrollResult(null); }} className="btn-ghost w-full">Close</button>
+                        <div className="grid grid-cols-2 gap-3 mt-4">
+                            <button onClick={() => { setIsPayrollOpen(false); setPayrollResult(null); }} className="btn-ghost w-full">Close</button>
+                            <button onClick={() => handlePrintPayslip(payrollResult.id)} className="btn-primary w-full flex items-center justify-center gap-2">
+                                <Download size={16} /> Download Slip
+                            </button>
+                        </div>
                     </div>
                 )}
             </Modal>
