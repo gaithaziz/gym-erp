@@ -128,13 +128,59 @@ async def update_user_me(
     db: Annotated[AsyncSession, Depends(get_db)]
 ):
     """Update current user profile."""
-    if user_update.full_name is not None:
-        current_user.full_name = user_update.full_name
+    update_data = user_update.model_dump(exclude_unset=True)
+    for field, value in update_data.items():
+        setattr(current_user, field, value)
     
     db.add(current_user)
     await db.commit()
     await db.refresh(current_user)
     return StandardResponse(data=current_user, message="Profile updated successfully")
+
+import os
+import shutil
+import uuid
+from fastapi import UploadFile, File
+
+@router.post("/me/profile-picture", response_model=StandardResponse[schemas.UserResponse])
+async def upload_profile_picture(
+    current_user: Annotated[User, Depends(dependencies.get_current_active_user)],
+    db: Annotated[AsyncSession, Depends(get_db)],
+    file: UploadFile = File(...)
+):
+    """Upload and update user profile picture."""
+    if not file.content_type.startswith("image/"):
+        raise HTTPException(status_code=400, detail="File must be an image")
+    
+    # Create static directory if it doesn't exist
+    upload_dir = "static/profiles"
+    os.makedirs(upload_dir, exist_ok=True)
+    
+    # Generate unique filename
+    file_extension = file.filename.split(".")[-1] if "." in file.filename else "jpg"
+    filename = f"{current_user.id}_{uuid.uuid4().hex[:8]}.{file_extension}"
+    file_path = os.path.join(upload_dir, filename)
+    
+    # Save the file
+    with open(file_path, "wb") as buffer:
+        shutil.copyfileobj(file.file, buffer)
+        
+    # Update user model
+    # Delete old picture if it exists
+    if current_user.profile_picture_url:
+        old_path = current_user.profile_picture_url.lstrip("/")
+        if os.path.exists(old_path):
+            try:
+                os.remove(old_path)
+            except Exception:
+                pass
+                
+    current_user.profile_picture_url = f"/{upload_dir}/{filename}"
+    db.add(current_user)
+    await db.commit()
+    await db.refresh(current_user)
+    
+    return StandardResponse(data=current_user, message="Profile picture updated successfully")
 
 @router.put("/me/password", response_model=StandardResponse)
 async def change_password(

@@ -1,5 +1,6 @@
 import { X } from 'lucide-react';
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 
 interface ModalProps {
     isOpen: boolean;
@@ -10,6 +11,11 @@ interface ModalProps {
 
 export default function Modal({ isOpen, onClose, title, children }: ModalProps) {
     const modalRef = useRef<HTMLDivElement>(null);
+    const [mounted, setMounted] = useState(false);
+
+    useEffect(() => {
+        setMounted(true);
+    }, []);
 
     useEffect(() => {
         const handleEscape = (e: KeyboardEvent) => {
@@ -27,15 +33,15 @@ export default function Modal({ isOpen, onClose, title, children }: ModalProps) 
         };
     }, [isOpen, onClose]);
 
-    if (!isOpen) return null;
+    if (!isOpen || !mounted) return null;
 
-    return (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-background/80 backdrop-blur-sm p-4">
+    return createPortal(
+        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-background/80 backdrop-blur-sm p-4">
             <div
                 ref={modalRef}
-                className="w-full max-w-lg overflow-hidden border border-border bg-card shadow-lg"
+                className="w-full max-w-md flex flex-col max-h-[90vh] overflow-hidden border border-border bg-card shadow-lg"
             >
-                <div className="flex items-center justify-between p-6 border-b border-border bg-muted/20">
+                <div className="flex-none flex items-center justify-between p-4 md:p-6 border-b border-border bg-muted/20">
                     <h2 className="text-lg font-bold text-foreground font-serif tracking-tight">{title}</h2>
                     <button
                         onClick={onClose}
@@ -44,10 +50,11 @@ export default function Modal({ isOpen, onClose, title, children }: ModalProps) 
                         <X size={18} />
                     </button>
                 </div>
-                <div className="p-6">
+                <div className="flex-1 overflow-y-auto p-4 md:p-6">
                     {children}
                 </div>
             </div>
-        </div>
+        </div>,
+        document.body
     );
 }

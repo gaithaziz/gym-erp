@@ -13,6 +13,8 @@ from app.routers.inventory import router as inventory_router
 from app.routers.users import router as users_router
 from app.routers.audit import router as audit_router
 from app.core import exceptions
+from fastapi.staticfiles import StaticFiles
+import os
 
 from fastapi.middleware.cors import CORSMiddleware
 
@@ -21,6 +23,10 @@ app = FastAPI(
     version=settings.VERSION,
     openapi_url=f"{settings.API_V1_STR}/openapi.json"
 )
+
+# Mount static files for profile pictures
+os.makedirs("static", exist_ok=True)
+app.mount("/static", StaticFiles(directory="static"), name="static")
 
 # CORS must be added before other middleware
 app.add_middleware(

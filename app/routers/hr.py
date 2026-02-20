@@ -199,6 +199,11 @@ async def get_staff(
             "full_name": staff.full_name,
             "email": staff.email,
             "role": staff.role.value,
+            "profile_picture_url": staff.profile_picture_url,
+            "phone_number": staff.phone_number,
+            "date_of_birth": staff.date_of_birth.isoformat() if staff.date_of_birth else None,
+            "emergency_contact": staff.emergency_contact,
+            "bio": staff.bio,
             "contract": {
                 "type": contract.contract_type.value if contract else None,
                 "base_salary": contract.base_salary if contract else None,
@@ -302,6 +307,11 @@ async def list_members(
             "full_name": u.full_name,
             "email": u.email,
             "role": u.role.value,
+            "profile_picture_url": u.profile_picture_url,
+            "phone_number": u.phone_number,
+            "date_of_birth": u.date_of_birth.isoformat() if u.date_of_birth else None,
+            "emergency_contact": u.emergency_contact,
+            "bio": u.bio,
             "subscription": {
                 "status": sub.status.value if sub else "NONE",
                 "end_date": sub.end_date.isoformat() if sub and sub.end_date else None,

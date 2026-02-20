@@ -2,7 +2,8 @@
 
 import { useEffect, useState } from 'react';
 import { api } from '@/lib/api';
-import { FileText, Pencil, Calculator, Save, Plus, Download } from 'lucide-react';
+import Image from 'next/image';
+import { FileText, Pencil, Calculator, Save, Plus, Download, Eye } from 'lucide-react';
 import Modal from '@/components/Modal';
 
 interface StaffMember {
@@ -10,6 +11,11 @@ interface StaffMember {
     full_name: string;
     email: string;
     role: string;
+    profile_picture_url?: string;
+    phone_number?: string;
+    date_of_birth?: string;
+    emergency_contact?: string;
+    bio?: string;
     contract: {
         type: string;
         base_salary: number;
@@ -45,6 +51,15 @@ export default function StaffPage() {
     const [payrollTarget, setPayrollTarget] = useState<StaffMember | null>(null);
     const [payrollForm, setPayrollForm] = useState({ month: new Date().getMonth() + 1, year: new Date().getFullYear(), sales_volume: 0 });
     const [payrollResult, setPayrollResult] = useState<any>(null); // eslint-disable-line @typescript-eslint/no-explicit-any
+
+    // View Profile Modal
+    const [isViewOpen, setIsViewOpen] = useState(false);
+    const [viewMember, setViewMember] = useState<StaffMember | null>(null);
+
+    const openView = (member: StaffMember) => {
+        setViewMember(member);
+        setIsViewOpen(true);
+    };
 
     const fetchStaff = async () => {
         try {
@@ -215,8 +230,19 @@ export default function StaffPage() {
                             {staff.map((member) => (
                                 <tr key={member.id}>
                                     <td>
-                                        <div className="font-medium text-foreground">{member.full_name}</div>
-                                        <div className="text-xs text-muted-foreground">{member.email}</div>
+                                        <div className="flex items-center gap-3">
+                                            <div className="h-8 w-8 bg-primary/20 rounded-full flex items-center justify-center text-primary font-bold overflow-hidden relative flex-shrink-0">
+                                                {member.profile_picture_url ? (
+                                                    <Image src={`${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'}${member.profile_picture_url}`} alt={member.full_name} fill className="object-cover" unoptimized />
+                                                ) : (
+                                                    member.full_name.charAt(0)
+                                                )}
+                                            </div>
+                                            <div>
+                                                <div className="font-medium text-foreground">{member.full_name}</div>
+                                                <div className="text-xs text-muted-foreground">{member.email}</div>
+                                            </div>
+                                        </div>
                                     </td>
                                     <td>
                                         <span className={`badge ${member.role === 'COACH' ? 'badge-orange' : member.role === 'ADMIN' ? 'badge-blue' : 'badge-gray'}`}>
@@ -245,6 +271,9 @@ export default function StaffPage() {
                                     </td>
                                     <td>
                                         <div className="flex items-center justify-center gap-2">
+                                            <button onClick={() => openView(member)} className="flex items-center gap-1 text-emerald-400 hover:text-emerald-300 text-xs font-medium px-2 py-1 rounded-lg hover:bg-emerald-400/10 transition-colors" title="View Profile">
+                                                <Eye size={13} /> View
+                                            </button>
                                             <button onClick={() => openEdit(member)} className="flex items-center gap-1 text-primary hover:text-primary/80 text-xs font-medium px-2 py-1 rounded-lg hover:bg-primary/10 transition-colors">
                                                 <Pencil size={13} /> Edit
                                             </button>
@@ -386,6 +415,48 @@ export default function StaffPage() {
                             <button onClick={() => handlePrintPayslip(payrollResult.id)} className="btn-primary w-full flex items-center justify-center gap-2">
                                 <Download size={16} /> Download Slip
                             </button>
+                        </div>
+                    </div>
+                )}
+            </Modal>
+
+            {/* VIEW PROFILE MODAL */}
+            <Modal isOpen={isViewOpen} onClose={() => setIsViewOpen(false)} title="Staff Profile">
+                {viewMember && (
+                    <div className="space-y-6">
+                        <div className="flex items-center gap-4 border-b border-border pb-6">
+                            <div className="h-16 w-16 bg-primary/20 rounded-full flex items-center justify-center text-primary text-xl font-bold overflow-hidden relative flex-shrink-0">
+                                {viewMember.profile_picture_url ? (
+                                    <Image src={`${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'}${viewMember.profile_picture_url}`} alt={viewMember.full_name} fill className="object-cover" unoptimized />
+                                ) : (
+                                    viewMember.full_name.charAt(0)
+                                )}
+                            </div>
+                            <div>
+                                <h3 className="text-xl font-bold text-foreground">{viewMember.full_name}</h3>
+                                <p className="text-sm text-muted-foreground">{viewMember.email}</p>
+                                <span className={`inline-block px-2 py-0.5 mt-1 rounded text-[10px] font-bold tracking-wider ${viewMember.role === 'COACH' ? 'bg-orange-500/20 text-orange-400' : viewMember.role === 'ADMIN' ? 'bg-blue-500/20 text-blue-400' : 'bg-zinc-800 text-zinc-300'}`}>
+                                    {viewMember.role}
+                                </span>
+                            </div>
+                        </div>
+                        <div className="grid grid-cols-2 gap-4 text-sm">
+                            <div>
+                                <p className="text-xs text-muted-foreground uppercase tracking-wider mb-1 font-semibold">Phone</p>
+                                <p className="font-medium text-foreground">{viewMember.phone_number || 'N/A'}</p>
+                            </div>
+                            <div>
+                                <p className="text-xs text-muted-foreground uppercase tracking-wider mb-1 font-semibold">Date of Birth</p>
+                                <p className="font-medium text-foreground">{viewMember.date_of_birth ? new Date(viewMember.date_of_birth).toLocaleDateString() : 'N/A'}</p>
+                            </div>
+                            <div className="col-span-2">
+                                <p className="text-xs text-muted-foreground uppercase tracking-wider mb-1 font-semibold">Emergency Contact</p>
+                                <p className="font-medium text-foreground">{viewMember.emergency_contact || 'N/A'}</p>
+                            </div>
+                            <div className="col-span-2">
+                                <p className="text-xs text-muted-foreground uppercase tracking-wider mb-1 font-semibold">Bio / Notes</p>
+                                <p className="font-medium text-foreground whitespace-pre-wrap">{viewMember.bio || 'No bio provided.'}</p>
+                            </div>
                         </div>
                     </div>
                 )}

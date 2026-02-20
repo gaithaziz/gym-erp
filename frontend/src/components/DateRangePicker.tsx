@@ -63,7 +63,7 @@ export function DateRangePicker({
                         styles={{
                             caption: { color: 'var(--foreground)', fontFamily: 'var(--font-serif)' },
                             head_cell: { color: 'var(--muted-foreground)', fontFamily: 'var(--font-mono)' },
-                            day: { color: 'var(--foreground)', fontFamily: 'var(--font-sans)', borderRadius: '0px' },
+                            day: { fontFamily: 'var(--font-sans)', borderRadius: '0px' },
                             nav_button: { color: 'var(--foreground)' },
                         }}
                         modifiersClassNames={{

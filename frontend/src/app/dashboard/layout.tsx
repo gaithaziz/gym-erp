@@ -3,6 +3,7 @@
 import { useAuth } from '@/context/AuthContext';
 import { useRouter, usePathname } from 'next/navigation';
 import Link from 'next/link';
+import Image from 'next/image'; // Added this import
 import {
     LayoutDashboard,
     Users,
@@ -73,7 +74,7 @@ export default function DashboardLayout({
         { href: '/dashboard/coach/feedback', label: 'Feedback', icon: MessageSquare, roles: ['ADMIN', 'COACH'] },
         { href: '/dashboard/qr', label: 'My QR Code', icon: QrCode, roles: ['CUSTOMER', 'COACH', 'ADMIN'] },
         { href: '/dashboard/leaves', label: 'My Leaves', icon: ClipboardList, roles: ['ADMIN', 'COACH'] },
-        { href: '/dashboard/member/profile', label: 'My Profile', icon: UserCheck, roles: ['CUSTOMER'] },
+        { href: '/dashboard/profile', label: 'My Profile', icon: UserCheck, roles: ['ADMIN', 'COACH', 'CUSTOMER', 'STAFF'] },
         { href: '/dashboard/member/history', label: 'History', icon: ClipboardList, roles: ['CUSTOMER'] },
         { href: '/dashboard/member/achievements', label: 'Achievements', icon: Trophy, roles: ['CUSTOMER'] },
     ];
@@ -118,21 +119,26 @@ export default function DashboardLayout({
                     md:translate-x-0
                 `}
             >
-                <div className="p-6 border-b border-border">
-                    <div className="flex items-center gap-3">
+                <div className="p-5 pb-4 border-b border-border relative">
+                    <div className="absolute top-3 right-3">
                         <ThemeToggle />
-                        <div className="h-8 w-8 bg-primary rounded-full flex items-center justify-center text-primary-foreground font-bold shadow-sm">
-                            {user?.full_name?.[0] || 'U'}
+                    </div>
+                    <div className="flex flex-col items-center justify-center mt-1 group">
+                        <div className="h-16 w-16 bg-primary/20 rounded-full flex items-center justify-center text-primary text-xl font-bold shadow-sm ring-2 ring-background overflow-hidden relative mb-2 transition-transform group-hover:scale-105">
+                            {user?.profile_picture_url ? (
+                                <Image src={`${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'}${user.profile_picture_url}`} alt={user.full_name} fill className="object-cover" unoptimized priority />
+                            ) : (
+                                user?.full_name?.[0] || 'U'
+                            )}
                         </div>
-                        <div className="hidden md:block">
-                            <p className="text-sm font-medium text-foreground">{user?.full_name}</p>
-                            <p className="text-xs text-muted-foreground capitalize">{user?.role?.toLowerCase()}</p>
+                        <div className="text-center">
+                            <p className="font-bold text-foreground text-sm mb-0.5">{user?.full_name}</p>
+                            <p className="text-[10px] font-semibold text-muted-foreground tracking-widest uppercase bg-muted/40 inline-block px-2 py-0.5 rounded-full">{user?.role}</p>
                         </div>
                     </div>
-                    <p className="text-sm text-muted-foreground mt-3">{user.full_name}</p>
                 </div>
 
-                <nav className="flex-1 p-4 space-y-0.5 overflow-y-auto">
+                <nav className="flex-1 p-3 space-y-0.5 overflow-y-auto">
                     {filteredNav.map(item => {
                         const isActive = pathname === item.href;
                         return (

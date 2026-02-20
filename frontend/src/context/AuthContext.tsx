@@ -7,12 +7,18 @@ interface User {
     email: string;
     full_name: string;
     role: string;
+    profile_picture_url?: string;
+    phone_number?: string;
+    date_of_birth?: string;
+    emergency_contact?: string;
+    bio?: string;
 }
 
 interface AuthContextType {
     user: User | null;
     login: (token: string, userData: User) => void;
     logout: () => void;
+    updateUser: (userData: User) => void;
     isLoading: boolean;
 }
 
@@ -48,8 +54,13 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         router.push('/login');
     };
 
+    const updateUser = (userData: User) => {
+        localStorage.setItem('user', JSON.stringify(userData));
+        setUser(userData);
+    };
+
     return (
-        <AuthContext.Provider value={{ user, login, logout, isLoading }}>
+        <AuthContext.Provider value={{ user, login, logout, updateUser, isLoading }}>
             {children}
         </AuthContext.Provider>
     );

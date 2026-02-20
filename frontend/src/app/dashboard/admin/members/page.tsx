@@ -2,7 +2,8 @@
 
 import { useEffect, useState } from 'react';
 import { api } from '@/lib/api';
-import { Search, UserPlus, Save, Shield, Snowflake, XCircle, RefreshCw, Pencil, Trash2 } from 'lucide-react';
+import Image from 'next/image';
+import { Search, UserPlus, Save, Shield, Snowflake, XCircle, RefreshCw, Pencil, Trash2, Eye } from 'lucide-react';
 import Modal from '@/components/Modal';
 
 interface Member {
@@ -10,6 +11,11 @@ interface Member {
     full_name: string;
     email: string;
     role: string;
+    profile_picture_url?: string;
+    phone_number?: string;
+    date_of_birth?: string;
+    emergency_contact?: string;
+    bio?: string;
     subscription: {
         status: string;
         end_date: string | null;
@@ -34,6 +40,15 @@ export default function MembersPage() {
     const [manageMember, setManageMember] = useState<Member | null>(null);
     const [subPlan, setSubPlan] = useState('Monthly');
     const [subDays, setSubDays] = useState(30);
+
+    // View Profile Modal
+    const [isViewOpen, setIsViewOpen] = useState(false);
+    const [viewMember, setViewMember] = useState<Member | null>(null);
+
+    const openView = (member: Member) => {
+        setViewMember(member);
+        setIsViewOpen(true);
+    };
 
     const fetchMembers = async () => {
         try {
@@ -187,7 +202,18 @@ export default function MembersPage() {
                             )}
                             {filtered.map(m => (
                                 <tr key={m.id}>
-                                    <td className="!text-foreground font-medium">{m.full_name}</td>
+                                    <td>
+                                        <div className="flex items-center gap-3">
+                                            <div className="h-8 w-8 bg-primary/20 rounded-full flex items-center justify-center text-primary font-bold overflow-hidden relative flex-shrink-0">
+                                                {m.profile_picture_url ? (
+                                                    <Image src={`${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'}${m.profile_picture_url}`} alt={m.full_name} fill className="object-cover" unoptimized />
+                                                ) : (
+                                                    m.full_name.charAt(0)
+                                                )}
+                                            </div>
+                                            <span className="!text-foreground font-medium">{m.full_name}</span>
+                                        </div>
+                                    </td>
                                     <td>{m.email}</td>
                                     <td>
                                         <span className={`badge ${statusBadge(m.subscription?.status)}`}>
@@ -199,6 +225,13 @@ export default function MembersPage() {
                                     </td>
                                     <td className="text-right pr-6">
                                         <div className="flex items-center justify-end gap-2">
+                                            <button
+                                                onClick={() => openView(m)}
+                                                className="btn-ghost py-1 px-2 h-auto text-xs text-emerald-400 hover:text-emerald-300"
+                                                title="View Profile"
+                                            >
+                                                <Eye size={14} /> View
+                                            </button>
                                             <button
                                                 onClick={() => openManage(m)}
                                                 className="btn-ghost py-1 px-2 h-auto text-xs"
@@ -326,6 +359,48 @@ export default function MembersPage() {
                         </div>
                     )}
                 </div>
+            </Modal>
+
+            {/* VIEW PROFILE MODAL */}
+            <Modal isOpen={isViewOpen} onClose={() => setIsViewOpen(false)} title="Member Profile">
+                {viewMember && (
+                    <div className="space-y-6">
+                        <div className="flex items-center gap-4 border-b border-border pb-6">
+                            <div className="h-16 w-16 bg-primary/20 rounded-full flex items-center justify-center text-primary text-xl font-bold overflow-hidden relative flex-shrink-0">
+                                {viewMember.profile_picture_url ? (
+                                    <Image src={`${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'}${viewMember.profile_picture_url}`} alt={viewMember.full_name} fill className="object-cover" unoptimized />
+                                ) : (
+                                    viewMember.full_name.charAt(0)
+                                )}
+                            </div>
+                            <div>
+                                <h3 className="text-xl font-bold text-foreground">{viewMember.full_name}</h3>
+                                <p className="text-sm text-muted-foreground">{viewMember.email}</p>
+                                <span className="inline-block px-2 py-0.5 mt-1 rounded text-[10px] font-bold tracking-wider bg-zinc-800 text-zinc-300">
+                                    {viewMember.role}
+                                </span>
+                            </div>
+                        </div>
+                        <div className="grid grid-cols-2 gap-4 text-sm">
+                            <div>
+                                <p className="text-xs text-muted-foreground uppercase tracking-wider mb-1 font-semibold">Phone</p>
+                                <p className="font-medium text-foreground">{viewMember.phone_number || 'N/A'}</p>
+                            </div>
+                            <div>
+                                <p className="text-xs text-muted-foreground uppercase tracking-wider mb-1 font-semibold">Date of Birth</p>
+                                <p className="font-medium text-foreground">{viewMember.date_of_birth ? new Date(viewMember.date_of_birth).toLocaleDateString() : 'N/A'}</p>
+                            </div>
+                            <div className="col-span-2">
+                                <p className="text-xs text-muted-foreground uppercase tracking-wider mb-1 font-semibold">Emergency Contact</p>
+                                <p className="font-medium text-foreground">{viewMember.emergency_contact || 'N/A'}</p>
+                            </div>
+                            <div className="col-span-2">
+                                <p className="text-xs text-muted-foreground uppercase tracking-wider mb-1 font-semibold">Bio / Notes</p>
+                                <p className="font-medium text-foreground whitespace-pre-wrap">{viewMember.bio || 'No bio provided.'}</p>
+                            </div>
+                        </div>
+                    </div>
+                )}
             </Modal>
         </div>
     );

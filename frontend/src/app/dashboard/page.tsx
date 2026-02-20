@@ -194,7 +194,7 @@ function AdminDashboard({ userName }: { userName: string }) {
                     <h3 className="text-sm font-bold text-muted-foreground mb-6 uppercase tracking-wider font-mono">Visits by Hour (Last 7 Days)</h3>
                     <div className="h-[calc(100%-2rem)]">
                         {attendanceData.length > 0 ? (
-                            <ResponsiveContainer width="100%" height="100%">
+                            <ResponsiveContainer width="100%" height="100%" minHeight={1} minWidth={1}>
                                 <BarChart data={attendanceData}>
                                     <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" vertical={false} />
                                     <XAxis dataKey="hour" tick={{ fontSize: 11, fill: 'var(--muted-foreground)', fontFamily: 'var(--font-mono)' }} axisLine={false} tickLine={false} />
@@ -219,7 +219,7 @@ function AdminDashboard({ userName }: { userName: string }) {
                     <h3 className="text-sm font-bold text-muted-foreground mb-6 uppercase tracking-wider font-mono">Revenue vs. Expenses (30 Days)</h3>
                     <div className="h-[calc(100%-2rem)]">
                         {revenueData.length > 0 ? (
-                            <ResponsiveContainer width="100%" height="100%">
+                            <ResponsiveContainer width="100%" height="100%" minHeight={1} minWidth={1}>
                                 <LineChart data={revenueData}>
                                     <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" vertical={false} />
                                     <XAxis dataKey="date" tick={{ fontSize: 11, fill: 'var(--muted-foreground)', fontFamily: 'var(--font-mono)' }} axisLine={false} tickLine={false} />
@@ -607,7 +607,7 @@ function CustomerDashboard({ userName }: { userName: string }) {
                     <h3 className="text-sm font-bold text-muted-foreground mb-6 uppercase tracking-wider font-mono">Workout Consistency (Last 30 Days)</h3>
                     <div className="h-64">
                         {workoutStats.length > 0 ? (
-                            <ResponsiveContainer width="100%" height="100%">
+                            <ResponsiveContainer width="100%" height="100%" minHeight={1} minWidth={1}>
                                 <BarChart data={workoutStats}>
                                     <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" vertical={false} />
                                     <XAxis
@@ -648,7 +648,7 @@ function CustomerDashboard({ userName }: { userName: string }) {
                         <h3 className="text-sm font-bold text-muted-foreground mb-4 uppercase tracking-wider font-mono">Weight Tracking</h3>
                         <div className="h-40">
                             {biometrics.length > 0 ? (
-                                <ResponsiveContainer width="100%" height="100%">
+                                <ResponsiveContainer width="100%" height="100%" minHeight={1} minWidth={1}>
                                     <LineChart data={biometrics}>
                                         <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" vertical={false} />
                                         <XAxis dataKey="date" tickFormatter={(val) => new Date(val).toLocaleDateString()} tick={{ fontSize: 11, fill: 'var(--muted-foreground)', fontFamily: 'var(--font-mono)' }} axisLine={false} tickLine={false} />

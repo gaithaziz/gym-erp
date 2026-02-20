@@ -115,6 +115,14 @@
     --input: #1e2329;
     --ring: #FF6B00;
   }
+
+  .rdp {
+    --rdp-accent-color: var(--primary);
+    --rdp-background-color: var(--secondary);
+    --rdp-accent-color-dark: var(--primary);
+    --rdp-background-color-dark: var(--secondary);
+    margin: 0;
+  }
 }
 
 body {

@@ -1,4 +1,5 @@
 from typing import Optional
+from datetime import date
 from pydantic import BaseModel, EmailStr
 from app.models.enums import Role
 import uuid
@@ -22,6 +23,11 @@ class UserBase(BaseModel):
     full_name: Optional[str] = None
     is_active: Optional[bool] = True
     role: Role = Role.CUSTOMER
+    profile_picture_url: Optional[str] = None
+    phone_number: Optional[str] = None
+    date_of_birth: Optional[date] = None
+    emergency_contact: Optional[str] = None
+    bio: Optional[str] = None
 
 class UserCreate(UserBase):
     password: str
@@ -34,6 +40,10 @@ class UserResponse(UserBase):
 
 class UserUpdate(BaseModel):
     full_name: Optional[str] = None
+    phone_number: Optional[str] = None
+    date_of_birth: Optional[date] = None
+    emergency_contact: Optional[str] = None
+    bio: Optional[str] = None
 
 class PasswordChange(BaseModel):
     current_password: str
