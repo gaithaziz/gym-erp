@@ -87,8 +87,8 @@ async def refresh_token(
     
     try:
         payload = jwt.decode(token, settings.SECRET_KEY, algorithms=[settings.ALGORITHM])
-        username: str = payload.get("sub")
-        token_type: str = payload.get("type")
+        username = payload.get("sub")
+        token_type = payload.get("type")
         if username is None or token_type != "refresh":
             raise credentials_exception
     except JWTError:
@@ -120,3 +120,37 @@ async def read_users_me(
     current_user: Annotated[User, Depends(dependencies.get_current_active_user)]
 ):
     return StandardResponse(data=current_user)
+
+@router.put("/me", response_model=StandardResponse[schemas.UserResponse])
+async def update_user_me(
+    user_update: schemas.UserUpdate,
+    current_user: Annotated[User, Depends(dependencies.get_current_active_user)],
+    db: Annotated[AsyncSession, Depends(get_db)]
+):
+    """Update current user profile."""
+    if user_update.full_name is not None:
+        current_user.full_name = user_update.full_name
+    
+    db.add(current_user)
+    await db.commit()
+    await db.refresh(current_user)
+    return StandardResponse(data=current_user, message="Profile updated successfully")
+
+@router.put("/me/password", response_model=StandardResponse)
+async def change_password(
+    password_data: schemas.PasswordChange,
+    current_user: Annotated[User, Depends(dependencies.get_current_active_user)],
+    db: Annotated[AsyncSession, Depends(get_db)]
+):
+    """Change current user password."""
+    if not security.verify_password(password_data.current_password, current_user.hashed_password):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Incorrect current password"
+        )
+    
+    current_user.hashed_password = security.get_password_hash(password_data.new_password)
+    db.add(current_user)
+    await db.commit()
+    
+    return StandardResponse(message="Password changed successfully")

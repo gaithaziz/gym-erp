@@ -72,7 +72,7 @@ async def verify_phase3():
         
         # 4. Generate Payroll
         logger.info(f"Generating Payroll for {month}/{year}...")
-        payroll = await PayrollService.calculate_payroll(user.id, month, year, session)
+        payroll = await PayrollService.calculate_payroll(user.id, month, year, 0.0, session)
         
         # 5. Verify Amount
         # Base = 5000

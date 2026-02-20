@@ -16,7 +16,7 @@ from app.main import app
 
 # event_loop fixture removed as it is deprecated in pytest-asyncio
 
-@pytest.fixture(scope="session")
+@pytest.fixture(scope="function")
 async def db_engine():
     import os
     if os.getenv("CI"):

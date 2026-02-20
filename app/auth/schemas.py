@@ -31,3 +31,10 @@ class UserResponse(UserBase):
     
     class Config:
         from_attributes = True
+
+class UserUpdate(BaseModel):
+    full_name: Optional[str] = None
+
+class PasswordChange(BaseModel):
+    current_password: str
+    new_password: str

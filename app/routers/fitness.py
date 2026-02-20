@@ -144,6 +144,72 @@ async def list_plans(
     return StandardResponse(data=[WorkoutPlanResponse.model_validate(p) for p in plans])
 
 
+@router.put("/plans/{plan_id}", response_model=StandardResponse)
+async def update_workout_plan(
+    plan_id: uuid.UUID,
+    data: WorkoutPlanCreate,
+    current_user: Annotated[User, Depends(dependencies.RoleChecker([Role.ADMIN, Role.COACH]))],
+    db: Annotated[AsyncSession, Depends(get_db)]
+):
+    """Update an existing workout plan (overwrite exercises)."""
+    stmt = select(WorkoutPlan).where(WorkoutPlan.id == plan_id).options(selectinload(WorkoutPlan.exercises))
+    result = await db.execute(stmt)
+    plan = result.scalar_one_or_none()
+    
+    if not plan:
+        raise HTTPException(status_code=404, detail="Plan not found")
+        
+    if current_user.role != Role.ADMIN and plan.creator_id != current_user.id:
+        raise HTTPException(status_code=403, detail="Cannot edit plan created by another user")
+
+    # Update basic fields
+    plan.name = data.name
+    plan.description = data.description  # type: ignore
+    plan.member_id = data.member_id  # type: ignore
+    
+    # Clear existing exercises
+    for ex in plan.exercises:
+        await db.delete(ex)
+    
+    # Add new exercises
+    for ex_data in data.exercises:
+        w_ex = WorkoutExercise(
+            plan_id=plan.id,
+            exercise_id=ex_data.exercise_id,
+            sets=ex_data.sets,
+            reps=ex_data.reps,
+            duration_minutes=ex_data.duration_minutes,
+            order=ex_data.order
+        )
+        db.add(w_ex)
+        
+    await db.commit()
+    return StandardResponse(message="Plan updated successfully")
+
+
+@router.delete("/plans/{plan_id}", response_model=StandardResponse)
+async def delete_workout_plan(
+    plan_id: uuid.UUID,
+    current_user: Annotated[User, Depends(dependencies.RoleChecker([Role.ADMIN, Role.COACH]))],
+    db: Annotated[AsyncSession, Depends(get_db)]
+):
+    """Delete a workout plan."""
+    stmt = select(WorkoutPlan).where(WorkoutPlan.id == plan_id)
+    result = await db.execute(stmt)
+    plan = result.scalar_one_or_none()
+    
+    if not plan:
+        raise HTTPException(status_code=404, detail="Plan not found")
+        
+    if current_user.role != Role.ADMIN and plan.creator_id != current_user.id:
+        raise HTTPException(status_code=403, detail="Cannot delete plan created by another user")
+        
+    await db.delete(plan)
+    await db.commit()
+    return StandardResponse(message="Plan deleted")
+
+
+
 # ===== DIET PLAN SCHEMAS =====
 
 class DietPlanCreate(BaseModel):

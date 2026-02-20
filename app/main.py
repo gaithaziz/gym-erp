@@ -8,6 +8,9 @@ from app.routers.hr import router as hr_router
 from app.routers.finance import router as finance_router
 from app.routers.fitness import router as fitness_router
 from app.routers.analytics import router as analytics_router
+from app.routers.gamification import router as gamification_router
+from app.routers.inventory import router as inventory_router
+from app.routers.users import router as users_router
 from app.core import exceptions
 
 from fastapi.middleware.cors import CORSMiddleware
@@ -28,8 +31,8 @@ app.add_middleware(
 )
 
 # Exception Handlers
-app.add_exception_handler(RequestValidationError, exceptions.validation_exception_handler)
-app.add_exception_handler(IntegrityError, exceptions.integrity_exception_handler)
+app.add_exception_handler(RequestValidationError, exceptions.validation_exception_handler)  # type: ignore
+app.add_exception_handler(IntegrityError, exceptions.integrity_exception_handler)  # type: ignore
 
 # Routers
 app.include_router(auth_router.router, prefix=f"{settings.API_V1_STR}/auth", tags=["Auth"])
@@ -38,7 +41,19 @@ app.include_router(hr_router, prefix=f"{settings.API_V1_STR}/hr", tags=["HR"])
 app.include_router(finance_router, prefix=f"{settings.API_V1_STR}/finance", tags=["Finance"])
 app.include_router(fitness_router, prefix=f"{settings.API_V1_STR}/fitness", tags=["Fitness"])
 app.include_router(analytics_router, prefix=f"{settings.API_V1_STR}/analytics", tags=["Analytics"])
+app.include_router(gamification_router, prefix=f"{settings.API_V1_STR}/gamification", tags=["Gamification"])
+app.include_router(inventory_router, prefix=f"{settings.API_V1_STR}/inventory", tags=["Inventory"])
+app.include_router(users_router, prefix=f"{settings.API_V1_STR}/users", tags=["Users"])
 
 @app.get("/health")
 async def health_check():
     return {"status": "ok"}
+
+@app.get("/")
+async def root():
+    return {"message": "Welcome to the Gym ERP API", "docs": "/docs"}
+
+@app.get("/favicon.ico", include_in_schema=False)
+async def favicon():
+    from fastapi.responses import Response
+    return Response(content=b"", media_type="image/x-icon")

@@ -1,0 +1,117 @@
+﻿python : Traceback (most 
+recent call last):
+At line:1 char:1
++ python -c "from 
+app.config import settings" 
+2> traceback.txt
++ ~~~~~~~~~~~~~~~~~~~~~~~~~~
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+~~~~~~
+    + CategoryInfo          
+    : NotSpecified: (Trace  
+  back (most recent call    
+ last)::String) [], Remo    
+teException
+    + FullyQualifiedErrorId 
+    : NativeCommandError
+ 
+  File "<string>", line 1, 
+in <module>
+  File "C:\Users\user\gym-er
+p\app\config.py", line 6, 
+in <module>
+    class 
+Settings(BaseSettings):
+  File "C:\Users\user\AppDat
+a\Local\Programs\Python\Pyth
+on311\Lib\site-packages\pyda
+ntic\_internal\_model_constr
+uction.py", line 224, in 
+__new__
+    complete_model_class(
+  File "C:\Users\user\AppDat
+a\Local\Programs\Python\Pyth
+on311\Lib\site-packages\pyda
+ntic\_internal\_model_constr
+uction.py", line 602, in 
+complete_model_class
+    schema = cls.__get_pydan
+tic_core_schema__(cls, 
+handler)
+             ^^^^^^^^^^^^^^^
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+^^^
+  File "C:\Users\user\AppDat
+a\Local\Programs\Python\Pyth
+on311\Lib\site-packages\pyda
+ntic\main.py", line 702, in 
+__get_pydantic_core_schema__
+    return handler(source)
+           ^^^^^^^^^^^^^^^
+  File "C:\Users\user\AppDat
+a\Local\Programs\Python\Pyth
+on311\Lib\site-packages\pyda
+ntic\_internal\_schema_gener
+ation_shared.py", line 84, 
+in __call__
+    schema = 
+self._handler(source_type)
+             
+^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\user\AppDat
+a\Local\Programs\Python\Pyth
+on311\Lib\site-packages\pyda
+ntic\_internal\_generate_sch
+ema.py", line 610, in 
+generate_schema
+    schema = self._generate_
+schema_inner(obj)
+             ^^^^^^^^^^^^^^^
+^^^^^^^^^^^^^^^^^
+  File "C:\Users\user\AppDat
+a\Local\Programs\Python\Pyth
+on311\Lib\site-packages\pyda
+ntic\_internal\_generate_sch
+ema.py", line 879, in 
+_generate_schema_inner
+    return 
+self._model_schema(obj)
+           
+^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\user\AppDat
+a\Local\Programs\Python\Pyth
+on311\Lib\site-packages\pyda
+ntic\_internal\_generate_sch
+ema.py", line 692, in 
+_model_schema
+    computed_fields=[
+                    ^
+  File "C:\Users\user\AppDat
+a\Local\Programs\Python\Pyth
+on311\Lib\site-packages\pyda
+ntic\_internal\_generate_sch
+ema.py", line 693, in 
+<listcomp>
+    self._computed_field_sch
+ema(d, decorators.field_seri
+alizers)
+  File "C:\Users\user\AppDat
+a\Local\Programs\Python\Pyth
+on311\Lib\site-packages\pyda
+ntic\_internal\_generate_sch
+ema.py", line 1934, in 
+_computed_field_schema
+    raise PydanticUserError(
+pydantic.errors.PydanticUser
+Error: Computed field is 
+missing return type 
+annotation or specifying 
+`return_type` to the 
+`@computed_field` decorator 
+(e.g. `@computed_field(retur
+n_type=int|str)`)
+
+For further information 
+visit https://errors.pydanti
+c.dev/2.10/u/model-field-mis
+sing-annotation

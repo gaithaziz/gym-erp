@@ -1,10 +1,9 @@
 import asyncio
 import uuid
 from datetime import date
-from sqlalchemy import select
 from app.database import AsyncSessionLocal
 from app.models.user import User
-from app.models.hr import Contract, ContractType, Payroll
+from app.models.hr import Contract, ContractType
 from app.models.enums import Role
 from app.auth.security import get_password_hash
 from app.services.payroll_service import PayrollService

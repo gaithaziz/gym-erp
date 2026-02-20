@@ -43,7 +43,6 @@ async def get_recent_activity(
     db: Annotated[AsyncSession, Depends(get_db)]
 ):
     """Return the last 10 notable events: check-ins, new users, transactions."""
-    from sqlalchemy import select, union_all, literal, func
     from app.models.access import AccessLog, AttendanceLog
     from app.models.finance import Transaction
 

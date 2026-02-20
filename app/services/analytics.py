@@ -52,7 +52,7 @@ class AnalyticsService:
         
         # 6. Pending Salaries (rough: active staff * avg salary - paid payrolls this month)
         # Simplified: count unpaid payroll records for current month
-        stmt_pending = select(func.sum(Payroll.net_pay)).where(
+        stmt_pending = select(func.sum(Payroll.total_pay)).where(
             Payroll.month == now.month,
             Payroll.year == now.year
         )

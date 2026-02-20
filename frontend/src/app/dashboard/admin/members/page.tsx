@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import { api } from '@/lib/api';
-import { Search, UserPlus, Save, Shield, Snowflake, XCircle, RefreshCw, Pencil, Trash2, AlertTriangle, UserX } from 'lucide-react';
+import { Search, UserPlus, Save, Shield, Snowflake, XCircle, RefreshCw, Pencil, Trash2 } from 'lucide-react';
 import Modal from '@/components/Modal';
 
 interface Member {

@@ -56,5 +56,5 @@ async def test_finance_flow(client: AsyncClient, db_session: AsyncSession):
     dash_data = resp_dash.json()["data"]
     
     # Check that it picked up the new real transaction data
-    assert dash_data["estimated_monthly_revenue"] == 100.0 # Current month filter applies, we just added it with default=now()
-    assert dash_data["total_expenses_to_date"] == 40.0
+    assert dash_data["monthly_revenue"] == 100.0 # Current month filter applies, we just added it with default=now()
+    assert dash_data["monthly_expenses"] == 40.0

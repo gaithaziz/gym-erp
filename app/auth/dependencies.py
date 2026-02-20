@@ -3,13 +3,13 @@ from fastapi import Depends, HTTPException, status
 from fastapi.security import OAuth2PasswordBearer
 from jose import JWTError, jwt
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy import select
 
 from app.config import settings
 from app.database import get_db
 from app.models.user import User
 from app.auth.schemas import TokenPayload
 from app.models.enums import Role
-from sqlalchemy import select
 
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl=f"{settings.API_V1_STR}/auth/login")
 
@@ -24,8 +24,8 @@ async def get_current_user(
     )
     try:
         payload = jwt.decode(token, settings.SECRET_KEY, algorithms=[settings.ALGORITHM])
-        username: str = payload.get("sub")
-        token_type: str = payload.get("type")
+        username = payload.get("sub")
+        token_type = payload.get("type")
         if username is None or token_type != "access":
             raise credentials_exception
         token_data = TokenPayload(sub=username, type=token_type)
@@ -58,3 +58,11 @@ class RoleChecker:
                 detail="Operation not permitted"
             )
         return user
+
+# Hierarchical Role Dependencies
+get_current_admin = RoleChecker([Role.ADMIN])
+# Managers can do everything Front Desk can, plus more. Admins can do everything.
+get_current_manager = RoleChecker([Role.ADMIN, Role.MANAGER])
+get_current_front_desk = RoleChecker([Role.ADMIN, Role.MANAGER, Role.FRONT_DESK])
+get_current_coach = RoleChecker([Role.ADMIN, Role.MANAGER, Role.COACH])
+get_current_employee = RoleChecker([Role.ADMIN, Role.MANAGER, Role.FRONT_DESK, Role.COACH, Role.EMPLOYEE])

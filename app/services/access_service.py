@@ -24,8 +24,8 @@ class AccessService:
         """Validates QR token and user subscription status."""
         try:
             payload = jwt.decode(token, settings.SECRET_KEY, algorithms=[settings.ALGORITHM])
-            user_id: str = payload.get("sub")
-            token_type: str = payload.get("type")
+            user_id = payload.get("sub")
+            token_type = payload.get("type")
             if user_id is None or token_type != "qr_access":
                 raise HTTPException(status_code=400, detail="Invalid QR Token")
         except JWTError:
@@ -153,3 +153,30 @@ class AccessService:
         
         await db.commit()
         return log
+
+    @staticmethod
+    async def get_all_members_for_sync(db: AsyncSession) -> list[dict]:
+        """Fetches all members and their subscription status for offline sync."""
+        # Join User and Subscription. We want ALL users that have roles implies membership? 
+        # Or just all users. Let's return all users for now, or maybe filter by Role.CUSTOMER
+        # PRD says "Active Members". Let's get all so we can replicate logic.
+        
+        # We need to be careful about imports inside method if circular, but here it is fine.
+        stmt = select(User, Subscription).outerjoin(Subscription, User.id == Subscription.user_id)
+        result = await db.execute(stmt)
+        
+        data = []
+        # Result is list of (User, Subscription|None)
+        rows = result.all()
+        
+        for user, sub in rows:
+            data.append({
+                "id": str(user.id),
+                "full_name": user.full_name,
+                "subscription": {
+                    "status": sub.status.value if sub else "INACTIVE",
+                    "end_date": sub.end_date.isoformat() if sub and sub.end_date else None
+                } if sub else None
+            })
+            
+        return data

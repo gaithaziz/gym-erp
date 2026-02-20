@@ -52,48 +52,40 @@ class PayrollService:
         base_pay = 0.0
         overtime_pay = 0.0
         overtime_hours = 0.0
+        commission_pay = 0.0
         
         if contract.contract_type == ContractType.FULL_TIME:
             # Fixed Base Salary
             base_pay = contract.base_salary
             
             # Hourly rate for OT = Base / Standard Hours (160)
-            hourly_rate = contract.base_salary / contract.standard_hours
+            if contract.standard_hours > 0:
+                hourly_rate = contract.base_salary / contract.standard_hours
+            else:
+                hourly_rate = 0.0
             
             if total_hours > contract.standard_hours:
                 overtime_hours = total_hours - contract.standard_hours
                 overtime_pay = overtime_hours * hourly_rate * 1.5
                 
         elif contract.contract_type == ContractType.PART_TIME:
-            # Paid by hour
-            # Implicit hourly rate = base_salary field? 
-            # Let's assume for PART_TIME, matches base_salary field is treated as hourly rate.
-            # Or better, Contract should have specific fields.
-            # Re-using base_salary as "Rate" for Part Time for simplicity or strict interpretation.
-            # Plan says: "If PART_TIME: Hourly * Hours". 
-            # I will assume contract.base_salary IS the hourly rate for PT.
+            # Paid by hour (assuming base_salary holds the hourly rate)
             hourly_rate = contract.base_salary
             base_pay = total_hours * hourly_rate
-            # No overtime for PT in this simple model, or maybe > standard? 
-            # Simplest: just straight hourly.
             
         elif contract.contract_type == ContractType.CONTRACTOR:
-             # Similar to PT usually
+             # Similar to PT
             hourly_rate = contract.base_salary
             base_pay = total_hours * hourly_rate
             
         elif contract.contract_type == ContractType.HYBRID:
             # Base + Commission
             base_pay = contract.base_salary
-            
             # Commission calculation
-            # commission_pay = sales_volume * commission_rate
             commission_pay = sales_volume * contract.commission_rate
             
-            total_pay = base_pay + commission_pay
-
-        else:   
-            total_pay = base_pay + overtime_pay
+        # Calculate Total Pay
+        total_pay = base_pay + overtime_pay + commission_pay
         
         # 4. Create/Update Payroll Record
         # Check if exists
@@ -111,6 +103,7 @@ class PayrollService:
             payroll.overtime_hours = round(overtime_hours, 2)
             payroll.overtime_pay = round(overtime_pay, 2)
             payroll.total_pay = round(total_pay, 2)
+            payroll.commission_pay = round(commission_pay, 2)
         else:
             payroll = Payroll(
                 user_id=user_id,
@@ -120,7 +113,7 @@ class PayrollService:
                 overtime_hours=round(overtime_hours, 2),
                 overtime_pay=round(overtime_pay, 2),
                 total_pay=round(total_pay, 2),
-                commission_pay=round(commission_pay if 'commission_pay' in locals() else 0.0, 2),
+                commission_pay=round(commission_pay, 2),
                 status=PayrollStatus.DRAFT
             )
             db.add(payroll)

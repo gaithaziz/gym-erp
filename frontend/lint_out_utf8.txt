@@ -1,0 +1,30 @@
+﻿
+> frontend@0.1.0 lint
+> eslint
+
+
+C:\Users\user\gym-erp\frontend\src\app\dashboard\admin\members\page.tsx
+  5:89   warning  'AlertTriangle' is defined but never used  @typescript-eslint/no-unused-vars
+  5:104  warning  'UserX' is defined but never used          @typescript-eslint/no-unused-vars
+
+C:\Users\user\gym-erp\frontend\src\app\dashboard\coach\plans\page.tsx
+   5:58  warning  'Copy' is defined but never used                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                @typescript-eslint/no-unused-vars
+  87:13  error    Error: Calling setState synchronously within an effect can trigger cascading renders
+
+Effects are intended to synchronize state between React and external systems such as manually updating the DOM, state management libraries, or other platform APIs. In general, the body of an effect should do one or both of the following:
+* Update external systems with the latest state from React.
+* Subscribe for updates from some external system, calling setState in a callback function when external state changes.
+
+Calling setState synchronously within an effect body causes cascading renders that can hurt performance, and is not recommended. (https://react.dev/learn/you-might-not-need-an-effect).
+
+C:\Users\user\gym-erp\frontend\src\app\dashboard\coach\plans\page.tsx:87:13
+  85 |     useEffect(() => {
+  86 |         if (!showModal) {
+> 87 |             setEditingPlan(null);
+     |             ^^^^^^^^^^^^^^ Avoid calling setState() directly within an effect
+  88 |             setPlanName('');
+  89 |             setPlanDesc('');
+  90 |             setAssignedMemberId('');  react-hooks/set-state-in-effect
+
+Γ£û 4 problems (1 error, 3 warnings)
+

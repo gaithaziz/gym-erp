@@ -1,4 +1,4 @@
-from typing import List
+from typing import List, cast
 from pydantic import AnyHttpUrl, PostgresDsn, computed_field
 from pydantic_core import MultiHostUrl
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -27,15 +27,15 @@ class Settings(BaseSettings):
     @computed_field
     @property
     def SQLALCHEMY_DATABASE_URI(self) -> PostgresDsn:
-        return MultiHostUrl.build(
+        return cast(PostgresDsn, MultiHostUrl.build(
             scheme="postgresql+asyncpg",
             username=self.POSTGRES_USER,
             password=self.POSTGRES_PASSWORD,
             host=self.POSTGRES_HOST,
             port=self.POSTGRES_PORT,
             path=self.POSTGRES_DB,
-        )
+        ))
 
     model_config = SettingsConfigDict(env_file=".env", case_sensitive=True, extra="ignore")
 
-settings = Settings()
+settings = Settings()  # type: ignore

@@ -1,4 +1,5 @@
 from typing import Annotated, Optional
+from datetime import datetime
 from fastapi import APIRouter, Depends, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func, extract
@@ -12,6 +13,7 @@ from app.models.finance import Transaction, TransactionType, TransactionCategory
 from app.core.responses import StandardResponse
 import uuid
 
+
 router = APIRouter()
 
 class TransactionCreate(BaseModel):
@@ -21,6 +23,13 @@ class TransactionCreate(BaseModel):
     description: str | None = None
     payment_method: PaymentMethod = PaymentMethod.CASH
     user_id: uuid.UUID | None = None
+
+class TransactionResponse(TransactionCreate):
+    id: uuid.UUID
+    date: datetime
+
+    class Config:
+        from_attributes = True
 
 @router.post("/transactions", response_model=StandardResponse)
 async def create_transaction(
@@ -52,7 +61,9 @@ async def list_transactions(
     stmt = stmt.order_by(Transaction.date.desc()).limit(limit)
     result = await db.execute(stmt)
     transactions = result.scalars().all()
-    return StandardResponse(data=transactions)
+    # Serialize to dicts using Pydantic
+    serialized = [TransactionResponse.model_validate(t).model_dump(mode="json") for t in transactions]
+    return StandardResponse(data=serialized)
 
 @router.get("/summary", response_model=StandardResponse)
 async def get_financial_summary(
@@ -87,3 +98,15 @@ async def get_financial_summary(
         "total_expenses": expenses,
         "net_profit": profit
     })
+
+@router.get("/my-transactions", response_model=StandardResponse)
+async def get_my_transactions(
+    current_user: Annotated[User, Depends(dependencies.get_current_active_user)],
+    db: Annotated[AsyncSession, Depends(get_db)]
+):
+    """Get transactions linked to the current user."""
+    stmt = select(Transaction).where(Transaction.user_id == current_user.id).order_by(Transaction.date.desc())
+    result = await db.execute(stmt)
+    transactions = result.scalars().all()
+    serialized = [TransactionResponse.model_validate(t).model_dump(mode="json") for t in transactions]
+    return StandardResponse(data=serialized)

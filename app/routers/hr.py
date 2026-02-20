@@ -53,7 +53,7 @@ async def create_contract(
     if existing:
         contract = existing
         contract.start_date = contract_data.start_date
-        contract.end_date = contract_data.end_date
+        contract.end_date = contract_data.end_date  # type: ignore
         contract.base_salary = contract_data.base_salary
         contract.contract_type = contract_data.contract_type
         contract.standard_hours = contract_data.standard_hours

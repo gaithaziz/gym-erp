@@ -1,0 +1,78 @@
+c:\Users\user\gym-erp\alembic\env.py
+  c:\Users\user\gym-erp\alembic\env.py:73:5 - error: Object of type "None" is not subscriptable (reportOptionalSubscript)
+  c:\Users\user\gym-erp\alembic\env.py:76:9 - error: Argument of type "Dict[str, str] | None" cannot be assigned to parameter "configuration" of type "Dict[str, Any]" in function "async_engine_from_config"
+    Type "Dict[str, str] | None" is not assignable to type "Dict[str, Any]"
+      "None" is not assignable to "Dict[str, Any]" (reportArgumentType)
+c:\Users\user\gym-erp\app\auth\dependencies.py
+  c:\Users\user\gym-erp\app\auth\dependencies.py:27:25 - error: Type "Any | None" is not assignable to declared type "str"
+    Type "Any | None" is not assignable to type "str"
+      "None" is not assignable to "str" (reportAssignmentType)
+  c:\Users\user\gym-erp\app\auth\dependencies.py:28:27 - error: Type "Any | None" is not assignable to declared type "str"
+    Type "Any | None" is not assignable to type "str"
+      "None" is not assignable to "str" (reportAssignmentType)
+c:\Users\user\gym-erp\app\auth\router.py
+  c:\Users\user\gym-erp\app\auth\router.py:90:25 - error: Type "Any | None" is not assignable to declared type "str"
+    Type "Any | None" is not assignable to type "str"
+      "None" is not assignable to "str" (reportAssignmentType)
+  c:\Users\user\gym-erp\app\auth\router.py:91:27 - error: Type "Any | None" is not assignable to declared type "str"
+    Type "Any | None" is not assignable to type "str"
+      "None" is not assignable to "str" (reportAssignmentType)
+c:\Users\user\gym-erp\app\config.py
+  c:\Users\user\gym-erp\app\config.py:30:16 - error: Type "MultiHostUrl" is not assignable to return type "PostgresDsn"
+    "MultiHostUrl" is not assignable to "PostgresDsn" (reportReturnType)
+  c:\Users\user\gym-erp\app\config.py:41:12 - error: Arguments missing for parameters "SECRET_KEY", "POSTGRES_HOST", "POSTGRES_USER", "POSTGRES_PASSWORD", "POSTGRES_DB" (reportCallIssue)
+c:\Users\user\gym-erp\app\initial_data.py
+  c:\Users\user\gym-erp\app\initial_data.py:121:84 - error: "id" is not a known attribute of "None" (reportOptionalMemberAccess)
+  c:\Users\user\gym-erp\app\initial_data.py:131:38 - error: "id" is not a known attribute of "None" (reportOptionalMemberAccess)
+  c:\Users\user\gym-erp\app\initial_data.py:141:21 - error: "email" is not a known attribute of "None" (reportOptionalMemberAccess)
+  c:\Users\user\gym-erp\app\initial_data.py:142:81 - error: "id" is not a known attribute of "None" (reportOptionalMemberAccess)
+  c:\Users\user\gym-erp\app\initial_data.py:146:39 - error: "id" is not a known attribute of "None" (reportOptionalMemberAccess)
+  c:\Users\user\gym-erp\app\initial_data.py:153:63 - error: "email" is not a known attribute of "None" (reportOptionalMemberAccess)
+c:\Users\user\gym-erp\app\main.py
+  c:\Users\user\gym-erp\app\main.py:34:51 - error: Argument of type "(request: Request[State], exc: RequestValidationError) -> CoroutineType[Any, Any, JSONResponse]" cannot be assigned to parameter "handler" of type "ExceptionHandler" in function "add_exception_handler"
+    Type "(request: Request[State], exc: RequestValidationError) -> CoroutineType[Any, Any, JSONResponse]" is not assignable to type "ExceptionHandler"
+      Type "(request: Request[State], exc: RequestValidationError) -> CoroutineType[Any, Any, JSONResponse]" is not assignable to type "HTTPExceptionHandler"
+        Parameter 2: type "Exception" is incompatible with type "RequestValidationError"
+          "Exception" is not assignable to "RequestValidationError"
+      Type "(request: Request[State], exc: RequestValidationError) -> CoroutineType[Any, Any, JSONResponse]" is not assignable to type "WebSocketExceptionHandler"
+        Parameter 1: type "WebSocket" is incompatible with type "Request[State]"
+          "WebSocket" is not assignable to "Request[State]"
+        Parameter 2: type "Exception" is incompatible with type "RequestValidationError"
+    ... (reportArgumentType)
+  c:\Users\user\gym-erp\app\main.py:35:43 - error: Argument of type "(request: Request[State], exc: IntegrityError) -> CoroutineType[Any, Any, JSONResponse]" cannot be assigned to parameter "handler" of type "ExceptionHandler" in function "add_exception_handler"
+    Type "(request: Request[State], exc: IntegrityError) -> CoroutineType[Any, Any, JSONResponse]" is not assignable to type "ExceptionHandler"
+      Type "(request: Request[State], exc: IntegrityError) -> CoroutineType[Any, Any, JSONResponse]" is not assignable to type "HTTPExceptionHandler"
+        Parameter 2: type "Exception" is incompatible with type "IntegrityError"
+          "Exception" is not assignable to "IntegrityError"
+      Type "(request: Request[State], exc: IntegrityError) -> CoroutineType[Any, Any, JSONResponse]" is not assignable to type "WebSocketExceptionHandler"
+        Parameter 1: type "WebSocket" is incompatible with type "Request[State]"
+          "WebSocket" is not assignable to "Request[State]"
+        Parameter 2: type "Exception" is incompatible with type "IntegrityError"
+    ... (reportArgumentType)
+c:\Users\user\gym-erp\app\routers\fitness.py
+  c:\Users\user\gym-erp\app\routers\fitness.py:167:24 - error: Cannot assign to attribute "description" for class "WorkoutPlan"
+    Type "str | None" is not assignable to type "SQLCoreOperations[str] | str"
+      Type "None" is not assignable to type "SQLCoreOperations[str] | str"
+        "None" is not assignable to "SQLCoreOperations[str]"
+        "None" is not assignable to "str" (reportAttributeAccessIssue)
+  c:\Users\user\gym-erp\app\routers\fitness.py:168:22 - error: Cannot assign to attribute "member_id" for class "WorkoutPlan"
+    Type "UUID | None" is not assignable to type "SQLCoreOperations[UUID] | UUID"
+      Type "None" is not assignable to type "SQLCoreOperations[UUID] | UUID"
+        "None" is not assignable to "SQLCoreOperations[UUID]"
+        "None" is not assignable to "UUID" (reportAttributeAccessIssue)
+c:\Users\user\gym-erp\app\routers\hr.py
+  c:\Users\user\gym-erp\app\routers\hr.py:56:29 - error: Cannot assign to attribute "end_date" for class "Contract"
+    Type "date | None" is not assignable to type "SQLCoreOperations[date] | date"
+      Type "None" is not assignable to type "SQLCoreOperations[date] | date"
+        "None" is not assignable to "SQLCoreOperations[date]"
+        "None" is not assignable to "date" (reportAttributeAccessIssue)
+c:\Users\user\gym-erp\app\services\access_service.py
+  c:\Users\user\gym-erp\app\services\access_service.py:27:28 - error: Type "Any | None" is not assignable to declared type "str"
+    Type "Any | None" is not assignable to type "str"
+      "None" is not assignable to "str" (reportAssignmentType)
+  c:\Users\user\gym-erp\app\services\access_service.py:28:31 - error: Type "Any | None" is not assignable to declared type "str"
+    Type "Any | None" is not assignable to type "str"
+      "None" is not assignable to "str" (reportAssignmentType)
+c:\Users\user\gym-erp\app\verify_phase3.py
+  c:\Users\user\gym-erp\app\verify_phase3.py:75:25 - error: Argument missing for parameter "db" (reportCallIssue)
+22 errors, 0 warnings, 0 informations

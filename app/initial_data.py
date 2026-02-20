@@ -115,6 +115,8 @@ async def seed_data():
             else:
                 logger.info(f"User already exists: {user_data['email']}")
             
+            assert user is not None
+            
             # Seed Subscription if configured
             if "subscription" in user_data:
                 sub_data = user_data["subscription"]

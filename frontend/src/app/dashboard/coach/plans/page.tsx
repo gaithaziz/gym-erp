@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import { api } from '@/lib/api';
-import { Plus, Dumbbell, Trash2, ChevronDown, ChevronUp, Copy, UserPlus, Pencil, Save, X } from 'lucide-react';
+import { Plus, Dumbbell, Trash2, ChevronDown, ChevronUp, UserPlus, Pencil, Save, X } from 'lucide-react';
 import Modal from '@/components/Modal';
 
 interface Exercise {
@@ -81,16 +81,15 @@ export default function WorkoutPlansPage() {
 
     useEffect(() => { setTimeout(() => fetchData(), 0); }, []);
 
-    // Reset form when modal closes or switches mode
-    useEffect(() => {
-        if (!showModal) {
-            setEditingPlan(null);
-            setPlanName('');
-            setPlanDesc('');
-            setAssignedMemberId('');
-            setSelectedExercises([]);
-        }
-    }, [showModal]);
+    // Reset form when modal opens
+    const handleOpenCreateModal = () => {
+        setEditingPlan(null);
+        setPlanName('');
+        setPlanDesc('');
+        setAssignedMemberId('');
+        setSelectedExercises([]);
+        setShowModal(true);
+    };
 
     const addExerciseToPlan = () => {
         if (!currentExId) return;
@@ -203,7 +202,7 @@ export default function WorkoutPlansPage() {
                     <h1 className="text-2xl font-bold text-white">Workout Plans</h1>
                     <p className="text-sm text-[#6B6B6B] mt-1">Create and manage training programs</p>
                 </div>
-                <button onClick={() => setShowModal(true)} className="btn-primary">
+                <button onClick={handleOpenCreateModal} className="btn-primary">
                     <Plus size={18} /> Create Plan
                 </button>
             </div>

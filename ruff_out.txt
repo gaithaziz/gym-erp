@@ -1,0 +1,14 @@
+E712 Avoid equality comparisons to `True`; use `Product.is_active:` for truth checks
+   --> app\routers\inventory.py:103:27
+    |
+101 |     stmt = select(Product)
+102 |     if not show_inactive:
+103 |         stmt = stmt.where(Product.is_active == True)
+    |                           ^^^^^^^^^^^^^^^^^^^^^^^^^
+104 |     if category:
+105 |         stmt = stmt.where(Product.category == category)
+    |
+help: Replace with `Product.is_active`
+
+Found 1 error.
+No fixes available (1 hidden fix can be enabled with the `--unsafe-fixes` option).
