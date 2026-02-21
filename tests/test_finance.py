@@ -5,6 +5,8 @@ from app.config import settings
 from app.models.user import User
 from app.models.enums import Role
 from app.auth.security import get_password_hash
+from app.models.finance import Transaction, TransactionCategory, TransactionType, PaymentMethod
+from datetime import datetime, timedelta, timezone
 
 @pytest.mark.asyncio
 async def test_finance_flow(client: AsyncClient, db_session: AsyncSession):
@@ -80,3 +82,62 @@ async def test_finance_flow(client: AsyncClient, db_session: AsyncSession):
     receipt_print = await client.get(f"{settings.API_V1_STR}/finance/transactions/{income_tx_id}/receipt/print", headers=headers)
     assert receipt_print.status_code == 200
     assert "text/html" in receipt_print.headers["content-type"]
+
+
+@pytest.mark.asyncio
+async def test_finance_date_range_filtering(client: AsyncClient, db_session: AsyncSession):
+    password = "password123"
+    hashed = get_password_hash(password)
+    admin = User(email="admin_fin_range@gym.com", hashed_password=hashed, role=Role.ADMIN, full_name="Fin Range Admin")
+    db_session.add(admin)
+    await db_session.flush()
+
+    now = datetime.now(timezone.utc)
+    recent_tx = Transaction(
+        amount=150.0,
+        type=TransactionType.INCOME,
+        category=TransactionCategory.OTHER_INCOME,
+        description="Recent income",
+        payment_method=PaymentMethod.CASH,
+        date=now - timedelta(days=2),
+    )
+    old_tx = Transaction(
+        amount=25.0,
+        type=TransactionType.EXPENSE,
+        category=TransactionCategory.MAINTENANCE,
+        description="Old expense",
+        payment_method=PaymentMethod.CASH,
+        date=now - timedelta(days=40),
+    )
+    db_session.add_all([recent_tx, old_tx])
+    await db_session.commit()
+
+    login_resp = await client.post(
+        f"{settings.API_V1_STR}/auth/login",
+        json={"email": "admin_fin_range@gym.com", "password": password}
+    )
+    token = login_resp.json()["data"]["access_token"]
+    headers = {"Authorization": f"Bearer {token}"}
+
+    start_date = (now - timedelta(days=7)).date().isoformat()
+    end_date = now.date().isoformat()
+
+    tx_resp = await client.get(
+        f"{settings.API_V1_STR}/finance/transactions",
+        params={"start_date": start_date, "end_date": end_date, "limit": 100},
+        headers=headers,
+    )
+    assert tx_resp.status_code == 200
+    returned_ids = {tx["id"] for tx in tx_resp.json()["data"]}
+    assert str(recent_tx.id) in returned_ids
+    assert str(old_tx.id) not in returned_ids
+
+    summary_resp = await client.get(
+        f"{settings.API_V1_STR}/finance/summary",
+        params={"start_date": start_date, "end_date": end_date},
+        headers=headers,
+    )
+    assert summary_resp.status_code == 200
+    summary = summary_resp.json()["data"]
+    assert summary["total_income"] == 150.0
+    assert summary["total_expenses"] == 0.0

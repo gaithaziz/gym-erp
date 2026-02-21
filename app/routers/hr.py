@@ -1,9 +1,9 @@
-from datetime import date, datetime
-from typing import Annotated, Optional
+from datetime import date, datetime, timedelta, timezone
+from typing import Annotated, Literal, Optional
 from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import HTMLResponse
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select
+from sqlalchemy import func, select
 from pydantic import BaseModel, Field
 
 from app.database import get_db
@@ -259,9 +259,11 @@ async def list_attendance(
     current_user: Annotated[User, Depends(dependencies.RoleChecker([Role.ADMIN]))],
     db: Annotated[AsyncSession, Depends(get_db)],
     user_id: Optional[uuid.UUID] = Query(None),
+    start_date: Optional[date] = Query(None),
+    end_date: Optional[date] = Query(None),
     limit: int = 100
 ):
-    """List attendance logs (timesheet). Optionally filter by user_id."""
+    """List attendance logs (timesheet). Optionally filter by user/date range."""
     stmt = (
         select(AttendanceLog, User.full_name)
         .join(User, User.id == AttendanceLog.user_id)
@@ -269,6 +271,10 @@ async def list_attendance(
     )
     if user_id:
         stmt = stmt.where(AttendanceLog.user_id == user_id)
+    if start_date:
+        stmt = stmt.where(func.date(AttendanceLog.check_in_time) >= start_date.isoformat())
+    if end_date:
+        stmt = stmt.where(func.date(AttendanceLog.check_in_time) <= end_date.isoformat())
     stmt = stmt.limit(limit)
     result = await db.execute(stmt)
     logs = result.all()
@@ -343,9 +349,11 @@ async def list_members(
 ):
     """List all users with MEMBER role."""
     from app.models.access import Subscription
+    from app.models.subscription_enums import SubscriptionStatus
     stmt = select(User).where(User.role == Role.CUSTOMER).order_by(User.full_name)
     result = await db.execute(stmt)
     users = result.scalars().all()
+    now = datetime.now(timezone.utc)
 
     data = []
     for u in users:
@@ -353,6 +361,16 @@ async def list_members(
         sub_stmt = select(Subscription).where(Subscription.user_id == u.id).order_by(Subscription.end_date.desc()).limit(1)
         sub_result = await db.execute(sub_stmt)
         sub = sub_result.scalar_one_or_none()
+        effective_status = None
+        if sub:
+            end_date = sub.end_date
+            if end_date.tzinfo is None:
+                end_date = end_date.replace(tzinfo=timezone.utc)
+            effective_status = (
+                SubscriptionStatus.EXPIRED.value
+                if end_date < now
+                else sub.status.value
+            )
 
         data.append({
             "id": str(u.id),
@@ -365,7 +383,7 @@ async def list_members(
             "emergency_contact": u.emergency_contact,
             "bio": u.bio,
             "subscription": {
-                "status": sub.status.value if sub else "NONE",
+                "status": effective_status if sub else "NONE",
                 "end_date": sub.end_date.isoformat() if sub and sub.end_date else None,
             } if sub else None
         })
@@ -378,10 +396,10 @@ async def list_members(
 class SubscriptionCreate(BaseModel):
     user_id: uuid.UUID
     plan_name: str = "Monthly"
-    duration_days: int = 30
+    duration_days: int = Field(default=30, ge=1)
 
 class SubscriptionUpdate(BaseModel):
-    status: str  # ACTIVE, FROZEN, EXPIRED
+    status: Literal["ACTIVE", "FROZEN"]
 
 
 @router.post("/subscriptions", response_model=StandardResponse)
@@ -440,7 +458,7 @@ async def update_subscription(
     current_user: Annotated[User, Depends(dependencies.RoleChecker([Role.ADMIN]))],
     db: Annotated[AsyncSession, Depends(get_db)]
 ):
-    """Update subscription status: FREEZE, CANCEL, ACTIVATE."""
+    """Update subscription status: FREEZE or ACTIVATE (unfreeze)."""
     from app.models.access import Subscription
     from app.models.subscription_enums import SubscriptionStatus
 
@@ -449,6 +467,13 @@ async def update_subscription(
     sub = result.scalar_one_or_none()
     if not sub:
         raise HTTPException(status_code=404, detail="No subscription found")
+
+    now = datetime.now(timezone.utc)
+    end_date = sub.end_date
+    if end_date.tzinfo is None:
+        end_date = end_date.replace(tzinfo=timezone.utc)
+    if end_date < now:
+        raise HTTPException(status_code=400, detail="Subscription is expired. Renew it to reactivate access.")
 
     sub.status = SubscriptionStatus(data.status)
     await db.commit()

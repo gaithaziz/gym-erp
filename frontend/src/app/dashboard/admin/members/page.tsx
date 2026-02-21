@@ -3,9 +3,12 @@
 import { useEffect, useMemo, useState } from 'react';
 import { api } from '@/lib/api';
 import Image from 'next/image';
-import { Search, UserPlus, Save, Shield, Snowflake, XCircle, RefreshCw, Pencil, Trash2, Eye } from 'lucide-react';
+import { Search, UserPlus, Save, Shield, Snowflake, RefreshCw, Pencil, Trash2, Eye, Dumbbell, Utensils } from 'lucide-react';
 import Modal from '@/components/Modal';
 import { useFeedback } from '@/components/FeedbackProvider';
+import { useAuth } from '@/context/AuthContext';
+import { resolveProfileImageUrl } from '@/lib/profileImage';
+import { ResponsiveContainer, LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip } from 'recharts';
 
 interface Member {
     id: string;
@@ -23,12 +26,53 @@ interface Member {
     } | null;
 }
 
+interface WorkoutPlan {
+    id: string;
+    name: string;
+    description?: string | null;
+    member_id?: string | null;
+    is_template?: boolean;
+}
+
+interface DietPlan {
+    id: string;
+    name: string;
+    description?: string | null;
+    member_id?: string | null;
+}
+
+interface BiometricLog {
+    id: string;
+    date: string;
+    weight_kg?: number;
+    height_cm?: number;
+    body_fat_pct?: number;
+    muscle_mass_kg?: number;
+}
+
+const FIXED_SUBSCRIPTION_PLANS = [
+    { value: 'Monthly', label: 'Monthly (30d)', days: 30 },
+    { value: 'Quarterly', label: 'Quarterly (90d)', days: 90 },
+    { value: 'Annual', label: 'Annual (365d)', days: 365 },
+] as const;
+
+type FixedPlan = (typeof FIXED_SUBSCRIPTION_PLANS)[number]['value'];
+type RenewalMode = 'fixed' | 'custom';
+type AssignableType = 'WORKOUT' | 'DIET';
+type MemberStatusFilter = 'ALL' | 'ACTIVE' | 'FROZEN' | 'EXPIRED' | 'NONE';
+
 export default function MembersPage() {
+    const { user } = useAuth();
+    const isAdmin = user?.role === 'ADMIN';
     const { showToast, confirm: confirmAction } = useFeedback();
     const [members, setMembers] = useState<Member[]>([]);
+    const [plans, setPlans] = useState<WorkoutPlan[]>([]);
+    const [dietPlans, setDietPlans] = useState<DietPlan[]>([]);
     const [loading, setLoading] = useState(true);
     const [search, setSearch] = useState('');
     const [debouncedSearch, setDebouncedSearch] = useState('');
+    const [statusFilter, setStatusFilter] = useState<MemberStatusFilter>('ALL');
+    const [failedImageUrls, setFailedImageUrls] = useState<Record<string, true>>({});
 
     // Add Modal
     const [isAddOpen, setIsAddOpen] = useState(false);
@@ -41,16 +85,43 @@ export default function MembersPage() {
     // Subscription Modal
     const [isManageOpen, setIsManageOpen] = useState(false);
     const [manageMember, setManageMember] = useState<Member | null>(null);
-    const [subPlan, setSubPlan] = useState('Monthly');
+    const [renewalMode, setRenewalMode] = useState<RenewalMode>('fixed');
+    const [subPlan, setSubPlan] = useState<FixedPlan>('Monthly');
     const [subDays, setSubDays] = useState(30);
 
     // View Profile Modal
     const [isViewOpen, setIsViewOpen] = useState(false);
     const [viewMember, setViewMember] = useState<Member | null>(null);
+    const [viewBiometrics, setViewBiometrics] = useState<BiometricLog[]>([]);
+    // Assign Plan Modal
+    const [isAssignPlanOpen, setIsAssignPlanOpen] = useState(false);
+    const [assignMember, setAssignMember] = useState<Member | null>(null);
+    const [assignPlanId, setAssignPlanId] = useState('');
+    const [assignType, setAssignType] = useState<AssignableType>('WORKOUT');
 
     const openView = (member: Member) => {
         setViewMember(member);
+        api.get(`/fitness/biometrics/member/${member.id}`)
+            .then(res => setViewBiometrics(res.data?.data ?? []))
+            .catch(() => setViewBiometrics([]));
         setIsViewOpen(true);
+    };
+
+    const markImageFailed = (url?: string) => {
+        if (!url) return;
+        setFailedImageUrls(prev => ({ ...prev, [url]: true }));
+    };
+
+    const canRenderImage = (url?: string) => !!url && !failedImageUrls[url];
+    const getAgeFromDob = (dob?: string) => {
+        if (!dob) return null;
+        const birthDate = new Date(dob);
+        if (Number.isNaN(birthDate.getTime())) return null;
+        const today = new Date();
+        let age = today.getFullYear() - birthDate.getFullYear();
+        const monthDiff = today.getMonth() - birthDate.getMonth();
+        if (monthDiff < 0 || (monthDiff === 0 && today.getDate() < birthDate.getDate())) age--;
+        return age >= 0 ? age : null;
     };
 
     const fetchMembers = async () => {
@@ -61,7 +132,33 @@ export default function MembersPage() {
         setLoading(false);
     };
 
-    useEffect(() => { setTimeout(() => fetchMembers(), 0); }, []);
+    const fetchPlans = async () => {
+        try {
+            const res = await api.get('/fitness/plans');
+            const allPlans = res.data?.data ?? [];
+            setPlans(allPlans.filter((plan: WorkoutPlan) => !plan.member_id));
+        } catch (err) {
+            console.error(err);
+            showToast('Failed to load workout plans.', 'error');
+        }
+    };
+
+    const fetchDietPlans = async () => {
+        try {
+            const res = await api.get('/fitness/diets');
+            const allPlans = res.data?.data ?? [];
+            setDietPlans(allPlans.filter((plan: DietPlan) => !plan.member_id));
+        } catch (err) {
+            console.error(err);
+            showToast('Failed to load diet plans.', 'error');
+        }
+    };
+
+    useEffect(() => {
+        setTimeout(() => fetchMembers(), 0);
+        const intervalId = window.setInterval(() => { fetchMembers(); }, 15000);
+        return () => window.clearInterval(intervalId);
+    }, []);
 
     useEffect(() => {
         const timer = setTimeout(() => {
@@ -122,6 +219,7 @@ export default function MembersPage() {
 
     const openManage = (member: Member) => {
         setManageMember(member);
+        setRenewalMode('fixed');
         setSubPlan('Monthly');
         setSubDays(30);
         setIsManageOpen(true);
@@ -129,11 +227,16 @@ export default function MembersPage() {
 
     const handleCreateSub = async () => {
         if (!manageMember) return;
+        const normalizedDays = Math.floor(Number(subDays));
+        if (!Number.isFinite(normalizedDays) || normalizedDays <= 0) {
+            showToast('Duration must be a positive number of days.', 'error');
+            return;
+        }
         try {
             await api.post('/hr/subscriptions', {
                 user_id: manageMember.id,
-                plan_name: subPlan,
-                duration_days: subDays
+                plan_name: renewalMode === 'fixed' ? subPlan : 'Custom',
+                duration_days: normalizedDays
             });
             setIsManageOpen(false);
             fetchMembers();
@@ -164,13 +267,54 @@ export default function MembersPage() {
         }
     };
 
+    const openAssignPlan = async (member: Member) => {
+        setAssignMember(member);
+        if (plans.length === 0) await fetchPlans();
+        if (dietPlans.length === 0) await fetchDietPlans();
+        setAssignType('WORKOUT');
+        setAssignPlanId('');
+        setIsAssignPlanOpen(true);
+    };
+
+    const handleAssignPlan = async (e: React.FormEvent) => {
+        e.preventDefault();
+        if (!assignMember || !assignPlanId) {
+            showToast('Select a plan first.', 'error');
+            return;
+        }
+        try {
+            if (assignType === 'WORKOUT') {
+                const selectedPlan = plans.find(plan => plan.id === assignPlanId);
+                await api.post(`/fitness/plans/${assignPlanId}/clone`, {
+                    name: selectedPlan?.name ? `${selectedPlan.name} - ${assignMember.full_name}` : undefined,
+                    member_id: assignMember.id,
+                });
+            } else {
+                const selectedPlan = dietPlans.find(plan => plan.id === assignPlanId);
+                await api.post(`/fitness/diets/${assignPlanId}/clone`, {
+                    name: selectedPlan?.name ? `${selectedPlan.name} - ${assignMember.full_name}` : undefined,
+                    member_id: assignMember.id,
+                });
+            }
+            setIsAssignPlanOpen(false);
+            showToast(`${assignType === 'WORKOUT' ? 'Workout' : 'Diet'} plan assigned to ${assignMember.full_name}.`, 'success');
+        } catch (err) {
+            console.error(err);
+            showToast(`Failed to assign ${assignType === 'WORKOUT' ? 'workout' : 'diet'} plan.`, 'error');
+        }
+    };
+    const manageMemberStatus = manageMember?.subscription?.status;
+
     const filtered = useMemo(() => {
-        if (!debouncedSearch) return members;
-        return members.filter(m =>
-            m.full_name.toLowerCase().includes(debouncedSearch) ||
-            m.email.toLowerCase().includes(debouncedSearch)
-        );
-    }, [members, debouncedSearch]);
+        return members.filter(m => {
+            const matchesSearch = !debouncedSearch ||
+                m.full_name.toLowerCase().includes(debouncedSearch) ||
+                m.email.toLowerCase().includes(debouncedSearch);
+            const memberStatus = m.subscription?.status || 'NONE';
+            const matchesStatus = statusFilter === 'ALL' || memberStatus === statusFilter;
+            return matchesSearch && matchesStatus;
+        });
+    }, [members, debouncedSearch, statusFilter]);
 
     if (loading) return (
         <div className="flex h-64 items-center justify-center">
@@ -182,8 +326,8 @@ export default function MembersPage() {
         <div className="space-y-8">
             <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
                 <div>
-                    <h1 className="text-2xl font-bold text-foreground">Members</h1>
-                    <p className="text-sm text-muted-foreground mt-1">{members.length} registered members</p>
+                    <h1 className="text-2xl font-bold text-foreground">{isAdmin ? 'Members' : 'Clients'}</h1>
+                    <p className="text-sm text-muted-foreground mt-1">{members.length} registered {isAdmin ? 'members' : 'clients'}</p>
                 </div>
                 <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3 w-full sm:w-auto">
                     <div className="relative">
@@ -196,10 +340,34 @@ export default function MembersPage() {
                             onChange={e => setSearch(e.target.value)}
                         />
                     </div>
-                    <button onClick={() => setIsAddOpen(true)} className="btn-primary">
-                        <UserPlus size={18} /> Add Member
-                    </button>
+                    {isAdmin && (
+                        <button onClick={() => setIsAddOpen(true)} className="btn-primary">
+                            <UserPlus size={18} /> Add Member
+                        </button>
+                    )}
                 </div>
+            </div>
+
+            <div className="flex flex-wrap items-center gap-2">
+                {[
+                    { value: 'ALL', label: 'All' },
+                    { value: 'ACTIVE', label: 'Active' },
+                    { value: 'FROZEN', label: 'Frozen' },
+                    { value: 'EXPIRED', label: 'Expired' },
+                    { value: 'NONE', label: 'No Subscription' },
+                ].map(filter => (
+                    <button
+                        key={filter.value}
+                        type="button"
+                        onClick={() => setStatusFilter(filter.value as MemberStatusFilter)}
+                        className={`px-3 py-1.5 text-xs rounded-sm border transition-colors ${statusFilter === filter.value
+                            ? 'border-primary text-primary bg-primary/10'
+                            : 'border-border text-muted-foreground hover:text-foreground hover:bg-white/5'
+                            }`}
+                    >
+                        {filter.label}
+                    </button>
+                ))}
             </div>
 
             {/* Members Table */}
@@ -222,16 +390,21 @@ export default function MembersPage() {
                             {filtered.map(m => (
                                 <tr key={m.id}>
                                     <td>
+                                        {(() => {
+                                            const imageUrl = resolveProfileImageUrl(m.profile_picture_url);
+                                            return (
                                         <div className="flex items-center gap-3">
                                             <div className="h-8 w-8 bg-primary/20 rounded-full flex items-center justify-center text-primary font-bold overflow-hidden relative flex-shrink-0">
-                                                {m.profile_picture_url ? (
-                                                    <Image src={`${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'}${m.profile_picture_url}`} alt={m.full_name} fill className="object-cover" unoptimized />
+                                                {canRenderImage(imageUrl) ? (
+                                                    <Image src={imageUrl as string} alt={m.full_name} fill className="object-cover" unoptimized onError={() => markImageFailed(imageUrl)} />
                                                 ) : (
                                                     m.full_name.charAt(0)
                                                 )}
                                             </div>
                                             <span className="!text-foreground font-medium">{m.full_name}</span>
                                         </div>
+                                            );
+                                        })()}
                                     </td>
                                     <td>{m.email}</td>
                                     <td>
@@ -252,26 +425,39 @@ export default function MembersPage() {
                                                 <Eye size={14} /> View
                                             </button>
                                             <button
-                                                onClick={() => openManage(m)}
-                                                className="btn-ghost py-1 px-2 h-auto text-xs"
-                                                title="Manage Subscription"
+                                                onClick={() => openAssignPlan(m)}
+                                                className="btn-ghost py-1 px-2 h-auto text-xs text-orange-400 hover:text-orange-300"
+                                                title="Assign Plan"
                                             >
-                                                <Shield size={14} /> Sub
+                                                <Dumbbell size={14} /> Assign
                                             </button>
-                                            <button
-                                                onClick={() => openEdit(m)}
-                                                className="btn-ghost py-1 px-2 h-auto text-xs text-blue-400 hover:text-blue-300"
-                                                title="Edit Details"
-                                            >
-                                                <Pencil size={14} />
-                                            </button>
-                                            <button
-                                                onClick={() => handleDeleteMember(m.id, m.full_name)}
-                                                className="btn-ghost py-1 px-2 h-auto text-xs text-destructive hover:text-destructive/80"
-                                                title="Deactivate Member"
-                                            >
-                                                <Trash2 size={14} />
-                                            </button>
+                                            {isAdmin && (
+                                                <button
+                                                    onClick={() => openManage(m)}
+                                                    className="btn-ghost py-1 px-2 h-auto text-xs"
+                                                    title="Manage Subscription"
+                                                >
+                                                    <Shield size={14} /> Sub
+                                                </button>
+                                            )}
+                                            {isAdmin && (
+                                                <button
+                                                    onClick={() => openEdit(m)}
+                                                    className="btn-ghost py-1 px-2 h-auto text-xs text-blue-400 hover:text-blue-300"
+                                                    title="Edit Details"
+                                                >
+                                                    <Pencil size={14} />
+                                                </button>
+                                            )}
+                                            {isAdmin && (
+                                                <button
+                                                    onClick={() => handleDeleteMember(m.id, m.full_name)}
+                                                    className="btn-ghost py-1 px-2 h-auto text-xs text-destructive hover:text-destructive/80"
+                                                    title="Deactivate Member"
+                                                >
+                                                    <Trash2 size={14} />
+                                                </button>
+                                            )}
                                         </div>
                                     </td>
                                 </tr>
@@ -288,13 +474,18 @@ export default function MembersPage() {
                         <div key={m.id} className="p-4">
                             <div className="flex items-start justify-between gap-3">
                                 <div className="flex items-center gap-3 min-w-0">
+                                    {(() => {
+                                        const imageUrl = resolveProfileImageUrl(m.profile_picture_url);
+                                        return (
                                     <div className="h-10 w-10 bg-primary/20 rounded-full flex items-center justify-center text-primary font-bold overflow-hidden relative flex-shrink-0">
-                                        {m.profile_picture_url ? (
-                                            <Image src={`${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'}${m.profile_picture_url}`} alt={m.full_name} fill className="object-cover" unoptimized />
+                                        {canRenderImage(imageUrl) ? (
+                                            <Image src={imageUrl as string} alt={m.full_name} fill className="object-cover" unoptimized onError={() => markImageFailed(imageUrl)} />
                                         ) : (
                                             m.full_name.charAt(0)
                                         )}
                                     </div>
+                                        );
+                                    })()}
                                     <div className="min-w-0">
                                         <p className="font-medium text-foreground truncate">{m.full_name}</p>
                                         <p className="text-xs text-muted-foreground truncate">{m.email}</p>
@@ -321,26 +512,39 @@ export default function MembersPage() {
                                     <Eye size={14} /> View
                                 </button>
                                 <button
-                                    onClick={() => openManage(m)}
-                                    className="btn-ghost !px-2 !py-2 h-auto text-xs justify-center"
-                                    title="Manage Subscription"
+                                    onClick={() => openAssignPlan(m)}
+                                    className="btn-ghost !px-2 !py-2 h-auto text-xs text-orange-400 hover:text-orange-300 justify-center"
+                                    title="Assign Plan"
                                 >
-                                    <Shield size={14} /> Sub
+                                    <Dumbbell size={14} /> Assign
                                 </button>
-                                <button
-                                    onClick={() => openEdit(m)}
-                                    className="btn-ghost !px-2 !py-2 h-auto text-xs text-blue-400 hover:text-blue-300 justify-center"
-                                    title="Edit Details"
-                                >
-                                    <Pencil size={14} /> Edit
-                                </button>
-                                <button
-                                    onClick={() => handleDeleteMember(m.id, m.full_name)}
-                                    className="btn-ghost !px-2 !py-2 h-auto text-xs text-destructive hover:text-destructive/80 justify-center"
-                                    title="Deactivate Member"
-                                >
-                                    <Trash2 size={14} /> Deactivate
-                                </button>
+                                {isAdmin && (
+                                    <button
+                                        onClick={() => openManage(m)}
+                                        className="btn-ghost !px-2 !py-2 h-auto text-xs justify-center"
+                                        title="Manage Subscription"
+                                    >
+                                        <Shield size={14} /> Sub
+                                    </button>
+                                )}
+                                {isAdmin && (
+                                    <button
+                                        onClick={() => openEdit(m)}
+                                        className="btn-ghost !px-2 !py-2 h-auto text-xs text-blue-400 hover:text-blue-300 justify-center"
+                                        title="Edit Details"
+                                    >
+                                        <Pencil size={14} /> Edit
+                                    </button>
+                                )}
+                                {isAdmin && (
+                                    <button
+                                        onClick={() => handleDeleteMember(m.id, m.full_name)}
+                                        className="btn-ghost !px-2 !py-2 h-auto text-xs text-destructive hover:text-destructive/80 justify-center"
+                                        title="Deactivate Member"
+                                    >
+                                        <Trash2 size={14} /> Deactivate
+                                    </button>
+                                )}
                             </div>
                         </div>
                     ))}
@@ -348,7 +552,7 @@ export default function MembersPage() {
             </div>
 
             {/* ===== ADD MEMBER MODAL ===== */}
-            <Modal isOpen={isAddOpen} onClose={() => setIsAddOpen(false)} title="Register New Member">
+            <Modal isOpen={isAddOpen && isAdmin} onClose={() => setIsAddOpen(false)} title="Register New Member">
                 <form onSubmit={handleAddMember} className="space-y-4">
                     <div>
                         <label className="block text-xs font-medium text-muted-foreground mb-1.5">Full Name</label>
@@ -366,7 +570,7 @@ export default function MembersPage() {
             </Modal>
 
             {/* ===== EDIT MEMBER MODAL ===== */}
-            <Modal isOpen={isEditOpen} onClose={() => setIsEditOpen(false)} title="Edit Member Details">
+            <Modal isOpen={isEditOpen && isAdmin} onClose={() => setIsEditOpen(false)} title="Edit Member Details">
                 <form onSubmit={handleEditMember} className="space-y-4">
                     <div>
                         <label className="block text-xs font-medium text-muted-foreground mb-1.5">Full Name</label>
@@ -384,14 +588,14 @@ export default function MembersPage() {
             </Modal>
 
             {/* ===== MANAGE SUBSCRIPTION MODAL ===== */}
-            <Modal isOpen={isManageOpen} onClose={() => setIsManageOpen(false)} title={`Manage — ${manageMember?.full_name}`}>
+            <Modal isOpen={isManageOpen && isAdmin} onClose={() => setIsManageOpen(false)} title={`Manage - ${manageMember?.full_name}`}>
                 <div className="space-y-5">
                     {/* Current status */}
                     <div className="flex items-center justify-between rounded-sm p-4 bg-card border border-border">
                         <div>
                             <p className="text-xs text-muted-foreground">Current Status</p>
-                            <span className={`badge mt-1 ${statusBadge(manageMember?.subscription?.status)}`}>
-                                {manageMember?.subscription?.status || 'NO SUBSCRIPTION'}
+                            <span className={`badge mt-1 ${statusBadge(manageMemberStatus)}`}>
+                                {manageMemberStatus || 'NO SUBSCRIPTION'}
                             </span>
                         </div>
                         {manageMember?.subscription?.end_date && (
@@ -405,19 +609,74 @@ export default function MembersPage() {
                     {/* Create / Renew */}
                     <div className="border border-border rounded-sm p-4 space-y-3">
                         <h4 className="text-sm font-semibold text-foreground flex items-center gap-2"><Shield size={16} className="text-primary" /> {manageMember?.subscription ? 'Renew' : 'Create'} Subscription</h4>
-                        <div className="grid grid-cols-2 gap-3">
-                            <div>
-                                <label className="block text-xs text-muted-foreground mb-1">Plan</label>
-                                <select className="input-dark" value={subPlan} onChange={e => { setSubPlan(e.target.value); setSubDays(e.target.value === 'Monthly' ? 30 : e.target.value === 'Quarterly' ? 90 : 365); }}>
-                                    <option value="Monthly">Monthly (30d)</option>
-                                    <option value="Quarterly">Quarterly (90d)</option>
-                                    <option value="Annual">Annual (365d)</option>
-                                </select>
+                        <div>
+                            <label className="block text-xs text-muted-foreground mb-1">Renewal Mode</label>
+                            <div className="grid grid-cols-2 gap-2">
+                                <button
+                                    type="button"
+                                    onClick={() => {
+                                        setRenewalMode('fixed');
+                                        const selectedPlan = FIXED_SUBSCRIPTION_PLANS.find(plan => plan.value === subPlan) ?? FIXED_SUBSCRIPTION_PLANS[0];
+                                        setSubDays(selectedPlan.days);
+                                    }}
+                                    className={`py-2 px-3 text-sm rounded-sm border transition-colors ${renewalMode === 'fixed'
+                                        ? 'border-primary text-primary bg-primary/10'
+                                        : 'border-border text-muted-foreground hover:text-foreground hover:bg-white/5'
+                                        }`}
+                                >
+                                    Fixed Plan
+                                </button>
+                                <button
+                                    type="button"
+                                    onClick={() => setRenewalMode('custom')}
+                                    className={`py-2 px-3 text-sm rounded-sm border transition-colors ${renewalMode === 'custom'
+                                        ? 'border-primary text-primary bg-primary/10'
+                                        : 'border-border text-muted-foreground hover:text-foreground hover:bg-white/5'
+                                        }`}
+                                >
+                                    Custom Days
+                                </button>
                             </div>
-                            <div>
-                                <label className="block text-xs text-muted-foreground mb-1">Duration (days)</label>
-                                <input type="number" className="input-dark" value={subDays} onChange={e => setSubDays(Number(e.target.value))} />
-                            </div>
+                        </div>
+
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                            {renewalMode === 'fixed' ? (
+                                <>
+                                    <div>
+                                        <label className="block text-xs text-muted-foreground mb-1">Plan</label>
+                                        <select
+                                            className="input-dark"
+                                            value={subPlan}
+                                            onChange={e => {
+                                                const nextPlan = e.target.value as FixedPlan;
+                                                const selectedPlan = FIXED_SUBSCRIPTION_PLANS.find(plan => plan.value === nextPlan) ?? FIXED_SUBSCRIPTION_PLANS[0];
+                                                setSubPlan(nextPlan);
+                                                setSubDays(selectedPlan.days);
+                                            }}
+                                        >
+                                            {FIXED_SUBSCRIPTION_PLANS.map(plan => (
+                                                <option key={plan.value} value={plan.value}>{plan.label}</option>
+                                            ))}
+                                        </select>
+                                    </div>
+                                    <div>
+                                        <label className="block text-xs text-muted-foreground mb-1">Duration (days)</label>
+                                        <input type="number" className="input-dark" value={subDays} disabled readOnly />
+                                    </div>
+                                </>
+                            ) : (
+                                <div className="sm:col-span-2">
+                                    <label className="block text-xs text-muted-foreground mb-1">Custom Duration (days)</label>
+                                    <input
+                                        type="number"
+                                        min={1}
+                                        step={1}
+                                        className="input-dark"
+                                        value={subDays}
+                                        onChange={e => setSubDays(Number(e.target.value))}
+                                    />
+                                </div>
+                            )}
                         </div>
                         <button onClick={handleCreateSub} className="btn-primary w-full justify-center">
                             <RefreshCw size={15} /> {manageMember?.subscription ? 'Renew Subscription' : 'Activate Subscription'}
@@ -428,22 +687,89 @@ export default function MembersPage() {
                     {manageMember?.subscription && (
                         <div className="grid grid-cols-2 gap-3">
                             <button
+                                onClick={() => handleSubAction('ACTIVE')}
+                                disabled={manageMemberStatus !== 'FROZEN'}
+                                className="flex items-center justify-center gap-2 py-2.5 border border-emerald-500/30 text-emerald-400 rounded-sm text-sm font-medium hover:bg-emerald-500/10 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+                            >
+                                <RefreshCw size={15} /> Unfreeze
+                            </button>
+                            <button
                                 onClick={() => handleSubAction('FROZEN')}
-                                disabled={manageMember.subscription.status === 'FROZEN'}
+                                disabled={manageMemberStatus !== 'ACTIVE'}
                                 className="flex items-center justify-center gap-2 py-2.5 border border-blue-500/30 text-blue-400 rounded-sm text-sm font-medium hover:bg-blue-500/10 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
                             >
                                 <Snowflake size={15} /> Freeze
                             </button>
-                            <button
-                                onClick={() => handleSubAction('EXPIRED')}
-                                disabled={manageMember.subscription.status === 'EXPIRED'}
-                                className="flex items-center justify-center gap-2 py-2.5 border border-red-500/30 text-red-400 rounded-sm text-sm font-medium hover:bg-red-500/10 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
-                            >
-                                <XCircle size={15} /> Cancel
-                            </button>
                         </div>
                     )}
                 </div>
+            </Modal>
+
+            {/* ASSIGN PLAN MODAL */}
+            <Modal isOpen={isAssignPlanOpen} onClose={() => setIsAssignPlanOpen(false)} title={`Assign Plan - ${assignMember?.full_name || ''}`}>
+                <form onSubmit={handleAssignPlan} className="space-y-4">
+                    <div>
+                        <label className="block text-xs font-medium text-muted-foreground mb-1.5">Plan Type</label>
+                        <div className="grid grid-cols-2 gap-2">
+                            <button
+                                type="button"
+                                className={`py-2 px-3 text-sm rounded-sm border transition-colors ${assignType === 'WORKOUT'
+                                    ? 'border-primary text-primary bg-primary/10'
+                                    : 'border-border text-muted-foreground hover:text-foreground hover:bg-white/5'
+                                    }`}
+                                onClick={() => { setAssignType('WORKOUT'); setAssignPlanId(''); }}
+                            >
+                                Workout
+                            </button>
+                            <button
+                                type="button"
+                                className={`py-2 px-3 text-sm rounded-sm border transition-colors ${assignType === 'DIET'
+                                    ? 'border-primary text-primary bg-primary/10'
+                                    : 'border-border text-muted-foreground hover:text-foreground hover:bg-white/5'
+                                    }`}
+                                onClick={() => { setAssignType('DIET'); setAssignPlanId(''); }}
+                            >
+                                Diet
+                            </button>
+                        </div>
+                    </div>
+                    <div>
+                        <label className="block text-xs font-medium text-muted-foreground mb-1.5">
+                            {assignType === 'WORKOUT' ? 'Workout Plan' : 'Diet Plan'}
+                        </label>
+                        <select
+                            required
+                            className="input-dark"
+                            value={assignPlanId}
+                            onChange={e => setAssignPlanId(e.target.value)}
+                        >
+                            <option value="">Select Plan...</option>
+                            {(assignType === 'WORKOUT' ? plans : dietPlans).map(plan => (
+                                <option key={plan.id} value={plan.id}>
+                                    {plan.name}
+                                </option>
+                            ))}
+                        </select>
+                    </div>
+                    {(assignType === 'WORKOUT' ? plans.length === 0 : dietPlans.length === 0) && (
+                        <p className="text-xs text-muted-foreground">
+                            {assignType === 'WORKOUT'
+                                ? 'No unassigned workout plans found. Create a template/unassigned plan in Workout Plans first.'
+                                : 'No unassigned diet plans found. Create one in Diet Plans first.'}
+                        </p>
+                    )}
+                    <div className="flex justify-end gap-3 pt-4 border-t border-border">
+                        <button type="button" onClick={() => setIsAssignPlanOpen(false)} className="btn-ghost">Cancel</button>
+                        <button
+                            type="submit"
+                            className="btn-primary"
+                            disabled={assignType === 'WORKOUT' ? plans.length === 0 : dietPlans.length === 0}
+                        >
+                            {assignType === 'WORKOUT' ? <Dumbbell size={16} /> : <Utensils size={16} />}
+                            Assign Plan
+                        </button>
+                    </div>
+                </form>
             </Modal>
 
             {/* VIEW PROFILE MODAL */}
@@ -451,13 +777,18 @@ export default function MembersPage() {
                 {viewMember && (
                     <div className="space-y-6">
                         <div className="flex items-center gap-4 border-b border-border pb-6">
+                            {(() => {
+                                const imageUrl = resolveProfileImageUrl(viewMember.profile_picture_url);
+                                return (
                             <div className="h-16 w-16 bg-primary/20 rounded-full flex items-center justify-center text-primary text-xl font-bold overflow-hidden relative flex-shrink-0">
-                                {viewMember.profile_picture_url ? (
-                                    <Image src={`${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'}${viewMember.profile_picture_url}`} alt={viewMember.full_name} fill className="object-cover" unoptimized />
+                                {canRenderImage(imageUrl) ? (
+                                    <Image src={imageUrl as string} alt={viewMember.full_name} fill className="object-cover" unoptimized onError={() => markImageFailed(imageUrl)} />
                                 ) : (
                                     viewMember.full_name.charAt(0)
                                 )}
                             </div>
+                                );
+                            })()}
                             <div>
                                 <h3 className="text-xl font-bold text-foreground">{viewMember.full_name}</h3>
                                 <p className="text-sm text-muted-foreground">{viewMember.email}</p>
@@ -475,6 +806,10 @@ export default function MembersPage() {
                                 <p className="text-xs text-muted-foreground uppercase tracking-wider mb-1 font-semibold">Date of Birth</p>
                                 <p className="font-medium text-foreground">{viewMember.date_of_birth ? new Date(viewMember.date_of_birth).toLocaleDateString() : 'N/A'}</p>
                             </div>
+                            <div>
+                                <p className="text-xs text-muted-foreground uppercase tracking-wider mb-1 font-semibold">Age</p>
+                                <p className="font-medium text-foreground">{getAgeFromDob(viewMember.date_of_birth) ?? 'N/A'}</p>
+                            </div>
                             <div className="col-span-2">
                                 <p className="text-xs text-muted-foreground uppercase tracking-wider mb-1 font-semibold">Emergency Contact</p>
                                 <p className="font-medium text-foreground">{viewMember.emergency_contact || 'N/A'}</p>
@@ -482,6 +817,48 @@ export default function MembersPage() {
                             <div className="col-span-2">
                                 <p className="text-xs text-muted-foreground uppercase tracking-wider mb-1 font-semibold">Bio / Notes</p>
                                 <p className="font-medium text-foreground whitespace-pre-wrap">{viewMember.bio || 'No bio provided.'}</p>
+                            </div>
+                            <div>
+                                <p className="text-xs text-muted-foreground uppercase tracking-wider mb-1 font-semibold">Latest Height</p>
+                                <p className="font-medium text-foreground">
+                                    {viewBiometrics.length > 0 && viewBiometrics[viewBiometrics.length - 1].height_cm
+                                        ? `${viewBiometrics[viewBiometrics.length - 1].height_cm} cm`
+                                        : 'N/A'}
+                                </p>
+                            </div>
+                            <div>
+                                <p className="text-xs text-muted-foreground uppercase tracking-wider mb-1 font-semibold">Latest Weight</p>
+                                <p className="font-medium text-foreground">
+                                    {viewBiometrics.length > 0 && viewBiometrics[viewBiometrics.length - 1].weight_kg
+                                        ? `${viewBiometrics[viewBiometrics.length - 1].weight_kg} kg`
+                                        : 'N/A'}
+                                </p>
+                            </div>
+                            <div className="col-span-2">
+                                <p className="text-xs text-muted-foreground uppercase tracking-wider mb-2 font-semibold">Progress Visualization</p>
+                                <div className="h-52 border border-border bg-muted/10 p-2 rounded-sm">
+                                    {viewBiometrics.length > 0 ? (
+                                        <ResponsiveContainer width="100%" height="100%">
+                                            <LineChart data={viewBiometrics}>
+                                                <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" vertical={false} />
+                                                <XAxis
+                                                    dataKey="date"
+                                                    tickFormatter={(val) => new Date(val).toLocaleDateString()}
+                                                    tick={{ fontSize: 10, fill: 'var(--muted-foreground)' }}
+                                                    axisLine={false}
+                                                    tickLine={false}
+                                                />
+                                                <YAxis tick={{ fontSize: 10, fill: 'var(--muted-foreground)' }} axisLine={false} tickLine={false} />
+                                                <Tooltip labelFormatter={(label) => new Date(label as string).toLocaleDateString()} />
+                                                <Line type="monotone" dataKey="weight_kg" stroke="var(--primary)" strokeWidth={2} name="Weight (kg)" dot={{ r: 2 }} />
+                                                <Line type="monotone" dataKey="body_fat_pct" stroke="#f97316" strokeWidth={2} name="Body Fat (%)" dot={{ r: 2 }} />
+                                                <Line type="monotone" dataKey="muscle_mass_kg" stroke="#22c55e" strokeWidth={2} name="Muscle (kg)" dot={{ r: 2 }} />
+                                            </LineChart>
+                                        </ResponsiveContainer>
+                                    ) : (
+                                        <div className="h-full flex items-center justify-center text-xs text-muted-foreground">No biometric progress data logged yet.</div>
+                                    )}
+                                </div>
                             </div>
                         </div>
                     </div>

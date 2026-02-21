@@ -31,10 +31,50 @@ export default function ProfilePage() {
 
     const [loadingProfile, setLoadingProfile] = useState(false);
     const [profileMsg, setProfileMsg] = useState<{ type: 'success' | 'error', text: string } | null>(null);
+    const [loadingBioData, setLoadingBioData] = useState(false);
+    const [bioDataMsg, setBioDataMsg] = useState<{ type: 'success' | 'error', text: string } | null>(null);
+    const [bioData, setBioData] = useState({
+        height_cm: '',
+        weight_kg: '',
+        body_fat_pct: '',
+        muscle_mass_kg: '',
+    });
 
     const [passwords, setPasswords] = useState({ current: '', new: '', confirm: '' });
     const [loadingPass, setLoadingPass] = useState(false);
     const [passMsg, setPassMsg] = useState<{ type: 'success' | 'error', text: string } | null>(null);
+
+    const computeAge = (dob?: string) => {
+        if (!dob) return null;
+        const birthDate = new Date(dob);
+        if (Number.isNaN(birthDate.getTime())) return null;
+        const today = new Date();
+        let age = today.getFullYear() - birthDate.getFullYear();
+        const monthDiff = today.getMonth() - birthDate.getMonth();
+        if (monthDiff < 0 || (monthDiff === 0 && today.getDate() < birthDate.getDate())) age--;
+        return age >= 0 ? age : null;
+    };
+    const age = computeAge(dateOfBirth);
+
+    useEffect(() => {
+        const loadLatestBioData = async () => {
+            try {
+                const res = await api.get('/fitness/biometrics?limit=1&offset=0');
+                const latest = res.data?.data?.[0];
+                if (latest) {
+                    setBioData({
+                        height_cm: latest.height_cm?.toString() ?? '',
+                        weight_kg: latest.weight_kg?.toString() ?? '',
+                        body_fat_pct: latest.body_fat_pct?.toString() ?? '',
+                        muscle_mass_kg: latest.muscle_mass_kg?.toString() ?? '',
+                    });
+                }
+            } catch {
+                // keep defaults
+            }
+        };
+        loadLatestBioData();
+    }, [user?.email]);
 
     const handleProfileUpdate = async (e: React.FormEvent) => {
         e.preventDefault();
@@ -98,6 +138,26 @@ export default function ProfilePage() {
         } catch (err) {
             console.error('Failed to upload profile picture', err);
             showToast('Failed to upload picture. Please try again.', 'error');
+        }
+    };
+
+    const handleBioDataUpdate = async (e: React.FormEvent) => {
+        e.preventDefault();
+        setLoadingBioData(true);
+        setBioDataMsg(null);
+        try {
+            await api.post('/fitness/biometrics', {
+                height_cm: bioData.height_cm ? parseFloat(bioData.height_cm) : null,
+                weight_kg: bioData.weight_kg ? parseFloat(bioData.weight_kg) : null,
+                body_fat_pct: bioData.body_fat_pct ? parseFloat(bioData.body_fat_pct) : null,
+                muscle_mass_kg: bioData.muscle_mass_kg ? parseFloat(bioData.muscle_mass_kg) : null,
+            });
+            setBioDataMsg({ type: 'success', text: 'Bio data saved and tracked successfully' });
+        } catch (err: unknown) {
+            const error = err as { response?: { data?: { detail?: string } } };
+            setBioDataMsg({ type: 'error', text: error.response?.data?.detail || 'Failed to save bio data' });
+        } finally {
+            setLoadingBioData(false);
         }
     };
 
@@ -236,6 +296,17 @@ export default function ProfilePage() {
                                     />
                                 </div>
                             </div>
+                            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                <div>
+                                    <label className="block text-xs font-mono text-muted-foreground mb-1 uppercase">Age (Auto)</label>
+                                    <input
+                                        type="text"
+                                        value={age !== null ? `${age}` : 'N/A'}
+                                        disabled
+                                        className="w-full p-2 bg-muted/50 border border-border text-muted-foreground font-mono text-sm cursor-not-allowed"
+                                    />
+                                </div>
+                            </div>
 
                             <div>
                                 <label className="block text-xs font-mono text-muted-foreground mb-1 uppercase">Emergency Contact</label>
@@ -272,6 +343,80 @@ export default function ProfilePage() {
                                     className="btn-primary"
                                 >
                                     {loadingProfile ? 'Saving...' : <><Save size={16} /> Save Profile</>}
+                                </button>
+                            </div>
+                        </form>
+                    </div>
+
+                    <div className="kpi-card p-6 space-y-6 mt-8">
+                        <div className="flex items-center gap-3 border-b border-border pb-4">
+                            <User className="text-primary" size={20} />
+                            <h2 className="text-lg font-bold text-foreground font-serif">Body Metrics</h2>
+                        </div>
+                        <form onSubmit={handleBioDataUpdate} className="space-y-4">
+                            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                <div>
+                                    <label className="block text-xs font-mono text-muted-foreground mb-1 uppercase">Height (cm)</label>
+                                    <input
+                                        type="number"
+                                        step="0.1"
+                                        className="w-full p-2 bg-background border border-border focus:border-primary focus:ring-1 focus:ring-primary outline-none transition-all"
+                                        value={bioData.height_cm}
+                                        onChange={e => setBioData({ ...bioData, height_cm: e.target.value })}
+                                        placeholder="e.g. 175"
+                                    />
+                                </div>
+                                <div>
+                                    <label className="block text-xs font-mono text-muted-foreground mb-1 uppercase">Weight (kg)</label>
+                                    <input
+                                        type="number"
+                                        step="0.1"
+                                        className="w-full p-2 bg-background border border-border focus:border-primary focus:ring-1 focus:ring-primary outline-none transition-all"
+                                        value={bioData.weight_kg}
+                                        onChange={e => setBioData({ ...bioData, weight_kg: e.target.value })}
+                                        placeholder="e.g. 75"
+                                    />
+                                </div>
+                            </div>
+                            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                <div>
+                                    <label className="block text-xs font-mono text-muted-foreground mb-1 uppercase">Body Fat (%)</label>
+                                    <input
+                                        type="number"
+                                        step="0.1"
+                                        className="w-full p-2 bg-background border border-border focus:border-primary focus:ring-1 focus:ring-primary outline-none transition-all"
+                                        value={bioData.body_fat_pct}
+                                        onChange={e => setBioData({ ...bioData, body_fat_pct: e.target.value })}
+                                        placeholder="e.g. 18"
+                                    />
+                                </div>
+                                <div>
+                                    <label className="block text-xs font-mono text-muted-foreground mb-1 uppercase">Muscle Mass (kg)</label>
+                                    <input
+                                        type="number"
+                                        step="0.1"
+                                        className="w-full p-2 bg-background border border-border focus:border-primary focus:ring-1 focus:ring-primary outline-none transition-all"
+                                        value={bioData.muscle_mass_kg}
+                                        onChange={e => setBioData({ ...bioData, muscle_mass_kg: e.target.value })}
+                                        placeholder="e.g. 32"
+                                    />
+                                </div>
+                            </div>
+
+                            {bioDataMsg && (
+                                <div className={`text-xs p-2 flex items-center gap-2 ${bioDataMsg.type === 'success' ? 'bg-emerald-500/10 text-emerald-500' : 'bg-destructive/10 text-destructive'}`}>
+                                    {bioDataMsg.type === 'success' ? <CheckCircle size={14} /> : <AlertCircle size={14} />}
+                                    {bioDataMsg.text}
+                                </div>
+                            )}
+
+                            <div className="pt-4 flex justify-end">
+                                <button
+                                    type="submit"
+                                    disabled={loadingBioData}
+                                    className="btn-primary"
+                                >
+                                    {loadingBioData ? 'Saving...' : <><Save size={16} /> Save Body Metrics</>}
                                 </button>
                             </div>
                         </form>

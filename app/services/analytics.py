@@ -50,7 +50,10 @@ class AnalyticsService:
         todays_revenue = float(result_today.scalar() or 0.0)
         
         # 3. Active Members
-        stmt_members = select(func.count(Subscription.id)).where(Subscription.status == SubscriptionStatus.ACTIVE)
+        stmt_members = select(func.count(Subscription.id)).where(
+            Subscription.status == SubscriptionStatus.ACTIVE,
+            Subscription.end_date >= now,
+        )
         result_members = await db.execute(stmt_members)
         active_members = result_members.scalar() or 0
 

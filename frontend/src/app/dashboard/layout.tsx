@@ -35,6 +35,7 @@ export default function DashboardLayout({
     const router = useRouter();
     const pathname = usePathname();
     const [sidebarOpen, setSidebarOpen] = useState(false);
+    const [failedProfileImageUrl, setFailedProfileImageUrl] = useState<string | null>(null);
     const profileImageUrl = resolveProfileImageUrl(user?.profile_picture_url);
 
     useEffect(() => {
@@ -65,7 +66,7 @@ export default function DashboardLayout({
         { href: '/dashboard/admin/inventory', label: 'Inventory', icon: Package, roles: ['ADMIN'], section: 'operations' },
         { href: '/dashboard/admin/pos', label: 'POS', icon: ShoppingCart, roles: ['ADMIN'], section: 'operations' },
         { href: '/dashboard/admin/audit', label: 'Audit Logs', icon: ShieldAlert, roles: ['ADMIN'], section: 'operations' },
-        { href: '/dashboard/admin/members', label: 'Members', icon: UserCheck, roles: ['ADMIN'], section: 'people' },
+        { href: '/dashboard/admin/members', label: 'Clients', icon: UserCheck, roles: ['ADMIN', 'COACH'], section: 'people' },
         { href: '/dashboard/admin/staff', label: 'Staff', icon: Users, roles: ['ADMIN'], section: 'people' },
         { href: '/dashboard/admin/staff/attendance', label: 'Attendance', icon: ClipboardList, roles: ['ADMIN'], section: 'people' },
         { href: '/dashboard/admin/leaves', label: 'HR Leaves', icon: ClipboardList, roles: ['ADMIN'], section: 'people' },
@@ -134,8 +135,16 @@ export default function DashboardLayout({
                     </div>
                     <div className="flex flex-col items-center justify-center mt-1 group">
                         <div className="h-16 w-16 bg-primary/20 rounded-full flex items-center justify-center text-primary text-xl font-bold shadow-sm ring-2 ring-background overflow-hidden relative mb-2 transition-transform group-hover:scale-105">
-                            {profileImageUrl ? (
-                                <Image src={profileImageUrl} alt={user.full_name} fill className="object-cover" unoptimized priority />
+                            {profileImageUrl && failedProfileImageUrl !== profileImageUrl ? (
+                                <Image
+                                    src={profileImageUrl}
+                                    alt={user.full_name}
+                                    fill
+                                    className="object-cover"
+                                    unoptimized
+                                    priority
+                                    onError={() => setFailedProfileImageUrl(profileImageUrl)}
+                                />
                             ) : (
                                 user?.full_name?.[0] || 'U'
                             )}

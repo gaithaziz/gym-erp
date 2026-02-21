@@ -1,10 +1,11 @@
-from typing import Annotated, List
+import os
+from typing import Annotated, List, Literal
 from datetime import datetime
 import uuid
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile
 from pydantic import AnyHttpUrl, BaseModel, Field, field_validator
-from sqlalchemy import func, select
+from sqlalchemy import delete, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -40,9 +41,26 @@ async def _get_workout_plan_or_404(
     return plan
 
 
+async def _get_diet_plan_or_404(
+    db: AsyncSession,
+    diet_id: uuid.UUID,
+) -> DietPlan:
+    stmt = select(DietPlan).where(DietPlan.id == diet_id)
+    result = await db.execute(stmt)
+    plan = result.scalar_one_or_none()
+    if not plan:
+        raise HTTPException(status_code=404, detail="Diet plan not found")
+    return plan
+
+
 def _ensure_plan_owned_by_requester_or_admin(plan: WorkoutPlan, current_user: User, *, action: str) -> None:
     if current_user.role != Role.ADMIN and plan.creator_id != current_user.id:
         raise HTTPException(status_code=403, detail=f"Cannot {action} plan created by another user")
+
+
+def _ensure_diet_owned_by_requester_or_admin(plan: DietPlan, current_user: User, *, action: str) -> None:
+    if current_user.role != Role.ADMIN and plan.creator_id != current_user.id:
+        raise HTTPException(status_code=403, detail=f"Cannot {action} diet plan created by another user")
 
 
 def _apply_date_filters(stmt, model_date_field, from_date: datetime | None, to_date: datetime | None):
@@ -59,6 +77,11 @@ def _add_workout_exercises(db: AsyncSession, plan_id: uuid.UUID, exercises: List
             WorkoutExercise(
                 plan_id=plan_id,
                 exercise_id=exercise_data.exercise_id,
+                exercise_name=exercise_data.exercise_name,
+                section_name=exercise_data.section_name,
+                video_type=exercise_data.video_type,
+                video_url=str(exercise_data.video_url) if exercise_data.video_url else None,
+                uploaded_video_url=exercise_data.uploaded_video_url,
                 sets=exercise_data.sets,
                 reps=exercise_data.reps,
                 duration_minutes=exercise_data.duration_minutes,
@@ -92,11 +115,53 @@ class ExerciseResponse(ExerciseCreate):
         from_attributes = True
 
 class WorkoutExerciseData(BaseModel):
-    exercise_id: uuid.UUID
+    exercise_id: uuid.UUID | None = None
+    exercise_name: str | None = None
+    section_name: str | None = None
+    video_type: Literal["EMBED", "UPLOAD"] | None = None
+    video_url: AnyHttpUrl | None = None
+    uploaded_video_url: str | None = None
     sets: int = 3
     reps: int = 10
     duration_minutes: int | None = None
     order: int = 0
+
+    @field_validator("exercise_name")
+    @classmethod
+    def normalize_exercise_name(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        normalized = value.strip()
+        return normalized or None
+
+    @field_validator("section_name")
+    @classmethod
+    def normalize_section_name(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        normalized = value.strip()
+        return normalized or None
+
+    @field_validator("uploaded_video_url")
+    @classmethod
+    def normalize_uploaded_video_url(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        normalized = value.strip()
+        return normalized or None
+
+    @field_validator("video_type")
+    @classmethod
+    def normalize_video_type(cls, value: Literal["EMBED", "UPLOAD"] | None) -> Literal["EMBED", "UPLOAD"] | None:
+        return value
+
+    def model_post_init(self, __context) -> None:  # type: ignore[override]
+        if not self.exercise_id and not self.exercise_name:
+            raise ValueError("Each workout exercise requires either exercise_id or exercise_name")
+        if self.video_type == "EMBED" and not self.video_url:
+            raise ValueError("video_url is required when video_type is EMBED")
+        if self.video_type == "UPLOAD" and not self.uploaded_video_url:
+            raise ValueError("uploaded_video_url is required when video_type is UPLOAD")
 
 class WorkoutExerciseResponse(BaseModel):
     id: uuid.UUID
@@ -104,7 +169,12 @@ class WorkoutExerciseResponse(BaseModel):
     reps: int
     duration_minutes: int | None
     order: int
-    exercise: ExerciseResponse # Nested
+    exercise_name: str | None = None
+    section_name: str | None = None
+    video_type: str | None = None
+    video_url: str | None = None
+    uploaded_video_url: str | None = None
+    exercise: ExerciseResponse | None = None  # Nested optional
     
     class Config:
         from_attributes = True
@@ -133,6 +203,11 @@ class WorkoutPlanCloneRequest(BaseModel):
     name: str | None = None
     member_id: uuid.UUID | None = None
 
+
+class DietPlanCloneRequest(BaseModel):
+    name: str | None = None
+    member_id: uuid.UUID | None = None
+
 # --- Endpoints ---
 
 @router.post("/exercises", response_model=StandardResponse)
@@ -158,6 +233,36 @@ async def list_exercises(
     exercises = result.scalars().all()
     # Pydantic v2 adapter or manual validation
     return StandardResponse(data=[ExerciseResponse.model_validate(e) for e in exercises])
+
+
+@router.post("/exercise-videos/upload", response_model=StandardResponse)
+async def upload_exercise_video(
+    current_user: Annotated[User, Depends(dependencies.RoleChecker([Role.ADMIN, Role.COACH]))],
+    file: UploadFile = File(...),
+):
+    """Upload an exercise demo video and return a static URL."""
+    allowed_types = {"video/mp4", "video/webm", "video/quicktime", "video/x-msvideo"}
+    if file.content_type not in allowed_types:
+        raise HTTPException(status_code=400, detail="Unsupported video type")
+
+    ext = os.path.splitext(file.filename or "")[1].lower() or ".mp4"
+    if ext not in {".mp4", ".webm", ".mov", ".avi"}:
+        ext = ".mp4"
+
+    upload_dir = os.path.join("static", "workout_videos")
+    os.makedirs(upload_dir, exist_ok=True)
+
+    file_name = f"{uuid.uuid4()}{ext}"
+    file_path = os.path.join(upload_dir, file_name)
+
+    with open(file_path, "wb") as out_file:
+        while True:
+            chunk = await file.read(1024 * 1024)
+            if not chunk:
+                break
+            out_file.write(chunk)
+
+    return StandardResponse(data={"video_url": f"/static/workout_videos/{file_name}"}, message="Video uploaded")
 
 @router.post("/plans", response_model=StandardResponse)
 async def create_workout_plan(
@@ -233,6 +338,8 @@ async def delete_workout_plan(
     plan = await _get_workout_plan_or_404(db, plan_id)
     _ensure_plan_owned_by_requester_or_admin(plan, current_user, action="delete")
 
+    # Remove dependent workout logs first to avoid FK violations.
+    await db.execute(delete(WorkoutLog).where(WorkoutLog.plan_id == plan_id))
     await db.delete(plan)
     await db.commit()
     return StandardResponse(message="Plan deleted")
@@ -265,6 +372,11 @@ async def clone_workout_plan(
         [
             WorkoutExerciseData(
                 exercise_id=exercise.exercise_id,
+                exercise_name=exercise.exercise_name,
+                section_name=exercise.section_name,
+                video_type=exercise.video_type,  # type: ignore[arg-type]
+                video_url=exercise.video_url,
+                uploaded_video_url=exercise.uploaded_video_url,
                 sets=exercise.sets,
                 reps=exercise.reps,
                 duration_minutes=exercise.duration_minutes,
@@ -349,6 +461,44 @@ async def get_diet_plan(
     if not _is_admin_or_coach(current_user) and plan.member_id != current_user.id:
         raise HTTPException(status_code=403, detail="Access denied")
     return StandardResponse(data=DietPlanResponse.model_validate(plan))
+
+
+@router.post("/diets/{diet_id}/clone", response_model=StandardResponse)
+async def clone_diet_plan(
+    diet_id: uuid.UUID,
+    clone_data: DietPlanCloneRequest,
+    current_user: Annotated[User, Depends(dependencies.RoleChecker([Role.ADMIN, Role.COACH]))],
+    db: Annotated[AsyncSession, Depends(get_db)],
+):
+    """Clone a diet plan and optionally assign it to a member."""
+    source_plan = await _get_diet_plan_or_404(db, diet_id)
+    _ensure_diet_owned_by_requester_or_admin(source_plan, current_user, action="clone")
+
+    cloned_plan = DietPlan(
+        name=clone_data.name or f"{source_plan.name} (Copy)",
+        description=source_plan.description,
+        content=source_plan.content,
+        creator_id=current_user.id,
+        member_id=clone_data.member_id,
+    )
+    db.add(cloned_plan)
+    await db.commit()
+    return StandardResponse(message="Diet plan cloned successfully", data={"id": str(cloned_plan.id)})
+
+
+@router.delete("/diets/{diet_id}", response_model=StandardResponse)
+async def delete_diet_plan(
+    diet_id: uuid.UUID,
+    current_user: Annotated[User, Depends(dependencies.RoleChecker([Role.ADMIN, Role.COACH]))],
+    db: Annotated[AsyncSession, Depends(get_db)],
+):
+    """Delete a diet plan."""
+    plan = await _get_diet_plan_or_404(db, diet_id)
+    _ensure_diet_owned_by_requester_or_admin(plan, current_user, action="delete")
+
+    await db.delete(plan)
+    await db.commit()
+    return StandardResponse(message="Diet plan deleted")
 
 
 # ===== WORKOUT FEEDBACK SCHEMAS =====
@@ -490,6 +640,25 @@ async def get_biometrics(
 ):
     """Get biometric history for the current user."""
     stmt = select(BiometricLog).where(BiometricLog.member_id == current_user.id)
+    stmt = _apply_date_filters(stmt, BiometricLog.date, from_date, to_date)
+    stmt = stmt.order_by(BiometricLog.date.asc()).offset(offset).limit(limit)
+    result = await db.execute(stmt)
+    logs = result.scalars().all()
+    return StandardResponse(data=[BiometricLogResponse.model_validate(log) for log in logs])
+
+
+@router.get("/biometrics/member/{member_id}", response_model=StandardResponse[List[BiometricLogResponse]])
+async def get_member_biometrics(
+    member_id: uuid.UUID,
+    current_user: Annotated[User, Depends(dependencies.RoleChecker([Role.ADMIN, Role.COACH]))],
+    db: Annotated[AsyncSession, Depends(get_db)],
+    limit: int = Query(100, ge=1, le=500),
+    offset: int = Query(0, ge=0),
+    from_date: datetime | None = Query(None),
+    to_date: datetime | None = Query(None),
+):
+    """Admin/coach views biometric history for a specific member."""
+    stmt = select(BiometricLog).where(BiometricLog.member_id == member_id)
     stmt = _apply_date_filters(stmt, BiometricLog.date, from_date, to_date)
     stmt = stmt.order_by(BiometricLog.date.asc()).offset(offset).limit(limit)
     result = await db.execute(stmt)

@@ -33,7 +33,12 @@ class WorkoutExercise(Base):
 
     id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
     plan_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("workout_plans.id"), nullable=False)
-    exercise_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("exercises.id"), nullable=False)
+    exercise_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("exercises.id"), nullable=True)
+    exercise_name: Mapped[str | None] = mapped_column(String, nullable=True)
+    section_name: Mapped[str | None] = mapped_column(String, nullable=True)
+    video_type: Mapped[str | None] = mapped_column(String, nullable=True)  # EMBED | UPLOAD
+    video_url: Mapped[str | None] = mapped_column(String, nullable=True)
+    uploaded_video_url: Mapped[str | None] = mapped_column(String, nullable=True)
     
     sets: Mapped[int] = mapped_column(Integer, default=3)
     reps: Mapped[int] = mapped_column(Integer, default=10)

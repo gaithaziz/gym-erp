@@ -6,6 +6,7 @@ import Image from 'next/image';
 import { FileText, Pencil, Calculator, Save, Plus, Download, Eye } from 'lucide-react';
 import Modal from '@/components/Modal';
 import { useFeedback } from '@/components/FeedbackProvider';
+import { resolveProfileImageUrl } from '@/lib/profileImage';
 
 interface StaffMember {
     id: string;
@@ -23,6 +24,45 @@ interface StaffMember {
         commission_rate: number;
     } | null;
 }
+
+type ContractType = 'FULL_TIME' | 'PART_TIME' | 'HYBRID' | 'CONTRACTOR';
+
+const CONTRACT_RULES: Record<ContractType, {
+    label: string;
+    summary: string;
+    salaryLabel: string;
+    salaryHint: string;
+    commissionAllowed: boolean;
+}> = {
+    FULL_TIME: {
+        label: 'Full Time',
+        summary: 'Fixed monthly salary with overtime based on standard monthly hours.',
+        salaryLabel: 'Monthly Salary (JOD)',
+        salaryHint: 'Used as fixed monthly base pay.',
+        commissionAllowed: false,
+    },
+    PART_TIME: {
+        label: 'Part Time',
+        summary: 'Paid by logged hours only.',
+        salaryLabel: 'Hourly Rate (JOD)',
+        salaryHint: 'Used as per-hour payroll rate.',
+        commissionAllowed: false,
+    },
+    HYBRID: {
+        label: 'Hybrid',
+        summary: 'Monthly base salary plus commission from sales.',
+        salaryLabel: 'Base Salary (JOD)',
+        salaryHint: 'Used as fixed monthly pay before commission.',
+        commissionAllowed: true,
+    },
+    CONTRACTOR: {
+        label: 'Contractor',
+        summary: 'External/hour-based contract paid from logged hours.',
+        salaryLabel: 'Hourly Rate (JOD)',
+        salaryHint: 'Used as per-hour contractor payout.',
+        commissionAllowed: false,
+    },
+};
 
 const defaultAddForm = {
     full_name: '',
@@ -57,11 +97,20 @@ export default function StaffPage() {
     // View Profile Modal
     const [isViewOpen, setIsViewOpen] = useState(false);
     const [viewMember, setViewMember] = useState<StaffMember | null>(null);
+    const [failedImageUrls, setFailedImageUrls] = useState<Record<string, true>>({});
+    const activeEditRule = CONTRACT_RULES[(editForm.contract_type as ContractType) || 'FULL_TIME'];
 
     const openView = (member: StaffMember) => {
         setViewMember(member);
         setIsViewOpen(true);
     };
+
+    const markImageFailed = (url?: string) => {
+        if (!url) return;
+        setFailedImageUrls(prev => ({ ...prev, [url]: true }));
+    };
+
+    const canRenderImage = (url?: string) => !!url && !failedImageUrls[url];
 
     const fetchStaff = async () => {
         try {
@@ -109,9 +158,12 @@ export default function StaffPage() {
         e.preventDefault();
         if (!editTarget) return;
         try {
+            const contractType = editForm.contract_type as ContractType;
             await api.post('/hr/contracts', {
-                user_id: editTarget.id, contract_type: editForm.contract_type,
-                base_salary: Number(editForm.base_salary), commission_rate: Number(editForm.commission_rate),
+                user_id: editTarget.id,
+                contract_type: contractType,
+                base_salary: Number(editForm.base_salary),
+                commission_rate: contractType === 'HYBRID' ? Number(editForm.commission_rate) : 0,
                 start_date: new Date().toISOString().split('T')[0], standard_hours: 160
             });
             setIsEditOpen(false);
@@ -241,10 +293,13 @@ export default function StaffPage() {
                             {staff.map((member) => (
                                 <tr key={member.id}>
                                     <td>
+                                        {(() => {
+                                            const imageUrl = resolveProfileImageUrl(member.profile_picture_url);
+                                            return (
                                         <div className="flex items-center gap-3">
                                             <div className="h-8 w-8 bg-primary/20 rounded-full flex items-center justify-center text-primary font-bold overflow-hidden relative flex-shrink-0">
-                                                {member.profile_picture_url ? (
-                                                    <Image src={`${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'}${member.profile_picture_url}`} alt={member.full_name} fill className="object-cover" unoptimized />
+                                                {canRenderImage(imageUrl) ? (
+                                                    <Image src={imageUrl as string} alt={member.full_name} fill className="object-cover" unoptimized onError={() => markImageFailed(imageUrl)} />
                                                 ) : (
                                                     member.full_name.charAt(0)
                                                 )}
@@ -254,6 +309,8 @@ export default function StaffPage() {
                                                 <div className="text-xs text-muted-foreground">{member.email}</div>
                                             </div>
                                         </div>
+                                            );
+                                        })()}
                                     </td>
                                     <td>
                                         <span className={`badge ${member.role === 'COACH' ? 'badge-orange' : member.role === 'ADMIN' ? 'badge-blue' : 'badge-gray'}`}>
@@ -307,13 +364,18 @@ export default function StaffPage() {
                         <div key={member.id} className="p-4">
                             <div className="flex items-start justify-between gap-3">
                                 <div className="flex items-center gap-3 min-w-0">
+                                    {(() => {
+                                        const imageUrl = resolveProfileImageUrl(member.profile_picture_url);
+                                        return (
                                     <div className="h-10 w-10 bg-primary/20 rounded-full flex items-center justify-center text-primary font-bold overflow-hidden relative flex-shrink-0">
-                                        {member.profile_picture_url ? (
-                                            <Image src={`${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'}${member.profile_picture_url}`} alt={member.full_name} fill className="object-cover" unoptimized />
+                                        {canRenderImage(imageUrl) ? (
+                                            <Image src={imageUrl as string} alt={member.full_name} fill className="object-cover" unoptimized onError={() => markImageFailed(imageUrl)} />
                                         ) : (
                                             member.full_name.charAt(0)
                                         )}
                                     </div>
+                                        );
+                                    })()}
                                     <div className="min-w-0">
                                         <p className="font-medium text-foreground truncate">{member.full_name}</p>
                                         <p className="text-xs text-muted-foreground truncate">{member.email}</p>
@@ -403,25 +465,53 @@ export default function StaffPage() {
             </Modal>
 
             {/* EDIT MODAL */}
-            <Modal isOpen={isEditOpen} onClose={() => setIsEditOpen(false)} title={`Edit Contract — ${editTarget?.full_name}`}>
+            <Modal isOpen={isEditOpen} onClose={() => setIsEditOpen(false)} title={`Edit Contract - ${editTarget?.full_name}`}>
                 <form onSubmit={handleEdit} className="space-y-4">
+                    <div className="rounded-sm border border-primary/30 bg-primary/10 p-3">
+                        <p className="text-xs font-semibold text-primary uppercase tracking-wide">{activeEditRule.label}</p>
+                        <p className="text-sm text-foreground mt-1">{activeEditRule.summary}</p>
+                    </div>
                     <div>
                         <label className="block text-xs font-medium text-muted-foreground mb-1.5">Contract Type</label>
-                        <select className="input-dark" value={editForm.contract_type} onChange={e => setEditForm({ ...editForm, contract_type: e.target.value })}>
+                        <select
+                            className="input-dark"
+                            value={editForm.contract_type}
+                            onChange={e => {
+                                const nextType = e.target.value as ContractType;
+                                setEditForm({
+                                    ...editForm,
+                                    contract_type: nextType,
+                                    commission_rate: CONTRACT_RULES[nextType].commissionAllowed ? editForm.commission_rate : 0,
+                                });
+                            }}
+                        >
                             <option value="FULL_TIME">Full Time</option>
                             <option value="PART_TIME">Part Time</option>
                             <option value="HYBRID">Hybrid</option>
                             <option value="CONTRACTOR">Contractor</option>
                         </select>
                     </div>
-                    <div className="grid grid-cols-2 gap-4">
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                         <div>
-                            <label className="block text-xs font-medium text-muted-foreground mb-1.5">Base Salary (JOD)</label>
+                            <label className="block text-xs font-medium text-muted-foreground mb-1.5">{activeEditRule.salaryLabel}</label>
                             <input type="number" className="input-dark" value={editForm.base_salary} onChange={e => setEditForm({ ...editForm, base_salary: Number(e.target.value) })} />
+                            <p className="mt-1 text-[11px] text-muted-foreground">{activeEditRule.salaryHint}</p>
                         </div>
                         <div>
                             <label className="block text-xs font-medium text-muted-foreground mb-1.5">Commission Rate (0-1)</label>
-                            <input type="number" step="0.01" max="1" className="input-dark" value={editForm.commission_rate} onChange={e => setEditForm({ ...editForm, commission_rate: Number(e.target.value) })} />
+                            <input
+                                type="number"
+                                step="0.01"
+                                max="1"
+                                min="0"
+                                disabled={!activeEditRule.commissionAllowed}
+                                className="input-dark disabled:opacity-50 disabled:cursor-not-allowed"
+                                value={activeEditRule.commissionAllowed ? editForm.commission_rate : 0}
+                                onChange={e => setEditForm({ ...editForm, commission_rate: Number(e.target.value) })}
+                            />
+                            <p className="mt-1 text-[11px] text-muted-foreground">
+                                {activeEditRule.commissionAllowed ? 'Used in payroll with provided sales volume.' : 'Only Hybrid contracts support commission.'}
+                            </p>
                         </div>
                     </div>
                     <div className="flex justify-end gap-3 pt-4 border-t border-border">
@@ -430,7 +520,6 @@ export default function StaffPage() {
                     </div>
                 </form>
             </Modal>
-
             {/* PAYROLL MODAL */}
             <Modal isOpen={isPayrollOpen} onClose={() => { setIsPayrollOpen(false); setPayrollResult(null); }} title={`Generate Payroll — ${payrollTarget?.full_name}`}>
                 {!payrollResult ? (
@@ -491,13 +580,18 @@ export default function StaffPage() {
                 {viewMember && (
                     <div className="space-y-6">
                         <div className="flex items-center gap-4 border-b border-border pb-6">
+                            {(() => {
+                                const imageUrl = resolveProfileImageUrl(viewMember.profile_picture_url);
+                                return (
                             <div className="h-16 w-16 bg-primary/20 rounded-full flex items-center justify-center text-primary text-xl font-bold overflow-hidden relative flex-shrink-0">
-                                {viewMember.profile_picture_url ? (
-                                    <Image src={`${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'}${viewMember.profile_picture_url}`} alt={viewMember.full_name} fill className="object-cover" unoptimized />
+                                {canRenderImage(imageUrl) ? (
+                                    <Image src={imageUrl as string} alt={viewMember.full_name} fill className="object-cover" unoptimized onError={() => markImageFailed(imageUrl)} />
                                 ) : (
                                     viewMember.full_name.charAt(0)
                                 )}
                             </div>
+                                );
+                            })()}
                             <div>
                                 <h3 className="text-xl font-bold text-foreground">{viewMember.full_name}</h3>
                                 <p className="text-sm text-muted-foreground">{viewMember.email}</p>
@@ -530,3 +624,4 @@ export default function StaffPage() {
         </div>
     );
 }
+

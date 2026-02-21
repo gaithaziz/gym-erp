@@ -42,6 +42,26 @@ class AccessService:
         return encoded_jwt, expires_in
 
     @staticmethod
+    async def _get_subscription_denial_reason(user_id: uuid.UUID, now: datetime, db: AsyncSession) -> str | None:
+        """Return denial reason when access should be denied, otherwise None."""
+        stmt_sub = select(Subscription).where(Subscription.user_id == user_id)
+        result_sub = await db.execute(stmt_sub)
+        subscription = result_sub.scalar_one_or_none()
+
+        if not subscription:
+            return "NO_ACTIVE_SUBSCRIPTION"
+        end_date = subscription.end_date
+        if end_date.tzinfo is None:
+            end_date = end_date.replace(tzinfo=timezone.utc)
+        if end_date < now:
+            return "SUBSCRIPTION_EXPIRED"
+        if subscription.status == SubscriptionStatus.FROZEN:
+            return "SUBSCRIPTION_FROZEN"
+        if subscription.status != SubscriptionStatus.ACTIVE:
+            return "NO_ACTIVE_SUBSCRIPTION"
+        return None
+
+    @staticmethod
     async def process_scan(token: str, kiosk_id: str, db: AsyncSession) -> dict:
         """Validates QR token and user subscription status."""
         try:
@@ -75,45 +95,13 @@ class AccessService:
         if recent_scan:
             return {"status": "ALREADY_SCANNED", "user_name": user.full_name, "reason": "Scanned within the last 60 seconds"}
 
-        # Fetch active subscription
-        # Logic: Must be ACTIVE and end_date >= now
-        stmt_sub = select(Subscription).where(
-            Subscription.user_id == user.id,
-            Subscription.status == SubscriptionStatus.ACTIVE,
-            Subscription.end_date >= now
-        )
-        result_sub = await db.execute(stmt_sub)
-        subscription = result_sub.scalar_one_or_none()
-
         status_decision = "GRANTED"
         reason = None
 
-        if not subscription:
-            # Check if frozen or expired exists for better reason
-            # For simplicity, if no active valid sub -> DENIED
+        denial_reason = await AccessService._get_subscription_denial_reason(user.id, now, db)
+        if denial_reason:
             status_decision = "DENIED"
-            reason = "NO_ACTIVE_SUBSCRIPTION"
-            
-            # Check specifically for expired to match requirements
-            # "POST /access/scan returns DENIED with reason EXPIRED if date > end_date"
-            stmt_expired = select(Subscription).where(
-                Subscription.user_id == user.id,
-                Subscription.status == SubscriptionStatus.ACTIVE,
-                Subscription.end_date < now
-            )
-            result_expired = await db.execute(stmt_expired)
-            expired_sub = result_expired.scalar_one_or_none()
-            if expired_sub:
-                reason = "SUBSCRIPTION_EXPIRED"
-            else:
-                 # Check frozen
-                stmt_frozen = select(Subscription).where(
-                    Subscription.user_id == user.id,
-                    Subscription.status == SubscriptionStatus.FROZEN
-                )
-                result_frozen = await db.execute(stmt_frozen)
-                if result_frozen.scalar_one_or_none():
-                    reason = "SUBSCRIPTION_FROZEN"
+            reason = denial_reason
 
         # Log Access
         access_log = AccessLog(
@@ -156,37 +144,13 @@ class AccessService:
         if recent_scan:
             return {"status": "ALREADY_SCANNED", "user_name": user.full_name, "reason": "Scanned within the last 60 seconds"}
 
-        stmt_sub = select(Subscription).where(
-            Subscription.user_id == user.id,
-            Subscription.status == SubscriptionStatus.ACTIVE,
-            Subscription.end_date >= now
-        )
-        result_sub = await db.execute(stmt_sub)
-        subscription = result_sub.scalar_one_or_none()
-
         status_decision = "GRANTED"
         reason = None
 
-        if not subscription:
+        denial_reason = await AccessService._get_subscription_denial_reason(user.id, now, db)
+        if denial_reason:
             status_decision = "DENIED"
-            reason = "NO_ACTIVE_SUBSCRIPTION"
-
-            stmt_expired = select(Subscription).where(
-                Subscription.user_id == user.id,
-                Subscription.status == SubscriptionStatus.ACTIVE,
-                Subscription.end_date < now
-            )
-            result_expired = await db.execute(stmt_expired)
-            if result_expired.scalar_one_or_none():
-                reason = "SUBSCRIPTION_EXPIRED"
-            else:
-                stmt_frozen = select(Subscription).where(
-                    Subscription.user_id == user.id,
-                    Subscription.status == SubscriptionStatus.FROZEN
-                )
-                result_frozen = await db.execute(stmt_frozen)
-                if result_frozen.scalar_one_or_none():
-                    reason = "SUBSCRIPTION_FROZEN"
+            reason = denial_reason
 
         access_log = AccessLog(
             user_id=user.id,

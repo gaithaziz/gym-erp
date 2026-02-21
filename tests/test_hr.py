@@ -233,3 +233,49 @@ async def test_non_admin_cannot_view_other_user_payroll(client: AsyncClient, db_
 
     forbidden = await client.get(f"{settings.API_V1_STR}/hr/payroll/{employee_target.id}", headers=other_headers)
     assert forbidden.status_code == 403
+
+
+@pytest.mark.asyncio
+async def test_attendance_date_range_filter(client: AsyncClient, db_session: AsyncSession):
+    password = "password123"
+    hashed = get_password_hash(password)
+    admin = User(email="admin_attendance_filter@gym.com", hashed_password=hashed, role="ADMIN", full_name="Attendance Admin")
+    employee = User(email="employee_attendance_filter@gym.com", hashed_password=hashed, role="EMPLOYEE", full_name="Attendance Employee")
+    db_session.add_all([admin, employee])
+    await db_session.flush()
+
+    now = datetime.now(timezone.utc)
+    recent_log = AttendanceLog(
+        user_id=employee.id,
+        check_in_time=now - timedelta(days=2, hours=1),
+        check_out_time=now - timedelta(days=2),
+        hours_worked=1.0,
+    )
+    old_log = AttendanceLog(
+        user_id=employee.id,
+        check_in_time=now - timedelta(days=10, hours=1),
+        check_out_time=now - timedelta(days=10),
+        hours_worked=1.0,
+    )
+    db_session.add_all([recent_log, old_log])
+    await db_session.commit()
+
+    login_resp = await client.post(
+        f"{settings.API_V1_STR}/auth/login",
+        json={"email": "admin_attendance_filter@gym.com", "password": password},
+    )
+    headers = {"Authorization": f"Bearer {login_resp.json()['data']['access_token']}"}
+
+    start_date = (date.today() - timedelta(days=6)).isoformat()
+    end_date = date.today().isoformat()
+    resp = await client.get(
+        f"{settings.API_V1_STR}/hr/attendance",
+        params={"start_date": start_date, "end_date": end_date, "limit": 100},
+        headers=headers,
+    )
+    assert resp.status_code == 200
+
+    data = resp.json()["data"]
+    returned_ids = {item["id"] for item in data}
+    assert str(recent_log.id) in returned_ids
+    assert str(old_log.id) not in returned_ids

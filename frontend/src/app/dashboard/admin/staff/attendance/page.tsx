@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { api } from '@/lib/api';
 import { Check, X, Edit2 } from 'lucide-react';
 import { useFeedback } from '@/components/FeedbackProvider';
@@ -21,16 +21,67 @@ export default function AttendancePage() {
     const [editingId, setEditingId] = useState<string | null>(null);
     const [editIn, setEditIn] = useState('');
     const [editOut, setEditOut] = useState('');
+    const [datePreset, setDatePreset] = useState<'all' | 'today' | '7d' | '30d' | 'custom'>('7d');
 
-    const fetchLogs = async () => {
-        try {
-            const res = await api.get('/hr/attendance');
-            setLogs(res.data.data);
-        } catch { }
-        setLoading(false);
+    const toDateInput = (d: Date) => {
+        const year = d.getFullYear();
+        const month = String(d.getMonth() + 1).padStart(2, '0');
+        const day = String(d.getDate()).padStart(2, '0');
+        return `${year}-${month}-${day}`;
     };
+    const today = new Date();
+    const sevenDaysAgo = new Date(today);
+    sevenDaysAgo.setDate(today.getDate() - 6);
+    const [startDate, setStartDate] = useState(toDateInput(sevenDaysAgo));
+    const [endDate, setEndDate] = useState(toDateInput(today));
 
-    useEffect(() => { setTimeout(() => fetchLogs(), 0); }, []);
+    const fetchLogs = useCallback(async () => {
+        if (startDate > endDate) {
+            showToast('Start date cannot be after end date.', 'error');
+            return;
+        }
+        setLoading(true);
+        try {
+            const res = await api.get('/hr/attendance', {
+                params: {
+                    limit: 500,
+                },
+            });
+            setLogs(res.data.data);
+        } catch {
+            showToast('Failed to load attendance logs', 'error');
+        }
+        setLoading(false);
+    }, [startDate, endDate, showToast]);
+
+    useEffect(() => { setTimeout(() => fetchLogs(), 0); }, [fetchLogs]);
+
+    const filteredLogs = useMemo(() => {
+        if (datePreset === 'all') return logs;
+        return logs.filter((log) => {
+            if (!log.check_in_time) return false;
+            const d = new Date(log.check_in_time);
+            const y = d.getFullYear();
+            const m = String(d.getMonth() + 1).padStart(2, '0');
+            const day = String(d.getDate()).padStart(2, '0');
+            const checkInDate = `${y}-${m}-${day}`;
+            return checkInDate >= startDate && checkInDate <= endDate;
+        });
+    }, [logs, startDate, endDate, datePreset]);
+
+    const applyPreset = (preset: 'all' | 'today' | '7d' | '30d' | 'custom') => {
+        setDatePreset(preset);
+        if (preset === 'custom' || preset === 'all') return;
+
+        const now = new Date();
+        const start = new Date(now);
+        if (preset === 'today') start.setDate(now.getDate());
+        if (preset === '7d') start.setDate(now.getDate() - 6);
+        if (preset === '30d') start.setDate(now.getDate() - 29);
+
+        setStartDate(toDateInput(start));
+        setEndDate(toDateInput(now));
+    };
 
     const startEdit = (log: AttendanceLog) => {
         setEditingId(log.id);
@@ -71,6 +122,45 @@ export default function AttendancePage() {
                 <p className="text-sm text-[#6B6B6B] mt-1">View and correct staff attendance records</p>
             </div>
 
+            <div className="chart-card p-4 border border-border space-y-3">
+                <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">Date Slicer</p>
+                <div className="flex flex-wrap gap-2">
+                    <button onClick={() => applyPreset('all')} className={`px-3 py-1.5 text-xs border rounded-sm transition-colors ${datePreset === 'all' ? 'bg-primary text-primary-foreground border-primary' : 'border-border text-muted-foreground hover:text-foreground'}`}>All Dates</button>
+                    <button onClick={() => applyPreset('today')} className={`px-3 py-1.5 text-xs border rounded-sm transition-colors ${datePreset === 'today' ? 'bg-primary text-primary-foreground border-primary' : 'border-border text-muted-foreground hover:text-foreground'}`}>Today</button>
+                    <button onClick={() => applyPreset('7d')} className={`px-3 py-1.5 text-xs border rounded-sm transition-colors ${datePreset === '7d' ? 'bg-primary text-primary-foreground border-primary' : 'border-border text-muted-foreground hover:text-foreground'}`}>Last 7 Days</button>
+                    <button onClick={() => applyPreset('30d')} className={`px-3 py-1.5 text-xs border rounded-sm transition-colors ${datePreset === '30d' ? 'bg-primary text-primary-foreground border-primary' : 'border-border text-muted-foreground hover:text-foreground'}`}>Last 30 Days</button>
+                    <button onClick={() => applyPreset('custom')} className={`px-3 py-1.5 text-xs border rounded-sm transition-colors ${datePreset === 'custom' ? 'bg-primary text-primary-foreground border-primary' : 'border-border text-muted-foreground hover:text-foreground'}`}>Custom</button>
+                </div>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    <div>
+                        <label className="block text-xs text-muted-foreground mb-1">Start Date</label>
+                        <input
+                            type="date"
+                            className="input-dark"
+                            value={startDate}
+                            onChange={(e) => {
+                                setDatePreset('custom');
+                                setStartDate(e.target.value);
+                                if (e.target.value > endDate) setEndDate(e.target.value);
+                            }}
+                        />
+                    </div>
+                    <div>
+                        <label className="block text-xs text-muted-foreground mb-1">End Date</label>
+                        <input
+                            type="date"
+                            className="input-dark"
+                            value={endDate}
+                            min={startDate}
+                            onChange={(e) => {
+                                setDatePreset('custom');
+                                setEndDate(e.target.value);
+                            }}
+                        />
+                    </div>
+                </div>
+            </div>
+
             <div className="chart-card overflow-hidden !p-0">
                 <div className="overflow-x-auto">
                     <table className="w-full text-left table-dark min-w-[600px]">
@@ -84,10 +174,10 @@ export default function AttendancePage() {
                             </tr>
                         </thead>
                         <tbody>
-                            {logs.length === 0 && (
+                            {filteredLogs.length === 0 && (
                                 <tr><td colSpan={5} className="text-center py-8 text-[#333] text-sm">No attendance records</td></tr>
                             )}
-                            {logs.map((log) => (
+                            {filteredLogs.map((log) => (
                                 <tr key={log.id}>
                                     <td className="!text-white font-medium">{log.user_name}</td>
                                     <td>

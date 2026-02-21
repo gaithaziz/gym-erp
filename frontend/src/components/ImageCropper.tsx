@@ -57,8 +57,13 @@ export default function ImageCropper({ onCropComplete, currentImage, aspectData 
     const [zoom, setZoom] = useState(1);
     const [croppedAreaPixels, setCroppedAreaPixels] = useState<Area | null>(null);
     const [isModalOpen, setIsModalOpen] = useState(false);
+    const [previewImageFailed, setPreviewImageFailed] = useState(false);
 
     const fileInputRef = useRef<HTMLInputElement>(null);
+
+    React.useEffect(() => {
+        setPreviewImageFailed(false);
+    }, [currentImage]);
 
     const onSelectFile = (e: React.ChangeEvent<HTMLInputElement>) => {
         if (e.target.files && e.target.files.length > 0) {
@@ -92,8 +97,8 @@ export default function ImageCropper({ onCropComplete, currentImage, aspectData 
         <div>
             <div className="flex flex-col items-center gap-4">
                 <div className="relative group w-32 h-32 rounded-full overflow-hidden border-2 border-border bg-muted flex items-center justify-center">
-                    {currentImage ? (
-                        <Image src={currentImage} alt="Profile" fill className="object-cover" unoptimized />
+                    {currentImage && !previewImageFailed ? (
+                        <Image src={currentImage} alt="Profile" fill className="object-cover" unoptimized onError={() => setPreviewImageFailed(true)} />
                     ) : (
                         <UserPlaceholder />
                     )}

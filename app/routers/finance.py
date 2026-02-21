@@ -1,5 +1,5 @@
 from typing import Annotated, Optional
-from datetime import datetime
+from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal
 from fastapi import APIRouter, Depends, Query, HTTPException
 from fastapi.responses import HTMLResponse
@@ -62,11 +62,23 @@ async def list_transactions(
     db: Annotated[AsyncSession, Depends(get_db)],
     limit: int = 50,
     month: Optional[int] = Query(None, ge=1, le=12),
-    year: Optional[int] = Query(None, ge=2000, le=2100)
+    year: Optional[int] = Query(None, ge=2000, le=2100),
+    start_date: Optional[date] = Query(None),
+    end_date: Optional[date] = Query(None),
 ):
-    """List recent transactions, optionally filtered by month/year."""
+    """List recent transactions, optionally filtered by month/year or date range."""
+    if start_date and end_date and start_date > end_date:
+        raise HTTPException(status_code=400, detail="start_date cannot be after end_date")
+
     stmt = select(Transaction)
-    if month and year:
+    if start_date or end_date:
+        if start_date:
+            start_dt = datetime(start_date.year, start_date.month, start_date.day, tzinfo=timezone.utc)
+            stmt = stmt.where(Transaction.date >= start_dt)
+        if end_date:
+            end_exclusive = datetime(end_date.year, end_date.month, end_date.day, tzinfo=timezone.utc) + timedelta(days=1)
+            stmt = stmt.where(Transaction.date < end_exclusive)
+    elif month and year:
         stmt = stmt.where(
             extract('month', Transaction.date) == month,
             extract('year', Transaction.date) == year
@@ -83,12 +95,26 @@ async def get_financial_summary(
     current_user: Annotated[User, Depends(dependencies.RoleChecker([Role.ADMIN]))],
     db: Annotated[AsyncSession, Depends(get_db)],
     month: Optional[int] = Query(None, ge=1, le=12),
-    year: Optional[int] = Query(None, ge=2000, le=2100)
+    year: Optional[int] = Query(None, ge=2000, le=2100),
+    start_date: Optional[date] = Query(None),
+    end_date: Optional[date] = Query(None),
 ):
-    """Get total Income vs Expenses, optionally filtered by month/year."""
+    """Get total Income vs Expenses, optionally filtered by month/year or date range."""
+    if start_date and end_date and start_date > end_date:
+        raise HTTPException(status_code=400, detail="start_date cannot be after end_date")
+
     base_filter_inc = [Transaction.type == TransactionType.INCOME]
     base_filter_exp = [Transaction.type == TransactionType.EXPENSE]
-    if month and year:
+    if start_date or end_date:
+        if start_date:
+            start_dt = datetime(start_date.year, start_date.month, start_date.day, tzinfo=timezone.utc)
+            base_filter_inc.append(Transaction.date >= start_dt)
+            base_filter_exp.append(Transaction.date >= start_dt)
+        if end_date:
+            end_exclusive = datetime(end_date.year, end_date.month, end_date.day, tzinfo=timezone.utc) + timedelta(days=1)
+            base_filter_inc.append(Transaction.date < end_exclusive)
+            base_filter_exp.append(Transaction.date < end_exclusive)
+    elif month and year:
         date_filters = [
             extract('month', Transaction.date) == month,
             extract('year', Transaction.date) == year

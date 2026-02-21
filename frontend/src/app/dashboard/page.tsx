@@ -59,6 +59,21 @@ interface Diet {
     content: string;
 }
 
+interface MemberSummary {
+    id: string;
+    full_name: string;
+    email: string;
+    date_of_birth?: string;
+}
+
+interface BiometricLogResponse {
+    id: string;
+    date: string;
+    weight_kg?: number;
+    height_cm?: number;
+    body_fat_pct?: number;
+    muscle_mass_kg?: number;
+}
 
 interface AttendanceData {
     hour: string;
@@ -74,6 +89,17 @@ interface RevenueData {
 interface RevenueChartPoint extends RevenueData {
     label: string;
 }
+
+const calculateAge = (dob?: string) => {
+    if (!dob) return null;
+    const birthDate = new Date(dob);
+    if (Number.isNaN(birthDate.getTime())) return null;
+    const today = new Date();
+    let age = today.getFullYear() - birthDate.getFullYear();
+    const monthDiff = today.getMonth() - birthDate.getMonth();
+    if (monthDiff < 0 || (monthDiff === 0 && today.getDate() < birthDate.getDate())) age--;
+    return age >= 0 ? age : null;
+};
 
 function AdminDashboard({ userName }: { userName: string }) {
     const [stats, setStats] = useState<DashboardStats | null>(null);
@@ -398,27 +424,45 @@ function CoachDashboard({ userName }: { userName: string }) {
     const [plansCount, setPlansCount] = useState(0);
     const [dietsCount, setDietsCount] = useState(0);
     const [plans, setPlans] = useState<Plan[]>([]);
+    const [members, setMembers] = useState<MemberSummary[]>([]);
+    const [selectedMemberId, setSelectedMemberId] = useState('');
+    const [memberBiometrics, setMemberBiometrics] = useState<BiometricLogResponse[]>([]);
     const [loading, setLoading] = useState(true);
 
     useEffect(() => {
         Promise.all([
             api.get('/fitness/plans').catch(() => ({ data: { data: [] } })),
             api.get('/fitness/diets').catch(() => ({ data: { data: [] } })),
-        ]).then(([plansRes, dietsRes]) => {
+            api.get('/hr/members').catch(() => ({ data: { data: [] } })),
+        ]).then(([plansRes, dietsRes, membersRes]) => {
             const plansData = plansRes.data.data || [];
             const dietsData = dietsRes.data.data || [];
+            const membersData = membersRes.data.data || [];
             setPlans(plansData);
             setPlansCount(plansData.length);
             setDietsCount(dietsData.length);
+            setMembers(membersData);
+            if (membersData.length > 0) setSelectedMemberId(membersData[0].id);
             setLoading(false);
         });
     }, []);
+
+    useEffect(() => {
+        if (!selectedMemberId) return;
+        api.get(`/fitness/biometrics/member/${selectedMemberId}`)
+            .then(res => setMemberBiometrics(res.data.data || []))
+            .catch(() => setMemberBiometrics([]));
+    }, [selectedMemberId]);
 
     if (loading) return (
         <div className="flex h-64 items-center justify-center">
             <div className="h-8 w-8 animate-spin rounded-full border-2 border-primary border-t-transparent" />
         </div>
     );
+
+    const selectedMember = members.find(member => member.id === selectedMemberId);
+    const selectedMemberAge = calculateAge(selectedMember?.date_of_birth);
+    const latestMemberMetrics = memberBiometrics.length > 0 ? memberBiometrics[memberBiometrics.length - 1] : null;
 
     return (
         <div className="space-y-8">
@@ -539,6 +583,78 @@ function CoachDashboard({ userName }: { userName: string }) {
                     </div>
                 </div>
             )}
+
+            <div className="kpi-card p-6 space-y-4">
+                <div className="flex flex-col sm:flex-row sm:items-end sm:justify-between gap-3">
+                    <div>
+                        <h3 className="text-sm font-bold text-muted-foreground uppercase tracking-wider font-mono">Client Progress Tracking</h3>
+                        <p className="text-xs text-muted-foreground mt-1">Monitor member biometrics and progress trends</p>
+                    </div>
+                    <div className="w-full sm:w-72">
+                        <label className="block text-[10px] uppercase font-bold text-muted-foreground mb-1">Client</label>
+                        <select
+                            className="input-dark"
+                            value={selectedMemberId}
+                            onChange={(e) => setSelectedMemberId(e.target.value)}
+                        >
+                            {members.length === 0 && <option value="">No clients</option>}
+                            {members.map(member => (
+                                <option key={member.id} value={member.id}>{member.full_name}</option>
+                            ))}
+                        </select>
+                    </div>
+                </div>
+
+                {selectedMember ? (
+                    <div className="grid grid-cols-1 md:grid-cols-4 gap-3">
+                        <div className="rounded-sm border border-border bg-muted/20 p-3">
+                            <p className="text-[10px] uppercase text-muted-foreground font-bold">Age</p>
+                            <p className="text-lg font-bold text-foreground mt-1">{selectedMemberAge !== null ? selectedMemberAge : 'N/A'}</p>
+                        </div>
+                        <div className="rounded-sm border border-border bg-muted/20 p-3">
+                            <p className="text-[10px] uppercase text-muted-foreground font-bold">Height</p>
+                            <p className="text-lg font-bold text-foreground mt-1">{latestMemberMetrics?.height_cm ? `${latestMemberMetrics.height_cm} cm` : 'N/A'}</p>
+                        </div>
+                        <div className="rounded-sm border border-border bg-muted/20 p-3">
+                            <p className="text-[10px] uppercase text-muted-foreground font-bold">Weight</p>
+                            <p className="text-lg font-bold text-foreground mt-1">{latestMemberMetrics?.weight_kg ? `${latestMemberMetrics.weight_kg} kg` : 'N/A'}</p>
+                        </div>
+                        <div className="rounded-sm border border-border bg-muted/20 p-3">
+                            <p className="text-[10px] uppercase text-muted-foreground font-bold">Body Fat</p>
+                            <p className="text-lg font-bold text-foreground mt-1">{latestMemberMetrics?.body_fat_pct ? `${latestMemberMetrics.body_fat_pct}%` : 'N/A'}</p>
+                        </div>
+                    </div>
+                ) : (
+                    <div className="text-sm text-muted-foreground">No client selected.</div>
+                )}
+
+                <div className="h-64">
+                    {memberBiometrics.length > 0 ? (
+                        <ResponsiveContainer width="100%" height="100%" minHeight={1} minWidth={1}>
+                            <LineChart data={memberBiometrics}>
+                                <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" vertical={false} />
+                                <XAxis
+                                    dataKey="date"
+                                    tickFormatter={(val) => new Date(val).toLocaleDateString()}
+                                    tick={{ fontSize: 11, fill: 'var(--muted-foreground)', fontFamily: 'var(--font-mono)' }}
+                                    axisLine={false}
+                                    tickLine={false}
+                                />
+                                <YAxis tick={{ fontSize: 11, fill: 'var(--muted-foreground)', fontFamily: 'var(--font-mono)' }} axisLine={false} tickLine={false} />
+                                <Tooltip contentStyle={{ background: 'var(--card)', border: '1px solid var(--border)', borderRadius: '0px', fontSize: '0.8rem', color: 'var(--foreground)' }} labelFormatter={(label) => new Date(label as string).toLocaleDateString()} />
+                                <Line type="monotone" dataKey="weight_kg" stroke="var(--primary)" strokeWidth={2} name="Weight (kg)" dot={{ r: 3, fill: 'var(--primary)' }} />
+                                <Line type="monotone" dataKey="body_fat_pct" stroke="#f97316" strokeWidth={2} name="Body Fat (%)" dot={{ r: 3, fill: '#f97316' }} />
+                                <Line type="monotone" dataKey="muscle_mass_kg" stroke="#22c55e" strokeWidth={2} name="Muscle Mass (kg)" dot={{ r: 3, fill: '#22c55e' }} />
+                            </LineChart>
+                        </ResponsiveContainer>
+                    ) : (
+                        <div className="flex items-center justify-center h-full text-muted-foreground text-sm font-mono border border-dashed border-border flex-col">
+                            <Activity size={24} className="mb-2 opacity-50" />
+                            <span>NO BIOMETRIC DATA FOR THIS CLIENT</span>
+                        </div>
+                    )}
+                </div>
+            </div>
         </div>
     );
 }
@@ -565,18 +681,17 @@ interface GamificationStats {
     };
 }
 
-function CustomerDashboard({ userName }: { userName: string }) {
+function CustomerDashboard({ userName, dateOfBirth }: { userName: string; dateOfBirth?: string }) {
     const { showToast } = useFeedback();
     const [plans, setPlans] = useState<Plan[]>([]);
     const [diets, setDiets] = useState<Diet[]>([]);
     const [stats, setStats] = useState<GamificationStats | null>(null);
     const [workoutStats, setWorkoutStats] = useState<{ date: string, workouts: number }[]>([]);
-    interface BiometricLogResponse {
-        id: string; date: string; weight_kg: number; body_fat_pct?: number;
-    }
     const [biometrics, setBiometrics] = useState<BiometricLogResponse[]>([]);
     const [weight, setWeight] = useState('');
+    const [height, setHeight] = useState('');
     const [bodyFat, setBodyFat] = useState('');
+    const [muscleMass, setMuscleMass] = useState('');
     const [loggingBiometrics, setLoggingBiometrics] = useState(false);
     const [loading, setLoading] = useState(true);
 
@@ -594,7 +709,12 @@ function CustomerDashboard({ userName }: { userName: string }) {
                 setDiets(dietsRes.data.data || []);
                 setStats(statsRes.data.data);
                 setWorkoutStats(workoutStatsRes.data.data || []);
-                setBiometrics(bioRes.data.data || []);
+                const bioData = bioRes.data.data || [];
+                setBiometrics(bioData);
+                if (bioData.length > 0) {
+                    const latest = bioData[bioData.length - 1];
+                    setHeight(latest.height_cm?.toString() ?? '');
+                }
             } catch (err) { console.error(err); }
             finally { setLoading(false); }
         };
@@ -607,12 +727,20 @@ function CustomerDashboard({ userName }: { userName: string }) {
         try {
             await api.post('/fitness/biometrics', {
                 weight_kg: weight ? parseFloat(weight) : null,
-                body_fat_pct: bodyFat ? parseFloat(bodyFat) : null
+                height_cm: height ? parseFloat(height) : null,
+                body_fat_pct: bodyFat ? parseFloat(bodyFat) : null,
+                muscle_mass_kg: muscleMass ? parseFloat(muscleMass) : null,
             });
             const res = await api.get('/fitness/biometrics');
-            setBiometrics(res.data.data || []);
+            const bioData = res.data.data || [];
+            setBiometrics(bioData);
+            if (bioData.length > 0) {
+                const latest = bioData[bioData.length - 1];
+                setHeight(latest.height_cm?.toString() ?? '');
+            }
             setWeight('');
             setBodyFat('');
+            setMuscleMass('');
         } catch (err) {
             console.error('Failed to log biometrics', err);
             showToast('Failed to log biometrics.', 'error');
@@ -630,6 +758,8 @@ function CustomerDashboard({ userName }: { userName: string }) {
     const weeklyProgress = stats?.weekly_progress?.current || 0;
     const weeklyGoal = stats?.weekly_progress?.goal || 3;
     const progressPercent = Math.min(100, (weeklyProgress / weeklyGoal) * 100);
+    const latestBio = biometrics.length > 0 ? biometrics[biometrics.length - 1] : null;
+    const age = calculateAge(dateOfBirth);
 
     return (
         <div className="space-y-8">
@@ -767,8 +897,18 @@ function CustomerDashboard({ userName }: { userName: string }) {
                 </div>
 
                 <div className="space-y-6">
+                    <div className="grid grid-cols-2 gap-3">
+                        <div className="kpi-card p-4">
+                            <p className="text-[10px] uppercase font-bold text-muted-foreground">Age</p>
+                            <p className="text-xl font-bold text-foreground mt-1">{age !== null ? age : 'N/A'}</p>
+                        </div>
+                        <div className="kpi-card p-4">
+                            <p className="text-[10px] uppercase font-bold text-muted-foreground">Height</p>
+                            <p className="text-xl font-bold text-foreground mt-1">{latestBio?.height_cm ? `${latestBio.height_cm} cm` : 'N/A'}</p>
+                        </div>
+                    </div>
                     <div className="kpi-card p-6">
-                        <h3 className="text-sm font-bold text-muted-foreground mb-4 uppercase tracking-wider font-mono">Weight Tracking</h3>
+                        <h3 className="text-sm font-bold text-muted-foreground mb-4 uppercase tracking-wider font-mono">Body Progress Tracking</h3>
                         <div className="h-40">
                             {biometrics.length > 0 ? (
                                 <ResponsiveContainer width="100%" height="100%" minHeight={1} minWidth={1}>
@@ -778,6 +918,8 @@ function CustomerDashboard({ userName }: { userName: string }) {
                                         <YAxis tick={{ fontSize: 11, fill: 'var(--muted-foreground)', fontFamily: 'var(--font-mono)' }} axisLine={false} tickLine={false} />
                                         <Tooltip contentStyle={{ background: 'var(--card)', border: '1px solid var(--border)', borderRadius: '0px', fontSize: '0.8rem', color: 'var(--foreground)' }} labelFormatter={(label) => new Date(label as string).toLocaleDateString()} />
                                         <Line type="monotone" dataKey="weight_kg" stroke="var(--primary)" strokeWidth={2} name="Weight (kg)" dot={{ r: 3, fill: 'var(--primary)' }} />
+                                        <Line type="monotone" dataKey="body_fat_pct" stroke="#f97316" strokeWidth={2} name="Body Fat (%)" dot={{ r: 3, fill: '#f97316' }} />
+                                        <Line type="monotone" dataKey="muscle_mass_kg" stroke="#22c55e" strokeWidth={2} name="Muscle Mass (kg)" dot={{ r: 3, fill: '#22c55e' }} />
                                     </LineChart>
                                 </ResponsiveContainer>
                             ) : (
@@ -791,7 +933,11 @@ function CustomerDashboard({ userName }: { userName: string }) {
 
                     <div className="kpi-card p-4">
                         <h3 className="text-sm font-bold text-muted-foreground mb-3 uppercase tracking-wider font-mono">Log New Entry</h3>
-                        <form onSubmit={handleLogBiometrics} className="flex gap-2 items-end">
+                        <form onSubmit={handleLogBiometrics} className="grid grid-cols-1 md:grid-cols-4 gap-2 items-end">
+                            <div className="flex-1">
+                                <label className="block text-[10px] uppercase font-bold text-muted-foreground mb-1">Height (cm)</label>
+                                <input type="number" step="0.1" className="input-dark py-1.5 text-sm" value={height} onChange={e => setHeight(e.target.value)} placeholder="e.g. 175" />
+                            </div>
                             <div className="flex-1">
                                 <label className="block text-[10px] uppercase font-bold text-muted-foreground mb-1">Weight (kg)</label>
                                 <input type="number" step="0.1" className="input-dark py-1.5 text-sm" value={weight} onChange={e => setWeight(e.target.value)} placeholder="e.g. 75" />
@@ -800,7 +946,11 @@ function CustomerDashboard({ userName }: { userName: string }) {
                                 <label className="block text-[10px] uppercase font-bold text-muted-foreground mb-1">Body Fat (%)</label>
                                 <input type="number" step="0.1" className="input-dark py-1.5 text-sm" value={bodyFat} onChange={e => setBodyFat(e.target.value)} placeholder="e.g. 15" />
                             </div>
-                            <button type="submit" disabled={loggingBiometrics || (!weight && !bodyFat)} className="btn-primary py-1.5 px-4 text-sm whitespace-nowrap">
+                            <div className="flex-1">
+                                <label className="block text-[10px] uppercase font-bold text-muted-foreground mb-1">Muscle (kg)</label>
+                                <input type="number" step="0.1" className="input-dark py-1.5 text-sm" value={muscleMass} onChange={e => setMuscleMass(e.target.value)} placeholder="e.g. 32" />
+                            </div>
+                            <button type="submit" disabled={loggingBiometrics || (!height && !weight && !bodyFat && !muscleMass)} className="btn-primary py-1.5 px-4 text-sm whitespace-nowrap md:col-span-4">
                                 {loggingBiometrics ? 'Saving...' : 'Log'}
                             </button>
                         </form>
@@ -934,6 +1084,6 @@ export default function DashboardPage() {
             return <CoachDashboard userName={user.full_name} />;
         case 'CUSTOMER':
         default:
-            return <CustomerDashboard userName={user.full_name} />;
+            return <CustomerDashboard userName={user.full_name} dateOfBirth={user.date_of_birth} />;
     }
 }

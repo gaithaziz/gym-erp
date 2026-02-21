@@ -1,8 +1,9 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { api } from '@/lib/api';
-import { Plus, Utensils } from 'lucide-react';
+import { Plus, Utensils, Trash2 } from 'lucide-react';
+import { useFeedback } from '@/components/FeedbackProvider';
 
 interface DietPlan {
     id: string;
@@ -13,7 +14,13 @@ interface DietPlan {
     member_id: string | null;
 }
 
+const getErrorMessage = (error: unknown, fallback: string) => {
+    const detail = (error as { response?: { data?: { detail?: string } } })?.response?.data?.detail;
+    return typeof detail === 'string' && detail.trim() ? detail : fallback;
+};
+
 export default function DietPlansPage() {
+    const { showToast, confirm: confirmAction } = useFeedback();
     const [plans, setPlans] = useState<DietPlan[]>([]);
     const [loading, setLoading] = useState(true);
     const [showModal, setShowModal] = useState(false);
@@ -21,15 +28,21 @@ export default function DietPlansPage() {
     const [planDesc, setPlanDesc] = useState('');
     const [planContent, setPlanContent] = useState('');
 
-    const fetchData = async () => {
+    const fetchData = useCallback(async () => {
         try {
             const res = await api.get('/fitness/diets');
             setPlans(res.data.data);
-        } catch { } // unused err
+        } catch {
+            showToast('Failed to load diet plans.', 'error');
+        }
         setLoading(false);
-    };
+    }, [showToast]);
 
-    useEffect(() => { setTimeout(() => fetchData(), 0); }, []);
+    useEffect(() => {
+        setTimeout(() => fetchData(), 0);
+        const intervalId = window.setInterval(() => { fetchData(); }, 15000);
+        return () => window.clearInterval(intervalId);
+    }, [fetchData]);
 
     const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
@@ -42,7 +55,27 @@ export default function DietPlansPage() {
             setShowModal(false);
             setPlanName(''); setPlanDesc(''); setPlanContent('');
             fetchData();
-        } catch { } // unused err
+            showToast('Diet plan created.', 'success');
+        } catch {
+            showToast('Failed to create diet plan.', 'error');
+        }
+    };
+
+    const handleDelete = async (dietId: string) => {
+        const confirmed = await confirmAction({
+            title: 'Delete Diet Plan',
+            description: 'Are you sure you want to delete this diet plan?',
+            confirmText: 'Delete',
+            destructive: true,
+        });
+        if (!confirmed) return;
+        try {
+            await api.delete(`/fitness/diets/${dietId}`);
+            showToast('Diet plan deleted.', 'success');
+            fetchData();
+        } catch (error) {
+            showToast(getErrorMessage(error, 'Failed to delete diet plan.'), 'error');
+        }
     };
 
     if (loading) return (
@@ -66,10 +99,17 @@ export default function DietPlansPage() {
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
                 {plans.map(plan => (
                     <div key={plan.id} className="kpi-card group">
-                        <div className="flex justify-between items-start mb-4">
+                        <div className="flex justify-between items-start mb-4 gap-2">
                             <div className="h-11 w-11 rounded-sm bg-green-500/10 flex items-center justify-center border border-green-500/20">
                                 <Utensils size={20} className="text-green-500" />
                             </div>
+                            <button
+                                onClick={() => handleDelete(plan.id)}
+                                className="btn-ghost !px-2 !py-1 h-auto text-xs text-destructive hover:text-destructive/80"
+                                title="Delete Diet Plan"
+                            >
+                                <Trash2 size={14} />
+                            </button>
                         </div>
                         <h3 className="font-bold text-lg text-foreground mb-1 group-hover:text-primary transition-colors">{plan.name}</h3>
                         <p className="text-muted-foreground text-sm mb-4 line-clamp-2">{plan.description}</p>
