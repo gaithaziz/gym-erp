@@ -50,6 +50,23 @@ interface BiometricLog {
     muscle_mass_kg?: number;
 }
 
+interface WorkoutSessionEntry {
+    id: string;
+    exercise_name?: string | null;
+    sets_completed: number;
+    reps_completed: number;
+    weight_kg?: number | null;
+}
+
+interface WorkoutSession {
+    id: string;
+    plan_id: string;
+    performed_at: string;
+    duration_minutes?: number | null;
+    notes?: string | null;
+    entries: WorkoutSessionEntry[];
+}
+
 const FIXED_SUBSCRIPTION_PLANS = [
     { value: 'Monthly', label: 'Monthly (30d)', days: 30 },
     { value: 'Quarterly', label: 'Quarterly (90d)', days: 90 },
@@ -93,6 +110,7 @@ export default function MembersPage() {
     const [isViewOpen, setIsViewOpen] = useState(false);
     const [viewMember, setViewMember] = useState<Member | null>(null);
     const [viewBiometrics, setViewBiometrics] = useState<BiometricLog[]>([]);
+    const [viewSessions, setViewSessions] = useState<WorkoutSession[]>([]);
     // Assign Plan Modal
     const [isAssignPlanOpen, setIsAssignPlanOpen] = useState(false);
     const [assignMember, setAssignMember] = useState<Member | null>(null);
@@ -101,9 +119,18 @@ export default function MembersPage() {
 
     const openView = (member: Member) => {
         setViewMember(member);
-        api.get(`/fitness/biometrics/member/${member.id}`)
-            .then(res => setViewBiometrics(res.data?.data ?? []))
-            .catch(() => setViewBiometrics([]));
+        Promise.all([
+            api.get(`/fitness/biometrics/member/${member.id}`).catch(() => ({ data: { data: [] } })),
+            api.get(`/fitness/session-logs/member/${member.id}`).catch(() => ({ data: { data: [] } })),
+        ])
+            .then(([bioRes, sessionsRes]) => {
+                setViewBiometrics(bioRes.data?.data ?? []);
+                setViewSessions(sessionsRes.data?.data ?? []);
+            })
+            .catch(() => {
+                setViewBiometrics([]);
+                setViewSessions([]);
+            });
         setIsViewOpen(true);
     };
 
@@ -857,6 +884,46 @@ export default function MembersPage() {
                                         </ResponsiveContainer>
                                     ) : (
                                         <div className="h-full flex items-center justify-center text-xs text-muted-foreground">No biometric progress data logged yet.</div>
+                                    )}
+                                </div>
+                            </div>
+                            <div className="col-span-2">
+                                <p className="text-xs text-muted-foreground uppercase tracking-wider mb-2 font-semibold">Workout Session Logs</p>
+                                <div className="border border-border bg-muted/10 rounded-sm p-3 space-y-3 max-h-72 overflow-y-auto">
+                                    {viewSessions.length > 0 ? (
+                                        viewSessions.slice(0, 10).map((session) => {
+                                            const sessionVolume = (session.entries || []).reduce((sum, entry) => {
+                                                const weight = entry.weight_kg || 0;
+                                                return sum + (entry.sets_completed * entry.reps_completed * weight);
+                                            }, 0);
+                                            return (
+                                                <div key={session.id} className="rounded-sm border border-border bg-card/60 p-3">
+                                                    <div className="flex items-center justify-between gap-2 mb-2">
+                                                        <p className="text-sm font-semibold text-foreground">
+                                                            {new Date(session.performed_at).toLocaleDateString()}
+                                                        </p>
+                                                        <p className="text-[11px] text-muted-foreground font-mono">
+                                                            {session.entries.length} exercises • {Math.round(sessionVolume)} kg vol
+                                                        </p>
+                                                    </div>
+                                                    <div className="space-y-1">
+                                                        {session.entries.slice(0, 3).map((entry) => (
+                                                            <div key={entry.id} className="flex justify-between text-xs">
+                                                                <span className="text-muted-foreground">{entry.exercise_name || 'Exercise'}</span>
+                                                                <span className="text-muted-foreground font-mono">{entry.sets_completed}x{entry.reps_completed} @ {entry.weight_kg ?? 0}kg</span>
+                                                            </div>
+                                                        ))}
+                                                        {session.entries.length > 3 && (
+                                                            <p className="text-[10px] text-primary font-mono">+{session.entries.length - 3} more exercises</p>
+                                                        )}
+                                                    </div>
+                                                </div>
+                                            );
+                                        })
+                                    ) : (
+                                        <div className="h-24 flex items-center justify-center text-xs text-muted-foreground">
+                                            No workout session logs yet.
+                                        </div>
                                     )}
                                 </div>
                             </div>

@@ -5,6 +5,7 @@ import { api } from '@/lib/api';
 import { Plus, Dumbbell, Trash2, ChevronDown, ChevronUp, UserPlus, Pencil, Save, X, Video } from 'lucide-react';
 import Modal from '@/components/Modal';
 import { useFeedback } from '@/components/FeedbackProvider';
+import MemberSearchSelect from '@/components/MemberSearchSelect';
 
 interface Member {
     id: string;
@@ -395,7 +396,16 @@ export default function WorkoutPlansPage() {
                         <div className="flex justify-between items-center mb-5"><h2 className="text-lg font-bold text-foreground">{editingPlan ? 'Edit Workout Plan' : 'Create New Workout Plan'}</h2><button onClick={() => setShowModal(false)}><X size={20} className="text-muted-foreground" /></button></div>
                         <form onSubmit={handleSubmit} className="space-y-5">
                             <div className="grid grid-cols-1 md:grid-cols-2 gap-4"><input type="text" required className="input-dark" value={planName} onChange={e => setPlanName(e.target.value)} placeholder="Plan Name" /><input type="text" className="input-dark" value={planDesc} onChange={e => setPlanDesc(e.target.value)} placeholder="Description" /></div>
-                            {!editingPlan && members.length > 0 && <select className="input-dark" value={assignedMemberId} onChange={e => setAssignedMemberId(e.target.value)}><option value="">Unassigned (template)</option>{members.map(m => <option key={m.id} value={m.id}>{m.full_name} - {m.email}</option>)}</select>}
+                            {!editingPlan && members.length > 0 && (
+                                <MemberSearchSelect
+                                    members={members}
+                                    value={assignedMemberId}
+                                    onChange={setAssignedMemberId}
+                                    allowClear={true}
+                                    clearLabel="Unassigned (template)"
+                                    placeholder="Search member by name or email..."
+                                />
+                            )}
                             <div className="p-4 rounded-sm border border-border bg-muted/20 space-y-3"><div className="flex gap-2"><input type="text" className="input-dark" value={sectionNameInput} onChange={e => setSectionNameInput(e.target.value)} placeholder="Section name" /><button type="button" className="btn-primary" onClick={addSection}><Plus size={16} /> Add Section</button></div><div className="flex flex-wrap gap-2">{sections.map(section => <div key={section.id} className={`flex items-center gap-2 px-3 py-1.5 border rounded-sm ${activeSectionId === section.id ? 'border-primary text-primary bg-primary/10' : 'border-border text-muted-foreground'}`}><button type="button" onClick={() => setActiveSectionId(section.id)}>{section.name}</button><button type="button" onClick={() => removeSection(section.id)} className="text-destructive"><Trash2 size={12} /></button></div>)}</div></div>
                             <div className="p-4 rounded-sm border border-border bg-muted/20 space-y-3"><div className="grid grid-cols-1 md:grid-cols-4 gap-3"><input type="text" className="input-dark md:col-span-2" value={currentExerciseName} onChange={e => setCurrentExerciseName(e.target.value)} placeholder="Exercise name" /><input type="number" className="input-dark text-center" value={currentSets} min={1} onChange={e => setCurrentSets(parseInt(e.target.value) || 1)} /><input type="number" className="input-dark text-center" value={currentReps} min={1} onChange={e => setCurrentReps(parseInt(e.target.value) || 1)} /></div><div className="grid grid-cols-1 md:grid-cols-3 gap-3"><select className="input-dark" value={currentVideoType} onChange={e => setCurrentVideoType(e.target.value as VideoType)}><option value="">No Video</option><option value="EMBED">Embed URL</option><option value="UPLOAD">Upload Video</option></select>{currentVideoType === 'EMBED' && <input type="url" className="input-dark md:col-span-2" value={currentVideoUrl} onChange={e => setCurrentVideoUrl(e.target.value)} placeholder="https://youtube.com/..." />}{currentVideoType === 'UPLOAD' && <input type="file" accept="video/*" className="input-dark md:col-span-2" onChange={e => setCurrentVideoFile(e.target.files?.[0] || null)} />}</div><button type="button" onClick={addExerciseToSection} className="btn-primary"><Plus size={16} /> Add Exercise</button></div>
                             <div className="space-y-3">{sections.map(section => <div key={section.id} className="border border-border rounded-sm p-3"><p className="text-sm font-semibold text-primary mb-2">{section.name}</p>{section.exercises.length === 0 && <p className="text-xs text-muted-foreground">No exercises in this section yet.</p>}{section.exercises.map((ex, idx) => <div key={idx} className="flex justify-between items-center border border-border p-3 rounded-sm text-sm bg-muted/10 mb-2"><div><p className="font-medium text-foreground">{getExerciseDisplayName(ex)}</p><p className="text-xs text-muted-foreground">{ex.sets} x {ex.reps}</p></div><div className="flex items-center gap-2">{resolveVideoUrl(ex) && <button type="button" onClick={() => window.open(resolveVideoUrl(ex) as string, '_blank')} className="btn-ghost !px-2 !py-1 h-auto text-xs"><Video size={12} /> Video</button>}<button type="button" onClick={() => removeExerciseFromSection(section.id, idx)} className="text-muted-foreground hover:text-destructive"><Trash2 size={16} /></button></div></div>)}</div>)}</div>
@@ -406,7 +416,18 @@ export default function WorkoutPlansPage() {
             )}
 
             <Modal isOpen={assignModalOpen} onClose={() => setAssignModalOpen(false)} title={`Assign: ${assigningPlan?.name}`}>
-                <form onSubmit={handleAssignSubmit} className="space-y-4"><p className="text-sm text-muted-foreground">Select a member to assign this workout plan to. A copy of the plan will be created for them.</p><select required className="input-dark w-full" value={assignMemberId} onChange={e => setAssignMemberId(e.target.value)}><option value="">Select Member...</option>{members.map(m => <option key={m.id} value={m.id}>{m.full_name}</option>)}</select><div className="flex justify-end gap-3 pt-4 border-t border-border"><button type="button" onClick={() => setAssignModalOpen(false)} className="btn-ghost">Cancel</button><button type="submit" className="btn-primary"><UserPlus size={16} /> Assign Plan</button></div></form>
+                <form onSubmit={handleAssignSubmit} className="space-y-4">
+                    <p className="text-sm text-muted-foreground">Select a member to assign this workout plan to. A copy of the plan will be created for them.</p>
+                    <MemberSearchSelect
+                        members={members}
+                        value={assignMemberId}
+                        onChange={setAssignMemberId}
+                        required={true}
+                        allowClear={false}
+                        placeholder="Search member..."
+                    />
+                    <div className="flex justify-end gap-3 pt-4 border-t border-border"><button type="button" onClick={() => setAssignModalOpen(false)} className="btn-ghost">Cancel</button><button type="submit" className="btn-primary"><UserPlus size={16} /> Assign Plan</button></div>
+                </form>
             </Modal>
         </div>
     );

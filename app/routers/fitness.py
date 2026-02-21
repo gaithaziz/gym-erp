@@ -1,6 +1,6 @@
 import os
 from typing import Annotated, List, Literal
-from datetime import datetime
+from datetime import datetime, timedelta
 import uuid
 
 from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile
@@ -15,7 +15,7 @@ from app.database import get_db
 from app.models.enums import Role
 from app.models.fitness import BiometricLog, DietPlan, Exercise, WorkoutExercise, WorkoutPlan
 from app.models.user import User
-from app.models.workout_log import WorkoutLog
+from app.models.workout_log import WorkoutLog, WorkoutSession, WorkoutSessionEntry
 
 router = APIRouter()
 
@@ -338,8 +338,11 @@ async def delete_workout_plan(
     plan = await _get_workout_plan_or_404(db, plan_id)
     _ensure_plan_owned_by_requester_or_admin(plan, current_user, action="delete")
 
-    # Remove dependent workout logs first to avoid FK violations.
+    # Remove dependent workout logs and session logs first to avoid FK violations.
     await db.execute(delete(WorkoutLog).where(WorkoutLog.plan_id == plan_id))
+    session_ids_subquery = select(WorkoutSession.id).where(WorkoutSession.plan_id == plan_id)
+    await db.execute(delete(WorkoutSessionEntry).where(WorkoutSessionEntry.session_id.in_(session_ids_subquery)))
+    await db.execute(delete(WorkoutSession).where(WorkoutSession.plan_id == plan_id))
     await db.delete(plan)
     await db.commit()
     return StandardResponse(message="Plan deleted")
@@ -536,6 +539,71 @@ class WorkoutLogResponse(BaseModel):
         from_attributes = True
 
 
+class WorkoutSessionEntryCreate(BaseModel):
+    exercise_id: uuid.UUID | None = None
+    exercise_name: str | None = None
+    target_sets: int | None = Field(None, ge=0)
+    target_reps: int | None = Field(None, ge=0)
+    sets_completed: int = Field(0, ge=0)
+    reps_completed: int = Field(0, ge=0)
+    weight_kg: float | None = Field(None, ge=0)
+    notes: str | None = None
+    order: int = 0
+
+    @field_validator("exercise_name")
+    @classmethod
+    def normalize_entry_name(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        normalized = value.strip()
+        return normalized or None
+
+    def model_post_init(self, __context) -> None:  # type: ignore[override]
+        if not self.exercise_id and not self.exercise_name:
+            raise ValueError("Each session entry requires exercise_id or exercise_name")
+
+
+class WorkoutSessionCreate(BaseModel):
+    plan_id: uuid.UUID
+    performed_at: datetime | None = None
+    duration_minutes: int | None = Field(None, ge=1)
+    notes: str | None = None
+    entries: List[WorkoutSessionEntryCreate] = Field(default_factory=list)
+
+    def model_post_init(self, __context) -> None:  # type: ignore[override]
+        if len(self.entries) == 0:
+            raise ValueError("At least one session entry is required")
+
+
+class WorkoutSessionEntryResponse(BaseModel):
+    id: uuid.UUID
+    exercise_id: uuid.UUID | None
+    exercise_name: str | None
+    target_sets: int | None
+    target_reps: int | None
+    sets_completed: int
+    reps_completed: int
+    weight_kg: float | None
+    notes: str | None
+    order: int
+
+    class Config:
+        from_attributes = True
+
+
+class WorkoutSessionResponse(BaseModel):
+    id: uuid.UUID
+    member_id: uuid.UUID
+    plan_id: uuid.UUID
+    performed_at: datetime
+    duration_minutes: int | None
+    notes: str | None
+    entries: List[WorkoutSessionEntryResponse] = Field(default_factory=list)
+
+    class Config:
+        from_attributes = True
+
+
 @router.post("/log", response_model=StandardResponse)
 async def log_workout(
     data: WorkoutLogCreate,
@@ -583,26 +651,123 @@ async def get_workout_logs(
     logs = result.scalars().all()
     return StandardResponse(data=[WorkoutLogResponse.model_validate(log) for log in logs])
 
+
+@router.post("/session-logs", response_model=StandardResponse)
+async def create_workout_session_log(
+    data: WorkoutSessionCreate,
+    current_user: Annotated[User, Depends(dependencies.RoleChecker([Role.ADMIN, Role.CUSTOMER]))],
+    db: Annotated[AsyncSession, Depends(get_db)],
+):
+    """Customer logs per-exercise workout session details."""
+    plan = await _get_workout_plan_or_404(db, data.plan_id, with_exercises=True)
+
+    if current_user.role == Role.CUSTOMER and plan.member_id != current_user.id:
+        raise HTTPException(status_code=403, detail="You can only log sessions for plans assigned to your account")
+
+    exercise_name_by_id = {
+        exercise.exercise_id: (exercise.exercise_name or (exercise.exercise.name if exercise.exercise else None))
+        for exercise in plan.exercises
+        if exercise.exercise_id
+    }
+
+    session = WorkoutSession(
+        member_id=current_user.id,
+        plan_id=plan.id,
+        performed_at=data.performed_at or datetime.utcnow(),
+        duration_minutes=data.duration_minutes,
+        notes=data.notes,
+    )
+    db.add(session)
+    await db.flush()
+
+    for idx, entry in enumerate(data.entries):
+        resolved_name = entry.exercise_name
+        if not resolved_name and entry.exercise_id:
+            resolved_name = exercise_name_by_id.get(entry.exercise_id)
+        db.add(
+            WorkoutSessionEntry(
+                session_id=session.id,
+                exercise_id=entry.exercise_id,
+                exercise_name=resolved_name,
+                target_sets=entry.target_sets,
+                target_reps=entry.target_reps,
+                sets_completed=entry.sets_completed,
+                reps_completed=entry.reps_completed,
+                weight_kg=entry.weight_kg,
+                notes=entry.notes,
+                order=entry.order if entry.order else idx,
+            )
+        )
+
+    await db.commit()
+    return StandardResponse(message="Workout session logged", data={"id": str(session.id)})
+
+
+@router.get("/session-logs/me", response_model=StandardResponse[List[WorkoutSessionResponse]])
+async def get_my_workout_session_logs(
+    current_user: Annotated[User, Depends(dependencies.get_current_active_user)],
+    db: Annotated[AsyncSession, Depends(get_db)],
+    plan_id: uuid.UUID | None = Query(None),
+    limit: int = Query(100, ge=1, le=500),
+    offset: int = Query(0, ge=0),
+    from_date: datetime | None = Query(None),
+    to_date: datetime | None = Query(None),
+):
+    """Get current user's per-session workout logs."""
+    stmt = (
+        select(WorkoutSession)
+        .where(WorkoutSession.member_id == current_user.id)
+        .options(selectinload(WorkoutSession.entries))
+    )
+    if plan_id:
+        stmt = stmt.where(WorkoutSession.plan_id == plan_id)
+    stmt = _apply_date_filters(stmt, WorkoutSession.performed_at, from_date, to_date)
+    stmt = stmt.order_by(WorkoutSession.performed_at.desc()).offset(offset).limit(limit)
+    result = await db.execute(stmt)
+    sessions = result.scalars().all()
+    return StandardResponse(data=[WorkoutSessionResponse.model_validate(session) for session in sessions])
+
+
+@router.get("/session-logs/member/{member_id}", response_model=StandardResponse[List[WorkoutSessionResponse]])
+async def get_member_workout_session_logs(
+    member_id: uuid.UUID,
+    current_user: Annotated[User, Depends(dependencies.RoleChecker([Role.ADMIN, Role.COACH]))],
+    db: Annotated[AsyncSession, Depends(get_db)],
+    plan_id: uuid.UUID | None = Query(None),
+    limit: int = Query(100, ge=1, le=500),
+    offset: int = Query(0, ge=0),
+    from_date: datetime | None = Query(None),
+    to_date: datetime | None = Query(None),
+):
+    """Coach/Admin views member per-session workout logs."""
+    stmt = (
+        select(WorkoutSession)
+        .join(WorkoutPlan, WorkoutSession.plan_id == WorkoutPlan.id)
+        .where(WorkoutSession.member_id == member_id)
+        .options(selectinload(WorkoutSession.entries))
+    )
+    if current_user.role == Role.COACH:
+        stmt = stmt.where(WorkoutPlan.creator_id == current_user.id)
+    if plan_id:
+        stmt = stmt.where(WorkoutSession.plan_id == plan_id)
+    stmt = _apply_date_filters(stmt, WorkoutSession.performed_at, from_date, to_date)
+    stmt = stmt.order_by(WorkoutSession.performed_at.desc()).offset(offset).limit(limit)
+    result = await db.execute(stmt)
+    sessions = result.scalars().all()
+    return StandardResponse(data=[WorkoutSessionResponse.model_validate(session) for session in sessions])
+
 @router.get("/stats", response_model=StandardResponse)
 async def get_workout_stats(
     current_user: Annotated[User, Depends(dependencies.get_current_active_user)],
     db: Annotated[AsyncSession, Depends(get_db)]
 ):
     """Get aggregated workout stats for the current user (e.g., workouts per day over last 30 days)."""
-    from datetime import timedelta
-    
     thirty_days_ago = datetime.now() - timedelta(days=30)
-    
-    # We want to group by date (ignoring time) and count completed workouts
-    # Use func.date for SQLite/Postgres compatibility, but here we just cast or extract
-    # For a general approach, it's easiest to process in memory if the dataset is small,
-    # or use database specific date truncation. AsyncPG handles func.date().
-    
+
     stmt = (
-        select(func.date(WorkoutLog.date).label('day'), func.count(WorkoutLog.id).label('count'))
-        .where(WorkoutLog.member_id == current_user.id)
-        .where(WorkoutLog.completed.is_(True))
-        .where(WorkoutLog.date >= thirty_days_ago)
+        select(func.date(WorkoutSession.performed_at).label('day'), func.count(WorkoutSession.id).label('count'))
+        .where(WorkoutSession.member_id == current_user.id)
+        .where(WorkoutSession.performed_at >= thirty_days_ago)
         .group_by('day')
         .order_by('day')
     )
