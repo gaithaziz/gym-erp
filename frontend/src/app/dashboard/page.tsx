@@ -2,14 +2,15 @@
 
 import { useAuth } from '@/context/AuthContext';
 import { api } from '@/lib/api';
-import { useEffect, useState, useCallback } from 'react';
+import { useEffect, useState, useCallback, useMemo } from 'react';
 import { Users, DollarSign, Clock, TrendingUp, QrCode, Dumbbell, Utensils, ChevronRight, MessageSquare, UserCheck, ClipboardList, Trophy, Activity } from 'lucide-react';
 import {
-    BarChart, Bar, LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend
+    BarChart, Bar, Cell, LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer
 } from 'recharts';
 import Link from 'next/link';
 import { DateRangePicker } from '@/components/DateRangePicker';
 import { DashboardGrid } from '@/components/DashboardGrid';
+import { useFeedback } from '@/components/FeedbackProvider';
 import { DateRange } from 'react-day-picker';
 import { subDays } from 'date-fns';
 import { Move } from 'lucide-react';
@@ -70,16 +71,36 @@ interface RevenueData {
     expenses: number;
 }
 
+interface RevenueChartPoint extends RevenueData {
+    label: string;
+}
+
 function AdminDashboard({ userName }: { userName: string }) {
     const [stats, setStats] = useState<DashboardStats | null>(null);
     const [attendanceData, setAttendanceData] = useState<AttendanceData[]>([]);
     const [revenueData, setRevenueData] = useState<RevenueData[]>([]);
+    const [revenueViewMode, setRevenueViewMode] = useState<'daily' | 'weekly'>('daily');
+    const [hoveredRevenueIndex, setHoveredRevenueIndex] = useState<number | null>(null);
+    const revenueBarColor = '#22c55e';
+    const expensesBarColor = '#ef4444';
     const [recentActivity, setRecentActivity] = useState<ActivityItem[]>([]);
     const [lowStockItems, setLowStockItems] = useState<LowStockItem[]>([]);
     const [dateRange, setDateRange] = useState<DateRange | undefined>({
         from: subDays(new Date(), 30),
         to: new Date(),
     });
+
+    const selectedDays = useMemo(() => {
+        if (!dateRange?.from || !dateRange?.to) return 30;
+
+        const start = new Date(dateRange.from);
+        const end = new Date(dateRange.to);
+        start.setHours(0, 0, 0, 0);
+        end.setHours(0, 0, 0, 0);
+
+        const diff = Math.round((end.getTime() - start.getTime()) / 86400000) + 1;
+        return Math.min(365, Math.max(1, diff));
+    }, [dateRange]);
 
     const fetchData = useCallback(() => {
         const from = dateRange?.from ? dateRange.from.toISOString().split('T')[0] : '';
@@ -92,13 +113,11 @@ function AdminDashboard({ userName }: { userName: string }) {
             .then(res => setStats(res.data.data))
             .catch(err => console.error("Failed to fetch dashboard stats", err));
 
-        api.get('/analytics/attendance?days=7') // Keeping this fixed for now as it's hourly
+        api.get(`/analytics/attendance?days=${selectedDays}`)
             .then(res => setAttendanceData(res.data.data || []))
             .catch(() => { });
 
-        // Use date range for revenue chart query if applicable on backend
-        // For now requesting 30 days as default or based on selection logic if implemented
-        api.get('/analytics/revenue-chart?days=30')
+        api.get(`/analytics/revenue-chart?days=${selectedDays}`)
             .then(res => setRevenueData(res.data.data || []))
             .catch(() => { });
 
@@ -109,12 +128,11 @@ function AdminDashboard({ userName }: { userName: string }) {
         api.get('/inventory/products/low-stock')
             .then(res => setLowStockItems(res.data.data || []))
             .catch(() => setLowStockItems([]));
-    }, [dateRange]);
+    }, [dateRange, selectedDays]);
 
     useEffect(() => {
         fetchData();
-        // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [dateRange]);
+    }, [fetchData]);
 
     const formatTime = (iso: string) => {
         if (!iso) return '';
@@ -130,6 +148,47 @@ function AdminDashboard({ userName }: { userName: string }) {
             return d.toLocaleDateString();
         } catch { return ''; }
     };
+
+    const revenueChartData = useMemo<RevenueChartPoint[]>(() => {
+        if (revenueViewMode === 'daily') {
+            return revenueData.map((point) => {
+                const date = new Date(point.date);
+                const label = Number.isNaN(date.getTime())
+                    ? point.date
+                    : date.toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
+                return { ...point, label };
+            });
+        }
+
+        const weeklyBuckets = new Map<string, RevenueChartPoint>();
+
+        revenueData.forEach((point) => {
+            const date = new Date(point.date);
+            if (Number.isNaN(date.getTime())) return;
+
+            const weekStart = new Date(date);
+            const dayOfWeek = (weekStart.getDay() + 6) % 7; // Monday-based
+            weekStart.setDate(weekStart.getDate() - dayOfWeek);
+            weekStart.setHours(0, 0, 0, 0);
+
+            const key = weekStart.toISOString().split('T')[0];
+            const existing = weeklyBuckets.get(key);
+            if (existing) {
+                existing.revenue += point.revenue;
+                existing.expenses += point.expenses;
+                return;
+            }
+
+            weeklyBuckets.set(key, {
+                date: key,
+                label: weekStart.toLocaleDateString(undefined, { month: 'short', day: 'numeric' }),
+                revenue: point.revenue,
+                expenses: point.expenses,
+            });
+        });
+
+        return Array.from(weeklyBuckets.values()).sort((a, b) => a.date.localeCompare(b.date));
+    }, [revenueData, revenueViewMode]);
 
     const kpiCards = [
         { title: 'Live Headcount', value: stats?.live_headcount ?? '--', subtitle: 'Currently in the gym', icon: Users, badge: 'badge-blue', live: true },
@@ -191,7 +250,7 @@ function AdminDashboard({ userName }: { userName: string }) {
                     <div className="absolute top-2 right-2 text-muted-foreground/30 cursor-move drag-handle opacity-0 group-hover:opacity-100 transition-opacity z-10">
                         <Move size={14} />
                     </div>
-                    <h3 className="text-sm font-bold text-muted-foreground mb-6 uppercase tracking-wider font-mono">Visits by Hour (Last 7 Days)</h3>
+                    <h3 className="text-sm font-bold text-muted-foreground mb-6 uppercase tracking-wider font-mono">Visits by Hour (Last {selectedDays} Days)</h3>
                     <div className="h-[calc(100%-2rem)]">
                         {attendanceData.length > 0 ? (
                             <ResponsiveContainer width="100%" height="100%" minHeight={1} minWidth={1}>
@@ -212,25 +271,88 @@ function AdminDashboard({ userName }: { userName: string }) {
                     </div>
                 </div>
 
-                <div key="chart-revenue" className="kpi-card p-6 h-full relative group">
+                <div key="chart-revenue" className="kpi-card p-6 h-full relative group flex flex-col">
                     <div className="absolute top-2 right-2 text-muted-foreground/30 cursor-move drag-handle opacity-0 group-hover:opacity-100 transition-opacity z-10">
                         <Move size={14} />
                     </div>
-                    <h3 className="text-sm font-bold text-muted-foreground mb-6 uppercase tracking-wider font-mono">Revenue vs. Expenses (30 Days)</h3>
-                    <div className="h-[calc(100%-2rem)]">
-                        {revenueData.length > 0 ? (
+                    <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
+                        <h3 className="text-sm font-bold text-muted-foreground uppercase tracking-wider font-mono">Revenue vs. Expenses (Last {selectedDays} Days)</h3>
+                        <div className="flex items-center gap-1 border border-border bg-muted/20 p-1">
+                            <button
+                                type="button"
+                                onClick={() => setRevenueViewMode('daily')}
+                                className={`px-2 py-1 text-[10px] font-mono uppercase transition-colors ${revenueViewMode === 'daily' ? 'bg-primary text-primary-foreground' : 'text-muted-foreground hover:text-foreground'}`}
+                            >
+                                Daily
+                            </button>
+                            <button
+                                type="button"
+                                onClick={() => setRevenueViewMode('weekly')}
+                                className={`px-2 py-1 text-[10px] font-mono uppercase transition-colors ${revenueViewMode === 'weekly' ? 'bg-primary text-primary-foreground' : 'text-muted-foreground hover:text-foreground'}`}
+                            >
+                                Weekly
+                            </button>
+                        </div>
+                    </div>
+                    <div className="mb-3 flex items-center gap-4 text-xs font-mono">
+                        <div className="flex items-center gap-1.5 text-muted-foreground">
+                            <span className="h-2.5 w-2.5 rounded-full" style={{ backgroundColor: revenueBarColor }} />
+                            Revenue
+                        </div>
+                        <div className="flex items-center gap-1.5 text-muted-foreground">
+                            <span className="h-2.5 w-2.5 rounded-full" style={{ backgroundColor: expensesBarColor }} />
+                            Expenses
+                        </div>
+                    </div>
+                    <div className="mt-1 min-h-0 flex-1">
+                        {revenueChartData.length > 0 ? (
                             <ResponsiveContainer width="100%" height="100%" minHeight={1} minWidth={1}>
-                                <LineChart data={revenueData}>
+                                <BarChart
+                                    data={revenueChartData}
+                                    barGap={1}
+                                    barCategoryGap="28%"
+                                    margin={{ top: 6, right: 14, left: 4, bottom: 8 }}
+                                    onMouseMove={(state) => {
+                                        const idx = state?.activeTooltipIndex;
+                                        setHoveredRevenueIndex(typeof idx === 'number' ? idx : null);
+                                    }}
+                                    onMouseLeave={() => setHoveredRevenueIndex(null)}
+                                >
                                     <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" vertical={false} />
-                                    <XAxis dataKey="date" tick={{ fontSize: 11, fill: 'var(--muted-foreground)', fontFamily: 'var(--font-mono)' }} axisLine={false} tickLine={false} />
+                                    <XAxis
+                                        dataKey="label"
+                                        interval="preserveStartEnd"
+                                        minTickGap={24}
+                                        padding={{ left: 14, right: 14 }}
+                                        tickMargin={8}
+                                        tick={{ fontSize: 11, fill: 'var(--muted-foreground)', fontFamily: 'var(--font-mono)' }}
+                                        axisLine={false}
+                                        tickLine={false}
+                                    />
                                     <YAxis tick={{ fontSize: 11, fill: 'var(--muted-foreground)', fontFamily: 'var(--font-mono)' }} axisLine={false} tickLine={false} />
                                     <Tooltip
+                                        formatter={(value, name) => [`${Number(value ?? 0).toFixed(2)} JOD`, String(name)]}
                                         contentStyle={{ background: 'var(--card)', border: '1px solid var(--border)', borderRadius: '0px', fontSize: '0.8rem', color: 'var(--foreground)' }}
                                     />
-                                    <Legend wrapperStyle={{ fontSize: '0.75rem', color: 'var(--muted-foreground)', fontFamily: 'var(--font-mono)' }} />
-                                    <Line type="step" dataKey="revenue" stroke="var(--primary)" strokeWidth={2} dot={false} activeDot={{ r: 4, fill: 'var(--primary)' }} />
-                                    <Line type="step" dataKey="expenses" stroke="var(--destructive)" strokeWidth={2} dot={false} activeDot={{ r: 4, fill: 'var(--destructive)' }} />
-                                </LineChart>
+                                    <Bar dataKey="revenue" name="Revenue" fill={revenueBarColor} maxBarSize={22} radius={[2, 2, 0, 0]}>
+                                        {revenueChartData.map((_, i) => (
+                                            <Cell
+                                                key={`rev-${i}`}
+                                                fill={revenueBarColor}
+                                                fillOpacity={hoveredRevenueIndex === null || hoveredRevenueIndex === i ? 1 : 0.35}
+                                            />
+                                        ))}
+                                    </Bar>
+                                    <Bar dataKey="expenses" name="Expenses" fill={expensesBarColor} maxBarSize={22} radius={[2, 2, 0, 0]}>
+                                        {revenueChartData.map((_, i) => (
+                                            <Cell
+                                                key={`exp-${i}`}
+                                                fill={expensesBarColor}
+                                                fillOpacity={hoveredRevenueIndex === null || hoveredRevenueIndex === i ? 1 : 0.35}
+                                            />
+                                        ))}
+                                    </Bar>
+                                </BarChart>
                             </ResponsiveContainer>
                         ) : (
                             <div className="flex items-center justify-center h-full text-muted-foreground text-sm font-mono">NO FINANCIAL DATA</div>
@@ -250,9 +372,9 @@ function AdminDashboard({ userName }: { userName: string }) {
                         {recentActivity.length > 0 ? (
                             recentActivity.map((item, i) => (
                                 <div key={i} className="flex items-center gap-4 p-4 hover:bg-muted/30 transition-colors">
-                                    <div className={`w-2 h-2 rounded-full flex-shrink-0 ${item.type === 'CHECK_IN' ? 'bg-emerald-500' :
-                                        item.type === 'SALE' ? 'bg-blue-500' :
-                                            item.type === 'ALERT' ? 'bg-amber-500' : 'bg-gray-500'
+                                    <div className={`w-2 h-2 rounded-full flex-shrink-0 ${item.type === 'access' ? 'bg-emerald-500' :
+                                        item.type === 'finance' ? 'bg-blue-500' :
+                                            item.type === 'attendance' ? 'bg-amber-500' : 'bg-gray-500'
                                         }`} />
                                     <div className="flex-1 min-w-0">
                                         <p className="text-sm font-medium text-foreground truncate">{item.text}</p>
@@ -444,6 +566,7 @@ interface GamificationStats {
 }
 
 function CustomerDashboard({ userName }: { userName: string }) {
+    const { showToast } = useFeedback();
     const [plans, setPlans] = useState<Plan[]>([]);
     const [diets, setDiets] = useState<Diet[]>([]);
     const [stats, setStats] = useState<GamificationStats | null>(null);
@@ -492,7 +615,7 @@ function CustomerDashboard({ userName }: { userName: string }) {
             setBodyFat('');
         } catch (err) {
             console.error('Failed to log biometrics', err);
-            alert('Failed to log biometrics.');
+            showToast('Failed to log biometrics.', 'error');
         } finally {
             setLoggingBiometrics(false);
         }
@@ -517,7 +640,7 @@ function CustomerDashboard({ userName }: { userName: string }) {
                 </div>
                 {stats?.streak && stats.streak.current_streak > 0 && (
                     <div className="flex items-center gap-2 px-3 py-1.5 bg-orange-500/10 border border-orange-500/20 rounded-full">
-                        <span className="text-orange-500">🔥</span>
+                        <span className="text-orange-500">Streak</span>
                         <span className="text-sm font-bold text-orange-500">{stats.streak.current_streak} Day Streak!</span>
                     </div>
                 )}
@@ -544,7 +667,7 @@ function CustomerDashboard({ userName }: { userName: string }) {
                                 />
                             </div>
                             <p className="text-[10px] text-muted-foreground mt-2">
-                                {progressPercent >= 100 ? "🎉 Goal reached! Amazing work!" : "Keep it up, you're doing great!"}
+                                {progressPercent >= 100 ? "Goal reached! Amazing work!" : "Keep it up, you're doing great!"}
                             </p>
                         </div>
                     </div>
@@ -584,7 +707,7 @@ function CustomerDashboard({ userName }: { userName: string }) {
                                 {stats.badges.slice(0, 3).map(badge => (
                                     <div key={badge.id} className="flex items-center gap-3">
                                         <div className="w-8 h-8 rounded-full bg-yellow-500/10 flex items-center justify-center text-lg">
-                                            🏆
+                                            Trophy
                                         </div>
                                         <div>
                                             <p className="text-sm font-medium text-foreground">{badge.badge_name}</p>
@@ -697,7 +820,7 @@ function CustomerDashboard({ userName }: { userName: string }) {
                         <QrCode size={20} className="text-foreground" />
                     </div>
                 </Link>
-                <Link href="/dashboard/member/profile" className="kpi-card group cursor-pointer hover:border-primary transition-colors">
+                <Link href="/dashboard/profile" className="kpi-card group cursor-pointer hover:border-primary transition-colors">
                     <div className="flex items-start justify-between">
                         <div>
                             <p className="text-lg font-bold text-foreground font-mono">My Profile</p>
@@ -743,7 +866,7 @@ function CustomerDashboard({ userName }: { userName: string }) {
                                         {plan.exercises.slice(0, 4).map((ex, i: number) => (
                                             <div key={i} className="flex justify-between text-xs py-0.5">
                                                 <span className="text-muted-foreground">{ex.exercise?.name || ex.name || `Exercise ${i + 1}`}</span>
-                                                <span className="text-muted-foreground font-mono">{ex.sets}×{ex.reps}</span>
+                                                <span className="text-muted-foreground font-mono">{ex.sets}x{ex.reps}</span>
                                             </div>
                                         ))}
                                         {plan.exercises.length > 4 && (

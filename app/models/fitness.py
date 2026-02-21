@@ -1,5 +1,5 @@
 import uuid
-from sqlalchemy import String, Integer, ForeignKey, Text, Float, DateTime
+from sqlalchemy import String, Integer, ForeignKey, Text, Float, DateTime, Boolean
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from datetime import datetime, timezone
 from app.database import Base
@@ -19,6 +19,7 @@ class WorkoutPlan(Base):
     id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
     name: Mapped[str] = mapped_column(String, nullable=False)
     description: Mapped[str] = mapped_column(Text, nullable=True)
+    is_template: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     
     creator_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id"), nullable=False)
     member_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id"), nullable=True) # Optional assignment

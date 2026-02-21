@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react';
 import { api } from '@/lib/api';
 import { Check, X } from 'lucide-react';
+import { useFeedback } from '@/components/FeedbackProvider';
 
 interface LeaveRequest {
     id: string;
@@ -16,6 +17,7 @@ interface LeaveRequest {
 }
 
 export default function AdminLeavesPage() {
+    const { showToast } = useFeedback();
     const [leaves, setLeaves] = useState<LeaveRequest[]>([]);
     const [loading, setLoading] = useState(true);
 
@@ -39,7 +41,10 @@ export default function AdminLeavesPage() {
             await api.put(`/hr/leaves/${id}`, { status });
             fetchLeaves();
         } catch (err) {
-            alert((err as { response?: { data?: { detail?: string } } })?.response?.data?.detail || "Failed to update status");
+            showToast(
+                (err as { response?: { data?: { detail?: string } } })?.response?.data?.detail || 'Failed to update status',
+                'error'
+            );
         }
     };
 
@@ -102,7 +107,7 @@ export default function AdminLeavesPage() {
                                                     <X size={16} />
                                                 </button>
                                             </div>
-                                        ) : <div className="text-center text-xs text-muted-foreground">—</div>}
+                                        ) : <div className="text-center text-xs text-muted-foreground">-</div>}
                                     </td>
                                 </tr>
                             ))}

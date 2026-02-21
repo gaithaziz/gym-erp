@@ -8,7 +8,7 @@ import 'react-resizable/css/styles.css';
 const ResponsiveGridLayout = WidthProvider(Responsive);
 
 interface DashboardGridProps {
-    children: React.ReactNode[];
+    children: React.ReactNode;
     layoutId: string; // Unique ID for storing layout in localStorage
 }
 
@@ -68,7 +68,37 @@ export function DashboardGrid({ children, layoutId }: DashboardGridProps) {
         localStorage.setItem(`dashboard_layout_${layoutId}`, JSON.stringify(allLayouts));
     };
 
-    if (!mounted) return null; // Prevent hydration mismatch
+    if (!mounted) {
+        const childCount = Math.max(React.Children.count(children), 7);
+
+        return (
+            <div
+                className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-12 gap-4 animate-pulse"
+                aria-busy="true"
+                aria-live="polite"
+            >
+                {Array.from({ length: childCount }).map((_, idx) => {
+                    const blockClass =
+                        idx < 4
+                            ? 'xl:col-span-3 min-h-[130px]'
+                            : idx < 6
+                                ? 'xl:col-span-6 min-h-[320px]'
+                                : 'xl:col-span-12 min-h-[220px]';
+
+                    return (
+                        <div
+                            key={`placeholder-${idx}`}
+                            className={`border border-border bg-card p-5 ${blockClass}`}
+                        >
+                            <div className="h-3 w-24 bg-muted rounded-sm mb-4" />
+                            <div className="h-7 w-20 bg-muted rounded-sm mb-2" />
+                            <div className="h-3 w-32 bg-muted/70 rounded-sm" />
+                        </div>
+                    );
+                })}
+            </div>
+        );
+    }
 
     return (
         <ResponsiveGridLayout

@@ -1,6 +1,9 @@
+import os
+import shutil
+import uuid
 from typing import Annotated
-from datetime import timedelta
-from fastapi import APIRouter, Depends, HTTPException, status
+from datetime import timedelta, datetime, timezone
+from fastapi import APIRouter, Depends, File, HTTPException, UploadFile, status
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 from jose import jwt, JWTError
@@ -9,19 +12,80 @@ from app.config import settings
 from app.database import get_db
 from app.auth import schemas, security, dependencies
 from app.models.user import User
+from app.models.auth import RefreshToken
+from app.models.enums import Role
+from app.services.audit_service import AuditService
 from app.core.responses import StandardResponse
 
 router = APIRouter()
 
+
+def _to_utc_datetime(value: int | float | datetime) -> datetime:
+    if isinstance(value, datetime):
+        return value if value.tzinfo else value.replace(tzinfo=timezone.utc)
+    return datetime.fromtimestamp(value, tz=timezone.utc)
+
+
+async def _persist_refresh_token(db: AsyncSession, user_id, refresh_token: str):
+    payload = jwt.decode(refresh_token, settings.SECRET_KEY, algorithms=[settings.ALGORITHM])
+    jti = payload.get("jti")
+    exp = payload.get("exp")
+    if not jti or exp is None:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid refresh token payload")
+
+    token_record = RefreshToken(
+        user_id=user_id,
+        jti=str(jti),
+        token_hash=security.hash_token(refresh_token),
+        expires_at=_to_utc_datetime(exp),
+    )
+    db.add(token_record)
+
+
+async def _get_user_by_email(db: AsyncSession, email: str) -> User | None:
+    result = await db.execute(select(User).where(User.email == email))
+    return result.scalar_one_or_none()
+
+
+def _credentials_exception() -> HTTPException:
+    return HTTPException(
+        status_code=status.HTTP_401_UNAUTHORIZED,
+        detail="Could not validate credentials",
+        headers={"WWW-Authenticate": "Bearer"},
+    )
+
+
+async def _log_and_commit(
+    db: AsyncSession,
+    *,
+    user_id,
+    action: str,
+    target_id: str,
+    details: str,
+) -> None:
+    await AuditService.log_action(
+        db=db,
+        user_id=user_id,
+        action=action,
+        target_id=target_id,
+        details=details,
+    )
+    await db.commit()
+
 @router.post("/register", response_model=StandardResponse[schemas.UserResponse])
 async def register(
     user_in: schemas.UserCreate,
-    db: Annotated[AsyncSession, Depends(get_db)]
+    db: Annotated[AsyncSession, Depends(get_db)],
+    current_user: Annotated[User, Depends(dependencies.get_current_admin)],
 ):
+    if user_in.role == Role.ADMIN:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="ADMIN accounts cannot be created via this endpoint.",
+        )
+
     # Check if user exists
-    stmt = select(User).where(User.email == user_in.email)
-    result = await db.execute(stmt)
-    if result.scalar_one_or_none():
+    if await _get_user_by_email(db, user_in.email):
         raise HTTPException(
             status_code=400,
             detail="The user with this email already exists in the system.",
@@ -38,6 +102,14 @@ async def register(
     db.add(user)
     await db.commit()
     await db.refresh(user)
+
+    await _log_and_commit(
+        db,
+        user_id=current_user.id,
+        action="REGISTER_USER",
+        target_id=str(user.id),
+        details=f"Registered user {user.email} with role {user.role.value}",
+    )
     
     return StandardResponse(data=user, message="User registered successfully")
 
@@ -46,9 +118,7 @@ async def login(
     login_data: schemas.LoginRequest,
     db: Annotated[AsyncSession, Depends(get_db)]
 ):
-    stmt = select(User).where(User.email == login_data.email)
-    result = await db.execute(stmt)
-    user = result.scalar_one_or_none()
+    user = await _get_user_by_email(db, login_data.email)
 
     if not user or not security.verify_password(login_data.password, user.hashed_password):
         raise HTTPException(
@@ -64,6 +134,8 @@ async def login(
     refresh_token = security.create_refresh_token(
         subject=user.email
     )
+    await _persist_refresh_token(db, user.id, refresh_token)
+    await db.commit()
     
     return StandardResponse(
         data=schemas.Token(
@@ -79,37 +151,56 @@ async def refresh_token(
     token: Annotated[str, Depends(dependencies.oauth2_scheme)],
     db: Annotated[AsyncSession, Depends(get_db)]
 ):
-    credentials_exception = HTTPException(
-        status_code=status.HTTP_401_UNAUTHORIZED,
-        detail="Could not validate credentials",
-        headers={"WWW-Authenticate": "Bearer"},
-    )
+    credentials_exception = _credentials_exception()
     
     try:
         payload = jwt.decode(token, settings.SECRET_KEY, algorithms=[settings.ALGORITHM])
         username = payload.get("sub")
         token_type = payload.get("type")
-        if username is None or token_type != "refresh":
+        jti = payload.get("jti")
+        if username is None or token_type != "refresh" or jti is None:
             raise credentials_exception
     except JWTError:
         raise credentials_exception
         
-    stmt = select(User).where(User.email == username)
-    result = await db.execute(stmt)
-    user = result.scalar_one_or_none()
+    user = await _get_user_by_email(db, username)
     
     if user is None:
         raise credentials_exception
+        
+    refresh_stmt = select(RefreshToken).where(
+        RefreshToken.user_id == user.id,
+        RefreshToken.jti == str(jti),
+        RefreshToken.revoked_at.is_(None)
+    )
+    refresh_result = await db.execute(refresh_stmt)
+    token_record = refresh_result.scalar_one_or_none()
+
+    if token_record is None:
+        raise credentials_exception
+
+    if token_record.token_hash != security.hash_token(token):
+        raise credentials_exception
+
+    now = datetime.now(timezone.utc)
+    expires_at = token_record.expires_at if token_record.expires_at.tzinfo else token_record.expires_at.replace(tzinfo=timezone.utc)
+    if expires_at <= now:
+        raise credentials_exception
+
+    token_record.revoked_at = now
 
     access_token_expires = timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES)
     access_token = security.create_access_token(
         subject=user.email, expires_delta=access_token_expires
     )
+    new_refresh_token = security.create_refresh_token(subject=user.email)
+    await _persist_refresh_token(db, user.id, new_refresh_token)
+    await db.commit()
     
     return StandardResponse(
         data=schemas.Token(
             access_token=access_token,
-            refresh_token=token, # Return the same refresh token
+            refresh_token=new_refresh_token,
             token_type="bearer"
         ),
         message="Token Refreshed"
@@ -135,12 +226,16 @@ async def update_user_me(
     db.add(current_user)
     await db.commit()
     await db.refresh(current_user)
-    return StandardResponse(data=current_user, message="Profile updated successfully")
 
-import os
-import shutil
-import uuid
-from fastapi import UploadFile, File
+    await _log_and_commit(
+        db,
+        user_id=current_user.id,
+        action="UPDATE_PROFILE",
+        target_id=str(current_user.id),
+        details="Updated profile fields via /auth/me",
+    )
+
+    return StandardResponse(data=current_user, message="Profile updated successfully")
 
 @router.post("/me/profile-picture", response_model=StandardResponse[schemas.UserResponse])
 async def upload_profile_picture(
@@ -149,7 +244,7 @@ async def upload_profile_picture(
     file: UploadFile = File(...)
 ):
     """Upload and update user profile picture."""
-    if not file.content_type.startswith("image/"):
+    if not file.content_type or not file.content_type.startswith("image/"):
         raise HTTPException(status_code=400, detail="File must be an image")
     
     # Create static directory if it doesn't exist
@@ -179,6 +274,14 @@ async def upload_profile_picture(
     db.add(current_user)
     await db.commit()
     await db.refresh(current_user)
+
+    await _log_and_commit(
+        db,
+        user_id=current_user.id,
+        action="UPDATE_PROFILE_PICTURE",
+        target_id=str(current_user.id),
+        details=f"Updated profile picture to {current_user.profile_picture_url}",
+    )
     
     return StandardResponse(data=current_user, message="Profile picture updated successfully")
 
@@ -198,5 +301,13 @@ async def change_password(
     current_user.hashed_password = security.get_password_hash(password_data.new_password)
     db.add(current_user)
     await db.commit()
+
+    await _log_and_commit(
+        db,
+        user_id=current_user.id,
+        action="CHANGE_PASSWORD",
+        target_id=str(current_user.id),
+        details="Password changed successfully",
+    )
     
     return StandardResponse(message="Password changed successfully")

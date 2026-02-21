@@ -27,6 +27,7 @@ export const metadata: Metadata = {
 
 import { AuthProvider } from "@/context/AuthContext";
 import { ThemeProvider } from "@/components/ThemeProvider";
+import { FeedbackProvider } from "@/components/FeedbackProvider";
 
 export default function RootLayout({
   children,
@@ -45,7 +46,9 @@ export default function RootLayout({
           disableTransitionOnChange
         >
           <AuthProvider>
-            {children}
+            <FeedbackProvider>
+              {children}
+            </FeedbackProvider>
           </AuthProvider>
         </ThemeProvider>
       </body>

@@ -1,30 +1,89 @@
 from typing import Annotated, List
-from fastapi import APIRouter, Depends, HTTPException
-from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select
-from sqlalchemy.orm import selectinload
-from pydantic import BaseModel
+from datetime import datetime
 import uuid
 
-from app.database import get_db
+from fastapi import APIRouter, Depends, HTTPException, Query
+from pydantic import AnyHttpUrl, BaseModel, Field, field_validator
+from sqlalchemy import func, select
+from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import selectinload
+
 from app.auth import dependencies
-from app.models.user import User
-from app.models.enums import Role
-from app.models.fitness import Exercise, WorkoutPlan, WorkoutExercise, DietPlan, BiometricLog
-from app.models.workout_log import WorkoutLog
 from app.core.responses import StandardResponse
-from pydantic import Field
-from datetime import datetime
+from app.database import get_db
+from app.models.enums import Role
+from app.models.fitness import BiometricLog, DietPlan, Exercise, WorkoutExercise, WorkoutPlan
+from app.models.user import User
+from app.models.workout_log import WorkoutLog
 
 router = APIRouter()
 
-# --- Pydantic Models ---
+
+def _is_admin_or_coach(user: User) -> bool:
+    return user.role in [Role.ADMIN, Role.COACH]
+
+
+async def _get_workout_plan_or_404(
+    db: AsyncSession,
+    plan_id: uuid.UUID,
+    *,
+    with_exercises: bool = False,
+) -> WorkoutPlan:
+    stmt = select(WorkoutPlan).where(WorkoutPlan.id == plan_id)
+    if with_exercises:
+        stmt = stmt.options(selectinload(WorkoutPlan.exercises))
+
+    result = await db.execute(stmt)
+    plan = result.scalar_one_or_none()
+    if not plan:
+        raise HTTPException(status_code=404, detail="Plan not found")
+    return plan
+
+
+def _ensure_plan_owned_by_requester_or_admin(plan: WorkoutPlan, current_user: User, *, action: str) -> None:
+    if current_user.role != Role.ADMIN and plan.creator_id != current_user.id:
+        raise HTTPException(status_code=403, detail=f"Cannot {action} plan created by another user")
+
+
+def _apply_date_filters(stmt, model_date_field, from_date: datetime | None, to_date: datetime | None):
+    if from_date:
+        stmt = stmt.where(model_date_field >= from_date)
+    if to_date:
+        stmt = stmt.where(model_date_field <= to_date)
+    return stmt
+
+
+def _add_workout_exercises(db: AsyncSession, plan_id: uuid.UUID, exercises: List["WorkoutExerciseData"]) -> None:
+    for exercise_data in exercises:
+        db.add(
+            WorkoutExercise(
+                plan_id=plan_id,
+                exercise_id=exercise_data.exercise_id,
+                sets=exercise_data.sets,
+                reps=exercise_data.reps,
+                duration_minutes=exercise_data.duration_minutes,
+                order=exercise_data.order,
+            )
+        )
+
+
 # --- Pydantic Models ---
 class ExerciseCreate(BaseModel):
     name: str
     category: str
     description: str | None = None
-    video_url: str | None = None
+    video_url: AnyHttpUrl | None = None
+
+    @field_validator("video_url")
+    @classmethod
+    def validate_video_provider(cls, value: AnyHttpUrl | None) -> AnyHttpUrl | None:
+        if value is None:
+            return value
+
+        allowed_hosts = {"youtube.com", "www.youtube.com", "youtu.be", "vimeo.com", "www.vimeo.com"}
+        if value.host not in allowed_hosts:
+            raise ValueError("video_url must be a YouTube or Vimeo link")
+        return value
 
 class ExerciseResponse(ExerciseCreate):
     id: uuid.UUID
@@ -54,7 +113,8 @@ class WorkoutPlanCreate(BaseModel):
     name: str
     description: str | None = None
     member_id: uuid.UUID | None = None # Optional assignment
-    exercises: List[WorkoutExerciseData] = []
+    is_template: bool = False
+    exercises: List[WorkoutExerciseData] = Field(default_factory=list)
 
 class WorkoutPlanResponse(BaseModel):
     id: uuid.UUID
@@ -62,10 +122,16 @@ class WorkoutPlanResponse(BaseModel):
     description: str | None = None
     creator_id: uuid.UUID
     member_id: uuid.UUID | None
-    exercises: List[WorkoutExerciseResponse] = []
+    is_template: bool
+    exercises: List[WorkoutExerciseResponse] = Field(default_factory=list)
     
     class Config:
         from_attributes = True
+
+
+class WorkoutPlanCloneRequest(BaseModel):
+    name: str | None = None
+    member_id: uuid.UUID | None = None
 
 # --- Endpoints ---
 
@@ -76,7 +142,7 @@ async def create_exercise(
     db: Annotated[AsyncSession, Depends(get_db)]
 ):
     """Create a new exercise in the library."""
-    exercise = Exercise(**data.model_dump())
+    exercise = Exercise(**data.model_dump(mode="json"))
     db.add(exercise)
     await db.commit()
     return StandardResponse(message="Exercise created", data={"id": str(exercise.id)})
@@ -100,28 +166,17 @@ async def create_workout_plan(
     db: Annotated[AsyncSession, Depends(get_db)]
 ):
     """Create a new workout plan."""
-    # 1. Create Plan
     plan = WorkoutPlan(
         name=data.name,
         description=data.description,
         creator_id=current_user.id,
-        member_id=data.member_id
+        member_id=data.member_id,
+        is_template=data.is_template,
     )
     db.add(plan)
-    await db.flush() # Get ID
-    
-    # 2. Add Exercises
-    for ex_data in data.exercises:
-        w_ex = WorkoutExercise(
-            plan_id=plan.id,
-            exercise_id=ex_data.exercise_id,
-            sets=ex_data.sets,
-            reps=ex_data.reps,
-            duration_minutes=ex_data.duration_minutes,
-            order=ex_data.order
-        )
-        db.add(w_ex)
-        
+    await db.flush()
+
+    _add_workout_exercises(db, plan.id, data.exercises)
     await db.commit()
     return StandardResponse(message="Workout Plan Created", data={"id": str(plan.id)})
 
@@ -131,12 +186,11 @@ async def list_plans(
     db: Annotated[AsyncSession, Depends(get_db)]
 ):
     """List plans visible to the user (Created by them OR Assigned to them)."""
-    if current_user.role in [Role.ADMIN, Role.COACH]:
-        # Coaches see plans they created
-        stmt = select(WorkoutPlan).where(WorkoutPlan.creator_id == current_user.id).options(selectinload(WorkoutPlan.exercises).selectinload(WorkoutExercise.exercise))
+    plan_exercises = selectinload(WorkoutPlan.exercises).selectinload(WorkoutExercise.exercise)
+    if _is_admin_or_coach(current_user):
+        stmt = select(WorkoutPlan).where(WorkoutPlan.creator_id == current_user.id).options(plan_exercises)
     else:
-        # Members see plans assigned to them
-        stmt = select(WorkoutPlan).where(WorkoutPlan.member_id == current_user.id).options(selectinload(WorkoutPlan.exercises).selectinload(WorkoutExercise.exercise))
+        stmt = select(WorkoutPlan).where(WorkoutPlan.member_id == current_user.id).options(plan_exercises)
         
     result = await db.execute(stmt)
     plans = result.scalars().all()
@@ -152,37 +206,19 @@ async def update_workout_plan(
     db: Annotated[AsyncSession, Depends(get_db)]
 ):
     """Update an existing workout plan (overwrite exercises)."""
-    stmt = select(WorkoutPlan).where(WorkoutPlan.id == plan_id).options(selectinload(WorkoutPlan.exercises))
-    result = await db.execute(stmt)
-    plan = result.scalar_one_or_none()
-    
-    if not plan:
-        raise HTTPException(status_code=404, detail="Plan not found")
-        
-    if current_user.role != Role.ADMIN and plan.creator_id != current_user.id:
-        raise HTTPException(status_code=403, detail="Cannot edit plan created by another user")
+    plan = await _get_workout_plan_or_404(db, plan_id, with_exercises=True)
+    _ensure_plan_owned_by_requester_or_admin(plan, current_user, action="edit")
 
     # Update basic fields
     plan.name = data.name
     plan.description = data.description  # type: ignore
     plan.member_id = data.member_id  # type: ignore
+    plan.is_template = data.is_template
     
-    # Clear existing exercises
     for ex in plan.exercises:
         await db.delete(ex)
-    
-    # Add new exercises
-    for ex_data in data.exercises:
-        w_ex = WorkoutExercise(
-            plan_id=plan.id,
-            exercise_id=ex_data.exercise_id,
-            sets=ex_data.sets,
-            reps=ex_data.reps,
-            duration_minutes=ex_data.duration_minutes,
-            order=ex_data.order
-        )
-        db.add(w_ex)
-        
+
+    _add_workout_exercises(db, plan.id, data.exercises)
     await db.commit()
     return StandardResponse(message="Plan updated successfully")
 
@@ -194,19 +230,52 @@ async def delete_workout_plan(
     db: Annotated[AsyncSession, Depends(get_db)]
 ):
     """Delete a workout plan."""
-    stmt = select(WorkoutPlan).where(WorkoutPlan.id == plan_id)
-    result = await db.execute(stmt)
-    plan = result.scalar_one_or_none()
-    
-    if not plan:
-        raise HTTPException(status_code=404, detail="Plan not found")
-        
-    if current_user.role != Role.ADMIN and plan.creator_id != current_user.id:
-        raise HTTPException(status_code=403, detail="Cannot delete plan created by another user")
-        
+    plan = await _get_workout_plan_or_404(db, plan_id)
+    _ensure_plan_owned_by_requester_or_admin(plan, current_user, action="delete")
+
     await db.delete(plan)
     await db.commit()
     return StandardResponse(message="Plan deleted")
+
+
+@router.post("/plans/{plan_id}/clone", response_model=StandardResponse)
+async def clone_workout_plan(
+    plan_id: uuid.UUID,
+    clone_data: WorkoutPlanCloneRequest,
+    current_user: Annotated[User, Depends(dependencies.RoleChecker([Role.ADMIN, Role.COACH]))],
+    db: Annotated[AsyncSession, Depends(get_db)]
+):
+    """Clone a workout plan and optionally assign it to a member."""
+    source_plan = await _get_workout_plan_or_404(db, plan_id, with_exercises=True)
+    _ensure_plan_owned_by_requester_or_admin(source_plan, current_user, action="clone")
+
+    cloned_plan = WorkoutPlan(
+        name=clone_data.name or f"{source_plan.name} (Copy)",
+        description=source_plan.description,
+        creator_id=current_user.id,
+        member_id=clone_data.member_id,
+        is_template=False,
+    )
+    db.add(cloned_plan)
+    await db.flush()
+
+    _add_workout_exercises(
+        db,
+        cloned_plan.id,
+        [
+            WorkoutExerciseData(
+                exercise_id=exercise.exercise_id,
+                sets=exercise.sets,
+                reps=exercise.reps,
+                duration_minutes=exercise.duration_minutes,
+                order=exercise.order,
+            )
+            for exercise in source_plan.exercises
+        ],
+    )
+
+    await db.commit()
+    return StandardResponse(message="Plan cloned successfully", data={"id": str(cloned_plan.id)})
 
 
 
@@ -255,7 +324,7 @@ async def list_diet_plans(
     db: Annotated[AsyncSession, Depends(get_db)]
 ):
     """List diet plans visible to the user."""
-    if current_user.role in [Role.ADMIN, Role.COACH]:
+    if _is_admin_or_coach(current_user):
         stmt = select(DietPlan).where(DietPlan.creator_id == current_user.id)
     else:
         stmt = select(DietPlan).where(DietPlan.member_id == current_user.id)
@@ -277,7 +346,7 @@ async def get_diet_plan(
     if not plan:
         raise HTTPException(status_code=404, detail="Diet plan not found")
     # Data isolation: member can only see their own plan
-    if current_user.role not in [Role.ADMIN, Role.COACH] and plan.member_id != current_user.id:
+    if not _is_admin_or_coach(current_user) and plan.member_id != current_user.id:
         raise HTTPException(status_code=403, detail="Access denied")
     return StandardResponse(data=DietPlanResponse.model_validate(plan))
 
@@ -320,10 +389,15 @@ class WorkoutLogResponse(BaseModel):
 @router.post("/log", response_model=StandardResponse)
 async def log_workout(
     data: WorkoutLogCreate,
-    current_user: Annotated[User, Depends(dependencies.get_current_active_user)],
+    current_user: Annotated[User, Depends(dependencies.RoleChecker([Role.ADMIN, Role.CUSTOMER]))],
     db: Annotated[AsyncSession, Depends(get_db)]
 ):
     """Customer logs workout feedback (difficulty, comment)."""
+    plan = await _get_workout_plan_or_404(db, data.plan_id)
+
+    if current_user.role == Role.CUSTOMER and plan.member_id != current_user.id:
+        raise HTTPException(status_code=403, detail="You can only log workouts assigned to your account")
+
     log = WorkoutLog(
         member_id=current_user.id,
         plan_id=data.plan_id,
@@ -340,10 +414,21 @@ async def log_workout(
 async def get_workout_logs(
     plan_id: uuid.UUID,
     current_user: Annotated[User, Depends(dependencies.RoleChecker([Role.ADMIN, Role.COACH]))],
-    db: Annotated[AsyncSession, Depends(get_db)]
+    db: Annotated[AsyncSession, Depends(get_db)],
+    limit: int = Query(100, ge=1, le=500),
+    offset: int = Query(0, ge=0),
+    from_date: datetime | None = Query(None),
+    to_date: datetime | None = Query(None),
 ):
     """Coach views trainee feedback for a specific plan."""
-    stmt = select(WorkoutLog).where(WorkoutLog.plan_id == plan_id).order_by(WorkoutLog.date.desc())
+    plan = await _get_workout_plan_or_404(db, plan_id)
+
+    if current_user.role == Role.COACH and plan.creator_id != current_user.id:
+        raise HTTPException(status_code=403, detail="Cannot view logs for plans created by another coach")
+
+    stmt = select(WorkoutLog).where(WorkoutLog.plan_id == plan_id)
+    stmt = _apply_date_filters(stmt, WorkoutLog.date, from_date, to_date)
+    stmt = stmt.order_by(WorkoutLog.date.desc()).offset(offset).limit(limit)
     result = await db.execute(stmt)
     logs = result.scalars().all()
     return StandardResponse(data=[WorkoutLogResponse.model_validate(log) for log in logs])
@@ -355,7 +440,6 @@ async def get_workout_stats(
 ):
     """Get aggregated workout stats for the current user (e.g., workouts per day over last 30 days)."""
     from datetime import timedelta
-    from sqlalchemy import func
     
     thirty_days_ago = datetime.now() - timedelta(days=30)
     
@@ -367,7 +451,7 @@ async def get_workout_stats(
     stmt = (
         select(func.date(WorkoutLog.date).label('day'), func.count(WorkoutLog.id).label('count'))
         .where(WorkoutLog.member_id == current_user.id)
-        .where(WorkoutLog.completed == True)
+        .where(WorkoutLog.completed.is_(True))
         .where(WorkoutLog.date >= thirty_days_ago)
         .group_by('day')
         .order_by('day')
@@ -398,10 +482,16 @@ async def log_biometrics(
 @router.get("/biometrics", response_model=StandardResponse[List[BiometricLogResponse]])
 async def get_biometrics(
     current_user: Annotated[User, Depends(dependencies.get_current_active_user)],
-    db: Annotated[AsyncSession, Depends(get_db)]
+    db: Annotated[AsyncSession, Depends(get_db)],
+    limit: int = Query(100, ge=1, le=500),
+    offset: int = Query(0, ge=0),
+    from_date: datetime | None = Query(None),
+    to_date: datetime | None = Query(None),
 ):
     """Get biometric history for the current user."""
-    stmt = select(BiometricLog).where(BiometricLog.member_id == current_user.id).order_by(BiometricLog.date.asc())
+    stmt = select(BiometricLog).where(BiometricLog.member_id == current_user.id)
+    stmt = _apply_date_filters(stmt, BiometricLog.date, from_date, to_date)
+    stmt = stmt.order_by(BiometricLog.date.asc()).offset(offset).limit(limit)
     result = await db.execute(stmt)
     logs = result.scalars().all()
     return StandardResponse(data=[BiometricLogResponse.model_validate(log) for log in logs])

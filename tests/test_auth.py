@@ -1,4 +1,5 @@
 import pytest
+from datetime import date, timedelta
 from httpx import AsyncClient
 from sqlalchemy.ext.asyncio import AsyncSession
 from app.auth import security
@@ -45,8 +46,13 @@ async def test_refresh_token_success(client: AsyncClient, db_session: AsyncSessi
     db_session.add(user)
     await db_session.commit()
 
-    # Get tokens
-    refresh_token = security.create_refresh_token(subject=email)
+    # Login to get a tracked refresh token
+    login_response = await client.post(
+        f"{settings.API_V1_STR}/auth/login",
+        json={"email": email, "password": password}
+    )
+    assert login_response.status_code == 200
+    refresh_token = login_response.json()["data"]["refresh_token"]
     
     # Use refresh token
     response = await client.post(
@@ -58,6 +64,38 @@ async def test_refresh_token_success(client: AsyncClient, db_session: AsyncSessi
     data = response.json()
     assert data["success"] is True
     assert "access_token" in data["data"]
+    assert "refresh_token" in data["data"]
+
+
+@pytest.mark.asyncio
+async def test_refresh_token_rotation_revokes_old_token(client: AsyncClient, db_session: AsyncSession):
+    email = "rotation@example.com"
+    password = "password123"
+    hashed_password = security.get_password_hash(password)
+    user = User(email=email, hashed_password=hashed_password, role=Role.CUSTOMER)
+    db_session.add(user)
+    await db_session.commit()
+
+    login_response = await client.post(
+        f"{settings.API_V1_STR}/auth/login",
+        json={"email": email, "password": password}
+    )
+    assert login_response.status_code == 200
+    first_refresh = login_response.json()["data"]["refresh_token"]
+
+    rotate_response = await client.post(
+        f"{settings.API_V1_STR}/auth/refresh",
+        headers={"Authorization": f"Bearer {first_refresh}"}
+    )
+    assert rotate_response.status_code == 200
+    second_refresh = rotate_response.json()["data"]["refresh_token"]
+    assert second_refresh != first_refresh
+
+    reuse_old_response = await client.post(
+        f"{settings.API_V1_STR}/auth/refresh",
+        headers={"Authorization": f"Bearer {first_refresh}"}
+    )
+    assert reuse_old_response.status_code == 401
 
 @pytest.mark.asyncio
 async def test_refresh_token_invalid(client: AsyncClient):
@@ -66,3 +104,46 @@ async def test_refresh_token_invalid(client: AsyncClient):
         headers={"Authorization": "Bearer invalid_token"}
     )
     assert response.status_code == 401
+
+
+@pytest.mark.asyncio
+async def test_update_me_profile_validation(client: AsyncClient, db_session: AsyncSession):
+    email = "validate@example.com"
+    password = "password123"
+    hashed_password = security.get_password_hash(password)
+    user = User(email=email, hashed_password=hashed_password, role=Role.CUSTOMER)
+    db_session.add(user)
+    await db_session.commit()
+
+    login_response = await client.post(
+        f"{settings.API_V1_STR}/auth/login",
+        json={"email": email, "password": password}
+    )
+    token = login_response.json()["data"]["access_token"]
+    headers = {"Authorization": f"Bearer {token}"}
+
+    invalid_phone_response = await client.put(
+        f"{settings.API_V1_STR}/auth/me",
+        json={"phone_number": "abc-invalid"},
+        headers=headers,
+    )
+    assert invalid_phone_response.status_code == 422
+    assert "request_id" in invalid_phone_response.json()
+    assert "x-request-id" in invalid_phone_response.headers
+
+    future_dob = (date.today() + timedelta(days=1)).isoformat()
+    invalid_dob_response = await client.put(
+        f"{settings.API_V1_STR}/auth/me",
+        json={"date_of_birth": future_dob},
+        headers=headers,
+    )
+    assert invalid_dob_response.status_code == 422
+    assert "request_id" in invalid_dob_response.json()
+
+    too_long_bio_response = await client.put(
+        f"{settings.API_V1_STR}/auth/me",
+        json={"bio": "x" * 501},
+        headers=headers,
+    )
+    assert too_long_bio_response.status_code == 422
+    assert "request_id" in too_long_bio_response.json()

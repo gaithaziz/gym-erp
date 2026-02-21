@@ -1,7 +1,7 @@
 import uuid
 from datetime import date
 from enum import Enum
-from sqlalchemy import Enum as SAEnum, ForeignKey, Float, Integer, Date
+from sqlalchemy import Enum as SAEnum, ForeignKey, Float, Integer, Date, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from app.database import Base
 
@@ -45,6 +45,9 @@ class Contract(Base):
 
 class Payroll(Base):
     __tablename__ = "payrolls"
+    __table_args__ = (
+        UniqueConstraint("user_id", "month", "year", name="uq_payroll_user_month_year"),
+    )
 
     id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
     user_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id"), nullable=False)

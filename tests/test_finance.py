@@ -18,6 +18,19 @@ async def test_finance_flow(client: AsyncClient, db_session: AsyncSession):
     login_resp = await client.post(f"{settings.API_V1_STR}/auth/login", json={"email": "admin_fin@gym.com", "password": password})
     token = login_resp.json()["data"]["access_token"]
     headers = {"Authorization": f"Bearer {token}"}
+
+    invalid_tx_resp = await client.post(
+        f"{settings.API_V1_STR}/finance/transactions",
+        json={
+            "amount": 0,
+            "type": "INCOME",
+            "category": "OTHER_INCOME",
+            "description": "Invalid zero amount",
+            "payment_method": "CASH",
+        },
+        headers=headers,
+    )
+    assert invalid_tx_resp.status_code == 422
     
     # 2. Log Income (Subscription)
     income_data = {
@@ -29,6 +42,7 @@ async def test_finance_flow(client: AsyncClient, db_session: AsyncSession):
     }
     resp = await client.post(f"{settings.API_V1_STR}/finance/transactions", json=income_data, headers=headers)
     assert resp.status_code == 200
+    income_tx_id = resp.json()["data"]["id"]
     
     # 3. Log Expense (Rent)
     expense_data = {
@@ -58,3 +72,11 @@ async def test_finance_flow(client: AsyncClient, db_session: AsyncSession):
     # Check that it picked up the new real transaction data
     assert dash_data["monthly_revenue"] == 100.0 # Current month filter applies, we just added it with default=now()
     assert dash_data["monthly_expenses"] == 40.0
+
+    # 6. Receipt JSON + printable HTML
+    receipt_json = await client.get(f"{settings.API_V1_STR}/finance/transactions/{income_tx_id}/receipt", headers=headers)
+    assert receipt_json.status_code == 200
+
+    receipt_print = await client.get(f"{settings.API_V1_STR}/finance/transactions/{income_tx_id}/receipt/print", headers=headers)
+    assert receipt_print.status_code == 200
+    assert "text/html" in receipt_print.headers["content-type"]

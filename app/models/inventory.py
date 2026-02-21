@@ -28,6 +28,9 @@ class Product(Base):
     cost_price: Mapped[float] = mapped_column(Float, nullable=True)  # for profit tracking
     stock_quantity: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
     low_stock_threshold: Mapped[int] = mapped_column(Integer, default=5, nullable=False)
+    low_stock_restock_target: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    low_stock_acknowledged_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    low_stock_snoozed_until: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
     image_url: Mapped[str] = mapped_column(String, nullable=True)
     created_at: Mapped[datetime] = mapped_column(

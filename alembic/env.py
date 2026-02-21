@@ -20,6 +20,7 @@ from app.models.inventory import *
 from app.models.gamification import *
 from app.models.audit import *
 from app.models.workout_log import *
+from app.models.auth import *
 
 # this is the Alembic Config object, which provides
 # access to the values within the .ini file in use.

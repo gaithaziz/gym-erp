@@ -1,10 +1,11 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { api } from '@/lib/api';
 import Image from 'next/image';
 import { Search, UserPlus, Save, Shield, Snowflake, XCircle, RefreshCw, Pencil, Trash2, Eye } from 'lucide-react';
 import Modal from '@/components/Modal';
+import { useFeedback } from '@/components/FeedbackProvider';
 
 interface Member {
     id: string;
@@ -23,9 +24,11 @@ interface Member {
 }
 
 export default function MembersPage() {
+    const { showToast, confirm: confirmAction } = useFeedback();
     const [members, setMembers] = useState<Member[]>([]);
     const [loading, setLoading] = useState(true);
     const [search, setSearch] = useState('');
+    const [debouncedSearch, setDebouncedSearch] = useState('');
 
     // Add Modal
     const [isAddOpen, setIsAddOpen] = useState(false);
@@ -60,6 +63,13 @@ export default function MembersPage() {
 
     useEffect(() => { setTimeout(() => fetchMembers(), 0); }, []);
 
+    useEffect(() => {
+        const timer = setTimeout(() => {
+            setDebouncedSearch(search.trim().toLowerCase());
+        }, 250);
+        return () => clearTimeout(timer);
+    }, [search]);
+
     const handleAddMember = async (e: React.FormEvent) => {
         e.preventDefault();
         try {
@@ -69,7 +79,7 @@ export default function MembersPage() {
             fetchMembers();
         } catch (err) {
             console.error(err);
-            alert('Failed to register member.');
+            showToast('Failed to register member.', 'error');
         }
     };
 
@@ -89,18 +99,24 @@ export default function MembersPage() {
             fetchMembers();
         } catch (err) {
             console.error(err);
-            alert('Failed to update member.');
+            showToast('Failed to update member.', 'error');
         }
     };
 
     const handleDeleteMember = async (id: string, name: string) => {
-        if (!confirm(`Are you sure you want to deactivate ${name}? This action cannot be easily undone.`)) return;
+        const confirmed = await confirmAction({
+            title: 'Deactivate Member',
+            description: `Are you sure you want to deactivate ${name}? This action cannot be easily undone.`,
+            confirmText: 'Deactivate',
+            destructive: true,
+        });
+        if (!confirmed) return;
         try {
             await api.delete(`/users/${id}`);
             fetchMembers();
         } catch (err) {
             console.error(err);
-            alert('Failed to deactivate member.');
+            showToast('Failed to deactivate member.', 'error');
         }
     };
 
@@ -123,7 +139,7 @@ export default function MembersPage() {
             fetchMembers();
         } catch (err) {
             console.error(err);
-            alert('Failed to create subscription.');
+            showToast('Failed to create subscription.', 'error');
         }
     };
 
@@ -135,7 +151,7 @@ export default function MembersPage() {
             fetchMembers();
         } catch (err) {
             console.error(err);
-            alert(`Failed to ${action.toLowerCase()} subscription.`);
+            showToast(`Failed to ${action.toLowerCase()} subscription.`, 'error');
         }
     };
 
@@ -148,10 +164,13 @@ export default function MembersPage() {
         }
     };
 
-    const filtered = members.filter(m =>
-        m.full_name.toLowerCase().includes(search.toLowerCase()) ||
-        m.email.toLowerCase().includes(search.toLowerCase())
-    );
+    const filtered = useMemo(() => {
+        if (!debouncedSearch) return members;
+        return members.filter(m =>
+            m.full_name.toLowerCase().includes(debouncedSearch) ||
+            m.email.toLowerCase().includes(debouncedSearch)
+        );
+    }, [members, debouncedSearch]);
 
     if (loading) return (
         <div className="flex h-64 items-center justify-center">
@@ -185,7 +204,7 @@ export default function MembersPage() {
 
             {/* Members Table */}
             <div className="chart-card overflow-hidden !p-0 border border-border">
-                <div className="overflow-x-auto">
+                <div className="hidden md:block overflow-x-auto">
                     <table className="w-full text-left table-dark min-w-[800px]">
                         <thead>
                             <tr>
@@ -221,7 +240,7 @@ export default function MembersPage() {
                                         </span>
                                     </td>
                                     <td>
-                                        {m.subscription?.end_date ? new Date(m.subscription.end_date).toLocaleDateString() : '—'}
+                                        {m.subscription?.end_date ? new Date(m.subscription.end_date).toLocaleDateString() : '-'}
                                     </td>
                                     <td className="text-right pr-6">
                                         <div className="flex items-center justify-end gap-2">
@@ -259,6 +278,72 @@ export default function MembersPage() {
                             ))}
                         </tbody>
                     </table>
+                </div>
+
+                <div className="md:hidden divide-y divide-border">
+                    {filtered.length === 0 && (
+                        <div className="px-4 py-8 text-center text-sm text-muted-foreground">No members found</div>
+                    )}
+                    {filtered.map((m) => (
+                        <div key={m.id} className="p-4">
+                            <div className="flex items-start justify-between gap-3">
+                                <div className="flex items-center gap-3 min-w-0">
+                                    <div className="h-10 w-10 bg-primary/20 rounded-full flex items-center justify-center text-primary font-bold overflow-hidden relative flex-shrink-0">
+                                        {m.profile_picture_url ? (
+                                            <Image src={`${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'}${m.profile_picture_url}`} alt={m.full_name} fill className="object-cover" unoptimized />
+                                        ) : (
+                                            m.full_name.charAt(0)
+                                        )}
+                                    </div>
+                                    <div className="min-w-0">
+                                        <p className="font-medium text-foreground truncate">{m.full_name}</p>
+                                        <p className="text-xs text-muted-foreground truncate">{m.email}</p>
+                                    </div>
+                                </div>
+                                <span className={`badge ${statusBadge(m.subscription?.status)}`}>
+                                    {m.subscription?.status || 'NONE'}
+                                </span>
+                            </div>
+
+                            <div className="mt-3 flex items-center justify-between text-xs">
+                                <span className="text-muted-foreground">Expires</span>
+                                <span className="text-foreground font-medium">
+                                    {m.subscription?.end_date ? new Date(m.subscription.end_date).toLocaleDateString() : '--'}
+                                </span>
+                            </div>
+
+                            <div className="mt-3 grid grid-cols-2 gap-2">
+                                <button
+                                    onClick={() => openView(m)}
+                                    className="btn-ghost !px-2 !py-2 h-auto text-xs text-emerald-400 hover:text-emerald-300 justify-center"
+                                    title="View Profile"
+                                >
+                                    <Eye size={14} /> View
+                                </button>
+                                <button
+                                    onClick={() => openManage(m)}
+                                    className="btn-ghost !px-2 !py-2 h-auto text-xs justify-center"
+                                    title="Manage Subscription"
+                                >
+                                    <Shield size={14} /> Sub
+                                </button>
+                                <button
+                                    onClick={() => openEdit(m)}
+                                    className="btn-ghost !px-2 !py-2 h-auto text-xs text-blue-400 hover:text-blue-300 justify-center"
+                                    title="Edit Details"
+                                >
+                                    <Pencil size={14} /> Edit
+                                </button>
+                                <button
+                                    onClick={() => handleDeleteMember(m.id, m.full_name)}
+                                    className="btn-ghost !px-2 !py-2 h-auto text-xs text-destructive hover:text-destructive/80 justify-center"
+                                    title="Deactivate Member"
+                                >
+                                    <Trash2 size={14} /> Deactivate
+                                </button>
+                            </div>
+                        </div>
+                    ))}
                 </div>
             </div>
 

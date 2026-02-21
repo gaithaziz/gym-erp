@@ -1,4 +1,5 @@
 from datetime import datetime, timedelta, timezone
+import time
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 from jose import jwt, JWTError
@@ -8,6 +9,27 @@ import uuid
 from app.config import settings
 from app.models.user import User
 from app.models.access import AccessLog, AttendanceLog, Subscription, SubscriptionStatus
+
+
+class AccessRateLimiter:
+    _requests: dict[str, list[float]] = {}
+    MAX_REQUESTS = 120
+    WINDOW_SECONDS = 60
+
+    @classmethod
+    def allow_request(cls, key: str) -> tuple[bool, int]:
+        now = time.time()
+        cutoff = now - cls.WINDOW_SECONDS
+
+        recent = [timestamp for timestamp in cls._requests.get(key, []) if timestamp >= cutoff]
+        if len(recent) >= cls.MAX_REQUESTS:
+            cls._requests[key] = recent
+            retry_after = max(1, int(cls.WINDOW_SECONDS - (now - recent[0])))
+            return False, retry_after
+
+        recent.append(now)
+        cls._requests[key] = recent
+        return True, 0
 
 class AccessService:
     @staticmethod
@@ -96,6 +118,79 @@ class AccessService:
         # Log Access
         access_log = AccessLog(
             user_id=user.id,
+            kiosk_id=kiosk_id,
+            status=status_decision,
+            reason=reason,
+            scan_time=now
+        )
+        db.add(access_log)
+        await db.commit()
+
+        return {
+            "status": status_decision,
+            "user_name": user.full_name,
+            "reason": reason
+        }
+
+    @staticmethod
+    async def process_session_check_in(user_id: uuid.UUID, kiosk_id: str, db: AsyncSession) -> dict:
+        """Processes an authenticated check-in for a user scanning a static kiosk QR."""
+        stmt = select(User).where(User.id == user_id)
+        result = await db.execute(stmt)
+        user = result.scalar_one_or_none()
+
+        if not user:
+            return {"status": "DENIED", "reason": "USER_NOT_FOUND", "user_name": "Unknown"}
+
+        now = datetime.now(timezone.utc)
+
+        # Duplicate check-in protection for rapid re-scans.
+        cooldown = now - timedelta(seconds=60)
+        stmt_recent = select(AccessLog).where(
+            AccessLog.user_id == user.id,
+            AccessLog.scan_time >= cooldown,
+            AccessLog.status == "GRANTED"
+        )
+        result_recent = await db.execute(stmt_recent)
+        recent_scan = result_recent.scalar_one_or_none()
+        if recent_scan:
+            return {"status": "ALREADY_SCANNED", "user_name": user.full_name, "reason": "Scanned within the last 60 seconds"}
+
+        stmt_sub = select(Subscription).where(
+            Subscription.user_id == user.id,
+            Subscription.status == SubscriptionStatus.ACTIVE,
+            Subscription.end_date >= now
+        )
+        result_sub = await db.execute(stmt_sub)
+        subscription = result_sub.scalar_one_or_none()
+
+        status_decision = "GRANTED"
+        reason = None
+
+        if not subscription:
+            status_decision = "DENIED"
+            reason = "NO_ACTIVE_SUBSCRIPTION"
+
+            stmt_expired = select(Subscription).where(
+                Subscription.user_id == user.id,
+                Subscription.status == SubscriptionStatus.ACTIVE,
+                Subscription.end_date < now
+            )
+            result_expired = await db.execute(stmt_expired)
+            if result_expired.scalar_one_or_none():
+                reason = "SUBSCRIPTION_EXPIRED"
+            else:
+                stmt_frozen = select(Subscription).where(
+                    Subscription.user_id == user.id,
+                    Subscription.status == SubscriptionStatus.FROZEN
+                )
+                result_frozen = await db.execute(stmt_frozen)
+                if result_frozen.scalar_one_or_none():
+                    reason = "SUBSCRIPTION_FROZEN"
+
+        access_log = AccessLog(
+            user_id=user.id,
+            kiosk_id=kiosk_id,
             status=status_decision,
             reason=reason,
             scan_time=now
@@ -112,9 +207,16 @@ class AccessService:
     @staticmethod
     async def process_check_in(user_id: uuid.UUID, db: AsyncSession):
         """Staff Check-in."""
+        open_log_stmt = select(AttendanceLog).where(
+            AttendanceLog.user_id == user_id,
+            AttendanceLog.check_out_time.is_(None)
+        ).order_by(AttendanceLog.check_in_time.desc()).limit(1)
+        open_log_result = await db.execute(open_log_stmt)
+        open_log = open_log_result.scalar_one_or_none()
+        if open_log:
+            raise HTTPException(status_code=400, detail="User already has an active check-in")
+
         now = datetime.now(timezone.utc)
-        # Check if already checked in without check out? 
-        # Requirement: "POST /access/check-in creates an attendance_log entry"
         log = AttendanceLog(
             user_id=user_id,
             check_in_time=now

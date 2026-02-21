@@ -2,6 +2,8 @@
 
 import React, { createContext, useContext, useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
+import { clearTokens, getAccessToken, setTokens } from '@/lib/tokenStorage';
+import { api } from '@/lib/api';
 
 interface User {
     email: string;
@@ -16,7 +18,7 @@ interface User {
 
 interface AuthContextType {
     user: User | null;
-    login: (token: string, userData: User) => void;
+    login: (accessToken: string, refreshToken: string, userData: User) => void;
     logout: () => void;
     updateUser: (userData: User) => void;
     isLoading: boolean;
@@ -30,25 +32,51 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     const router = useRouter();
 
     useEffect(() => {
-        // Check for token on mount
-        const token = localStorage.getItem('token');
-        const storedUser = localStorage.getItem('user');
+        const initializeAuth = async () => {
+            const token = getAccessToken();
+            const storedUser = localStorage.getItem('user');
 
-        if (token && storedUser) {
-            setTimeout(() => setUser(JSON.parse(storedUser)), 0);
-        }
-        setTimeout(() => setIsLoading(false), 0);
+            if (!token) {
+                setIsLoading(false);
+                return;
+            }
+
+            if (storedUser) {
+                setUser(JSON.parse(storedUser));
+            }
+
+            try {
+                const meResp = await api.get('/auth/me');
+                const freshUser = meResp.data?.data;
+                if (freshUser) {
+                    localStorage.setItem('user', JSON.stringify(freshUser));
+                    setUser(freshUser);
+                }
+            } catch {
+                if (!storedUser) {
+                    clearTokens();
+                    localStorage.removeItem('user');
+                    setUser(null);
+                }
+            } finally {
+                setIsLoading(false);
+            }
+        };
+
+        setTimeout(() => {
+            initializeAuth();
+        }, 0);
     }, []);
 
-    const login = (token: string, userData: User) => {
-        localStorage.setItem('token', token);
+    const login = (accessToken: string, refreshToken: string, userData: User) => {
+        setTokens(accessToken, refreshToken);
         localStorage.setItem('user', JSON.stringify(userData));
         setUser(userData);
         router.push('/dashboard');
     };
 
     const logout = () => {
-        localStorage.removeItem('token');
+        clearTokens();
         localStorage.removeItem('user');
         setUser(null);
         router.push('/login');

@@ -27,8 +27,15 @@ POSTGRES_PORT=5432
 
 # Application Secrets
 SECRET_KEY=dev_secret_key_change_in_prod
+KIOSK_SIGNING_KEY=dev_kiosk_signing_key_change_in_prod  # Optional, falls back to SECRET_KEY when unset
 ALGORITHM=HS256
 ACCESS_TOKEN_EXPIRE_MINUTES=30
 
 # CORS (Frontend URLs)
 BACKEND_CORS_ORIGINS=["http://localhost:3000","http://localhost:8000"]
+
+# Frontend Public Config
+NEXT_PUBLIC_KIOSK_ID=kiosk-01
+```
+
+For multiple kiosk deployments, assign a unique `NEXT_PUBLIC_KIOSK_ID` per deployment and restart the frontend process for the change to take effect.

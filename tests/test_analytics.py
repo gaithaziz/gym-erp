@@ -7,7 +7,7 @@ from app.models.access import Subscription, SubscriptionStatus, AttendanceLog
 from app.models.hr import Payroll
 from app.auth.security import get_password_hash
 from datetime import datetime, timedelta, timezone
-from app.models.finance import Transaction, TransactionType
+from app.models.finance import Transaction, TransactionType, TransactionCategory
 
 @pytest.mark.asyncio
 async def test_analytics_dashboard(client: AsyncClient, db_session: AsyncSession):
@@ -100,3 +100,96 @@ async def test_attendance_trends(client: AsyncClient, db_session: AsyncSession):
     hour_stat = next((t for t in trends if t["hour"] == target_hour), None)
     assert hour_stat is not None
     assert hour_stat["visits"] >= 3
+
+
+@pytest.mark.asyncio
+async def test_revenue_chart_is_sorted_by_real_date(client: AsyncClient, db_session: AsyncSession):
+    password = "password123"
+    hashed = get_password_hash(password)
+    admin = User(email="admin_chart_order@gym.com", hashed_password=hashed, role="ADMIN", full_name="Admin Chart")
+    db_session.add(admin)
+    await db_session.flush()
+
+    token = await client.post(
+        f"{settings.API_V1_STR}/auth/login",
+        json={"email": "admin_chart_order@gym.com", "password": password}
+    )
+    headers = {"Authorization": f"Bearer {token.json()['data']['access_token']}"}
+
+    now = datetime.now(timezone.utc)
+    db_session.add_all([
+        Transaction(
+            amount=10.0,
+            type=TransactionType.INCOME,
+            category=TransactionCategory.SUBSCRIPTION,
+            date=now - timedelta(days=1),
+            description="D-1 income",
+        ),
+        Transaction(
+            amount=20.0,
+            type=TransactionType.INCOME,
+            category=TransactionCategory.SUBSCRIPTION,
+            date=now - timedelta(days=3),
+            description="D-3 income",
+        ),
+        Transaction(
+            amount=5.0,
+            type=TransactionType.EXPENSE,
+            category=TransactionCategory.UTILITIES,
+            date=now - timedelta(days=2),
+            description="D-2 expense",
+        ),
+    ])
+    await db_session.commit()
+
+    resp = await client.get(f"{settings.API_V1_STR}/analytics/revenue-chart?days=7", headers=headers)
+    assert resp.status_code == 200
+    chart = resp.json()["data"]
+
+    dates = [item["date"] for item in chart]
+    assert dates == sorted(dates)
+
+
+@pytest.mark.asyncio
+async def test_dashboard_supports_from_to_filters(client: AsyncClient, db_session: AsyncSession):
+    password = "password123"
+    hashed = get_password_hash(password)
+    admin = User(email="admin_dashboard_filter@gym.com", hashed_password=hashed, role="ADMIN", full_name="Admin Filter")
+    db_session.add(admin)
+    await db_session.flush()
+
+    token = await client.post(
+        f"{settings.API_V1_STR}/auth/login",
+        json={"email": "admin_dashboard_filter@gym.com", "password": password}
+    )
+    headers = {"Authorization": f"Bearer {token.json()['data']['access_token']}"}
+
+    now = datetime.now(timezone.utc)
+    old_date = now - timedelta(days=40)
+    db_session.add_all([
+        Transaction(
+            amount=200.0,
+            type=TransactionType.INCOME,
+            category=TransactionCategory.SUBSCRIPTION,
+            date=old_date,
+            description="Old income",
+        ),
+        Transaction(
+            amount=75.0,
+            type=TransactionType.INCOME,
+            category=TransactionCategory.SUBSCRIPTION,
+            date=now,
+            description="Current income",
+        ),
+    ])
+    await db_session.commit()
+
+    from_param = (now - timedelta(days=1)).date().isoformat()
+    to_param = now.date().isoformat()
+    resp = await client.get(
+        f"{settings.API_V1_STR}/analytics/dashboard?from={from_param}&to={to_param}",
+        headers=headers,
+    )
+    assert resp.status_code == 200
+    data = resp.json()["data"]
+    assert data["monthly_revenue"] == 75.0

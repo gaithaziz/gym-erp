@@ -3,6 +3,7 @@
 import { useEffect, useState, useCallback } from 'react';
 import { api } from '@/lib/api';
 import { Package, Plus, Search, Edit, Trash2, AlertTriangle, X } from 'lucide-react';
+import { useFeedback } from '@/components/FeedbackProvider';
 
 interface Product {
     id: string;
@@ -21,10 +22,13 @@ interface Product {
 const CATEGORIES = ['SUPPLEMENT', 'DRINK', 'MERCHANDISE', 'SNACK', 'OTHER'];
 
 export default function InventoryPage() {
+    const { showToast, confirm: confirmAction } = useFeedback();
     const [products, setProducts] = useState<Product[]>([]);
     const [loading, setLoading] = useState(true);
     const [search, setSearch] = useState('');
     const [categoryFilter, setCategoryFilter] = useState('');
+    const [debouncedSearch, setDebouncedSearch] = useState('');
+    const [debouncedCategoryFilter, setDebouncedCategoryFilter] = useState('');
     const [showModal, setShowModal] = useState(false);
     const [editingProduct, setEditingProduct] = useState<Product | null>(null);
     const [form, setForm] = useState({
@@ -33,11 +37,19 @@ export default function InventoryPage() {
     });
     const [saving, setSaving] = useState(false);
 
+    useEffect(() => {
+        const timer = setTimeout(() => {
+            setDebouncedSearch(search.trim());
+            setDebouncedCategoryFilter(categoryFilter);
+        }, 300);
+        return () => clearTimeout(timer);
+    }, [search, categoryFilter]);
+
     const fetchProducts = useCallback(async () => {
         try {
             const params = new URLSearchParams();
-            if (search) params.set('search', search);
-            if (categoryFilter) params.set('category', categoryFilter);
+            if (debouncedSearch) params.set('search', debouncedSearch);
+            if (debouncedCategoryFilter) params.set('category', debouncedCategoryFilter);
             const res = await api.get(`/inventory/products?${params.toString()}`);
             setProducts(res.data.data);
         } catch {
@@ -45,7 +57,7 @@ export default function InventoryPage() {
         } finally {
             setLoading(false);
         }
-    }, [search, categoryFilter]);
+    }, [debouncedSearch, debouncedCategoryFilter]);
 
     useEffect(() => {
         fetchProducts();
@@ -90,18 +102,26 @@ export default function InventoryPage() {
             fetchProducts();
         } catch {
             console.error('Failed to save product');
+            showToast('Failed to save product', 'error');
         } finally {
             setSaving(false);
         }
     };
 
     const handleDelete = async (id: string) => {
-        if (!confirm('Deactivate this product?')) return;
+        const confirmed = await confirmAction({
+            title: 'Deactivate Product',
+            description: 'Deactivate this product?',
+            confirmText: 'Deactivate',
+            destructive: true,
+        });
+        if (!confirmed) return;
         try {
             await api.delete(`/inventory/products/${id}`);
             fetchProducts();
         } catch {
             console.error('Failed to delete product');
+            showToast('Failed to delete product', 'error');
         }
     };
 

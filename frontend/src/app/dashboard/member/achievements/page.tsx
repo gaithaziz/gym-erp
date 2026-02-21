@@ -22,19 +22,19 @@ interface GamificationStats {
     badges: Badge[];
 }
 
-// All possible badges the user can earn — used to show locked ones
+// All possible badges the user can earn - used to show locked ones
 const ALL_BADGES = [
-    { type: 'STREAK_3', name: '🔥 3-Day Streak', desc: 'Visit 3 days in a row' },
-    { type: 'STREAK_7', name: '🔥 Weekly Warrior', desc: 'Visit 7 days in a row' },
-    { type: 'STREAK_14', name: '🔥 Fortnight Force', desc: 'Visit 14 days in a row' },
-    { type: 'STREAK_30', name: '🔥 Monthly Machine', desc: 'Visit 30 days in a row' },
-    { type: 'VISITS_10', name: '🏅 10 Club Visits', desc: 'Check in 10 times' },
-    { type: 'VISITS_25', name: '🏅 25 Club Visits', desc: 'Check in 25 times' },
-    { type: 'VISITS_50', name: '🏅 50 Club Visits', desc: 'Check in 50 times' },
-    { type: 'VISITS_100', name: '🏅 100 Club', desc: 'Check in 100 times' },
-    { type: 'VISITS_250', name: '🏅 250 Club Legend', desc: 'Check in 250 times' },
+    { type: 'STREAK_3', name: '3-Day Streak', desc: 'Visit 3 days in a row' },
+    { type: 'STREAK_7', name: 'Weekly Warrior', desc: 'Visit 7 days in a row' },
+    { type: 'STREAK_14', name: 'Fortnight Force', desc: 'Visit 14 days in a row' },
+    { type: 'STREAK_30', name: 'Monthly Machine', desc: 'Visit 30 days in a row' },
+    { type: 'VISITS_10', name: '10 Club Visits', desc: 'Check in 10 times' },
+    { type: 'VISITS_25', name: '25 Club Visits', desc: 'Check in 25 times' },
+    { type: 'VISITS_50', name: '50 Club Visits', desc: 'Check in 50 times' },
+    { type: 'VISITS_100', name: '100 Club', desc: 'Check in 100 times' },
+    { type: 'VISITS_250', name: '250 Club Legend', desc: 'Check in 250 times' },
     { type: 'EARLY_BIRD', name: '🌅 Early Bird', desc: 'Check in before 7 AM' },
-    { type: 'NIGHT_OWL', name: '🦉 Night Owl', desc: 'Check in after 9 PM' },
+    { type: 'NIGHT_OWL', name: 'Night Owl', desc: 'Check in after 9 PM' },
 ];
 
 export default function AchievementsPage() {

@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react';
 import { api } from '@/lib/api';
 import { Plus, Dumbbell, Trash2, ChevronDown, ChevronUp, UserPlus, Pencil, Save, X } from 'lucide-react';
 import Modal from '@/components/Modal';
+import { useFeedback } from '@/components/FeedbackProvider';
 
 interface Exercise {
     id: string;
@@ -41,6 +42,7 @@ interface Plan {
 }
 
 export default function WorkoutPlansPage() {
+    const { showToast, confirm: confirmAction } = useFeedback();
     const [plans, setPlans] = useState<Plan[]>([]);
     const [exercises, setExercises] = useState<Exercise[]>([]);
     const [members, setMembers] = useState<Member[]>([]);
@@ -139,7 +141,9 @@ export default function WorkoutPlansPage() {
 
             setShowModal(false);
             fetchData();
-        } catch { alert(`Failed to ${editingPlan ? 'update' : 'create'} plan`); }
+        } catch {
+            showToast(`Failed to ${editingPlan ? 'update' : 'create'} plan`, 'error');
+        }
     };
 
     const openAssign = (plan: Plan) => {
@@ -171,19 +175,27 @@ export default function WorkoutPlansPage() {
 
             await api.post('/fitness/plans', payload);
             setAssignModalOpen(false);
-            alert(`Plan assigned to ${members.find(m => m.id === assignMemberId)?.full_name}`);
+            showToast(`Plan assigned to ${members.find(m => m.id === assignMemberId)?.full_name}`, 'success');
             fetchData();
         } catch {
-            alert("Failed to assign plan.");
+            showToast('Failed to assign plan.', 'error');
         }
     };
 
     const handleDelete = async (planId: string) => {
-        if (!confirm('Are you sure you want to delete this plan?')) return;
+        const confirmed = await confirmAction({
+            title: 'Delete Workout Plan',
+            description: 'Are you sure you want to delete this plan?',
+            confirmText: 'Delete',
+            destructive: true,
+        });
+        if (!confirmed) return;
         try {
             await api.delete(`/fitness/plans/${planId}`);
             fetchData();
-        } catch { alert("Failed to delete plan"); }
+        } catch {
+            showToast('Failed to delete plan', 'error');
+        }
     };
 
     const toggleExpand = (planId: string) => {
@@ -192,7 +204,7 @@ export default function WorkoutPlansPage() {
 
     if (loading) return (
         <div className="flex h-64 items-center justify-center">
-            <div className="h-8 w-8 animate-spin rounded-full border-4 border-[#FF6B00] border-t-transparent" />
+            <div className="h-8 w-8 animate-spin rounded-full border-4 border-primary border-t-transparent" />
         </div>
     );
 
@@ -200,8 +212,8 @@ export default function WorkoutPlansPage() {
         <div className="space-y-8">
             <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
                 <div>
-                    <h1 className="text-2xl font-bold text-white">Workout Plans</h1>
-                    <p className="text-sm text-[#6B6B6B] mt-1">Create and manage training programs</p>
+                    <h1 className="text-2xl font-bold text-foreground">Workout Plans</h1>
+                    <p className="text-sm text-muted-foreground mt-1">Create and manage training programs</p>
                 </div>
                 <button onClick={handleOpenCreateModal} className="btn-primary">
                     <Plus size={18} /> Create Plan
@@ -261,10 +273,10 @@ export default function WorkoutPlansPage() {
                                 <Trash2 size={14} /> Del
                             </button>
                         </div>
-                        <div className="border-t border-white/5 pt-3">
+                        <div className="border-t border-border pt-3">
                             <button
                                 onClick={() => toggleExpand(plan.id)}
-                                className="text-[#FF6B00] text-sm font-medium hover:text-[#FF8533] transition-colors flex items-center gap-1"
+                                className="text-primary text-sm font-medium hover:text-primary/80 transition-colors flex items-center gap-1"
                             >
                                 {expandedPlan === plan.id ? (
                                     <><ChevronUp size={16} /> Collapse</>
@@ -277,9 +289,9 @@ export default function WorkoutPlansPage() {
                 ))}
 
                 {plans.filter(p => !p.member_id).length === 0 && (
-                    <div className="col-span-full text-center py-16 chart-card border-dashed !border-[#333]">
-                        <Dumbbell size={40} className="mx-auto text-[#333] mb-3" />
-                        <p className="text-[#6B6B6B] text-sm">No workout templates yet. Create your first one!</p>
+                    <div className="col-span-full text-center py-16 chart-card border-dashed !border-border">
+                        <Dumbbell size={40} className="mx-auto text-muted-foreground mb-3" />
+                        <p className="text-muted-foreground text-sm">No workout templates yet. Create your first one!</p>
                     </div>
                 )}
             </div>
@@ -351,7 +363,7 @@ export default function WorkoutPlansPage() {
                                     <select className="input-dark" value={assignedMemberId} onChange={e => setAssignedMemberId(e.target.value)}>
                                         <option value="">Unassigned (template)</option>
                                         {members.map(m => (
-                                            <option key={m.id} value={m.id}>{m.full_name} — {m.email}</option>
+                                            <option key={m.id} value={m.id}>{m.full_name} - {m.email}</option>
                                         ))}
                                     </select>
                                 </div>
@@ -395,7 +407,7 @@ export default function WorkoutPlansPage() {
                                                     <span className="font-medium text-foreground">{ex.name}</span>
                                                 </div>
                                                 <div className="flex items-center gap-4">
-                                                    <span className="text-muted-foreground text-sm">{ex.sets} × {ex.reps}</span>
+                                                    <span className="text-muted-foreground text-sm">{ex.sets} x {ex.reps}</span>
                                                     <button type="button" onClick={() => setSelectedExercises(prev => prev.filter((_, i) => i !== idx))} className="text-muted-foreground hover:text-destructive transition-colors">
                                                         <Trash2 size={16} />
                                                     </button>

@@ -20,11 +20,25 @@ async def test_fitness_flow(client: AsyncClient, db_session: AsyncSession):
     headers = {"Authorization": f"Bearer {token}"}
     
     # 2. Create Exercise
+    invalid_url_resp = await client.post(
+        f"{settings.API_V1_STR}/fitness/exercises",
+        json={"name": "Invalid URL", "category": "Chest", "video_url": "not-a-url"},
+        headers=headers,
+    )
+    assert invalid_url_resp.status_code == 422
+
+    unsupported_provider_resp = await client.post(
+        f"{settings.API_V1_STR}/fitness/exercises",
+        json={"name": "Unsupported Provider", "category": "Chest", "video_url": "https://example.com/video"},
+        headers=headers,
+    )
+    assert unsupported_provider_resp.status_code == 422
+
     ex_data = {
         "name": "Push Up",
         "category": "Chest",
         "description": "Standard push up",
-        "video_url": "http://video.com/pushup"
+        "video_url": "https://www.youtube.com/watch?v=dQw4w9WgXcQ"
     }
     resp = await client.post(f"{settings.API_V1_STR}/fitness/exercises", json=ex_data, headers=headers)
     assert resp.status_code == 200
@@ -58,3 +72,213 @@ async def test_fitness_flow(client: AsyncClient, db_session: AsyncSession):
     plans = resp_plans.json()["data"]
     assert len(plans) > 0
     assert plans[0]["name"] == "Beginner Chest"
+
+
+@pytest.mark.asyncio
+async def test_customer_can_only_log_assigned_plan(client: AsyncClient, db_session: AsyncSession):
+    password = "password123"
+    hashed = get_password_hash(password)
+
+    coach = User(email="coach_assign@gym.com", hashed_password=hashed, role=Role.COACH, full_name="Coach Assign")
+    customer_assigned = User(email="assigned@gym.com", hashed_password=hashed, role=Role.CUSTOMER, full_name="Assigned Member")
+    customer_other = User(email="other@gym.com", hashed_password=hashed, role=Role.CUSTOMER, full_name="Other Member")
+    db_session.add_all([coach, customer_assigned, customer_other])
+    await db_session.flush()
+
+    coach_login = await client.post(
+        f"{settings.API_V1_STR}/auth/login",
+        json={"email": "coach_assign@gym.com", "password": password}
+    )
+    coach_headers = {"Authorization": f"Bearer {coach_login.json()['data']['access_token']}"}
+
+    exercise_resp = await client.post(
+        f"{settings.API_V1_STR}/fitness/exercises",
+        json={"name": "Squat", "category": "Legs"},
+        headers=coach_headers,
+    )
+    exercise_id = exercise_resp.json()["data"]["id"]
+
+    plan_resp = await client.post(
+        f"{settings.API_V1_STR}/fitness/plans",
+        json={
+            "name": "Assigned Plan",
+            "member_id": str(customer_assigned.id),
+            "exercises": [{"exercise_id": exercise_id, "sets": 3, "reps": 8, "order": 1}],
+        },
+        headers=coach_headers,
+    )
+    plan_id = plan_resp.json()["data"]["id"]
+
+    other_login = await client.post(
+        f"{settings.API_V1_STR}/auth/login",
+        json={"email": "other@gym.com", "password": password}
+    )
+    other_headers = {"Authorization": f"Bearer {other_login.json()['data']['access_token']}"}
+
+    forbidden_log = await client.post(
+        f"{settings.API_V1_STR}/fitness/log",
+        json={"plan_id": plan_id, "completed": True, "difficulty_rating": 3},
+        headers=other_headers,
+    )
+    assert forbidden_log.status_code == 403
+
+    assigned_login = await client.post(
+        f"{settings.API_V1_STR}/auth/login",
+        json={"email": "assigned@gym.com", "password": password}
+    )
+    assigned_headers = {"Authorization": f"Bearer {assigned_login.json()['data']['access_token']}"}
+
+    allowed_log = await client.post(
+        f"{settings.API_V1_STR}/fitness/log",
+        json={"plan_id": plan_id, "completed": True, "difficulty_rating": 4},
+        headers=assigned_headers,
+    )
+    assert allowed_log.status_code == 200
+
+
+@pytest.mark.asyncio
+async def test_coach_cannot_view_other_coach_plan_logs(client: AsyncClient, db_session: AsyncSession):
+    password = "password123"
+    hashed = get_password_hash(password)
+
+    coach_owner = User(email="coach_owner@gym.com", hashed_password=hashed, role=Role.COACH, full_name="Coach Owner")
+    coach_other = User(email="coach_other@gym.com", hashed_password=hashed, role=Role.COACH, full_name="Coach Other")
+    customer = User(email="logs_member@gym.com", hashed_password=hashed, role=Role.CUSTOMER, full_name="Logs Member")
+    db_session.add_all([coach_owner, coach_other, customer])
+    await db_session.flush()
+
+    owner_login = await client.post(
+        f"{settings.API_V1_STR}/auth/login",
+        json={"email": "coach_owner@gym.com", "password": password}
+    )
+    owner_headers = {"Authorization": f"Bearer {owner_login.json()['data']['access_token']}"}
+
+    other_login = await client.post(
+        f"{settings.API_V1_STR}/auth/login",
+        json={"email": "coach_other@gym.com", "password": password}
+    )
+    other_headers = {"Authorization": f"Bearer {other_login.json()['data']['access_token']}"}
+
+    member_login = await client.post(
+        f"{settings.API_V1_STR}/auth/login",
+        json={"email": "logs_member@gym.com", "password": password}
+    )
+    member_headers = {"Authorization": f"Bearer {member_login.json()['data']['access_token']}"}
+
+    exercise_resp = await client.post(
+        f"{settings.API_V1_STR}/fitness/exercises",
+        json={"name": "Bench Press", "category": "Chest"},
+        headers=owner_headers,
+    )
+    exercise_id = exercise_resp.json()["data"]["id"]
+
+    plan_resp = await client.post(
+        f"{settings.API_V1_STR}/fitness/plans",
+        json={
+            "name": "Owner Plan",
+            "member_id": str(customer.id),
+            "exercises": [{"exercise_id": exercise_id, "sets": 4, "reps": 6, "order": 1}],
+        },
+        headers=owner_headers,
+    )
+    plan_id = plan_resp.json()["data"]["id"]
+
+    log_resp = await client.post(
+        f"{settings.API_V1_STR}/fitness/log",
+        json={"plan_id": plan_id, "completed": True, "difficulty_rating": 4},
+        headers=member_headers,
+    )
+    assert log_resp.status_code == 200
+
+    forbidden_logs = await client.get(
+        f"{settings.API_V1_STR}/fitness/logs/{plan_id}",
+        headers=other_headers,
+    )
+    assert forbidden_logs.status_code == 403
+
+    owner_logs = await client.get(
+        f"{settings.API_V1_STR}/fitness/logs/{plan_id}",
+        headers=owner_headers,
+    )
+    assert owner_logs.status_code == 200
+
+
+@pytest.mark.asyncio
+async def test_coach_can_clone_template_plan(client: AsyncClient, db_session: AsyncSession):
+    password = "password123"
+    hashed = get_password_hash(password)
+
+    coach = User(email="coach_templates@gym.com", hashed_password=hashed, role=Role.COACH, full_name="Coach Templates")
+    member = User(email="member_templates@gym.com", hashed_password=hashed, role=Role.CUSTOMER, full_name="Template Member")
+    db_session.add_all([coach, member])
+    await db_session.flush()
+
+    coach_login = await client.post(
+        f"{settings.API_V1_STR}/auth/login",
+        json={"email": "coach_templates@gym.com", "password": password}
+    )
+    headers = {"Authorization": f"Bearer {coach_login.json()['data']['access_token']}"}
+
+    exercise_resp = await client.post(
+        f"{settings.API_V1_STR}/fitness/exercises",
+        json={"name": "Deadlift", "category": "Back"},
+        headers=headers,
+    )
+    exercise_id = exercise_resp.json()["data"]["id"]
+
+    template_resp = await client.post(
+        f"{settings.API_V1_STR}/fitness/plans",
+        json={
+            "name": "Strength Template",
+            "is_template": True,
+            "exercises": [{"exercise_id": exercise_id, "sets": 5, "reps": 5, "order": 1}],
+        },
+        headers=headers,
+    )
+    assert template_resp.status_code == 200
+    template_plan_id = template_resp.json()["data"]["id"]
+
+    clone_resp = await client.post(
+        f"{settings.API_V1_STR}/fitness/plans/{template_plan_id}/clone",
+        json={"name": "Member Strength Plan", "member_id": str(member.id)},
+        headers=headers,
+    )
+    assert clone_resp.status_code == 200
+    cloned_plan_id = clone_resp.json()["data"]["id"]
+
+    list_resp = await client.get(f"{settings.API_V1_STR}/fitness/plans", headers=headers)
+    assert list_resp.status_code == 200
+    plans = list_resp.json()["data"]
+
+    cloned = next(p for p in plans if p["id"] == cloned_plan_id)
+    assert cloned["name"] == "Member Strength Plan"
+    assert cloned["member_id"] == str(member.id)
+    assert cloned["is_template"] is False
+
+
+@pytest.mark.asyncio
+async def test_biometrics_supports_pagination(client: AsyncClient, db_session: AsyncSession):
+    password = "password123"
+    hashed = get_password_hash(password)
+    member = User(email="member_bio_page@gym.com", hashed_password=hashed, role=Role.CUSTOMER, full_name="Bio Page Member")
+    db_session.add(member)
+    await db_session.commit()
+
+    login_resp = await client.post(
+        f"{settings.API_V1_STR}/auth/login",
+        json={"email": "member_bio_page@gym.com", "password": password}
+    )
+    headers = {"Authorization": f"Bearer {login_resp.json()['data']['access_token']}"}
+
+    first_log = await client.post(f"{settings.API_V1_STR}/fitness/biometrics", json={"weight_kg": 80.0}, headers=headers)
+    second_log = await client.post(f"{settings.API_V1_STR}/fitness/biometrics", json={"weight_kg": 79.5}, headers=headers)
+    assert first_log.status_code == 200
+    assert second_log.status_code == 200
+
+    paged_resp = await client.get(f"{settings.API_V1_STR}/fitness/biometrics?limit=1&offset=0", headers=headers)
+    assert paged_resp.status_code == 200
+    assert len(paged_resp.json()["data"]) == 1
+
+    next_page_resp = await client.get(f"{settings.API_V1_STR}/fitness/biometrics?limit=1&offset=1", headers=headers)
+    assert next_page_resp.status_code == 200
+    assert len(next_page_resp.json()["data"]) == 1

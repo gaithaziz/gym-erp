@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react';
 import { api } from '@/lib/api';
 import { Check, X, Edit2 } from 'lucide-react';
+import { useFeedback } from '@/components/FeedbackProvider';
 
 interface AttendanceLog {
     id: string;
@@ -14,6 +15,7 @@ interface AttendanceLog {
 }
 
 export default function AttendancePage() {
+    const { showToast } = useFeedback();
     const [logs, setLogs] = useState<AttendanceLog[]>([]);
     const [loading, setLoading] = useState(true);
     const [editingId, setEditingId] = useState<string | null>(null);
@@ -45,11 +47,13 @@ export default function AttendancePage() {
             });
             setEditingId(null);
             fetchLogs();
-        } catch { alert('Failed to update'); }
+        } catch {
+            showToast('Failed to update attendance record', 'error');
+        }
     };
 
     const fmt = (iso: string | null) => {
-        if (!iso) return '—';
+        if (!iso) return '-';
         const d = new Date(iso);
         return d.toLocaleString(undefined, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
     };
@@ -97,7 +101,7 @@ export default function AttendancePage() {
                                         ) : fmt(log.check_out_time)}
                                     </td>
                                     <td className="text-right font-mono text-sm !text-white">
-                                        {log.hours_worked != null ? `${log.hours_worked}h` : '—'}
+                                        {log.hours_worked != null ? `${log.hours_worked}h` : '-'}
                                     </td>
                                     <td className="text-center">
                                         {editingId === log.id ? (

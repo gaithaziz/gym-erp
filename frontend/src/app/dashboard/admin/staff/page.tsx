@@ -5,6 +5,7 @@ import { api } from '@/lib/api';
 import Image from 'next/image';
 import { FileText, Pencil, Calculator, Save, Plus, Download, Eye } from 'lucide-react';
 import Modal from '@/components/Modal';
+import { useFeedback } from '@/components/FeedbackProvider';
 
 interface StaffMember {
     id: string;
@@ -40,6 +41,7 @@ const defaultEditForm = {
 };
 
 export default function StaffPage() {
+    const { showToast } = useFeedback();
     const [staff, setStaff] = useState<StaffMember[]>([]);
     const [loading, setLoading] = useState(true);
     const [isAddOpen, setIsAddOpen] = useState(false);
@@ -87,7 +89,10 @@ export default function StaffPage() {
             setIsAddOpen(false);
             setAddForm(defaultAddForm);
             fetchStaff();
-        } catch (err) { console.error(err); alert('Failed to create staff member.'); }
+        } catch (err) {
+            console.error(err);
+            showToast('Failed to create staff member.', 'error');
+        }
     };
 
     const openEdit = (member: StaffMember) => {
@@ -112,7 +117,10 @@ export default function StaffPage() {
             setIsEditOpen(false);
             setEditTarget(null);
             fetchStaff();
-        } catch (err) { console.error(err); alert('Failed to update contract.'); }
+        } catch (err) {
+            console.error(err);
+            showToast('Failed to update contract.', 'error');
+        }
     };
 
     const openPayroll = (member: StaffMember) => {
@@ -131,7 +139,10 @@ export default function StaffPage() {
                 year: payrollForm.year, sales_volume: Number(payrollForm.sales_volume)
             });
             setPayrollResult(res.data.data);
-        } catch (err) { console.error(err); alert('Failed to generate payroll.'); }
+        } catch (err) {
+            console.error(err);
+            showToast('Failed to generate payroll.', 'error');
+        }
     };
 
     const handlePrintPayslip = async (payrollId: string) => {
@@ -188,7 +199,7 @@ export default function StaffPage() {
             printWindow.document.write(html);
             printWindow.document.close();
         } catch {
-            alert("Failed to generate payslip");
+            showToast('Failed to generate payslip', 'error');
         }
     };
 
@@ -212,7 +223,7 @@ export default function StaffPage() {
 
             {/* Table */}
             <div className="chart-card overflow-hidden !p-0 border border-border">
-                <div className="overflow-x-auto">
+                <div className="hidden md:block overflow-x-auto">
                     <table className="w-full text-left table-dark min-w-[600px]">
                         <thead>
                             <tr>
@@ -267,7 +278,7 @@ export default function StaffPage() {
                                                     <div className="text-emerald-500 text-xs">+{(member.contract.commission_rate * 100).toFixed(0)}% Comm.</div>
                                                 )}
                                             </div>
-                                        ) : '—'}
+                                        ) : '-'}
                                     </td>
                                     <td>
                                         <div className="flex items-center justify-center gap-2">
@@ -286,6 +297,61 @@ export default function StaffPage() {
                             ))}
                         </tbody>
                     </table>
+                </div>
+
+                <div className="md:hidden divide-y divide-border">
+                    {staff.length === 0 && (
+                        <div className="px-4 py-8 text-center text-sm text-muted-foreground">No staff members yet</div>
+                    )}
+                    {staff.map((member) => (
+                        <div key={member.id} className="p-4">
+                            <div className="flex items-start justify-between gap-3">
+                                <div className="flex items-center gap-3 min-w-0">
+                                    <div className="h-10 w-10 bg-primary/20 rounded-full flex items-center justify-center text-primary font-bold overflow-hidden relative flex-shrink-0">
+                                        {member.profile_picture_url ? (
+                                            <Image src={`${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'}${member.profile_picture_url}`} alt={member.full_name} fill className="object-cover" unoptimized />
+                                        ) : (
+                                            member.full_name.charAt(0)
+                                        )}
+                                    </div>
+                                    <div className="min-w-0">
+                                        <p className="font-medium text-foreground truncate">{member.full_name}</p>
+                                        <p className="text-xs text-muted-foreground truncate">{member.email}</p>
+                                    </div>
+                                </div>
+                                <span className={`badge ${member.role === 'COACH' ? 'badge-orange' : member.role === 'ADMIN' ? 'badge-blue' : 'badge-gray'}`}>
+                                    {member.role}
+                                </span>
+                            </div>
+
+                            <div className="mt-3 grid grid-cols-2 gap-2 text-xs">
+                                <div className="rounded-sm border border-border bg-muted/20 p-2">
+                                    <p className="text-muted-foreground">Contract</p>
+                                    <p className="mt-0.5 font-medium text-foreground">
+                                        {member.contract ? member.contract.type : 'No Contract'}
+                                    </p>
+                                </div>
+                                <div className="rounded-sm border border-border bg-muted/20 p-2">
+                                    <p className="text-muted-foreground">Salary</p>
+                                    <p className="mt-0.5 font-medium text-foreground">
+                                        {member.contract ? `${member.contract.base_salary.toLocaleString()} JOD` : '--'}
+                                    </p>
+                                </div>
+                            </div>
+
+                            <div className="mt-3 grid grid-cols-3 gap-2">
+                                <button onClick={() => openView(member)} className="btn-ghost !px-2 !py-2 h-auto text-xs text-emerald-400 hover:text-emerald-300 justify-center" title="View Profile">
+                                    <Eye size={13} /> View
+                                </button>
+                                <button onClick={() => openEdit(member)} className="btn-ghost !px-2 !py-2 h-auto text-xs text-primary hover:text-primary/80 justify-center">
+                                    <Pencil size={13} /> Edit
+                                </button>
+                                <button onClick={() => openPayroll(member)} className="btn-ghost !px-2 !py-2 h-auto text-xs text-emerald-500 hover:text-emerald-400 justify-center">
+                                    <Calculator size={13} /> Payroll
+                                </button>
+                            </div>
+                        </div>
+                    ))}
                 </div>
             </div>
 

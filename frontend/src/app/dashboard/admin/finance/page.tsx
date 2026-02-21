@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react';
 import { api } from '@/lib/api';
 import { Plus, ArrowUpCircle, ArrowDownCircle, Wallet, Printer } from 'lucide-react';
+import { useFeedback } from '@/components/FeedbackProvider';
 
 interface Transaction {
     id: string;
@@ -21,6 +22,7 @@ interface FinanceSummary {
 }
 
 export default function FinancePage() {
+    const { showToast } = useFeedback();
     const [summary, setSummary] = useState<FinanceSummary | null>(null);
     const [transactions, setTransactions] = useState<Transaction[]>([]);
     const [loading, setLoading] = useState(true);
@@ -85,7 +87,7 @@ export default function FinancePage() {
             printWindow.document.write(html);
             printWindow.document.close();
         } catch {
-            alert("Failed to generate receipt");
+            showToast('Failed to generate receipt', 'error');
         }
     };
 
@@ -100,7 +102,7 @@ export default function FinancePage() {
             setFormData({ amount: '', type: 'INCOME', category: 'OTHER_INCOME', description: '', payment_method: 'CASH' });
             fetchData();
         } catch {
-            alert("Failed to log transaction");
+            showToast('Failed to log transaction', 'error');
         }
     };
 
@@ -160,7 +162,7 @@ export default function FinancePage() {
                 <div className="px-6 py-4 border-b border-border">
                     <h3 className="text-sm font-semibold text-muted-foreground">Recent Transactions</h3>
                 </div>
-                <div className="overflow-x-auto">
+                <div className="hidden md:block overflow-x-auto">
                     <table className="w-full text-left table-dark min-w-[550px]">
                         <thead>
                             <tr>
@@ -179,7 +181,7 @@ export default function FinancePage() {
                             {transactions.map((tx) => (
                                 <tr key={tx.id}>
                                     <td>{new Date(tx.date).toLocaleDateString()}</td>
-                                    <td className="!text-foreground font-medium">{tx.description || '—'}</td>
+                                    <td className="!text-foreground font-medium">{tx.description || '-'}</td>
                                     <td className="text-xs">{tx.category.replace(/_/g, ' ')}</td>
                                     <td>
                                         <span className={`badge ${tx.type === 'INCOME' ? 'badge-green' : 'badge-red'}`}>
@@ -198,6 +200,47 @@ export default function FinancePage() {
                             ))}
                         </tbody>
                     </table>
+                </div>
+                <div className="md:hidden divide-y divide-border">
+                    {transactions.length === 0 && (
+                        <div className="px-4 py-8 text-center text-sm text-muted-foreground">No transactions yet</div>
+                    )}
+                    {transactions.map((tx) => (
+                        <div key={tx.id} className="p-4">
+                            <div className="flex items-start justify-between gap-3">
+                                <div className="min-w-0">
+                                    <p className="font-medium text-foreground truncate">{tx.description || '--'}</p>
+                                    <p className="mt-0.5 text-xs text-muted-foreground">{new Date(tx.date).toLocaleDateString()}</p>
+                                </div>
+                                <span className={`badge ${tx.type === 'INCOME' ? 'badge-green' : 'badge-red'}`}>
+                                    {tx.type}
+                                </span>
+                            </div>
+
+                            <div className="mt-3 grid grid-cols-2 gap-2 text-xs">
+                                <div className="rounded-sm border border-border bg-muted/20 p-2">
+                                    <p className="text-muted-foreground">Category</p>
+                                    <p className="mt-0.5 font-medium text-foreground">{tx.category.replace(/_/g, ' ')}</p>
+                                </div>
+                                <div className="rounded-sm border border-border bg-muted/20 p-2">
+                                    <p className="text-muted-foreground">Amount</p>
+                                    <p className={`mt-0.5 font-mono font-semibold ${tx.type === 'INCOME' ? 'text-emerald-500' : 'text-red-500'}`}>
+                                        {tx.type === 'INCOME' ? '+' : '-'}{tx.amount.toFixed(2)}
+                                    </p>
+                                </div>
+                            </div>
+
+                            <div className="mt-3 flex justify-end">
+                                <button
+                                    onClick={() => handlePrintReceipt(tx.id)}
+                                    className="btn-ghost !px-2 !py-2 h-auto text-xs justify-center"
+                                    title="Print Receipt"
+                                >
+                                    <Printer size={14} /> Receipt
+                                </button>
+                            </div>
+                        </div>
+                    ))}
                 </div>
             </div>
 

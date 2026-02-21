@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react';
 import { api } from '@/lib/api';
 import { Plus } from 'lucide-react';
 import Modal from '@/components/Modal';
+import { useFeedback } from '@/components/FeedbackProvider';
 
 interface LeaveRequest {
     id: string;
@@ -15,6 +16,7 @@ interface LeaveRequest {
 }
 
 export default function MyLeavesPage() {
+    const { showToast } = useFeedback();
     const [leaves, setLeaves] = useState<LeaveRequest[]>([]);
     const [loading, setLoading] = useState(true);
     const [isAddOpen, setIsAddOpen] = useState(false);
@@ -55,7 +57,10 @@ export default function MyLeavesPage() {
             setReason('');
             fetchLeaves();
         } catch (err) {
-            alert((err as { response?: { data?: { detail?: string } } })?.response?.data?.detail || "Failed to submit request");
+            showToast(
+                (err as { response?: { data?: { detail?: string } } })?.response?.data?.detail || 'Failed to submit request',
+                'error'
+            );
         }
     };
 
@@ -98,7 +103,7 @@ export default function MyLeavesPage() {
                                         {new Date(l.start_date).toLocaleDateString()} - {new Date(l.end_date).toLocaleDateString()}
                                     </td>
                                     <td><span className="badge badge-gray">{l.leave_type}</span></td>
-                                    <td className="text-muted-foreground">{l.reason || '—'}</td>
+                                    <td className="text-muted-foreground">{l.reason || '-'}</td>
                                     <td>
                                         <span className={`badge ${l.status === 'APPROVED' ? 'badge-green' :
                                             l.status === 'DENIED' ? 'badge-red' : 'badge-amber'

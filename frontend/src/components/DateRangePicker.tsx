@@ -9,25 +9,42 @@ import 'react-day-picker/dist/style.css';
 interface DateRangePickerProps {
     date: DateRange | undefined;
     setDate: (date: DateRange | undefined) => void;
-    className?: string; // Add className prop
+    className?: string;
 }
 
 export function DateRangePicker({
     date,
     setDate,
-    className, // Destructure className
+    className,
 }: DateRangePickerProps) {
     const [isOpen, setIsOpen] = React.useState(false);
+    const pickerId = React.useId();
+    const buttonId = `${pickerId}-button`;
+    const popupId = `${pickerId}-popup`;
+
+    React.useEffect(() => {
+        if (!isOpen) return;
+
+        const handleEscape = (e: KeyboardEvent) => {
+            if (e.key === 'Escape') {
+                setIsOpen(false);
+            }
+        };
+
+        document.addEventListener('keydown', handleEscape);
+        return () => document.removeEventListener('keydown', handleEscape);
+    }, [isOpen]);
 
     return (
-        <div className={`relative inline-block text-left ${className || ''}`}> {/* Ensure className is applied */}
+        <div className={`relative inline-block text-left ${className || ''}`}>
             <div>
                 <button
                     onClick={() => setIsOpen(!isOpen)}
                     className="inline-flex justify-between w-full rounded-none border border-border shadow-sm px-4 py-2 bg-card text-sm font-medium text-foreground hover:bg-muted focus:outline-none focus:ring-1 focus:ring-primary focus:border-primary font-mono"
-                    id="date-picker-menu"
-                    aria-expanded="true"
-                    aria-haspopup="true"
+                    id={buttonId}
+                    aria-expanded={isOpen}
+                    aria-haspopup="dialog"
+                    aria-controls={popupId}
                 >
                     <span className="flex items-center gap-2">
                         <CalendarIcon className="w-4 h-4 text-muted-foreground" />
@@ -49,10 +66,11 @@ export function DateRangePicker({
 
             {isOpen && (
                 <div
+                    id={popupId}
                     className="origin-top-right absolute z-50 mt-2 w-auto rounded-none shadow-lg bg-card ring-1 ring-black ring-opacity-5 focus:outline-none border border-border p-2"
-                    role="menu"
-                    aria-orientation="vertical"
-                    aria-labelledby="date-picker-menu"
+                    role="dialog"
+                    aria-modal="false"
+                    aria-labelledby={buttonId}
                 >
                     <DayPicker
                         mode="range"
@@ -68,6 +86,9 @@ export function DateRangePicker({
                         }}
                         modifiersClassNames={{
                             selected: 'bg-primary text-primary-foreground rounded-none',
+                            range_start: 'bg-primary text-primary-foreground rounded-none',
+                            range_middle: 'bg-primary/20 text-foreground rounded-none',
+                            range_end: 'bg-primary text-primary-foreground rounded-none',
                             today: 'font-bold text-primary',
                         }}
                     />

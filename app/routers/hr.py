@@ -1,6 +1,7 @@
 from datetime import date, datetime
 from typing import Annotated, Optional
 from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi.responses import HTMLResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 from pydantic import BaseModel, Field
@@ -172,28 +173,62 @@ async def generate_payslip(
     
     return StandardResponse(data=payslip_data)
 
+
+@router.get("/payroll/{payroll_id}/payslip/print", response_class=HTMLResponse)
+async def generate_payslip_printable(
+    payroll_id: uuid.UUID,
+    current_user: Annotated[User, Depends(dependencies.get_current_active_user)],
+    db: Annotated[AsyncSession, Depends(get_db)]
+):
+    stmt = select(Payroll).where(Payroll.id == payroll_id)
+    result = await db.execute(stmt)
+    payroll = result.scalar_one_or_none()
+
+    if not payroll:
+        raise HTTPException(status_code=404, detail="Payroll record not found")
+
+    if current_user.role != Role.ADMIN and current_user.id != payroll.user_id:
+        raise HTTPException(status_code=403, detail="Cannot access this payslip")
+
+    user_stmt = select(User).where(User.id == payroll.user_id)
+    user_result = await db.execute(user_stmt)
+    user = user_result.scalar_one_or_none()
+
+    html = f"""
+    <html>
+      <head><title>Payslip {str(payroll.id)[:8].upper()}</title></head>
+      <body style="font-family: Arial, sans-serif; padding: 24px;">
+        <h2>Gym ERP Payslip</h2>
+        <p><strong>Payslip ID:</strong> {str(payroll.id)[:8].upper()}</p>
+        <p><strong>Employee:</strong> {user.full_name if user else "Unknown"}</p>
+        <p><strong>Period:</strong> {payroll.month:02d}/{payroll.year}</p>
+        <p><strong>Base Pay:</strong> {payroll.base_pay:.2f}</p>
+        <p><strong>Overtime:</strong> {payroll.overtime_pay:.2f}</p>
+        <p><strong>Commission:</strong> {payroll.commission_pay:.2f}</p>
+        <p><strong>Deductions:</strong> {payroll.deductions:.2f}</p>
+        <h3>Total Pay: {payroll.total_pay:.2f}</h3>
+      </body>
+    </html>
+    """
+    return HTMLResponse(content=html)
+
 @router.get("/staff", response_model=StandardResponse)
 async def get_staff(
     current_user: Annotated[User, Depends(dependencies.RoleChecker([Role.ADMIN]))],
     db: Annotated[AsyncSession, Depends(get_db)]
 ):
     """List all users with roles COACH or EMPLOYEE, including their contract info."""
-    stmt = select(User).where(User.role.in_([Role.COACH, Role.EMPLOYEE])).order_by(User.full_name)
+    stmt = (
+        select(User, Contract)
+        .outerjoin(Contract, Contract.user_id == User.id)
+        .where(User.role.in_([Role.COACH, Role.EMPLOYEE]))
+        .order_by(User.full_name)
+    )
     result = await db.execute(stmt)
-    staff_members = result.scalars().all()
-    
-    # We might want to fetch contracts too. 
-    # For now, let's just return User info. 
-    # Ideal: join with Contract.
-    
+    staff_members = result.all()
+
     data = []
-    for staff in staff_members:
-        # Lazy load contract if needed, or just return basic info
-        # Let's do a separate query or join for better performance, but for V1 loop is okay for small staff
-        contract_stmt = select(Contract).where(Contract.user_id == staff.id)
-        c_result = await db.execute(contract_stmt)
-        contract = c_result.scalar_one_or_none()
-        
+    for staff, contract in staff_members:
         data.append({
             "id": str(staff.id),
             "full_name": staff.full_name,
@@ -227,23 +262,23 @@ async def list_attendance(
     limit: int = 100
 ):
     """List attendance logs (timesheet). Optionally filter by user_id."""
-    stmt = select(AttendanceLog).order_by(AttendanceLog.check_in_time.desc())
+    stmt = (
+        select(AttendanceLog, User.full_name)
+        .join(User, User.id == AttendanceLog.user_id)
+        .order_by(AttendanceLog.check_in_time.desc())
+    )
     if user_id:
         stmt = stmt.where(AttendanceLog.user_id == user_id)
     stmt = stmt.limit(limit)
     result = await db.execute(stmt)
-    logs = result.scalars().all()
+    logs = result.all()
 
-    # Also fetch user names for display
     data = []
-    for log in logs:
-        user_stmt = select(User).where(User.id == log.user_id)
-        user_result = await db.execute(user_stmt)
-        user = user_result.scalar_one_or_none()
+    for log, user_name in logs:
         data.append({
             "id": str(log.id),
             "user_id": str(log.user_id),
-            "user_name": user.full_name if user else "Unknown",
+            "user_name": user_name or "Unknown",
             "check_in_time": log.check_in_time.isoformat() if log.check_in_time else None,
             "check_out_time": log.check_out_time.isoformat() if log.check_out_time else None,
             "hours_worked": log.hours_worked
@@ -277,10 +312,27 @@ async def correct_attendance(
         from datetime import timezone
         cin = log.check_in_time if log.check_in_time.tzinfo else log.check_in_time.replace(tzinfo=timezone.utc)
         cout = log.check_out_time if log.check_out_time.tzinfo else log.check_out_time.replace(tzinfo=timezone.utc)
+
+        if cout < cin:
+            raise HTTPException(status_code=400, detail="check_out_time cannot be earlier than check_in_time")
+
         duration = cout - cin
+        if duration.total_seconds() > 24 * 3600:
+            raise HTTPException(status_code=400, detail="Shift duration cannot exceed 24 hours")
+
         log.hours_worked = round(duration.total_seconds() / 3600.0, 2)
 
     await db.commit()
+
+    await AuditService.log_action(
+        db=db,
+        user_id=current_user.id,
+        action="CORRECT_ATTENDANCE",
+        target_id=str(attendance_id),
+        details="Attendance record corrected by admin",
+    )
+    await db.commit()
+
     return StandardResponse(message="Attendance record corrected")
 
 

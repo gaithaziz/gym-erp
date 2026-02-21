@@ -24,6 +24,7 @@ import {
 } from "lucide-react";
 import { ThemeToggle } from "@/components/ThemeToggle";
 import { useEffect, useState } from 'react';
+import { resolveProfileImageUrl } from '@/lib/profileImage';
 
 export default function DashboardLayout({
     children,
@@ -34,6 +35,7 @@ export default function DashboardLayout({
     const router = useRouter();
     const pathname = usePathname();
     const [sidebarOpen, setSidebarOpen] = useState(false);
+    const profileImageUrl = resolveProfileImageUrl(user?.profile_picture_url);
 
     useEffect(() => {
         if (!isLoading && !user) {
@@ -49,7 +51,7 @@ export default function DashboardLayout({
 
     if (isLoading || !user) {
         return (
-            <div className="flex h-screen items-center justify-center bg-background">
+            <div className="flex min-h-dvh items-center justify-center bg-background">
                 <div className="flex flex-col items-center gap-3">
                     <div className="h-10 w-10 animate-spin rounded-full border-4 border-primary border-t-transparent" />
                     <p className="text-sm text-muted-foreground">Loading...</p>
@@ -59,30 +61,37 @@ export default function DashboardLayout({
     }
 
     const navItems = [
-        { href: '/dashboard', label: 'Dashboard', icon: LayoutDashboard, roles: ['ADMIN', 'COACH', 'CUSTOMER'] },
-        { href: '/dashboard/admin/members', label: 'Members', icon: UserCheck, roles: ['ADMIN'] },
-        { href: '/dashboard/admin/staff', label: 'Staff', icon: Users, roles: ['ADMIN'] },
-        { href: '/dashboard/admin/staff/attendance', label: 'Attendance', icon: ClipboardList, roles: ['ADMIN'] },
-        { href: '/dashboard/admin/leaves', label: 'HR Leaves', icon: ClipboardList, roles: ['ADMIN'] },
-        { href: '/dashboard/admin/finance', label: 'Financials', icon: Wallet, roles: ['ADMIN'] },
-        { href: '/dashboard/admin/scanner', label: 'Scanner', icon: QrCode, roles: ['ADMIN'] },
-        { href: '/dashboard/admin/inventory', label: 'Inventory', icon: Package, roles: ['ADMIN'] },
-        { href: '/dashboard/admin/pos', label: 'POS', icon: ShoppingCart, roles: ['ADMIN'] },
-        { href: '/dashboard/admin/audit', label: 'Audit Logs', icon: ShieldAlert, roles: ['ADMIN'] },
-        { href: '/dashboard/coach/plans', label: 'Workout Plans', icon: Dumbbell, roles: ['ADMIN', 'COACH'] },
-        { href: '/dashboard/coach/diets', label: 'Diet Plans', icon: Utensils, roles: ['ADMIN', 'COACH'] },
-        { href: '/dashboard/coach/feedback', label: 'Feedback', icon: MessageSquare, roles: ['ADMIN', 'COACH'] },
-        { href: '/dashboard/qr', label: 'My QR Code', icon: QrCode, roles: ['CUSTOMER', 'COACH', 'ADMIN'] },
-        { href: '/dashboard/leaves', label: 'My Leaves', icon: ClipboardList, roles: ['ADMIN', 'COACH'] },
-        { href: '/dashboard/profile', label: 'My Profile', icon: UserCheck, roles: ['ADMIN', 'COACH', 'CUSTOMER', 'STAFF'] },
-        { href: '/dashboard/member/history', label: 'History', icon: ClipboardList, roles: ['CUSTOMER'] },
-        { href: '/dashboard/member/achievements', label: 'Achievements', icon: Trophy, roles: ['CUSTOMER'] },
+        { href: '/dashboard', label: 'Dashboard', icon: LayoutDashboard, roles: ['ADMIN', 'COACH', 'CUSTOMER'], section: 'operations' },
+        { href: '/dashboard/admin/inventory', label: 'Inventory', icon: Package, roles: ['ADMIN'], section: 'operations' },
+        { href: '/dashboard/admin/pos', label: 'POS', icon: ShoppingCart, roles: ['ADMIN'], section: 'operations' },
+        { href: '/dashboard/admin/audit', label: 'Audit Logs', icon: ShieldAlert, roles: ['ADMIN'], section: 'operations' },
+        { href: '/dashboard/admin/members', label: 'Members', icon: UserCheck, roles: ['ADMIN'], section: 'people' },
+        { href: '/dashboard/admin/staff', label: 'Staff', icon: Users, roles: ['ADMIN'], section: 'people' },
+        { href: '/dashboard/admin/staff/attendance', label: 'Attendance', icon: ClipboardList, roles: ['ADMIN'], section: 'people' },
+        { href: '/dashboard/admin/leaves', label: 'HR Leaves', icon: ClipboardList, roles: ['ADMIN'], section: 'people' },
+        { href: '/dashboard/admin/finance', label: 'Financials', icon: Wallet, roles: ['ADMIN'], section: 'finance' },
+        { href: '/dashboard/coach/plans', label: 'Workout Plans', icon: Dumbbell, roles: ['ADMIN', 'COACH'], section: 'coaching' },
+        { href: '/dashboard/coach/diets', label: 'Diet Plans', icon: Utensils, roles: ['ADMIN', 'COACH'], section: 'coaching' },
+        { href: '/dashboard/coach/feedback', label: 'Feedback', icon: MessageSquare, roles: ['ADMIN', 'COACH'], section: 'coaching' },
+        { href: '/dashboard/qr', label: 'My QR Code', icon: QrCode, roles: ['CUSTOMER', 'COACH', 'ADMIN'], section: 'account' },
+        { href: '/dashboard/leaves', label: 'My Leaves', icon: ClipboardList, roles: ['ADMIN', 'COACH'], section: 'account' },
+        { href: '/dashboard/profile', label: 'My Profile', icon: UserCheck, roles: ['ADMIN', 'COACH', 'CUSTOMER', 'EMPLOYEE'], section: 'account' },
+        { href: '/dashboard/member/history', label: 'History', icon: ClipboardList, roles: ['CUSTOMER'], section: 'account' },
+        { href: '/dashboard/member/achievements', label: 'Achievements', icon: Trophy, roles: ['CUSTOMER'], section: 'account' },
+    ];
+
+    const navSections = [
+        { key: 'operations', label: 'Operations' },
+        { key: 'people', label: 'People' },
+        { key: 'finance', label: 'Finance' },
+        { key: 'coaching', label: 'Coaching' },
+        { key: 'account', label: 'Account' },
     ];
 
     const filteredNav = navItems.filter(item => item.roles.includes(user.role));
 
     return (
-        <div className="flex h-screen bg-background">
+        <div className="flex min-h-dvh bg-background">
             {/* Mobile top bar */}
             <div
                 className="fixed top-0 left-0 right-0 z-40 flex items-center justify-between px-4 py-3 md:hidden bg-card border-b border-border"
@@ -112,7 +121,7 @@ export default function DashboardLayout({
             {/* Sidebar */}
             <aside
                 className={`
-                    fixed md:static z-50 top-0 left-0 h-full w-64 flex flex-col
+                    fixed md:static z-50 top-0 left-0 h-dvh md:h-auto w-64 flex flex-col
                     transform transition-transform duration-300 ease-in-out
                     bg-card border-r border-border
                     ${sidebarOpen ? 'translate-x-0' : '-translate-x-full'}
@@ -125,8 +134,8 @@ export default function DashboardLayout({
                     </div>
                     <div className="flex flex-col items-center justify-center mt-1 group">
                         <div className="h-16 w-16 bg-primary/20 rounded-full flex items-center justify-center text-primary text-xl font-bold shadow-sm ring-2 ring-background overflow-hidden relative mb-2 transition-transform group-hover:scale-105">
-                            {user?.profile_picture_url ? (
-                                <Image src={`${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'}${user.profile_picture_url}`} alt={user.full_name} fill className="object-cover" unoptimized priority />
+                            {profileImageUrl ? (
+                                <Image src={profileImageUrl} alt={user.full_name} fill className="object-cover" unoptimized priority />
                             ) : (
                                 user?.full_name?.[0] || 'U'
                             )}
@@ -138,18 +147,32 @@ export default function DashboardLayout({
                     </div>
                 </div>
 
-                <nav className="flex-1 p-3 space-y-0.5 overflow-y-auto">
-                    {filteredNav.map(item => {
-                        const isActive = pathname === item.href;
+                <nav className="flex-1 p-3 overflow-y-auto">
+                    {navSections.map((section) => {
+                        const sectionItems = filteredNav.filter((item) => item.section === section.key);
+                        if (sectionItems.length === 0) return null;
+
                         return (
-                            <Link
-                                key={item.href}
-                                href={item.href}
-                                className={`nav-link ${isActive ? 'active' : ''}`}
-                            >
-                                <item.icon size={18} />
-                                <span>{item.label}</span>
-                            </Link>
+                            <div key={section.key} className="mb-4 last:mb-0">
+                                <p className="px-3 pb-1 text-[10px] font-bold uppercase tracking-[0.14em] text-muted-foreground/70">
+                                    {section.label}
+                                </p>
+                                <div className="space-y-0.5">
+                                    {sectionItems.map((item) => {
+                                        const isActive = pathname === item.href;
+                                        return (
+                                            <Link
+                                                key={item.href}
+                                                href={item.href}
+                                                className={`nav-link ${isActive ? 'active' : ''}`}
+                                            >
+                                                <item.icon size={18} />
+                                                <span>{item.label}</span>
+                                            </Link>
+                                        );
+                                    })}
+                                </div>
+                            </div>
                         );
                     })}
                 </nav>
@@ -166,7 +189,7 @@ export default function DashboardLayout({
             </aside>
 
             {/* Main Content */}
-            <main className="flex-1 overflow-auto p-4 pt-16 md:p-8 md:pt-8 bg-background">
+            <main className="flex-1 min-h-0 overflow-auto p-4 pt-16 md:p-8 md:pt-8 bg-background">
                 {children}
             </main>
         </div>

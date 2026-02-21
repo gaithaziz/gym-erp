@@ -1,9 +1,11 @@
 from typing import Annotated, Optional
 from datetime import datetime
+from decimal import Decimal
 from fastapi import APIRouter, Depends, Query, HTTPException
+from fastapi.responses import HTMLResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func, extract
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from app.database import get_db
 from app.auth import dependencies
@@ -18,7 +20,7 @@ import uuid
 router = APIRouter()
 
 class TransactionCreate(BaseModel):
-    amount: float
+    amount: float = Field(..., gt=0)
     type: TransactionType
     category: TransactionCategory
     description: str | None = None
@@ -96,18 +98,18 @@ async def get_financial_summary(
 
     stmt_inc = select(func.sum(Transaction.amount)).where(*base_filter_inc)
     result_inc = await db.execute(stmt_inc)
-    income = result_inc.scalar() or 0.0
+    income = result_inc.scalar() or Decimal("0")
 
     stmt_exp = select(func.sum(Transaction.amount)).where(*base_filter_exp)
     result_exp = await db.execute(stmt_exp)
-    expenses = result_exp.scalar() or 0.0
+    expenses = result_exp.scalar() or Decimal("0")
 
     profit = income - expenses
 
     return StandardResponse(data={
-        "total_income": income,
-        "total_expenses": expenses,
-        "net_profit": profit
+        "total_income": float(income),
+        "total_expenses": float(expenses),
+        "net_profit": float(profit)
     })
 
 @router.get("/my-transactions", response_model=StandardResponse)
@@ -160,3 +162,46 @@ async def generate_receipt(
         "gym_name": "Gym ERP Management",
     }
     return StandardResponse(data=receipt_data)
+
+
+@router.get("/transactions/{transaction_id}/receipt/print", response_class=HTMLResponse)
+async def generate_receipt_printable(
+    transaction_id: uuid.UUID,
+    current_user: Annotated[User, Depends(dependencies.get_current_active_user)],
+    db: Annotated[AsyncSession, Depends(get_db)]
+):
+    stmt = select(Transaction).where(Transaction.id == transaction_id)
+    result = await db.execute(stmt)
+    transaction = result.scalar_one_or_none()
+
+    if not transaction:
+        raise HTTPException(status_code=404, detail="Transaction not found")
+
+    current_admin_or_owner = current_user.role == Role.ADMIN or current_user.id == transaction.user_id
+    if not current_admin_or_owner:
+        raise HTTPException(status_code=403, detail="Not authorized to view this receipt")
+
+    user_name = "Guest/System"
+    if transaction.user_id:
+        user_stmt = select(User).where(User.id == transaction.user_id)
+        user_result = await db.execute(user_stmt)
+        user = user_result.scalar_one_or_none()
+        if user:
+            user_name = user.full_name
+
+    html = f"""
+    <html>
+      <head><title>Receipt {str(transaction.id)[:8].upper()}</title></head>
+      <body style="font-family: Arial, sans-serif; padding: 24px;">
+        <h2>Gym ERP Receipt</h2>
+        <p><strong>Receipt No:</strong> {str(transaction.id)[:8].upper()}</p>
+        <p><strong>Date:</strong> {transaction.date.isoformat()}</p>
+        <p><strong>Billed To:</strong> {user_name}</p>
+        <p><strong>Category:</strong> {transaction.category.value}</p>
+        <p><strong>Payment:</strong> {transaction.payment_method.value}</p>
+        <p><strong>Description:</strong> {transaction.description or "Gym Service/Item"}</p>
+        <h3>Total: {float(transaction.amount):.2f}</h3>
+      </body>
+    </html>
+    """
+    return HTMLResponse(content=html)

@@ -20,13 +20,12 @@ export default function LoginPage() {
 
         try {
             const response = await api.post('/auth/login', { email, password });
-            const { access_token } = response.data.data;
-            localStorage.setItem('token', access_token);
+            const { access_token, refresh_token } = response.data.data;
 
             const meResp = await api.get('/auth/me', {
                 headers: { Authorization: `Bearer ${access_token}` }
             });
-            login(access_token, meResp.data.data);
+            login(access_token, refresh_token, meResp.data.data);
         } catch (err: unknown) {
             const axiosErr = err as { response?: { data?: { detail?: string } } };
             console.error(err);
@@ -87,7 +86,7 @@ export default function LoginPage() {
                                     value={password}
                                     onChange={(e) => setPassword(e.target.value)}
                                     className="input-dark pr-11 rounded-sm"
-                                    placeholder="••••••••"
+                                    placeholder="********"
                                 />
                                 <button
                                     type="button"

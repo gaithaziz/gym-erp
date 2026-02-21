@@ -1,4 +1,5 @@
 from fastapi import FastAPI
+from fastapi import Request
 from fastapi.exceptions import RequestValidationError
 from sqlalchemy.exc import IntegrityError
 from app.config import settings
@@ -15,6 +16,7 @@ from app.routers.audit import router as audit_router
 from app.core import exceptions
 from fastapi.staticfiles import StaticFiles
 import os
+import uuid
 
 from fastapi.middleware.cors import CORSMiddleware
 
@@ -36,6 +38,15 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+
+@app.middleware("http")
+async def attach_request_id(request: Request, call_next):
+    request_id = request.headers.get("X-Request-ID") or str(uuid.uuid4())
+    request.state.request_id = request_id
+    response = await call_next(request)
+    response.headers["X-Request-ID"] = request_id
+    return response
 
 # Exception Handlers
 app.add_exception_handler(RequestValidationError, exceptions.validation_exception_handler)  # type: ignore

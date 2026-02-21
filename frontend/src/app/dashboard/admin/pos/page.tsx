@@ -111,7 +111,7 @@ export default function POSPage() {
         : products;
 
     return (
-        <div className="flex h-[calc(100vh-80px)] gap-4">
+        <div className="flex min-h-[calc(100dvh-80px)] flex-col gap-4 xl:flex-row">
             {/* Product Grid */}
             <div className="flex-1 flex flex-col min-w-0">
                 <div className="mb-4">
@@ -184,7 +184,7 @@ export default function POSPage() {
             </div>
 
             {/* Cart Sidebar */}
-            <div className="w-80 shrink-0 flex flex-col border border-border bg-card">
+            <div className="w-full xl:w-80 shrink-0 flex flex-col border border-border bg-card">
                 <div className="p-4 border-b border-border">
                     <div className="flex items-center gap-2">
                         <ShoppingCart size={18} className="text-primary" />

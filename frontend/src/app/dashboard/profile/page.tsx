@@ -5,9 +5,12 @@ import { useAuth } from '@/context/AuthContext';
 import { api } from '@/lib/api';
 import { User, Lock, Save, AlertCircle, CheckCircle } from 'lucide-react';
 import ImageCropper from '@/components/ImageCropper';
+import { useFeedback } from '@/components/FeedbackProvider';
+import { resolveProfileImageUrl } from '@/lib/profileImage';
 
 export default function ProfilePage() {
     const { user, updateUser } = useAuth();
+    const { showToast } = useFeedback();
 
     const [fullName, setFullName] = useState(user?.full_name || '');
     const [phoneNumber, setPhoneNumber] = useState(user?.phone_number || '');
@@ -94,9 +97,11 @@ export default function ProfilePage() {
             }
         } catch (err) {
             console.error('Failed to upload profile picture', err);
-            alert('Failed to upload picture. Please try again.');
+            showToast('Failed to upload picture. Please try again.', 'error');
         }
     };
+
+    const currentProfileImage = resolveProfileImageUrl(user?.profile_picture_url);
 
     return (
         <div className="max-w-4xl mx-auto space-y-8 pb-12">
@@ -112,7 +117,7 @@ export default function ProfilePage() {
                     <div className="kpi-card p-6 flex flex-col items-center justify-center text-center space-y-4">
                         <ImageCropper
                             onCropComplete={handleProfilePictureUpload}
-                            currentImage={user?.profile_picture_url ? `${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'}${user.profile_picture_url}` : undefined}
+                            currentImage={currentProfileImage}
                             aspectData={1}
                         />
                         <div>
