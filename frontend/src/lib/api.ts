@@ -18,9 +18,30 @@ export const api = axios.create({
 let refreshPromise: Promise<string | null> | null = null;
 const SKIP_AUTH_REDIRECT_HEADER = 'X-Skip-Auth-Redirect';
 
+function getFallbackApiUrl(currentBaseUrl?: string): string | null {
+    const current = (currentBaseUrl || API_URL).replace(/\/+$/, '');
+    if (current.includes('://localhost')) {
+        return current.replace('://localhost', '://127.0.0.1');
+    }
+    if (current.includes('://127.0.0.1')) {
+        return current.replace('://127.0.0.1', '://localhost');
+    }
+    return null;
+}
+
 function extractErrorDetail(error: AxiosError): string {
     const data = error.response?.data as { detail?: unknown } | undefined;
     return typeof data?.detail === 'string' ? data.detail.toLowerCase() : '';
+}
+
+function extractErrorCode(error: AxiosError): string | null {
+    const data = error.response?.data as { code?: unknown; detail?: unknown } | undefined;
+    if (typeof data?.code === 'string') return data.code;
+    if (typeof data?.detail === 'object' && data?.detail && 'code' in data.detail) {
+        const code = (data.detail as { code?: unknown }).code;
+        return typeof code === 'string' ? code : null;
+    }
+    return null;
 }
 
 function clearSessionAndRedirect() {
@@ -79,6 +100,23 @@ api.interceptors.response.use(
     async (error: AxiosError) => {
         const status = error.response?.status;
         const originalRequest = error.config as (InternalAxiosRequestConfig & { _retry?: boolean }) | undefined;
+        const errorCode = extractErrorCode(error);
+
+        if (!error.response && originalRequest && !originalRequest._retry) {
+            const fallbackApiUrl = getFallbackApiUrl(originalRequest.baseURL);
+            if (fallbackApiUrl) {
+                originalRequest._retry = true;
+                originalRequest.baseURL = fallbackApiUrl;
+                return api.request(originalRequest);
+            }
+        }
+
+        if (status === 403 && errorCode === 'SUBSCRIPTION_BLOCKED' && isBrowser) {
+            if (window.location.pathname !== '/dashboard/blocked') {
+                window.location.href = '/dashboard/blocked';
+            }
+            return Promise.reject(error);
+        }
 
         if (status === 401 && originalRequest) {
             const headers = originalRequest.headers as Record<string, unknown> | undefined;

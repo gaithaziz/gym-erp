@@ -14,6 +14,7 @@ from app.models.hr import Contract, Payroll, ContractType, LeaveRequest, LeaveTy
 from app.models.access import AttendanceLog
 from app.services.payroll_service import PayrollService
 from app.services.audit_service import AuditService
+from app.services.whatsapp_service import WhatsAppNotificationService
 from app.core.responses import StandardResponse
 import uuid
 
@@ -109,7 +110,7 @@ async def generate_payroll(
 @router.get("/payroll/{user_id}", response_model=StandardResponse)
 async def get_payrolls(
     user_id: uuid.UUID,
-    current_user: Annotated[User, Depends(dependencies.RoleChecker([Role.ADMIN, Role.COACH, Role.EMPLOYEE]))],
+    current_user: Annotated[User, Depends(dependencies.RoleChecker([Role.ADMIN, Role.COACH, Role.EMPLOYEE, Role.CASHIER, Role.RECEPTION, Role.FRONT_DESK]))],
     db: Annotated[AsyncSession, Depends(get_db)]
 ):
     # Enforce self access only unless Admin
@@ -217,11 +218,11 @@ async def get_staff(
     current_user: Annotated[User, Depends(dependencies.RoleChecker([Role.ADMIN]))],
     db: Annotated[AsyncSession, Depends(get_db)]
 ):
-    """List all users with roles COACH or EMPLOYEE, including their contract info."""
+    """List all users with staff roles, including their contract info."""
     stmt = (
         select(User, Contract)
         .outerjoin(Contract, Contract.user_id == User.id)
-        .where(User.role.in_([Role.COACH, Role.EMPLOYEE]))
+        .where(User.role.in_([Role.COACH, Role.EMPLOYEE, Role.CASHIER, Role.RECEPTION, Role.FRONT_DESK]))
         .order_by(User.full_name)
     )
     result = await db.execute(stmt)
@@ -344,7 +345,7 @@ async def correct_attendance(
 
 @router.get("/members", response_model=StandardResponse)
 async def list_members(
-    current_user: Annotated[User, Depends(dependencies.RoleChecker([Role.ADMIN, Role.COACH]))],
+    current_user: Annotated[User, Depends(dependencies.RoleChecker([Role.ADMIN, Role.COACH, Role.RECEPTION, Role.FRONT_DESK]))],
     db: Annotated[AsyncSession, Depends(get_db)]
 ):
     """List all users with MEMBER role."""
@@ -405,7 +406,7 @@ class SubscriptionUpdate(BaseModel):
 @router.post("/subscriptions", response_model=StandardResponse)
 async def create_subscription(
     data: SubscriptionCreate,
-    current_user: Annotated[User, Depends(dependencies.RoleChecker([Role.ADMIN]))],
+    current_user: Annotated[User, Depends(dependencies.RoleChecker([Role.ADMIN, Role.RECEPTION, Role.FRONT_DESK]))],
     db: Annotated[AsyncSession, Depends(get_db)]
 ):
     """Create or renew a subscription for a member."""
@@ -438,6 +439,25 @@ async def create_subscription(
         msg = "Subscription created"
 
     await db.commit()
+
+    user_result = await db.execute(select(User).where(User.id == data.user_id))
+    member = user_result.scalar_one_or_none()
+    if member:
+        await WhatsAppNotificationService.queue_and_send(
+            db=db,
+            user=member,
+            phone_number=member.phone_number,
+            template_key="subscription_updated",
+            event_type="SUBSCRIPTION_RENEWED" if existing else "SUBSCRIPTION_CREATED",
+            event_ref=str(data.user_id),
+            params={
+                "member_name": member.full_name,
+                "plan_name": data.plan_name,
+                "duration_days": data.duration_days,
+                "status": "ACTIVE",
+            },
+            idempotency_key=f"subscription-create:{data.user_id}:{end.date().isoformat()}",
+        )
     
     await AuditService.log_action(
         db=db,
@@ -455,7 +475,7 @@ async def create_subscription(
 async def update_subscription(
     user_id: uuid.UUID,
     data: SubscriptionUpdate,
-    current_user: Annotated[User, Depends(dependencies.RoleChecker([Role.ADMIN]))],
+    current_user: Annotated[User, Depends(dependencies.RoleChecker([Role.ADMIN, Role.RECEPTION, Role.FRONT_DESK]))],
     db: Annotated[AsyncSession, Depends(get_db)]
 ):
     """Update subscription status: FREEZE or ACTIVATE (unfreeze)."""
@@ -477,6 +497,24 @@ async def update_subscription(
 
     sub.status = SubscriptionStatus(data.status)
     await db.commit()
+
+    user_result = await db.execute(select(User).where(User.id == user_id))
+    member = user_result.scalar_one_or_none()
+    if member:
+        await WhatsAppNotificationService.queue_and_send(
+            db=db,
+            user=member,
+            phone_number=member.phone_number,
+            template_key="subscription_status_changed",
+            event_type="SUBSCRIPTION_STATUS_CHANGED",
+            event_ref=str(user_id),
+            params={
+                "member_name": member.full_name,
+                "status": data.status,
+                "end_date": sub.end_date.isoformat() if sub.end_date else None,
+            },
+            idempotency_key=f"subscription-update:{user_id}:{data.status}:{sub.end_date.isoformat() if sub.end_date else 'none'}",
+        )
     
     await AuditService.log_action(
         db=db,

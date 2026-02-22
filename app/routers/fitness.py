@@ -15,7 +15,7 @@ from app.database import get_db
 from app.models.enums import Role
 from app.models.fitness import BiometricLog, DietPlan, Exercise, WorkoutExercise, WorkoutPlan
 from app.models.user import User
-from app.models.workout_log import WorkoutLog, WorkoutSession, WorkoutSessionEntry
+from app.models.workout_log import DietFeedback, GymFeedback, WorkoutLog, WorkoutSession, WorkoutSessionEntry
 
 router = APIRouter()
 
@@ -224,7 +224,7 @@ async def create_exercise(
 
 @router.get("/exercises", response_model=StandardResponse[List[ExerciseResponse]])
 async def list_exercises(
-    current_user: Annotated[User, Depends(dependencies.get_current_active_user)],
+    current_user: Annotated[User, Depends(dependencies.require_active_customer_subscription)],
     db: Annotated[AsyncSession, Depends(get_db)]
 ):
     """List all available exercises."""
@@ -287,7 +287,7 @@ async def create_workout_plan(
 
 @router.get("/plans", response_model=StandardResponse[List[WorkoutPlanResponse]])
 async def list_plans(
-    current_user: Annotated[User, Depends(dependencies.get_current_active_user)],
+    current_user: Annotated[User, Depends(dependencies.require_active_customer_subscription)],
     db: Annotated[AsyncSession, Depends(get_db)]
 ):
     """List plans visible to the user (Created by them OR Assigned to them)."""
@@ -435,7 +435,7 @@ async def create_diet_plan(
 
 @router.get("/diets", response_model=StandardResponse[List[DietPlanResponse]])
 async def list_diet_plans(
-    current_user: Annotated[User, Depends(dependencies.get_current_active_user)],
+    current_user: Annotated[User, Depends(dependencies.require_active_customer_subscription)],
     db: Annotated[AsyncSession, Depends(get_db)]
 ):
     """List diet plans visible to the user."""
@@ -451,7 +451,7 @@ async def list_diet_plans(
 @router.get("/diets/{diet_id}", response_model=StandardResponse[DietPlanResponse])
 async def get_diet_plan(
     diet_id: uuid.UUID,
-    current_user: Annotated[User, Depends(dependencies.get_current_active_user)],
+    current_user: Annotated[User, Depends(dependencies.require_active_customer_subscription)],
     db: Annotated[AsyncSession, Depends(get_db)]
 ):
     """Get a specific diet plan."""
@@ -539,6 +539,43 @@ class WorkoutLogResponse(BaseModel):
         from_attributes = True
 
 
+class DietFeedbackCreate(BaseModel):
+    diet_plan_id: uuid.UUID
+    rating: int = Field(..., ge=1, le=5)
+    comment: str | None = None
+
+
+class DietFeedbackResponse(BaseModel):
+    id: uuid.UUID
+    member_id: uuid.UUID
+    diet_plan_id: uuid.UUID
+    coach_id: uuid.UUID | None
+    rating: int
+    comment: str | None
+    created_at: datetime
+
+    class Config:
+        from_attributes = True
+
+
+class GymFeedbackCreate(BaseModel):
+    category: Literal["EQUIPMENT", "CLEANLINESS", "STAFF", "CLASSES", "GENERAL"] = "GENERAL"
+    rating: int = Field(..., ge=1, le=5)
+    comment: str | None = None
+
+
+class GymFeedbackResponse(BaseModel):
+    id: uuid.UUID
+    member_id: uuid.UUID
+    category: str
+    rating: int
+    comment: str | None
+    created_at: datetime
+
+    class Config:
+        from_attributes = True
+
+
 class WorkoutSessionEntryCreate(BaseModel):
     exercise_id: uuid.UUID | None = None
     exercise_name: str | None = None
@@ -608,6 +645,7 @@ class WorkoutSessionResponse(BaseModel):
 async def log_workout(
     data: WorkoutLogCreate,
     current_user: Annotated[User, Depends(dependencies.RoleChecker([Role.ADMIN, Role.CUSTOMER]))],
+    _subscription_guard: Annotated[User, Depends(dependencies.require_active_customer_subscription)],
     db: Annotated[AsyncSession, Depends(get_db)]
 ):
     """Customer logs workout feedback (difficulty, comment)."""
@@ -656,6 +694,7 @@ async def get_workout_logs(
 async def create_workout_session_log(
     data: WorkoutSessionCreate,
     current_user: Annotated[User, Depends(dependencies.RoleChecker([Role.ADMIN, Role.CUSTOMER]))],
+    _subscription_guard: Annotated[User, Depends(dependencies.require_active_customer_subscription)],
     db: Annotated[AsyncSession, Depends(get_db)],
 ):
     """Customer logs per-exercise workout session details."""
@@ -703,9 +742,107 @@ async def create_workout_session_log(
     return StandardResponse(message="Workout session logged", data={"id": str(session.id)})
 
 
+@router.post("/diet-feedback", response_model=StandardResponse)
+async def create_diet_feedback(
+    data: DietFeedbackCreate,
+    current_user: Annotated[User, Depends(dependencies.RoleChecker([Role.ADMIN, Role.CUSTOMER]))],
+    _subscription_guard: Annotated[User, Depends(dependencies.require_active_customer_subscription)],
+    db: Annotated[AsyncSession, Depends(get_db)],
+):
+    diet_plan = await _get_diet_plan_or_404(db, data.diet_plan_id)
+
+    if current_user.role == Role.CUSTOMER and diet_plan.member_id != current_user.id:
+        raise HTTPException(status_code=403, detail="You can only submit feedback for diets assigned to your account")
+
+    feedback = DietFeedback(
+        member_id=current_user.id,
+        diet_plan_id=diet_plan.id,
+        coach_id=diet_plan.creator_id,
+        rating=data.rating,
+        comment=data.comment,
+    )
+    db.add(feedback)
+    await db.commit()
+    return StandardResponse(message="Diet feedback submitted", data={"id": str(feedback.id)})
+
+
+@router.get("/diet-feedback", response_model=StandardResponse[List[DietFeedbackResponse]])
+async def list_diet_feedback(
+    current_user: Annotated[User, Depends(dependencies.RoleChecker([Role.ADMIN, Role.COACH]))],
+    db: Annotated[AsyncSession, Depends(get_db)],
+    diet_plan_id: uuid.UUID | None = Query(None),
+    member_id: uuid.UUID | None = Query(None),
+    min_rating: int | None = Query(None, ge=1, le=5),
+    from_date: datetime | None = Query(None),
+    to_date: datetime | None = Query(None),
+    limit: int = Query(100, ge=1, le=500),
+    offset: int = Query(0, ge=0),
+):
+    stmt = select(DietFeedback).join(DietPlan, DietFeedback.diet_plan_id == DietPlan.id)
+    if current_user.role == Role.COACH:
+        stmt = stmt.where(DietPlan.creator_id == current_user.id)
+    if diet_plan_id:
+        stmt = stmt.where(DietFeedback.diet_plan_id == diet_plan_id)
+    if member_id:
+        stmt = stmt.where(DietFeedback.member_id == member_id)
+    if min_rating:
+        stmt = stmt.where(DietFeedback.rating >= min_rating)
+    stmt = _apply_date_filters(stmt, DietFeedback.created_at, from_date, to_date)
+    stmt = stmt.order_by(DietFeedback.created_at.desc()).offset(offset).limit(limit)
+
+    result = await db.execute(stmt)
+    rows = result.scalars().all()
+    return StandardResponse(data=[DietFeedbackResponse.model_validate(row) for row in rows])
+
+
+@router.post("/gym-feedback", response_model=StandardResponse)
+async def create_gym_feedback(
+    data: GymFeedbackCreate,
+    current_user: Annotated[User, Depends(dependencies.RoleChecker([Role.ADMIN, Role.CUSTOMER]))],
+    _subscription_guard: Annotated[User, Depends(dependencies.require_active_customer_subscription)],
+    db: Annotated[AsyncSession, Depends(get_db)],
+):
+    feedback = GymFeedback(
+        member_id=current_user.id,
+        category=data.category,
+        rating=data.rating,
+        comment=data.comment,
+    )
+    db.add(feedback)
+    await db.commit()
+    return StandardResponse(message="Gym feedback submitted", data={"id": str(feedback.id)})
+
+
+@router.get("/gym-feedback", response_model=StandardResponse[List[GymFeedbackResponse]])
+async def list_gym_feedback(
+    current_user: Annotated[User, Depends(dependencies.RoleChecker([Role.ADMIN, Role.COACH]))],
+    db: Annotated[AsyncSession, Depends(get_db)],
+    member_id: uuid.UUID | None = Query(None),
+    category: str | None = Query(None),
+    min_rating: int | None = Query(None, ge=1, le=5),
+    from_date: datetime | None = Query(None),
+    to_date: datetime | None = Query(None),
+    limit: int = Query(100, ge=1, le=500),
+    offset: int = Query(0, ge=0),
+):
+    stmt = select(GymFeedback)
+    if member_id:
+        stmt = stmt.where(GymFeedback.member_id == member_id)
+    if category:
+        stmt = stmt.where(GymFeedback.category == category)
+    if min_rating:
+        stmt = stmt.where(GymFeedback.rating >= min_rating)
+    stmt = _apply_date_filters(stmt, GymFeedback.created_at, from_date, to_date)
+    stmt = stmt.order_by(GymFeedback.created_at.desc()).offset(offset).limit(limit)
+
+    result = await db.execute(stmt)
+    rows = result.scalars().all()
+    return StandardResponse(data=[GymFeedbackResponse.model_validate(row) for row in rows])
+
+
 @router.get("/session-logs/me", response_model=StandardResponse[List[WorkoutSessionResponse]])
 async def get_my_workout_session_logs(
-    current_user: Annotated[User, Depends(dependencies.get_current_active_user)],
+    current_user: Annotated[User, Depends(dependencies.require_active_customer_subscription)],
     db: Annotated[AsyncSession, Depends(get_db)],
     plan_id: uuid.UUID | None = Query(None),
     limit: int = Query(100, ge=1, le=500),
@@ -758,7 +895,7 @@ async def get_member_workout_session_logs(
 
 @router.get("/stats", response_model=StandardResponse)
 async def get_workout_stats(
-    current_user: Annotated[User, Depends(dependencies.get_current_active_user)],
+    current_user: Annotated[User, Depends(dependencies.require_active_customer_subscription)],
     db: Annotated[AsyncSession, Depends(get_db)]
 ):
     """Get aggregated workout stats for the current user (e.g., workouts per day over last 30 days)."""
@@ -782,7 +919,7 @@ async def get_workout_stats(
 @router.post("/biometrics", response_model=StandardResponse)
 async def log_biometrics(
     data: BiometricLogCreate,
-    current_user: Annotated[User, Depends(dependencies.get_current_active_user)],
+    current_user: Annotated[User, Depends(dependencies.require_active_customer_subscription)],
     db: Annotated[AsyncSession, Depends(get_db)]
 ):
     """Log a new biometric entry for the current user."""
@@ -796,7 +933,7 @@ async def log_biometrics(
 
 @router.get("/biometrics", response_model=StandardResponse[List[BiometricLogResponse]])
 async def get_biometrics(
-    current_user: Annotated[User, Depends(dependencies.get_current_active_user)],
+    current_user: Annotated[User, Depends(dependencies.require_active_customer_subscription)],
     db: Annotated[AsyncSession, Depends(get_db)],
     limit: int = Query(100, ge=1, le=500),
     offset: int = Query(0, ge=0),

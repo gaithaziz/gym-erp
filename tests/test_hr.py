@@ -279,3 +279,25 @@ async def test_attendance_date_range_filter(client: AsyncClient, db_session: Asy
     returned_ids = {item["id"] for item in data}
     assert str(recent_log.id) in returned_ids
     assert str(old_log.id) not in returned_ids
+
+
+@pytest.mark.asyncio
+async def test_cashier_and_reception_can_view_own_payroll_list(client: AsyncClient, db_session: AsyncSession):
+    password = "password123"
+    hashed = get_password_hash(password)
+    cashier = User(email="cashier_payroll@gym.com", hashed_password=hashed, role="CASHIER", full_name="Cashier Payroll")
+    reception = User(email="reception_payroll@gym.com", hashed_password=hashed, role="RECEPTION", full_name="Reception Payroll")
+    db_session.add_all([cashier, reception])
+    await db_session.commit()
+
+    for user in [cashier, reception]:
+        login_resp = await client.post(
+            f"{settings.API_V1_STR}/auth/login",
+            json={"email": user.email, "password": password},
+        )
+        assert login_resp.status_code == 200
+        token = login_resp.json()["data"]["access_token"]
+        headers = {"Authorization": f"Bearer {token}"}
+
+        own_payroll = await client.get(f"{settings.API_V1_STR}/hr/payroll/{user.id}", headers=headers)
+        assert own_payroll.status_code == 200

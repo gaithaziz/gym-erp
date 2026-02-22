@@ -99,7 +99,7 @@ def _verify_kiosk_token(kiosk_token: str, expected_kiosk_id: str) -> None:
 @router.post("/kiosk/auth", response_model=StandardResponse[KioskAuthResponse])
 async def create_kiosk_auth(
     auth_request: KioskAuthRequest,
-    _current_user: Annotated[User, Depends(dependencies.RoleChecker([Role.ADMIN, Role.EMPLOYEE]))],
+    _current_user: Annotated[User, Depends(dependencies.RoleChecker([Role.ADMIN, Role.EMPLOYEE, Role.RECEPTION, Role.FRONT_DESK]))],
 ):
     token, expires_in_seconds = _create_kiosk_token(auth_request.kiosk_id)
     return StandardResponse(
@@ -140,7 +140,7 @@ async def scan_qr(
 @router.post("/scan-session", response_model=StandardResponse[AccessScanResponse])
 async def scan_from_authenticated_session(
     request: SessionCheckInRequest,
-    current_user: Annotated[User, Depends(dependencies.RoleChecker([Role.ADMIN, Role.COACH, Role.EMPLOYEE, Role.CUSTOMER]))],
+    current_user: Annotated[User, Depends(dependencies.RoleChecker([Role.ADMIN, Role.COACH, Role.EMPLOYEE, Role.CASHIER, Role.RECEPTION, Role.FRONT_DESK, Role.CUSTOMER]))],
     db: Annotated[AsyncSession, Depends(get_db)],
 ):
     allowed, retry_after = AccessRateLimiter.allow_request(request.kiosk_id)
@@ -156,7 +156,7 @@ async def scan_from_authenticated_session(
 
 @router.post("/check-in", response_model=StandardResponse)
 async def check_in(
-    current_user: Annotated[User, Depends(dependencies.RoleChecker([Role.ADMIN, Role.COACH, Role.EMPLOYEE]))],
+    current_user: Annotated[User, Depends(dependencies.RoleChecker([Role.ADMIN, Role.COACH, Role.EMPLOYEE, Role.CASHIER, Role.RECEPTION, Role.FRONT_DESK]))],
     db: Annotated[AsyncSession, Depends(get_db)]
 ):
     await AccessService.process_check_in(current_user.id, db)
@@ -165,7 +165,7 @@ async def check_in(
 
 @router.post("/check-out", response_model=StandardResponse)
 async def check_out(
-    current_user: Annotated[User, Depends(dependencies.RoleChecker([Role.ADMIN, Role.COACH, Role.EMPLOYEE]))],
+    current_user: Annotated[User, Depends(dependencies.RoleChecker([Role.ADMIN, Role.COACH, Role.EMPLOYEE, Role.CASHIER, Role.RECEPTION, Role.FRONT_DESK]))],
     db: Annotated[AsyncSession, Depends(get_db)]
 ):
     log = await AccessService.process_check_out(current_user.id, db)
@@ -176,7 +176,7 @@ async def check_out(
 async def sync_members(
     kiosk_id: Annotated[str, Header(alias="X-Kiosk-Id", min_length=3, max_length=64, pattern=r"^[A-Za-z0-9][A-Za-z0-9._:-]*$")],
     kiosk_token: Annotated[str, Header(alias="X-Kiosk-Token")],
-    _current_user: Annotated[User, Depends(dependencies.RoleChecker([Role.ADMIN, Role.EMPLOYEE]))],
+    _current_user: Annotated[User, Depends(dependencies.RoleChecker([Role.ADMIN, Role.EMPLOYEE, Role.RECEPTION, Role.FRONT_DESK]))],
     db: Annotated[AsyncSession, Depends(get_db)]
 ):
     _verify_kiosk_token(kiosk_token, kiosk_id)

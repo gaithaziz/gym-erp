@@ -3,7 +3,7 @@
 import { useAuth } from '@/context/AuthContext';
 import { api } from '@/lib/api';
 import { useEffect, useState, useCallback, useMemo } from 'react';
-import { Users, DollarSign, Clock, TrendingUp, QrCode, Dumbbell, Utensils, ChevronRight, MessageSquare, UserCheck, ClipboardList, Trophy, Activity } from 'lucide-react';
+import { Users, DollarSign, Clock, TrendingUp, QrCode, Dumbbell, Utensils, ChevronRight, MessageSquare, UserCheck, ClipboardList, Trophy, Activity, Flame, Medal, Sunrise, MoonStar, Star, Download } from 'lucide-react';
 import {
     BarChart, Bar, Cell, LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer
 } from 'recharts';
@@ -21,11 +21,18 @@ import { Move } from 'lucide-react';
 
 interface DashboardStats {
     live_headcount: number;
+    today_visitors: number;
     todays_revenue: number;
     active_members: number;
     monthly_revenue: number;
     monthly_expenses: number;
     pending_salaries: number;
+}
+
+interface DailyVisitorRow {
+    date?: string;
+    week_start?: string;
+    unique_visitors: number;
 }
 
 interface LowStockItem {
@@ -119,6 +126,11 @@ interface RevenueChartPoint extends RevenueData {
     label: string;
 }
 
+const getApiErrorMessage = (error: unknown, fallback: string) => {
+    const detail = (error as { response?: { data?: { detail?: string } } })?.response?.data?.detail;
+    return typeof detail === 'string' && detail.trim() ? detail : fallback;
+};
+
 const calculateAge = (dob?: string) => {
     if (!dob) return null;
     const birthDate = new Date(dob);
@@ -140,6 +152,7 @@ function AdminDashboard({ userName }: { userName: string }) {
     const expensesBarColor = '#ef4444';
     const [recentActivity, setRecentActivity] = useState<ActivityItem[]>([]);
     const [lowStockItems, setLowStockItems] = useState<LowStockItem[]>([]);
+    const [dailyVisitors, setDailyVisitors] = useState<DailyVisitorRow[]>([]);
     const [dateRange, setDateRange] = useState<DateRange | undefined>({
         from: subDays(new Date(), 30),
         to: new Date(),
@@ -183,6 +196,10 @@ function AdminDashboard({ userName }: { userName: string }) {
         api.get('/inventory/products/low-stock')
             .then(res => setLowStockItems(res.data.data || []))
             .catch(() => setLowStockItems([]));
+
+        api.get('/analytics/daily-visitors' + dateQuery)
+            .then(res => setDailyVisitors(res.data.data || []))
+            .catch(() => setDailyVisitors([]));
     }, [dateRange, selectedDays]);
 
     useEffect(() => {
@@ -247,10 +264,37 @@ function AdminDashboard({ userName }: { userName: string }) {
 
     const kpiCards = [
         { title: 'Live Headcount', value: stats?.live_headcount ?? '--', subtitle: 'Currently in the gym', icon: Users, badge: 'badge-blue', live: true },
+        { title: "Today's Visitors (Non-Live)", value: stats?.today_visitors ?? '--', subtitle: 'Unique granted entries today', icon: Activity, badge: 'badge-blue' },
         { title: "Today's Revenue", value: stats ? `${stats.todays_revenue.toFixed(2)} JOD` : '--', subtitle: 'Collected today', icon: DollarSign, badge: 'badge-green' },
         { title: 'Pending Salaries', value: stats ? `${stats.pending_salaries.toFixed(2)} JOD` : '--', subtitle: 'Owed this month', icon: Clock, badge: 'badge-amber' },
         { title: 'Low Stock Alerts', value: lowStockItems.length, subtitle: 'Products need order', icon: TrendingUp, badge: 'badge-destructive', isAlert: lowStockItems.length > 0 },
     ];
+
+    const exportDailyVisitorsCsv = async () => {
+        const from = dateRange?.from ? dateRange.from.toISOString().split('T')[0] : '';
+        const to = dateRange?.to ? dateRange.to.toISOString().split('T')[0] : '';
+        const params = new URLSearchParams();
+        if (from) params.set('from', from);
+        if (to) params.set('to', to);
+        params.set('format', 'csv');
+
+        try {
+            const response = await api.get(`/analytics/daily-visitors?${params.toString()}`, {
+                responseType: 'blob',
+            });
+            const blob = response.data as Blob;
+            const url = window.URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = 'daily_visitors_report.csv';
+            document.body.appendChild(a);
+            a.click();
+            a.remove();
+            window.URL.revokeObjectURL(url);
+        } catch {
+            console.error('Failed to export visitor report');
+        }
+    };
 
     return (
         <div className="space-y-4">
@@ -267,7 +311,7 @@ function AdminDashboard({ userName }: { userName: string }) {
             <DashboardGrid layoutId="admin_dashboard_v1">
                 {/* KPI Cards */}
                 {kpiCards.map((card, i) => (
-                    <div key={`stats-${i}`} className="kpi-card group h-full relative" data-grid={{ w: 3, h: 4, x: i * 3, y: 0 }}>
+                    <div key={`stats-${i}`} className="kpi-card group h-full relative" data-grid={{ w: 3, h: 4, x: (i % 4) * 3, y: Math.floor(i / 4) * 4 }}>
                         <div className="absolute top-2 right-2 text-muted-foreground/30 cursor-move drag-handle opacity-0 group-hover:opacity-100 transition-opacity z-10">
                             <Move size={14} />
                         </div>
@@ -443,6 +487,55 @@ function AdminDashboard({ userName }: { userName: string }) {
                     </div>
                 </div>
             </DashboardGrid>
+
+            <div className="kpi-card p-6">
+                <div className="flex items-center justify-between gap-3 mb-4">
+                    <h3 className="text-sm font-bold text-muted-foreground uppercase tracking-wider font-mono">Daily Visitor Report (Non-Live)</h3>
+                    <button type="button" className="btn-ghost !py-1.5 !px-3 text-xs flex items-center gap-1" onClick={exportDailyVisitorsCsv}>
+                        <Download size={14} />
+                        Export CSV
+                    </button>
+                </div>
+                <div className="h-44 mb-4">
+                    {dailyVisitors.length > 0 ? (
+                        <ResponsiveContainer width="100%" height="100%" minHeight={1} minWidth={1}>
+                            <LineChart data={dailyVisitors.map((row) => ({ label: row.date || row.week_start || '', unique_visitors: row.unique_visitors }))}>
+                                <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" vertical={false} />
+                                <XAxis dataKey="label" tick={{ fontSize: 11, fill: 'var(--muted-foreground)', fontFamily: 'var(--font-mono)' }} axisLine={false} tickLine={false} />
+                                <YAxis tick={{ fontSize: 11, fill: 'var(--muted-foreground)', fontFamily: 'var(--font-mono)' }} axisLine={false} tickLine={false} />
+                                <Tooltip contentStyle={{ background: 'var(--card)', border: '1px solid var(--border)', borderRadius: '0px', fontSize: '0.8rem', color: 'var(--foreground)' }} />
+                                <Line type="monotone" dataKey="unique_visitors" stroke="var(--primary)" strokeWidth={2} />
+                            </LineChart>
+                        </ResponsiveContainer>
+                    ) : (
+                        <div className="h-full flex items-center justify-center text-sm text-muted-foreground border border-dashed border-border">No visitor report data for selected range.</div>
+                    )}
+                </div>
+                <div className="overflow-x-auto">
+                    <table className="w-full text-left table-dark min-w-[440px]">
+                        <thead>
+                            <tr>
+                                <th>Date</th>
+                                <th>Unique Visitors</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {dailyVisitors.length > 0 ? (
+                                dailyVisitors.map((row, i) => (
+                                    <tr key={`${row.date || row.week_start}-${i}`}>
+                                        <td className="font-mono text-xs text-muted-foreground">{row.date || row.week_start || '-'}</td>
+                                        <td className="font-mono text-xs text-foreground">{row.unique_visitors}</td>
+                                    </tr>
+                                ))
+                            ) : (
+                                <tr>
+                                    <td colSpan={2} className="text-center py-4 text-muted-foreground text-sm">No rows</td>
+                                </tr>
+                            )}
+                        </tbody>
+                    </table>
+                </div>
+            </div>
         </div>
     );
 }
@@ -588,7 +681,7 @@ function CoachDashboard({ userName }: { userName: string }) {
             </div>
 
             {/* Quick Actions */}
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4 auto-rows-fr">
                 <Link href="/dashboard/coach/plans" className="kpi-card flex items-center justify-between group hover:border-primary transition-colors">
                     <div className="flex items-center gap-4">
                         <div className="p-2 bg-muted/30 border border-border text-primary">
@@ -640,7 +733,7 @@ function CoachDashboard({ userName }: { userName: string }) {
             </div>
 
             {/* Recent Plans */}
-            {plans.length > 0 && (
+            {plans.length > 0 ? (
                 <div className="kpi-card p-0">
                     <div className="flex items-center justify-between p-4 border-b border-border">
                         <h3 className="text-sm font-bold text-muted-foreground uppercase tracking-wider font-mono">Recently Created Plans</h3>
@@ -657,6 +750,10 @@ function CoachDashboard({ userName }: { userName: string }) {
                             </div>
                         ))}
                     </div>
+                </div>
+            ) : (
+                <div className="kpi-card border-dashed border-border min-h-[140px] flex items-center justify-center text-sm text-muted-foreground">
+                    No recent plans yet.
                 </div>
             )}
 
@@ -701,7 +798,7 @@ function CoachDashboard({ userName }: { userName: string }) {
                     <div className="text-sm text-muted-foreground">No client selected.</div>
                 )}
 
-                <div className="h-64">
+                <div className="h-56 lg:h-64">
                     {memberBiometrics.length > 0 ? (
                         <ResponsiveContainer width="100%" height="100%" minHeight={1} minWidth={1}>
                             <LineChart data={memberBiometrics}>
@@ -782,6 +879,14 @@ function CustomerDashboard({ userName, dateOfBirth }: { userName: string; dateOf
     const [loggingSession, setLoggingSession] = useState(false);
     const [loggingBiometrics, setLoggingBiometrics] = useState(false);
     const [loading, setLoading] = useState(true);
+
+    const getBadgeSticker = (badgeType: string) => {
+        if (badgeType.startsWith('STREAK')) return <Flame size={20} className="text-orange-400" />;
+        if (badgeType.startsWith('VISITS')) return <Medal size={20} className="text-yellow-400" />;
+        if (badgeType === 'EARLY_BIRD') return <Sunrise size={20} className="text-amber-300" />;
+        if (badgeType === 'NIGHT_OWL') return <MoonStar size={20} className="text-sky-300" />;
+        return <Star size={20} className="text-primary" />;
+    };
 
     const rangeStart = useMemo(() => {
         const start = new Date();
@@ -910,7 +1015,7 @@ function CustomerDashboard({ userName, dateOfBirth }: { userName: string; dateOf
             showToast('Workout session logged successfully.', 'success');
         } catch (err) {
             console.error('Failed to log workout session', err);
-            showToast('Failed to log workout session.', 'error');
+            showToast(getApiErrorMessage(err, 'Failed to log workout session.'), 'error');
         } finally {
             setLoggingSession(false);
         }
@@ -1145,8 +1250,8 @@ function CustomerDashboard({ userName, dateOfBirth }: { userName: string; dateOf
                             <div className="space-y-3">
                                 {stats.badges.slice(0, 3).map(badge => (
                                     <div key={badge.id} className="flex items-center gap-3">
-                                        <div className="w-8 h-8 rounded-full bg-yellow-500/10 flex items-center justify-center text-lg">
-                                            Trophy
+                                        <div className="w-10 h-10 rounded-full bg-yellow-500/10 border border-yellow-500/20 flex items-center justify-center">
+                                            {getBadgeSticker(badge.badge_type)}
                                         </div>
                                         <div>
                                             <p className="text-sm font-medium text-foreground">{badge.badge_name}</p>
@@ -1165,43 +1270,104 @@ function CustomerDashboard({ userName, dateOfBirth }: { userName: string; dateOf
 
             {/* Progress & Biometrics */}
             <div className="grid grid-cols-1 xl:grid-cols-3 gap-6 items-start">
-                <div className="kpi-card p-5 xl:col-span-2">
-                    <h3 className="text-sm font-bold text-muted-foreground mb-3 uppercase tracking-wider font-mono">Workout Consistency (Last 30 Days)</h3>
-                    <div className="h-44">
-                        {workoutStats.length > 0 ? (
-                            <ResponsiveContainer width="100%" height="100%" minHeight={1} minWidth={1}>
-                                <BarChart data={workoutStats}>
-                                    <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" vertical={false} />
-                                    <XAxis
-                                        dataKey="date"
-                                        tick={{ fontSize: 11, fill: 'var(--muted-foreground)', fontFamily: 'var(--font-mono)' }}
-                                        axisLine={false}
-                                        tickLine={false}
-                                        tickFormatter={(val) => {
-                                            const d = new Date(val);
-                                            return `${d.getMonth() + 1}/${d.getDate()}`;
-                                        }}
-                                    />
-                                    <YAxis
-                                        tick={{ fontSize: 11, fill: 'var(--muted-foreground)', fontFamily: 'var(--font-mono)' }}
-                                        axisLine={false}
-                                        tickLine={false}
-                                        allowDecimals={false}
-                                    />
-                                    <Tooltip
-                                        cursor={{ fill: 'var(--muted)' }}
-                                        contentStyle={{ background: 'var(--card)', border: '1px solid var(--border)', borderRadius: '0px', fontSize: '0.8rem', color: 'var(--foreground)' }}
-                                        labelFormatter={(label) => new Date(label as string).toLocaleDateString()}
-                                    />
-                                    <Bar dataKey="workouts" fill="var(--primary)" barSize={16} name="Workouts Logged" radius={[2, 2, 0, 0]} />
-                                </BarChart>
-                            </ResponsiveContainer>
-                        ) : (
-                            <div className="flex items-center justify-center h-full text-muted-foreground text-sm font-mono border border-dashed border-border flex-col">
-                                <Activity size={24} className="mb-2 opacity-50" />
-                                <span>NO WORKOUT DATA</span>
+                <div className="space-y-6 xl:col-span-2">
+                    <div className="kpi-card p-5">
+                        <h3 className="text-sm font-bold text-muted-foreground mb-3 uppercase tracking-wider font-mono">Workout Consistency (Last 30 Days)</h3>
+                        <div className="h-44">
+                            {workoutStats.length > 0 ? (
+                                <ResponsiveContainer width="100%" height="100%" minHeight={1} minWidth={1}>
+                                    <BarChart data={workoutStats}>
+                                        <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" vertical={false} />
+                                        <XAxis
+                                            dataKey="date"
+                                            tick={{ fontSize: 11, fill: 'var(--muted-foreground)', fontFamily: 'var(--font-mono)' }}
+                                            axisLine={false}
+                                            tickLine={false}
+                                            tickFormatter={(val) => {
+                                                const d = new Date(val);
+                                                return `${d.getMonth() + 1}/${d.getDate()}`;
+                                            }}
+                                        />
+                                        <YAxis
+                                            tick={{ fontSize: 11, fill: 'var(--muted-foreground)', fontFamily: 'var(--font-mono)' }}
+                                            axisLine={false}
+                                            tickLine={false}
+                                            allowDecimals={false}
+                                        />
+                                        <Tooltip
+                                            cursor={{ fill: 'var(--muted)' }}
+                                            contentStyle={{ background: 'var(--card)', border: '1px solid var(--border)', borderRadius: '0px', fontSize: '0.8rem', color: 'var(--foreground)' }}
+                                            labelFormatter={(label) => new Date(label as string).toLocaleDateString()}
+                                        />
+                                        <Bar dataKey="workouts" fill="var(--primary)" barSize={16} name="Workouts Logged" radius={[2, 2, 0, 0]} />
+                                    </BarChart>
+                                </ResponsiveContainer>
+                            ) : (
+                                <div className="flex items-center justify-center h-full text-muted-foreground text-sm font-mono border border-dashed border-border flex-col">
+                                    <Activity size={24} className="mb-2 opacity-50" />
+                                    <span>NO WORKOUT DATA</span>
+                                </div>
+                            )}
+                        </div>
+                    </div>
+                    <div className="kpi-card p-5">
+                        <div className="flex items-center justify-between mb-4">
+                            <h3 className="text-sm font-bold text-muted-foreground uppercase tracking-wider font-mono">Body Progress Tracking</h3>
+                            <div className="flex items-center gap-1">
+                                {[7, 30, 90].map((days) => (
+                                    <button
+                                        key={days}
+                                        type="button"
+                                        onClick={() => setTrendRangeDays(days as 7 | 30 | 90)}
+                                        className={`px-2 py-1 text-[10px] font-bold border rounded-sm ${trendRangeDays === days ? 'border-primary text-primary bg-primary/10' : 'border-border text-muted-foreground hover:text-foreground'}`}
+                                    >
+                                        {days}d
+                                    </button>
+                                ))}
                             </div>
-                        )}
+                        </div>
+                        <div className="space-y-3">
+                            {[
+                                { title: 'Weight', unit: 'kg', series: weightSeries, color: 'var(--primary)' },
+                                { title: 'Body Fat', unit: '%', series: bodyFatSeries, color: '#f97316' },
+                                { title: 'Muscle Mass', unit: 'kg', series: muscleSeries, color: '#22c55e' },
+                            ].map((metric) => (
+                                <div key={metric.title} className="rounded-sm border border-border bg-muted/10 p-2">
+                                    <div className="flex items-center justify-between mb-1">
+                                        <p className="text-[10px] uppercase font-bold text-muted-foreground">{metric.title}</p>
+                                        <p className="text-xs font-mono text-foreground">
+                                            {metric.series.length > 0 ? `${metric.series[metric.series.length - 1].value.toFixed(1)} ${metric.unit}` : 'N/A'}
+                                        </p>
+                                    </div>
+                                    <div className="h-24">
+                                        {metric.series.length > 0 ? (
+                                            <ResponsiveContainer width="100%" height="100%" minHeight={1} minWidth={1}>
+                                                <LineChart data={metric.series}>
+                                                    <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" vertical={false} />
+                                                    <XAxis
+                                                        dataKey="date"
+                                                        tickFormatter={(val) => {
+                                                            const d = new Date(val);
+                                                            return `${d.getMonth() + 1}/${d.getDate()}`;
+                                                        }}
+                                                        tick={{ fontSize: 10, fill: 'var(--muted-foreground)', fontFamily: 'var(--font-mono)' }}
+                                                        axisLine={false}
+                                                        tickLine={false}
+                                                    />
+                                                    <YAxis tick={{ fontSize: 10, fill: 'var(--muted-foreground)', fontFamily: 'var(--font-mono)' }} axisLine={false} tickLine={false} />
+                                                    <Tooltip content={<MetricTooltipContent unit={metric.unit} metricLabel={metric.title} />} />
+                                                    <Line type="monotone" dataKey="value" stroke={metric.color} strokeWidth={2} dot={{ r: 2, fill: metric.color }} />
+                                                </LineChart>
+                                            </ResponsiveContainer>
+                                        ) : (
+                                            <div className="h-full flex items-center justify-center text-[10px] text-muted-foreground font-mono">
+                                                No data in selected range
+                                            </div>
+                                        )}
+                                    </div>
+                                </div>
+                            ))}
+                        </div>
                     </div>
                 </div>
 
@@ -1259,93 +1425,31 @@ function CustomerDashboard({ userName, dateOfBirth }: { userName: string; dateOf
                             Log Session
                         </button>
                     </div>
-                </div>
-            </div>
 
-            <div className="grid grid-cols-1 xl:grid-cols-3 gap-6 items-start">
-                <div className="kpi-card p-5 xl:col-span-2">
-                    <div className="flex items-center justify-between mb-4">
-                        <h3 className="text-sm font-bold text-muted-foreground uppercase tracking-wider font-mono">Body Progress Tracking</h3>
-                        <div className="flex items-center gap-1">
-                            {[7, 30, 90].map((days) => (
-                                <button
-                                    key={days}
-                                    type="button"
-                                    onClick={() => setTrendRangeDays(days as 7 | 30 | 90)}
-                                    className={`px-2 py-1 text-[10px] font-bold border rounded-sm ${trendRangeDays === days ? 'border-primary text-primary bg-primary/10' : 'border-border text-muted-foreground hover:text-foreground'}`}
-                                >
-                                    {days}d
-                                </button>
-                            ))}
-                        </div>
-                    </div>
-                    <div className="space-y-3">
-                        {[
-                            { title: 'Weight', unit: 'kg', series: weightSeries, color: 'var(--primary)' },
-                            { title: 'Body Fat', unit: '%', series: bodyFatSeries, color: '#f97316' },
-                            { title: 'Muscle Mass', unit: 'kg', series: muscleSeries, color: '#22c55e' },
-                        ].map((metric) => (
-                            <div key={metric.title} className="rounded-sm border border-border bg-muted/10 p-2">
-                                <div className="flex items-center justify-between mb-1">
-                                    <p className="text-[10px] uppercase font-bold text-muted-foreground">{metric.title}</p>
-                                    <p className="text-xs font-mono text-foreground">
-                                        {metric.series.length > 0 ? `${metric.series[metric.series.length - 1].value.toFixed(1)} ${metric.unit}` : 'N/A'}
-                                    </p>
-                                </div>
-                                <div className="h-24">
-                                    {metric.series.length > 0 ? (
-                                        <ResponsiveContainer width="100%" height="100%" minHeight={1} minWidth={1}>
-                                            <LineChart data={metric.series}>
-                                                <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" vertical={false} />
-                                                <XAxis
-                                                    dataKey="date"
-                                                    tickFormatter={(val) => {
-                                                        const d = new Date(val);
-                                                        return `${d.getMonth() + 1}/${d.getDate()}`;
-                                                    }}
-                                                    tick={{ fontSize: 10, fill: 'var(--muted-foreground)', fontFamily: 'var(--font-mono)' }}
-                                                    axisLine={false}
-                                                    tickLine={false}
-                                                />
-                                                <YAxis tick={{ fontSize: 10, fill: 'var(--muted-foreground)', fontFamily: 'var(--font-mono)' }} axisLine={false} tickLine={false} />
-                                                <Tooltip content={<MetricTooltipContent unit={metric.unit} metricLabel={metric.title} />} />
-                                                <Line type="monotone" dataKey="value" stroke={metric.color} strokeWidth={2} dot={{ r: 2, fill: metric.color }} />
-                                            </LineChart>
-                                        </ResponsiveContainer>
-                                    ) : (
-                                        <div className="h-full flex items-center justify-center text-[10px] text-muted-foreground font-mono">
-                                            No data in selected range
-                                        </div>
-                                    )}
-                                </div>
+                    <div className="kpi-card p-4">
+                        <h3 className="text-sm font-bold text-muted-foreground mb-3 uppercase tracking-wider font-mono">Quick Body Log</h3>
+                        <form onSubmit={handleLogBiometrics} className="grid grid-cols-2 gap-2 items-end">
+                            <div>
+                                <label className="block text-[10px] uppercase font-bold text-muted-foreground mb-1">Height (cm)</label>
+                                <input type="number" step="0.1" className="input-dark py-1.5 text-sm" value={height} onChange={e => setHeight(e.target.value)} placeholder="e.g. 175" />
                             </div>
-                        ))}
+                            <div>
+                                <label className="block text-[10px] uppercase font-bold text-muted-foreground mb-1">Weight (kg)</label>
+                                <input type="number" step="0.1" className="input-dark py-1.5 text-sm" value={weight} onChange={e => setWeight(e.target.value)} placeholder="e.g. 75" />
+                            </div>
+                            <div>
+                                <label className="block text-[10px] uppercase font-bold text-muted-foreground mb-1">Body Fat (%)</label>
+                                <input type="number" step="0.1" className="input-dark py-1.5 text-sm" value={bodyFat} onChange={e => setBodyFat(e.target.value)} placeholder="e.g. 15" />
+                            </div>
+                            <div>
+                                <label className="block text-[10px] uppercase font-bold text-muted-foreground mb-1">Muscle (kg)</label>
+                                <input type="number" step="0.1" className="input-dark py-1.5 text-sm" value={muscleMass} onChange={e => setMuscleMass(e.target.value)} placeholder="e.g. 32" />
+                            </div>
+                            <button type="submit" disabled={loggingBiometrics || (!height && !weight && !bodyFat && !muscleMass)} className="btn-primary py-1.5 px-4 text-sm whitespace-nowrap col-span-2">
+                                {loggingBiometrics ? 'Saving...' : 'Log'}
+                            </button>
+                        </form>
                     </div>
-                </div>
-
-                <div className="kpi-card p-4">
-                    <h3 className="text-sm font-bold text-muted-foreground mb-3 uppercase tracking-wider font-mono">Quick Body Log</h3>
-                    <form onSubmit={handleLogBiometrics} className="grid grid-cols-2 gap-2 items-end">
-                        <div>
-                            <label className="block text-[10px] uppercase font-bold text-muted-foreground mb-1">Height (cm)</label>
-                            <input type="number" step="0.1" className="input-dark py-1.5 text-sm" value={height} onChange={e => setHeight(e.target.value)} placeholder="e.g. 175" />
-                        </div>
-                        <div>
-                            <label className="block text-[10px] uppercase font-bold text-muted-foreground mb-1">Weight (kg)</label>
-                            <input type="number" step="0.1" className="input-dark py-1.5 text-sm" value={weight} onChange={e => setWeight(e.target.value)} placeholder="e.g. 75" />
-                        </div>
-                        <div>
-                            <label className="block text-[10px] uppercase font-bold text-muted-foreground mb-1">Body Fat (%)</label>
-                            <input type="number" step="0.1" className="input-dark py-1.5 text-sm" value={bodyFat} onChange={e => setBodyFat(e.target.value)} placeholder="e.g. 15" />
-                        </div>
-                        <div>
-                            <label className="block text-[10px] uppercase font-bold text-muted-foreground mb-1">Muscle (kg)</label>
-                            <input type="number" step="0.1" className="input-dark py-1.5 text-sm" value={muscleMass} onChange={e => setMuscleMass(e.target.value)} placeholder="e.g. 32" />
-                        </div>
-                        <button type="submit" disabled={loggingBiometrics || (!height && !weight && !bodyFat && !muscleMass)} className="btn-primary py-1.5 px-4 text-sm whitespace-nowrap col-span-2">
-                            {loggingBiometrics ? 'Saving...' : 'Log'}
-                        </button>
-                    </form>
                 </div>
             </div>
 
@@ -1413,7 +1517,7 @@ function CustomerDashboard({ userName, dateOfBirth }: { userName: string; dateOf
                 </div>
             </div>
 
-            <div className="kpi-card p-6">
+                <div className="kpi-card p-6">
                 <div className="flex items-center justify-between mb-4">
                     <h3 className="text-sm font-bold text-muted-foreground uppercase tracking-wider font-mono">Exercise PR Table ({trendRangeDays}d)</h3>
                     <p className="text-xs text-muted-foreground font-mono">{exercisePrTable.length} exercises</p>
@@ -1656,6 +1760,104 @@ function CustomerDashboard({ userName, dateOfBirth }: { userName: string; dateOf
 
 // ======================== MAIN DASHBOARD PAGE ========================
 
+function CashierDashboard({ userName }: { userName: string }) {
+    return (
+        <div className="space-y-6">
+            <div>
+                <h1 className="text-2xl font-bold text-foreground font-serif tracking-tight">Cashier Dashboard</h1>
+                <p className="text-sm text-muted-foreground mt-1">Point of sale operations for {userName}</p>
+            </div>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <Link href="/dashboard/admin/pos" className="kpi-card group cursor-pointer hover:border-primary transition-colors">
+                    <div className="flex items-start justify-between">
+                        <div>
+                            <p className="text-lg font-bold text-foreground font-mono">Cashier POS</p>
+                            <p className="text-xs text-muted-foreground mt-1">Start and complete sales</p>
+                        </div>
+                        <DollarSign size={20} className="text-foreground" />
+                    </div>
+                </Link>
+                <Link href="/dashboard/profile" className="kpi-card group cursor-pointer hover:border-primary transition-colors">
+                    <div className="flex items-start justify-between">
+                        <div>
+                            <p className="text-lg font-bold text-foreground font-mono">My Profile</p>
+                            <p className="text-xs text-muted-foreground mt-1">Account details</p>
+                        </div>
+                        <UserCheck size={20} className="text-foreground" />
+                    </div>
+                </Link>
+                <Link href="/dashboard/leaves" className="kpi-card group cursor-pointer hover:border-primary transition-colors">
+                    <div className="flex items-start justify-between">
+                        <div>
+                            <p className="text-lg font-bold text-foreground font-mono">My Leaves</p>
+                            <p className="text-xs text-muted-foreground mt-1">Request and track leave days</p>
+                        </div>
+                        <ClipboardList size={20} className="text-foreground" />
+                    </div>
+                </Link>
+                <Link href="/dashboard/qr" className="kpi-card group cursor-pointer hover:border-primary transition-colors">
+                    <div className="flex items-start justify-between">
+                        <div>
+                            <p className="text-lg font-bold text-foreground font-mono">Work Check-In</p>
+                            <p className="text-xs text-muted-foreground mt-1">Use the same QR workflow as coach</p>
+                        </div>
+                        <QrCode size={20} className="text-foreground" />
+                    </div>
+                </Link>
+            </div>
+        </div>
+    );
+}
+
+function ReceptionDashboard({ userName }: { userName: string }) {
+    return (
+        <div className="space-y-6">
+            <div>
+                <h1 className="text-2xl font-bold text-foreground font-serif tracking-tight">Reception Dashboard</h1>
+                <p className="text-sm text-muted-foreground mt-1">Registration and member operations for {userName}</p>
+            </div>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <Link href="/dashboard/admin/members" className="kpi-card group cursor-pointer hover:border-primary transition-colors">
+                    <div className="flex items-start justify-between">
+                        <div>
+                            <p className="text-lg font-bold text-foreground font-mono">Reception/Registration</p>
+                            <p className="text-xs text-muted-foreground mt-1">Create and manage member subscriptions</p>
+                        </div>
+                        <Users size={20} className="text-foreground" />
+                    </div>
+                </Link>
+                <Link href="/dashboard/profile" className="kpi-card group cursor-pointer hover:border-primary transition-colors">
+                    <div className="flex items-start justify-between">
+                        <div>
+                            <p className="text-lg font-bold text-foreground font-mono">My Profile</p>
+                            <p className="text-xs text-muted-foreground mt-1">Account details</p>
+                        </div>
+                        <UserCheck size={20} className="text-foreground" />
+                    </div>
+                </Link>
+                <Link href="/dashboard/leaves" className="kpi-card group cursor-pointer hover:border-primary transition-colors">
+                    <div className="flex items-start justify-between">
+                        <div>
+                            <p className="text-lg font-bold text-foreground font-mono">My Leaves</p>
+                            <p className="text-xs text-muted-foreground mt-1">Request and track leave days</p>
+                        </div>
+                        <ClipboardList size={20} className="text-foreground" />
+                    </div>
+                </Link>
+                <Link href="/dashboard/qr" className="kpi-card group cursor-pointer hover:border-primary transition-colors">
+                    <div className="flex items-start justify-between">
+                        <div>
+                            <p className="text-lg font-bold text-foreground font-mono">Work Check-In</p>
+                            <p className="text-xs text-muted-foreground mt-1">Use the same QR workflow as coach</p>
+                        </div>
+                        <QrCode size={20} className="text-foreground" />
+                    </div>
+                </Link>
+            </div>
+        </div>
+    );
+}
+
 export default function DashboardPage() {
     const { user } = useAuth();
 
@@ -1666,6 +1868,12 @@ export default function DashboardPage() {
             return <AdminDashboard userName={user.full_name} />;
         case 'COACH':
             return <CoachDashboard userName={user.full_name} />;
+        case 'CASHIER':
+        case 'EMPLOYEE':
+            return <CashierDashboard userName={user.full_name} />;
+        case 'RECEPTION':
+        case 'FRONT_DESK':
+            return <ReceptionDashboard userName={user.full_name} />;
         case 'CUSTOMER':
         default:
             return <CustomerDashboard userName={user.full_name} dateOfBirth={user.date_of_birth} />;

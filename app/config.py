@@ -15,9 +15,18 @@ class Settings(BaseSettings):
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 30
     KIOSK_SIGNING_KEY: str | None = None
     KIOSK_TOKEN_EXPIRE_MINUTES: int = 60
-    
+    GYM_TIMEZONE: str = "UTC"
+
     # Validation
     BACKEND_CORS_ORIGINS: List[AnyHttpUrl] = []
+
+    # Notifications
+    WHATSAPP_ENABLED: bool = False
+    WHATSAPP_DRY_RUN: bool = True
+    WHATSAPP_PROVIDER: str = "mock"
+    WHATSAPP_API_URL: str | None = None
+    WHATSAPP_API_TOKEN: str | None = None
+    WHATSAPP_TIMEOUT_SECONDS: int = 10
 
     # Database
     POSTGRES_HOST: str

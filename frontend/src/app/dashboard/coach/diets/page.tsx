@@ -96,9 +96,9 @@ export default function DietPlansPage() {
                 </button>
             </div>
 
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
+            <div className="columns-1 md:columns-2 xl:columns-3 gap-5 space-y-5">
                 {plans.map(plan => (
-                    <div key={plan.id} className="kpi-card group">
+                    <div key={plan.id} className="kpi-card group break-inside-avoid mb-5">
                         <div className="flex justify-between items-start mb-4 gap-2">
                             <div className="h-11 w-11 rounded-sm bg-green-500/10 flex items-center justify-center border border-green-500/20">
                                 <Utensils size={20} className="text-green-500" />
@@ -120,7 +120,7 @@ export default function DietPlansPage() {
                 ))}
 
                 {plans.length === 0 && (
-                    <div className="col-span-full text-center py-16 chart-card border-dashed border-border">
+                    <div className="text-center py-16 chart-card border-dashed border-border break-inside-avoid mb-5">
                         <Utensils size={40} className="mx-auto text-muted-foreground mb-3 opacity-50" />
                         <p className="text-muted-foreground text-sm">No diet plans yet. Create your first one!</p>
                     </div>

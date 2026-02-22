@@ -338,3 +338,29 @@ async def test_authenticated_session_scan_flow(client: AsyncClient, db_session: 
     )
     assert second.status_code == 200
     assert second.json()["data"]["status"] == "ALREADY_SCANNED"
+
+
+@pytest.mark.asyncio
+async def test_cashier_and_reception_can_clock_in_and_out(client: AsyncClient, db_session: AsyncSession):
+    password = "password123"
+    hashed = get_password_hash(password)
+    cashier = User(email="cashier_shift@gym.com", hashed_password=hashed, role="CASHIER", full_name="Cashier Shift")
+    reception = User(email="reception_shift@gym.com", hashed_password=hashed, role="RECEPTION", full_name="Reception Shift")
+    db_session.add_all([cashier, reception])
+    await db_session.commit()
+
+    for email in ["cashier_shift@gym.com", "reception_shift@gym.com"]:
+        login_resp = await client.post(
+            f"{settings.API_V1_STR}/auth/login",
+            json={"email": email, "password": password},
+        )
+        assert login_resp.status_code == 200
+        token = login_resp.json()["data"]["access_token"]
+        headers = {"Authorization": f"Bearer {token}"}
+
+        checkin_resp = await client.post(f"{settings.API_V1_STR}/access/check-in", headers=headers)
+        assert checkin_resp.status_code == 200
+
+        await asyncio.sleep(0.1)
+        checkout_resp = await client.post(f"{settings.API_V1_STR}/access/check-out", headers=headers)
+        assert checkout_resp.status_code == 200

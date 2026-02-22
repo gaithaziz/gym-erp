@@ -13,6 +13,7 @@ from app.routers.gamification import router as gamification_router
 from app.routers.inventory import router as inventory_router
 from app.routers.users import router as users_router
 from app.routers.audit import router as audit_router
+from app.routers.notifications import router as notifications_router
 from app.core import exceptions
 from fastapi.staticfiles import StaticFiles
 import os
@@ -31,9 +32,18 @@ os.makedirs("static", exist_ok=True)
 app.mount("/static", StaticFiles(directory="static"), name="static")
 
 # CORS must be added before other middleware
+configured_origins = [str(origin).rstrip("/") for origin in settings.BACKEND_CORS_ORIGINS]
+default_origins = [
+    "http://localhost:3000",
+    "http://127.0.0.1:3000",
+    "http://localhost:8000",
+    "http://127.0.0.1:8000",
+]
+allow_origins = list(dict.fromkeys([*default_origins, *configured_origins]))
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:3000", "http://localhost:8000"],
+    allow_origins=allow_origins,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -63,6 +73,7 @@ app.include_router(gamification_router, prefix=f"{settings.API_V1_STR}/gamificat
 app.include_router(inventory_router, prefix=f"{settings.API_V1_STR}/inventory", tags=["Inventory"])
 app.include_router(users_router, prefix=f"{settings.API_V1_STR}/users", tags=["Users"])
 app.include_router(audit_router, prefix=f"{settings.API_V1_STR}/audit", tags=["Audit"])
+app.include_router(notifications_router, prefix=f"{settings.API_V1_STR}/admin/notifications", tags=["Notifications"])
 
 @app.get("/health")
 async def health_check():

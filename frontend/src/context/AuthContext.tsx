@@ -14,6 +14,11 @@ interface User {
     date_of_birth?: string;
     emergency_contact?: string;
     bio?: string;
+    subscription_status?: 'ACTIVE' | 'FROZEN' | 'EXPIRED' | 'NONE';
+    subscription_end_date?: string | null;
+    subscription_plan_name?: string | null;
+    is_subscription_blocked?: boolean;
+    block_reason?: 'SUBSCRIPTION_EXPIRED' | 'SUBSCRIPTION_FROZEN' | 'NO_ACTIVE_SUBSCRIPTION' | null;
 }
 
 interface AuthContextType {

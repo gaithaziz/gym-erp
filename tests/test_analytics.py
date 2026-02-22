@@ -3,7 +3,7 @@ from httpx import AsyncClient
 from sqlalchemy.ext.asyncio import AsyncSession
 from app.config import settings
 from app.models.user import User
-from app.models.access import Subscription, SubscriptionStatus, AttendanceLog
+from app.models.access import AccessLog, Subscription, SubscriptionStatus, AttendanceLog
 from app.models.hr import Payroll
 from app.auth.security import get_password_hash
 from datetime import datetime, timedelta, timezone
@@ -193,3 +193,71 @@ async def test_dashboard_supports_from_to_filters(client: AsyncClient, db_sessio
     assert resp.status_code == 200
     data = resp.json()["data"]
     assert data["monthly_revenue"] == 75.0
+
+
+@pytest.mark.asyncio
+async def test_dashboard_returns_today_visitors_unique_granted_count(client: AsyncClient, db_session: AsyncSession):
+    password = "password123"
+    hashed = get_password_hash(password)
+    admin = User(email="admin_visitors@gym.com", hashed_password=hashed, role="ADMIN", full_name="Admin Visitors")
+    user_a = User(email="visitor_a@gym.com", hashed_password=hashed, role="CUSTOMER", full_name="Visitor A")
+    user_b = User(email="visitor_b@gym.com", hashed_password=hashed, role="CUSTOMER", full_name="Visitor B")
+    db_session.add_all([admin, user_a, user_b])
+    await db_session.flush()
+
+    now = datetime.now(timezone.utc)
+    db_session.add_all([
+        AccessLog(user_id=user_a.id, scan_time=now, status="GRANTED", reason=None, kiosk_id="k1"),
+        AccessLog(user_id=user_a.id, scan_time=now, status="GRANTED", reason=None, kiosk_id="k1"),
+        AccessLog(user_id=user_b.id, scan_time=now, status="GRANTED", reason=None, kiosk_id="k1"),
+        AccessLog(user_id=user_b.id, scan_time=now, status="DENIED", reason="SUBSCRIPTION_EXPIRED", kiosk_id="k1"),
+    ])
+    await db_session.commit()
+
+    token = await client.post(
+        f"{settings.API_V1_STR}/auth/login",
+        json={"email": "admin_visitors@gym.com", "password": password}
+    )
+    headers = {"Authorization": f"Bearer {token.json()['data']['access_token']}"}
+
+    resp = await client.get(f"{settings.API_V1_STR}/analytics/dashboard", headers=headers)
+    assert resp.status_code == 200
+    data = resp.json()["data"]
+    assert data["today_visitors"] == 2
+
+
+@pytest.mark.asyncio
+async def test_daily_visitors_report_json_and_csv(client: AsyncClient, db_session: AsyncSession):
+    password = "password123"
+    hashed = get_password_hash(password)
+    admin = User(email="admin_daily_visitors@gym.com", hashed_password=hashed, role="ADMIN", full_name="Admin Visitors")
+    visitor = User(email="daily_visitor@gym.com", hashed_password=hashed, role="CUSTOMER", full_name="Daily Visitor")
+    db_session.add_all([admin, visitor])
+    await db_session.flush()
+
+    now = datetime.now(timezone.utc)
+    db_session.add(AccessLog(user_id=visitor.id, scan_time=now, status="GRANTED", reason=None, kiosk_id="k2"))
+    await db_session.commit()
+
+    token = await client.post(
+        f"{settings.API_V1_STR}/auth/login",
+        json={"email": "admin_daily_visitors@gym.com", "password": password}
+    )
+    headers = {"Authorization": f"Bearer {token.json()['data']['access_token']}"}
+
+    from_date = now.date().isoformat()
+    to_date = now.date().isoformat()
+
+    json_resp = await client.get(
+        f"{settings.API_V1_STR}/analytics/daily-visitors?from={from_date}&to={to_date}",
+        headers=headers,
+    )
+    assert json_resp.status_code == 200
+    assert len(json_resp.json()["data"]) >= 1
+
+    csv_resp = await client.get(
+        f"{settings.API_V1_STR}/analytics/daily-visitors?from={from_date}&to={to_date}&format=csv",
+        headers=headers,
+    )
+    assert csv_resp.status_code == 200
+    assert "text/csv" in csv_resp.headers.get("content-type", "")

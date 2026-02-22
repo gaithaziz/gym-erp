@@ -435,6 +435,8 @@ export default function StaffPage() {
                                 <option value="COACH">Coach</option>
                                 <option value="ADMIN">Admin</option>
                                 <option value="EMPLOYEE">Employee</option>
+                                <option value="CASHIER">Cashier</option>
+                                <option value="RECEPTION">Reception</option>
                             </select>
                         </div>
                         <div>

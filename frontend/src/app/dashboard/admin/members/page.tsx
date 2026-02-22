@@ -80,7 +80,7 @@ type MemberStatusFilter = 'ALL' | 'ACTIVE' | 'FROZEN' | 'EXPIRED' | 'NONE';
 
 export default function MembersPage() {
     const { user } = useAuth();
-    const isAdmin = user?.role === 'ADMIN';
+    const canManageMembers = ['ADMIN', 'RECEPTION', 'FRONT_DESK'].includes(user?.role || '');
     const { showToast, confirm: confirmAction } = useFeedback();
     const [members, setMembers] = useState<Member[]>([]);
     const [plans, setPlans] = useState<WorkoutPlan[]>([]);
@@ -353,8 +353,8 @@ export default function MembersPage() {
         <div className="space-y-8">
             <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
                 <div>
-                    <h1 className="text-2xl font-bold text-foreground">{isAdmin ? 'Members' : 'Clients'}</h1>
-                    <p className="text-sm text-muted-foreground mt-1">{members.length} registered {isAdmin ? 'members' : 'clients'}</p>
+                    <h1 className="text-2xl font-bold text-foreground">{canManageMembers ? 'Members' : 'Clients'}</h1>
+                    <p className="text-sm text-muted-foreground mt-1">{members.length} registered {canManageMembers ? 'members' : 'clients'}</p>
                 </div>
                 <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3 w-full sm:w-auto">
                     <div className="relative">
@@ -367,7 +367,7 @@ export default function MembersPage() {
                             onChange={e => setSearch(e.target.value)}
                         />
                     </div>
-                    {isAdmin && (
+                    {canManageMembers && (
                         <button onClick={() => setIsAddOpen(true)} className="btn-primary">
                             <UserPlus size={18} /> Add Member
                         </button>
@@ -458,7 +458,7 @@ export default function MembersPage() {
                                             >
                                                 <Dumbbell size={14} /> Assign
                                             </button>
-                                            {isAdmin && (
+                                            {canManageMembers && (
                                                 <button
                                                     onClick={() => openManage(m)}
                                                     className="btn-ghost py-1 px-2 h-auto text-xs"
@@ -467,7 +467,7 @@ export default function MembersPage() {
                                                     <Shield size={14} /> Sub
                                                 </button>
                                             )}
-                                            {isAdmin && (
+                                            {canManageMembers && (
                                                 <button
                                                     onClick={() => openEdit(m)}
                                                     className="btn-ghost py-1 px-2 h-auto text-xs text-blue-400 hover:text-blue-300"
@@ -476,7 +476,7 @@ export default function MembersPage() {
                                                     <Pencil size={14} />
                                                 </button>
                                             )}
-                                            {isAdmin && (
+                                            {canManageMembers && (
                                                 <button
                                                     onClick={() => handleDeleteMember(m.id, m.full_name)}
                                                     className="btn-ghost py-1 px-2 h-auto text-xs text-destructive hover:text-destructive/80"
@@ -545,7 +545,7 @@ export default function MembersPage() {
                                 >
                                     <Dumbbell size={14} /> Assign
                                 </button>
-                                {isAdmin && (
+                                {canManageMembers && (
                                     <button
                                         onClick={() => openManage(m)}
                                         className="btn-ghost !px-2 !py-2 h-auto text-xs justify-center"
@@ -554,7 +554,7 @@ export default function MembersPage() {
                                         <Shield size={14} /> Sub
                                     </button>
                                 )}
-                                {isAdmin && (
+                                {canManageMembers && (
                                     <button
                                         onClick={() => openEdit(m)}
                                         className="btn-ghost !px-2 !py-2 h-auto text-xs text-blue-400 hover:text-blue-300 justify-center"
@@ -563,7 +563,7 @@ export default function MembersPage() {
                                         <Pencil size={14} /> Edit
                                     </button>
                                 )}
-                                {isAdmin && (
+                                {canManageMembers && (
                                     <button
                                         onClick={() => handleDeleteMember(m.id, m.full_name)}
                                         className="btn-ghost !px-2 !py-2 h-auto text-xs text-destructive hover:text-destructive/80 justify-center"
@@ -579,7 +579,7 @@ export default function MembersPage() {
             </div>
 
             {/* ===== ADD MEMBER MODAL ===== */}
-            <Modal isOpen={isAddOpen && isAdmin} onClose={() => setIsAddOpen(false)} title="Register New Member">
+            <Modal isOpen={isAddOpen && canManageMembers} onClose={() => setIsAddOpen(false)} title="Register New Member">
                 <form onSubmit={handleAddMember} className="space-y-4">
                     <div>
                         <label className="block text-xs font-medium text-muted-foreground mb-1.5">Full Name</label>
@@ -597,7 +597,7 @@ export default function MembersPage() {
             </Modal>
 
             {/* ===== EDIT MEMBER MODAL ===== */}
-            <Modal isOpen={isEditOpen && isAdmin} onClose={() => setIsEditOpen(false)} title="Edit Member Details">
+            <Modal isOpen={isEditOpen && canManageMembers} onClose={() => setIsEditOpen(false)} title="Edit Member Details">
                 <form onSubmit={handleEditMember} className="space-y-4">
                     <div>
                         <label className="block text-xs font-medium text-muted-foreground mb-1.5">Full Name</label>
@@ -615,7 +615,7 @@ export default function MembersPage() {
             </Modal>
 
             {/* ===== MANAGE SUBSCRIPTION MODAL ===== */}
-            <Modal isOpen={isManageOpen && isAdmin} onClose={() => setIsManageOpen(false)} title={`Manage - ${manageMember?.full_name}`}>
+            <Modal isOpen={isManageOpen && canManageMembers} onClose={() => setIsManageOpen(false)} title={`Manage - ${manageMember?.full_name}`}>
                 <div className="space-y-5">
                     {/* Current status */}
                     <div className="flex items-center justify-between rounded-sm p-4 bg-card border border-border">
@@ -934,3 +934,4 @@ export default function MembersPage() {
         </div>
     );
 }
+

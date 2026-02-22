@@ -26,6 +26,8 @@ import { ThemeToggle } from "@/components/ThemeToggle";
 import { useEffect, useState } from 'react';
 import { resolveProfileImageUrl } from '@/lib/profileImage';
 
+const BLOCKED_ALLOWED_ROUTES = ['/dashboard/blocked', '/dashboard/support'];
+
 export default function DashboardLayout({
     children,
 }: {
@@ -37,12 +39,29 @@ export default function DashboardLayout({
     const [sidebarOpen, setSidebarOpen] = useState(false);
     const [failedProfileImageUrl, setFailedProfileImageUrl] = useState<string | null>(null);
     const profileImageUrl = resolveProfileImageUrl(user?.profile_picture_url);
+    const isBlockedCustomer = user?.role === 'CUSTOMER' && Boolean(user?.is_subscription_blocked);
 
     useEffect(() => {
         if (!isLoading && !user) {
             router.push('/login');
         }
     }, [user, isLoading, router]);
+
+    useEffect(() => {
+        if (isLoading || !user) return;
+
+        if (isBlockedCustomer) {
+            const isAllowed = BLOCKED_ALLOWED_ROUTES.some((route) => pathname.startsWith(route));
+            if (!isAllowed) {
+                router.replace('/dashboard/blocked');
+            }
+            return;
+        }
+
+        if (pathname.startsWith('/dashboard/blocked')) {
+            router.replace('/dashboard');
+        }
+    }, [isLoading, user, pathname, router, isBlockedCustomer]);
 
     // Close sidebar on route change (mobile)
     useEffect(() => {
@@ -62,11 +81,11 @@ export default function DashboardLayout({
     }
 
     const navItems = [
-        { href: '/dashboard', label: 'Dashboard', icon: LayoutDashboard, roles: ['ADMIN', 'COACH', 'CUSTOMER'], section: 'operations' },
+        { href: '/dashboard', label: 'Dashboard', icon: LayoutDashboard, roles: ['ADMIN', 'COACH', 'CUSTOMER', 'EMPLOYEE', 'CASHIER', 'RECEPTION', 'FRONT_DESK'], section: 'operations' },
         { href: '/dashboard/admin/inventory', label: 'Inventory', icon: Package, roles: ['ADMIN'], section: 'operations' },
-        { href: '/dashboard/admin/pos', label: 'POS', icon: ShoppingCart, roles: ['ADMIN'], section: 'operations' },
+        { href: '/dashboard/admin/pos', label: 'Cashier POS', icon: ShoppingCart, roles: ['ADMIN', 'CASHIER', 'EMPLOYEE'], section: 'operations' },
         { href: '/dashboard/admin/audit', label: 'Audit Logs', icon: ShieldAlert, roles: ['ADMIN'], section: 'operations' },
-        { href: '/dashboard/admin/members', label: 'Clients', icon: UserCheck, roles: ['ADMIN', 'COACH'], section: 'people' },
+        { href: '/dashboard/admin/members', label: 'Reception/Registration', icon: UserCheck, roles: ['ADMIN', 'COACH', 'RECEPTION', 'FRONT_DESK'], section: 'people' },
         { href: '/dashboard/admin/staff', label: 'Staff', icon: Users, roles: ['ADMIN'], section: 'people' },
         { href: '/dashboard/admin/staff/attendance', label: 'Attendance', icon: ClipboardList, roles: ['ADMIN'], section: 'people' },
         { href: '/dashboard/admin/leaves', label: 'HR Leaves', icon: ClipboardList, roles: ['ADMIN'], section: 'people' },
@@ -74,11 +93,14 @@ export default function DashboardLayout({
         { href: '/dashboard/coach/plans', label: 'Workout Plans', icon: Dumbbell, roles: ['ADMIN', 'COACH'], section: 'coaching' },
         { href: '/dashboard/coach/diets', label: 'Diet Plans', icon: Utensils, roles: ['ADMIN', 'COACH'], section: 'coaching' },
         { href: '/dashboard/coach/feedback', label: 'Feedback', icon: MessageSquare, roles: ['ADMIN', 'COACH'], section: 'coaching' },
-        { href: '/dashboard/qr', label: 'My QR Code', icon: QrCode, roles: ['CUSTOMER', 'COACH', 'ADMIN'], section: 'account' },
-        { href: '/dashboard/leaves', label: 'My Leaves', icon: ClipboardList, roles: ['ADMIN', 'COACH'], section: 'account' },
-        { href: '/dashboard/profile', label: 'My Profile', icon: UserCheck, roles: ['ADMIN', 'COACH', 'CUSTOMER', 'EMPLOYEE'], section: 'account' },
+        { href: '/dashboard/qr', label: 'My QR Code', icon: QrCode, roles: ['CUSTOMER', 'COACH', 'ADMIN', 'EMPLOYEE', 'CASHIER', 'RECEPTION', 'FRONT_DESK'], section: 'account' },
+        { href: '/dashboard/leaves', label: 'My Leaves', icon: ClipboardList, roles: ['ADMIN', 'COACH', 'EMPLOYEE', 'CASHIER', 'RECEPTION', 'FRONT_DESK'], section: 'account' },
+        { href: '/dashboard/profile', label: 'My Profile', icon: UserCheck, roles: ['ADMIN', 'COACH', 'CUSTOMER', 'EMPLOYEE', 'CASHIER', 'RECEPTION', 'FRONT_DESK'], section: 'account' },
+        { href: '/dashboard/member/feedback', label: 'My Feedback', icon: MessageSquare, roles: ['CUSTOMER'], section: 'account' },
         { href: '/dashboard/member/history', label: 'History', icon: ClipboardList, roles: ['CUSTOMER'], section: 'account' },
         { href: '/dashboard/member/achievements', label: 'Achievements', icon: Trophy, roles: ['CUSTOMER'], section: 'account' },
+        { href: '/dashboard/blocked', label: 'Subscription', icon: ShieldAlert, roles: ['CUSTOMER'], section: 'account' },
+        { href: '/dashboard/support', label: 'Support', icon: MessageSquare, roles: ['CUSTOMER'], section: 'account' },
     ];
 
     const navSections = [
@@ -89,7 +111,10 @@ export default function DashboardLayout({
         { key: 'account', label: 'Account' },
     ];
 
-    const filteredNav = navItems.filter(item => item.roles.includes(user.role));
+    const filteredNav = navItems.filter(item => item.roles.includes(user.role)).filter((item) => {
+        if (!isBlockedCustomer) return true;
+        return BLOCKED_ALLOWED_ROUTES.some((route) => item.href.startsWith(route));
+    });
 
     return (
         <div className="flex min-h-dvh bg-background">

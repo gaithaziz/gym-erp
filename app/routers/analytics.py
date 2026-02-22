@@ -1,6 +1,9 @@
 from typing import Annotated
 from datetime import date
+import csv
+import io
 from fastapi import APIRouter, Depends, Query
+from fastapi.responses import StreamingResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import get_db
@@ -99,3 +102,38 @@ async def get_recent_activity(
 
     events.sort(key=lambda x: x.get("time", ""), reverse=True)
     return StandardResponse(data=events[:10])
+
+
+@router.get("/daily-visitors")
+async def get_daily_visitors(
+    current_user: Annotated[User, Depends(dependencies.RoleChecker([Role.ADMIN]))],
+    db: Annotated[AsyncSession, Depends(get_db)],
+    from_date: date | None = Query(None, alias="from"),
+    to_date: date | None = Query(None, alias="to"),
+    group_by: str = Query("day", pattern="^(day|week)$"),
+    format: str = Query("json", pattern="^(json|csv)$"),
+):
+    data = await AnalyticsService.get_daily_visitors_report(
+        db,
+        from_date=from_date,
+        to_date=to_date,
+        group_by=group_by,
+    )
+
+    if format == "csv":
+        output = io.StringIO()
+        if group_by == "week":
+            fieldnames = ["week_start", "unique_visitors"]
+        else:
+            fieldnames = ["date", "unique_visitors"]
+        writer = csv.DictWriter(output, fieldnames=fieldnames)
+        writer.writeheader()
+        writer.writerows(data)
+        output.seek(0)
+        return StreamingResponse(
+            iter([output.getvalue()]),
+            media_type="text/csv",
+            headers={"Content-Disposition": "attachment; filename=daily_visitors_report.csv"},
+        )
+
+    return StandardResponse(data=data)

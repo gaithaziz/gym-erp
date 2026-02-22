@@ -159,7 +159,7 @@ async def create_product(
 
 @router.get("/products", response_model=StandardResponse[list[ProductResponse]])
 async def list_products(
-    current_user: Annotated[User, Depends(dependencies.RoleChecker([Role.ADMIN, Role.EMPLOYEE]))],
+    current_user: Annotated[User, Depends(dependencies.RoleChecker([Role.ADMIN, Role.EMPLOYEE, Role.CASHIER]))],
     db: Annotated[AsyncSession, Depends(get_db)],
     search: Optional[str] = Query(None),
     category: Optional[ProductCategory] = Query(None),
@@ -182,7 +182,7 @@ async def list_products(
 
 @router.get("/products/low-stock", response_model=StandardResponse[list[ProductResponse]])
 async def get_low_stock_products(
-    current_user: Annotated[User, Depends(dependencies.RoleChecker([Role.ADMIN, Role.EMPLOYEE]))],
+    current_user: Annotated[User, Depends(dependencies.RoleChecker([Role.ADMIN, Role.EMPLOYEE, Role.CASHIER]))],
     db: Annotated[AsyncSession, Depends(get_db)]
 ):
     """Fetch products that have reached or fallen below their low stock threshold."""
@@ -202,7 +202,7 @@ async def get_low_stock_products(
 @router.post("/products/{product_id}/low-stock/ack", response_model=StandardResponse[ProductResponse])
 async def acknowledge_low_stock(
     product_id: uuid.UUID,
-    current_user: Annotated[User, Depends(dependencies.RoleChecker([Role.ADMIN, Role.EMPLOYEE]))],
+    current_user: Annotated[User, Depends(dependencies.RoleChecker([Role.ADMIN, Role.EMPLOYEE, Role.CASHIER]))],
     db: Annotated[AsyncSession, Depends(get_db)],
 ):
     product = await _get_product_or_404(db, product_id)
@@ -226,7 +226,7 @@ async def acknowledge_low_stock(
 async def snooze_low_stock(
     product_id: uuid.UUID,
     request: LowStockSnoozeRequest,
-    current_user: Annotated[User, Depends(dependencies.RoleChecker([Role.ADMIN, Role.EMPLOYEE]))],
+    current_user: Annotated[User, Depends(dependencies.RoleChecker([Role.ADMIN, Role.EMPLOYEE, Role.CASHIER]))],
     db: Annotated[AsyncSession, Depends(get_db)],
 ):
     product = await _get_product_or_404(db, product_id)
@@ -250,7 +250,7 @@ async def snooze_low_stock(
 async def set_low_stock_restock_target(
     product_id: uuid.UUID,
     request: LowStockRestockTargetRequest,
-    current_user: Annotated[User, Depends(dependencies.RoleChecker([Role.ADMIN, Role.EMPLOYEE]))],
+    current_user: Annotated[User, Depends(dependencies.RoleChecker([Role.ADMIN, Role.EMPLOYEE, Role.CASHIER]))],
     db: Annotated[AsyncSession, Depends(get_db)],
 ):
     product = await _get_product_or_404(db, product_id)
@@ -326,7 +326,7 @@ async def delete_product(
 @router.post("/pos/sell", response_model=StandardResponse[POSSaleResponse])
 async def pos_sell(
     data: POSSaleRequest,
-    current_user: Annotated[User, Depends(dependencies.RoleChecker([Role.ADMIN, Role.EMPLOYEE]))],
+    current_user: Annotated[User, Depends(dependencies.RoleChecker([Role.ADMIN, Role.EMPLOYEE, Role.CASHIER]))],
     db: Annotated[AsyncSession, Depends(get_db)]
 ):
     """Process a POS sale: decrement stock and create a financial transaction."""
@@ -390,7 +390,7 @@ async def pos_sell(
 
 @router.get("/pos/recent", response_model=StandardResponse)
 async def recent_sales(
-    current_user: Annotated[User, Depends(dependencies.RoleChecker([Role.ADMIN, Role.EMPLOYEE]))],
+    current_user: Annotated[User, Depends(dependencies.RoleChecker([Role.ADMIN, Role.EMPLOYEE, Role.CASHIER]))],
     db: Annotated[AsyncSession, Depends(get_db)],
     limit: int = Query(20, ge=1, le=100),
 ):

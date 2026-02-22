@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import { api } from '@/lib/api';
-import { Trophy, Flame, Star, Calendar, TrendingUp } from 'lucide-react';
+import { Trophy, Flame, Star, Calendar, TrendingUp, Medal, Sunrise, MoonStar } from 'lucide-react';
 
 interface Badge {
     id: string;
@@ -22,7 +22,6 @@ interface GamificationStats {
     badges: Badge[];
 }
 
-// All possible badges the user can earn - used to show locked ones
 const ALL_BADGES = [
     { type: 'STREAK_3', name: '3-Day Streak', desc: 'Visit 3 days in a row' },
     { type: 'STREAK_7', name: 'Weekly Warrior', desc: 'Visit 7 days in a row' },
@@ -33,9 +32,17 @@ const ALL_BADGES = [
     { type: 'VISITS_50', name: '50 Club Visits', desc: 'Check in 50 times' },
     { type: 'VISITS_100', name: '100 Club', desc: 'Check in 100 times' },
     { type: 'VISITS_250', name: '250 Club Legend', desc: 'Check in 250 times' },
-    { type: 'EARLY_BIRD', name: '🌅 Early Bird', desc: 'Check in before 7 AM' },
+    { type: 'EARLY_BIRD', name: 'Early Bird', desc: 'Check in before 7 AM' },
     { type: 'NIGHT_OWL', name: 'Night Owl', desc: 'Check in after 9 PM' },
 ];
+
+const getBadgeSticker = (badgeType: string) => {
+    if (badgeType.startsWith('STREAK')) return <Flame size={22} className="text-orange-400" />;
+    if (badgeType.startsWith('VISITS')) return <Medal size={22} className="text-yellow-400" />;
+    if (badgeType === 'EARLY_BIRD') return <Sunrise size={22} className="text-amber-300" />;
+    if (badgeType === 'NIGHT_OWL') return <MoonStar size={22} className="text-sky-300" />;
+    return <Star size={22} className="text-primary" />;
+};
 
 export default function AchievementsPage() {
     const [stats, setStats] = useState<GamificationStats | null>(null);
@@ -61,17 +68,17 @@ export default function AchievementsPage() {
                 <div className="animate-pulse space-y-6">
                     <div className="h-8 bg-muted/50 w-48" />
                     <div className="grid grid-cols-3 gap-4">
-                        {[1, 2, 3].map(i => <div key={i} className="h-24 bg-muted/50" />)}
+                        {[1, 2, 3].map((i) => <div key={i} className="h-24 bg-muted/50" />)}
                     </div>
                     <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
-                        {[1, 2, 3, 4, 5, 6].map(i => <div key={i} className="h-32 bg-muted/50" />)}
+                        {[1, 2, 3, 4, 5, 6].map((i) => <div key={i} className="h-32 bg-muted/50" />)}
                     </div>
                 </div>
             </div>
         );
     }
 
-    const earnedTypes = new Set(stats?.badges.map(b => b.badge_type) || []);
+    const earnedTypes = new Set(stats?.badges.map((b) => b.badge_type) || []);
 
     return (
         <div className="max-w-4xl mx-auto space-y-8">
@@ -80,7 +87,6 @@ export default function AchievementsPage() {
                 <p className="text-sm text-muted-foreground mt-1">Your gym milestones and badges</p>
             </div>
 
-            {/* Stats Summary */}
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
                 <div className="kpi-card p-5">
                     <div className="flex items-center gap-3">
@@ -117,7 +123,6 @@ export default function AchievementsPage() {
                 </div>
             </div>
 
-            {/* Badges Grid */}
             <div>
                 <h2 className="text-lg font-bold text-foreground font-serif mb-4 flex items-center gap-2">
                     <Trophy size={18} className="text-primary" /> Badges
@@ -126,21 +131,18 @@ export default function AchievementsPage() {
                     </span>
                 </h2>
                 <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
-                    {ALL_BADGES.map(badge => {
+                    {ALL_BADGES.map((badge) => {
                         const earned = earnedTypes.has(badge.type);
-                        const earnedBadge = stats?.badges.find(b => b.badge_type === badge.type);
+                        const earnedBadge = stats?.badges.find((b) => b.badge_type === badge.type);
                         return (
                             <div
                                 key={badge.type}
-                                className={`kpi-card p-4 text-center transition-all ${earned
-                                        ? 'border-primary/50 bg-primary/5'
-                                        : 'opacity-40 grayscale'
-                                    }`}
+                                className={`kpi-card p-4 text-center transition-all ${earned ? 'border-primary/50 bg-primary/5' : 'opacity-40 grayscale'}`}
                             >
-                                <div className="text-3xl mb-2">{badge.name.split(' ')[0]}</div>
-                                <p className="text-sm font-bold text-foreground font-mono">
-                                    {badge.name.split(' ').slice(1).join(' ')}
-                                </p>
+                                <div className="w-12 h-12 mx-auto mb-2 rounded-full border border-border bg-muted/20 flex items-center justify-center">
+                                    {getBadgeSticker(badge.type)}
+                                </div>
+                                <p className="text-sm font-bold text-foreground font-mono">{badge.name}</p>
                                 <p className="text-xs text-muted-foreground mt-1">{badge.desc}</p>
                                 {earned && earnedBadge && (
                                     <p className="text-[0.6rem] text-primary font-mono mt-2 flex items-center justify-center gap-1">

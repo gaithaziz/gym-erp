@@ -9,6 +9,7 @@ import uuid
 from app.config import settings
 from app.models.user import User
 from app.models.access import AccessLog, AttendanceLog, Subscription, SubscriptionStatus
+from app.services.whatsapp_service import WhatsAppNotificationService
 
 
 class AccessRateLimiter:
@@ -113,6 +114,21 @@ class AccessService:
         )
         db.add(access_log)
         await db.commit()
+        if status_decision == "GRANTED":
+            await WhatsAppNotificationService.queue_and_send(
+                db=db,
+                user=user,
+                phone_number=user.phone_number,
+                template_key="activity_check_in",
+                event_type="ACCESS_GRANTED",
+                event_ref=str(access_log.id),
+                params={
+                    "member_name": user.full_name,
+                    "kiosk_id": kiosk_id,
+                    "scan_time": now.isoformat(),
+                },
+                idempotency_key=f"access-granted:{access_log.id}",
+            )
 
         return {
             "status": status_decision,
@@ -161,6 +177,21 @@ class AccessService:
         )
         db.add(access_log)
         await db.commit()
+        if status_decision == "GRANTED":
+            await WhatsAppNotificationService.queue_and_send(
+                db=db,
+                user=user,
+                phone_number=user.phone_number,
+                template_key="activity_check_in",
+                event_type="ACCESS_GRANTED",
+                event_ref=str(access_log.id),
+                params={
+                    "member_name": user.full_name,
+                    "kiosk_id": kiosk_id,
+                    "scan_time": now.isoformat(),
+                },
+                idempotency_key=f"access-granted:{access_log.id}",
+            )
 
         return {
             "status": status_decision,
@@ -246,3 +277,4 @@ class AccessService:
             })
             
         return data
+

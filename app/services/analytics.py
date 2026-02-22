@@ -1,8 +1,10 @@
-from datetime import datetime, timedelta, timezone, date
+from collections import defaultdict
+from datetime import date, datetime, timedelta, timezone
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func
-from app.models.access import Subscription, SubscriptionStatus, AttendanceLog
+from app.models.access import AccessLog, AttendanceLog, Subscription, SubscriptionStatus
 from app.models.hr import Payroll
+from app.services.timezone_service import get_gym_timezone
 
 class AnalyticsService:
     _dashboard_cache: dict[str, tuple[datetime, dict]] = {}
@@ -22,7 +24,10 @@ class AnalyticsService:
             if cache_entry and cache_entry[0] > now:
                 return cache_entry[1]
 
-        start_of_today = datetime(now.year, now.month, now.day, tzinfo=timezone.utc)
+        gym_tz = get_gym_timezone()
+        now_local = datetime.now(gym_tz)
+        start_of_today_local = datetime(now_local.year, now_local.month, now_local.day, tzinfo=gym_tz)
+        start_of_today = start_of_today_local.astimezone(timezone.utc)
         start_of_month = datetime(now.year, now.month, 1, tzinfo=timezone.utc)
 
         date_filters = []
@@ -39,6 +44,14 @@ class AnalyticsService:
         )
         result_hc = await db.execute(stmt_headcount)
         live_headcount = result_hc.scalar() or 0
+
+        # 1b. Today Visitors (non-live): distinct granted scans in local-day window
+        stmt_today_visitors = select(func.count(func.distinct(AccessLog.user_id))).where(
+            AccessLog.status == "GRANTED",
+            AccessLog.scan_time >= start_of_today,
+        )
+        result_today_visitors = await db.execute(stmt_today_visitors)
+        today_visitors = result_today_visitors.scalar() or 0
         
         # 2. Today's Revenue
         today_filters = [Transaction.type == TransactionType.INCOME]
@@ -86,6 +99,7 @@ class AnalyticsService:
 
         payload = {
             "live_headcount": live_headcount,
+            "today_visitors": today_visitors,
             "todays_revenue": todays_revenue,
             "active_members": active_members,
             "monthly_revenue": monthly_revenue,
@@ -142,3 +156,49 @@ class AnalyticsService:
         trends = [{"hour": k, "visits": v} for k, v in hourly_counts.items()]
         trends.sort(key=lambda x: x["hour"])
         return trends
+
+    @staticmethod
+    async def get_daily_visitors_report(
+        db: AsyncSession,
+        *,
+        from_date: date | None = None,
+        to_date: date | None = None,
+        group_by: str = "day",
+    ):
+        gym_tz = get_gym_timezone()
+        now_local = datetime.now(gym_tz)
+
+        effective_from = from_date or (now_local.date() - timedelta(days=29))
+        effective_to = to_date or now_local.date()
+
+        start_local = datetime(effective_from.year, effective_from.month, effective_from.day, tzinfo=gym_tz)
+        end_local_exclusive = datetime(effective_to.year, effective_to.month, effective_to.day, tzinfo=gym_tz) + timedelta(days=1)
+
+        start_utc = start_local.astimezone(timezone.utc)
+        end_utc = end_local_exclusive.astimezone(timezone.utc)
+
+        stmt = select(AccessLog.user_id, AccessLog.scan_time).where(
+            AccessLog.status == "GRANTED",
+            AccessLog.scan_time >= start_utc,
+            AccessLog.scan_time < end_utc,
+        )
+        result = await db.execute(stmt)
+        rows = result.all()
+
+        daily_users: dict[str, set] = defaultdict(set)
+        for user_id, scan_time in rows:
+            local_dt = scan_time.astimezone(gym_tz) if scan_time.tzinfo else scan_time.replace(tzinfo=timezone.utc).astimezone(gym_tz)
+            day_key = local_dt.date().isoformat()
+            daily_users[day_key].add(str(user_id))
+
+        daily_rows = [{"date": day_key, "unique_visitors": len(user_ids)} for day_key, user_ids in sorted(daily_users.items())]
+
+        if group_by == "week":
+            weekly_totals: dict[str, int] = defaultdict(int)
+            for row in daily_rows:
+                row_date = datetime.fromisoformat(row["date"]).date()
+                week_start = row_date - timedelta(days=row_date.weekday())
+                weekly_totals[week_start.isoformat()] += int(row["unique_visitors"])
+            return [{"week_start": key, "unique_visitors": weekly_totals[key]} for key in sorted(weekly_totals.keys())]
+
+        return daily_rows

@@ -13,7 +13,7 @@ router = APIRouter()
 
 @router.get("/stats", response_model=StandardResponse)
 async def get_my_gamification_stats(
-    current_user: Annotated[User, Depends(dependencies.get_current_active_user)],
+    current_user: Annotated[User, Depends(dependencies.require_active_customer_subscription)],
     db: Annotated[AsyncSession, Depends(get_db)]
 ):
     """Get gamification stats for the current user (streaks, badges, total visits)."""

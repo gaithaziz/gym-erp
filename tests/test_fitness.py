@@ -1,10 +1,23 @@
 import pytest
+from datetime import datetime, timedelta, timezone
 from httpx import AsyncClient
 from sqlalchemy.ext.asyncio import AsyncSession
 from app.config import settings
+from app.models.access import Subscription, SubscriptionStatus
 from app.models.user import User
 from app.models.enums import Role
 from app.auth.security import get_password_hash
+
+
+def _active_subscription(user_id):
+    now = datetime.now(timezone.utc)
+    return Subscription(
+        user_id=user_id,
+        plan_name="Gold",
+        start_date=now - timedelta(days=1),
+        end_date=now + timedelta(days=30),
+        status=SubscriptionStatus.ACTIVE,
+    )
 
 @pytest.mark.asyncio
 async def test_fitness_flow(client: AsyncClient, db_session: AsyncSession):
@@ -84,6 +97,8 @@ async def test_customer_can_only_log_assigned_plan(client: AsyncClient, db_sessi
     customer_other = User(email="other@gym.com", hashed_password=hashed, role=Role.CUSTOMER, full_name="Other Member")
     db_session.add_all([coach, customer_assigned, customer_other])
     await db_session.flush()
+    db_session.add_all([_active_subscription(customer_assigned.id), _active_subscription(customer_other.id)])
+    await db_session.commit()
 
     coach_login = await client.post(
         f"{settings.API_V1_STR}/auth/login",
@@ -146,6 +161,8 @@ async def test_coach_cannot_view_other_coach_plan_logs(client: AsyncClient, db_s
     customer = User(email="logs_member@gym.com", hashed_password=hashed, role=Role.CUSTOMER, full_name="Logs Member")
     db_session.add_all([coach_owner, coach_other, customer])
     await db_session.flush()
+    db_session.add(_active_subscription(customer.id))
+    await db_session.commit()
 
     owner_login = await client.post(
         f"{settings.API_V1_STR}/auth/login",
@@ -337,6 +354,8 @@ async def test_coach_can_delete_plan_that_has_logs(client: AsyncClient, db_sessi
     member = User(email="member_delete_plan@gym.com", hashed_password=hashed, role=Role.CUSTOMER, full_name="Member Delete Plan")
     db_session.add_all([coach, member])
     await db_session.flush()
+    db_session.add(_active_subscription(member.id))
+    await db_session.commit()
 
     coach_login = await client.post(
         f"{settings.API_V1_STR}/auth/login",
@@ -388,6 +407,8 @@ async def test_coach_can_view_member_biometrics(client: AsyncClient, db_session:
     coach = User(email="coach_bio_view@gym.com", hashed_password=hashed, role=Role.COACH, full_name="Coach Bio View")
     member = User(email="member_bio_view@gym.com", hashed_password=hashed, role=Role.CUSTOMER, full_name="Member Bio View")
     db_session.add_all([coach, member])
+    await db_session.flush()
+    db_session.add(_active_subscription(member.id))
     await db_session.commit()
 
     member_login = await client.post(
@@ -420,6 +441,8 @@ async def test_biometrics_supports_pagination(client: AsyncClient, db_session: A
     hashed = get_password_hash(password)
     member = User(email="member_bio_page@gym.com", hashed_password=hashed, role=Role.CUSTOMER, full_name="Bio Page Member")
     db_session.add(member)
+    await db_session.flush()
+    db_session.add(_active_subscription(member.id))
     await db_session.commit()
 
     login_resp = await client.post(

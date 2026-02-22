@@ -52,3 +52,32 @@ class WorkoutSessionEntry(Base):
 
     session = relationship("WorkoutSession", back_populates="entries")
     exercise = relationship("Exercise")
+
+
+class DietFeedback(Base):
+    __tablename__ = "diet_feedback"
+
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
+    member_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id"), nullable=False, index=True)
+    diet_plan_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("diet_plans.id"), nullable=False, index=True)
+    coach_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("users.id"), nullable=True, index=True)
+    rating: Mapped[int] = mapped_column(Integer, nullable=False)
+    comment: Mapped[str | None] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=lambda: datetime.now(timezone.utc), nullable=False, index=True)
+
+    member = relationship("User", foreign_keys=[member_id])
+    coach = relationship("User", foreign_keys=[coach_id])
+    diet_plan = relationship("DietPlan")
+
+
+class GymFeedback(Base):
+    __tablename__ = "gym_feedback"
+
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
+    member_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id"), nullable=False, index=True)
+    category: Mapped[str] = mapped_column(String, nullable=False, default="GENERAL")
+    rating: Mapped[int] = mapped_column(Integer, nullable=False)
+    comment: Mapped[str | None] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=lambda: datetime.now(timezone.utc), nullable=False, index=True)
+
+    member = relationship("User", foreign_keys=[member_id])

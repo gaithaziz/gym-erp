@@ -10,6 +10,7 @@ from app.database import get_db
 from app.models.user import User
 from app.auth.schemas import TokenPayload
 from app.models.enums import Role
+from app.services.subscription_status_service import SubscriptionStatusService
 
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl=f"{settings.API_V1_STR}/auth/login")
 
@@ -63,6 +64,26 @@ class RoleChecker:
 get_current_admin = RoleChecker([Role.ADMIN])
 # Managers can do everything Front Desk can, plus more. Admins can do everything.
 get_current_manager = RoleChecker([Role.ADMIN, Role.MANAGER])
-get_current_front_desk = RoleChecker([Role.ADMIN, Role.MANAGER, Role.FRONT_DESK])
+get_current_front_desk = RoleChecker([Role.ADMIN, Role.MANAGER, Role.FRONT_DESK, Role.RECEPTION])
 get_current_coach = RoleChecker([Role.ADMIN, Role.MANAGER, Role.COACH])
-get_current_employee = RoleChecker([Role.ADMIN, Role.MANAGER, Role.FRONT_DESK, Role.COACH, Role.EMPLOYEE])
+get_current_employee = RoleChecker([Role.ADMIN, Role.MANAGER, Role.FRONT_DESK, Role.RECEPTION, Role.COACH, Role.EMPLOYEE, Role.CASHIER])
+
+
+async def require_active_customer_subscription(
+    current_user: Annotated[User, Depends(get_current_active_user)],
+    db: Annotated[AsyncSession, Depends(get_db)],
+) -> User:
+    if current_user.role != Role.CUSTOMER:
+        return current_user
+
+    state = await SubscriptionStatusService.get_user_subscription_state(current_user.id, db)
+    if state.is_subscription_blocked:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail={
+                "detail": "Subscription blocked",
+                "code": "SUBSCRIPTION_BLOCKED",
+                "reason": state.block_reason,
+            },
+        )
+    return current_user

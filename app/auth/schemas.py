@@ -1,9 +1,10 @@
 from typing import Optional
-from datetime import date
+from datetime import date, datetime
 import re
 from pydantic import BaseModel, EmailStr, Field, field_validator
 from app.models.enums import Role
 import uuid
+from typing import Literal
 
 class Token(BaseModel):
     access_token: str
@@ -59,6 +60,11 @@ class UserCreate(UserBase):
 
 class UserResponse(UserBase):
     id: uuid.UUID
+    subscription_status: Literal["ACTIVE", "FROZEN", "EXPIRED", "NONE"] = "ACTIVE"
+    subscription_end_date: Optional[datetime] = None
+    subscription_plan_name: Optional[str] = None
+    is_subscription_blocked: bool = False
+    block_reason: Optional[Literal["SUBSCRIPTION_EXPIRED", "SUBSCRIPTION_FROZEN", "NO_ACTIVE_SUBSCRIPTION"]] = None
     
     class Config:
         from_attributes = True
