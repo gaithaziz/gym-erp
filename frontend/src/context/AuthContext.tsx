@@ -31,6 +31,7 @@ interface AuthContextType {
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
+const BLOCKED_SUBSCRIPTION_STATUSES = new Set(['EXPIRED', 'FROZEN', 'NONE']);
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {
     const [user, setUser] = useState<User | null>(null);
@@ -78,7 +79,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         setTokens(accessToken, refreshToken);
         localStorage.setItem('user', JSON.stringify(userData));
         setUser(userData);
-        router.push('/dashboard');
+        const isBlockedCustomer =
+            userData.role === 'CUSTOMER' &&
+            (Boolean(userData.is_subscription_blocked) ||
+                BLOCKED_SUBSCRIPTION_STATUSES.has(userData.subscription_status || 'NONE'));
+        router.replace(isBlockedCustomer ? '/dashboard/blocked' : '/dashboard');
     };
 
     const logout = () => {

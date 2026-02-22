@@ -13,20 +13,12 @@ interface ModalProps {
 
 export default function Modal({ isOpen, onClose, title, children }: ModalProps) {
     const modalRef = useRef<HTMLDivElement>(null);
-    const closeButtonRef = useRef<HTMLButtonElement>(null);
+    const onCloseRef = useRef(onClose);
     const titleId = useId();
 
-    const getFocusableElements = (root: HTMLElement) => {
-        const selector = [
-            'a[href]',
-            'button:not([disabled])',
-            'input:not([disabled])',
-            'select:not([disabled])',
-            'textarea:not([disabled])',
-            '[tabindex]:not([tabindex="-1"])',
-        ].join(',');
-        return Array.from(root.querySelectorAll<HTMLElement>(selector));
-    };
+    useEffect(() => {
+        onCloseRef.current = onClose;
+    }, [onClose]);
 
     useEffect(() => {
         if (!isOpen || typeof document === 'undefined') return;
@@ -35,36 +27,14 @@ export default function Modal({ isOpen, onClose, title, children }: ModalProps) 
         if (!modalEl) return;
 
         const previouslyFocused = document.activeElement as HTMLElement | null;
-        const focusables = getFocusableElements(modalEl);
-        const initialFocus = closeButtonRef.current || focusables[0] || modalEl;
-
-        initialFocus.focus();
+        if (previouslyFocused && typeof previouslyFocused.blur === 'function') {
+            previouslyFocused.blur();
+        }
+        modalEl.focus({ preventScroll: true });
 
         const handleKeyDown = (e: KeyboardEvent) => {
             if (e.key === 'Escape') {
-                onClose();
-                return;
-            }
-
-            if (e.key !== 'Tab') return;
-
-            const nodes = getFocusableElements(modalEl);
-            if (nodes.length === 0) {
-                e.preventDefault();
-                modalEl.focus();
-                return;
-            }
-
-            const first = nodes[0];
-            const last = nodes[nodes.length - 1];
-            const active = document.activeElement as HTMLElement | null;
-
-            if (e.shiftKey && active === first) {
-                e.preventDefault();
-                last.focus();
-            } else if (!e.shiftKey && active === last) {
-                e.preventDefault();
-                first.focus();
+                onCloseRef.current();
             }
         };
 
@@ -77,7 +47,7 @@ export default function Modal({ isOpen, onClose, title, children }: ModalProps) 
             document.body.style.overflow = previousOverflow;
             previouslyFocused?.focus();
         };
-    }, [isOpen, onClose]);
+    }, [isOpen]);
 
     if (!isOpen || typeof document === 'undefined') return null;
 
@@ -96,14 +66,15 @@ export default function Modal({ isOpen, onClose, title, children }: ModalProps) 
                 aria-modal="true"
                 aria-labelledby={titleId}
                 tabIndex={-1}
-                className="w-full max-w-md flex flex-col max-h-[90vh] overflow-hidden border border-border bg-card shadow-lg"
+                className="w-full max-w-md flex flex-col max-h-[90vh] overflow-hidden border border-border bg-card shadow-lg focus:outline-none"
             >
                 <div className="flex-none flex items-center justify-between p-4 md:p-6 border-b border-border bg-muted/20">
                     <h2 id={titleId} className="text-lg font-bold text-foreground font-serif tracking-tight">{title}</h2>
                     <button
-                        ref={closeButtonRef}
                         type="button"
                         onClick={onClose}
+                        onMouseDown={(e) => e.preventDefault()}
+                        tabIndex={-1}
                         aria-label="Close modal"
                         className="p-2 hover:bg-muted text-muted-foreground hover:text-foreground transition-colors rounded-sm"
                     >

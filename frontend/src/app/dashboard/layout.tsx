@@ -29,7 +29,8 @@ import { resolveProfileImageUrl } from '@/lib/profileImage';
 import ChatDrawer from '@/components/chat/ChatDrawer';
 import { api } from '@/lib/api';
 
-const BLOCKED_ALLOWED_ROUTES = ['/dashboard/blocked', '/dashboard/support'];
+const BLOCKED_ALLOWED_ROUTES = ['/dashboard/blocked', '/dashboard/support', '/dashboard/lost-found'];
+const BLOCKED_SUBSCRIPTION_STATUSES = new Set(['EXPIRED', 'FROZEN', 'NONE']);
 
 export default function DashboardLayout({
     children,
@@ -44,8 +45,12 @@ export default function DashboardLayout({
     const [chatUnread, setChatUnread] = useState(0);
     const [failedProfileImageUrl, setFailedProfileImageUrl] = useState<string | null>(null);
     const profileImageUrl = resolveProfileImageUrl(user?.profile_picture_url);
-    const isBlockedCustomer = user?.role === 'CUSTOMER' && Boolean(user?.is_subscription_blocked);
+    const isBlockedCustomer =
+        user?.role === 'CUSTOMER' &&
+        (Boolean(user?.is_subscription_blocked) ||
+            BLOCKED_SUBSCRIPTION_STATUSES.has(user?.subscription_status || 'NONE'));
     const canUseChat = ['ADMIN', 'COACH', 'CUSTOMER'].includes(user?.role || '') && !isBlockedCustomer;
+    const isBlockedRouteAllowed = BLOCKED_ALLOWED_ROUTES.some((route) => pathname.startsWith(route));
 
     useEffect(() => {
         if (!isLoading && !user) {
@@ -57,17 +62,13 @@ export default function DashboardLayout({
         if (isLoading || !user) return;
 
         if (isBlockedCustomer) {
-            const isAllowed = BLOCKED_ALLOWED_ROUTES.some((route) => pathname.startsWith(route));
-            if (!isAllowed) {
+            if (!isBlockedRouteAllowed) {
                 router.replace('/dashboard/blocked');
             }
             return;
         }
 
-        if (pathname.startsWith('/dashboard/blocked')) {
-            router.replace('/dashboard');
-        }
-    }, [isLoading, user, pathname, router, isBlockedCustomer]);
+    }, [isLoading, user, pathname, router, isBlockedCustomer, isBlockedRouteAllowed]);
 
     // Close sidebar on route change (mobile)
     useEffect(() => {
@@ -105,11 +106,23 @@ export default function DashboardLayout({
         );
     }
 
+    if (isBlockedCustomer && !isBlockedRouteAllowed) {
+        return (
+            <div className="flex min-h-dvh items-center justify-center bg-background">
+                <div className="flex flex-col items-center gap-3">
+                    <div className="h-10 w-10 animate-spin rounded-full border-4 border-primary border-t-transparent" />
+                    <p className="text-sm text-muted-foreground">Redirecting...</p>
+                </div>
+            </div>
+        );
+    }
+
     const navItems = [
         { href: '/dashboard', label: 'Dashboard', icon: LayoutDashboard, roles: ['ADMIN', 'COACH', 'CUSTOMER', 'EMPLOYEE', 'CASHIER', 'RECEPTION', 'FRONT_DESK'], section: 'operations' },
         { href: '/dashboard/admin/inventory', label: 'Inventory', icon: Package, roles: ['ADMIN'], section: 'operations' },
         { href: '/dashboard/admin/pos', label: 'Cashier POS', icon: ShoppingCart, roles: ['ADMIN', 'CASHIER', 'EMPLOYEE'], section: 'operations' },
         { href: '/dashboard/admin/notifications', label: 'WhatsApp Automation', icon: MessageSquare, roles: ['ADMIN', 'RECEPTION', 'FRONT_DESK'], section: 'operations' },
+        { href: '/dashboard/lost-found', label: 'Lost & Found', icon: MessageSquare, roles: ['ADMIN', 'MANAGER', 'FRONT_DESK', 'RECEPTION', 'COACH', 'EMPLOYEE', 'CASHIER', 'CUSTOMER'], section: 'operations' },
         { href: '/dashboard/admin/audit', label: 'Audit Logs', icon: ShieldAlert, roles: ['ADMIN'], section: 'operations' },
         { href: '/dashboard/admin/members', label: 'Reception/Registration', icon: UserCheck, roles: ['ADMIN', 'COACH', 'RECEPTION', 'FRONT_DESK'], section: 'people' },
         { href: '/dashboard/admin/staff', label: 'Staff', icon: Users, roles: ['ADMIN'], section: 'people' },

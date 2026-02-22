@@ -199,9 +199,20 @@ export default function ChatPage() {
     );
 
     const counterpartName = (thread: ChatThread) => {
-        if (isAdmin) return `${thread.customer.full_name || thread.customer.email} ↔ ${thread.coach.full_name || thread.coach.email}`;
+        if (isAdmin) return `${thread.customer.full_name || thread.customer.email} <-> ${thread.coach.full_name || thread.coach.email}`;
         if (user?.role === 'COACH') return thread.customer.full_name || thread.customer.email;
         return thread.coach.full_name || thread.coach.email;
+    };
+
+    const getAdminSenderLabel = (message: ChatMessage): string => {
+        if (!selectedThread) return 'Unknown sender';
+        if (message.sender_id === selectedThread.customer.id) {
+            return `Client: ${selectedThread.customer.full_name || selectedThread.customer.email}`;
+        }
+        if (message.sender_id === selectedThread.coach.id) {
+            return `Coach: ${selectedThread.coach.full_name || selectedThread.coach.email}`;
+        }
+        return 'Unknown sender';
     };
 
     const fetchThreads = async () => {
@@ -216,8 +227,7 @@ export default function ChatPage() {
             if (!selectedThreadId && rows.length > 0) {
                 setSelectedThreadId(rows[0].id);
             }
-        } catch (err) {
-            console.error(err);
+        } catch {
             setThreads([]);
         }
     };
@@ -230,8 +240,7 @@ export default function ChatPage() {
             if (!isAdmin) {
                 await api.post(`/chat/threads/${threadId}/read`);
             }
-        } catch (err) {
-            console.error(err);
+        } catch {
             setMessages([]);
         }
     };
@@ -257,8 +266,7 @@ export default function ChatPage() {
             setSelectedThreadId(thread.id);
             setContactSearch('');
             setNewChatOpen(false);
-        } catch (err) {
-            console.error(err);
+        } catch {
             showToast('Could not open chat.', 'error');
         } finally {
             setCreatingThread(false);
@@ -273,9 +281,14 @@ export default function ChatPage() {
             setText('');
             await fetchMessages(selectedThreadId);
             await fetchThreads();
-        } catch (err) {
-            console.error(err);
-            showToast('Failed to send message.', 'error');
+        } catch (err: unknown) {
+            const detail = (err as { response?: { data?: { detail?: string } } })?.response?.data?.detail;
+            const isNetworkError = (err as { message?: string })?.message === 'Network Error';
+            if (isNetworkError) {
+                showToast('Cannot reach server. Check backend is running on http://127.0.0.1:8000.', 'error');
+            } else {
+                showToast(typeof detail === 'string' && detail ? detail : 'Failed to send message.', 'error');
+            }
         }
     };
 
@@ -293,9 +306,13 @@ export default function ChatPage() {
             await fetchMessages(selectedThreadId);
             await fetchThreads();
         } catch (err: unknown) {
-            console.error(err);
             const detail = (err as { response?: { data?: { detail?: string } } })?.response?.data?.detail;
-            showToast(typeof detail === 'string' && detail ? detail : 'Attachment upload failed.', 'error');
+            const isNetworkError = (err as { message?: string })?.message === 'Network Error';
+            if (isNetworkError) {
+                showToast('Cannot reach server. Check backend is running on http://127.0.0.1:8000.', 'error');
+            } else {
+                showToast(typeof detail === 'string' && detail ? detail : 'Attachment upload failed.', 'error');
+            }
         } finally {
             setUploading(false);
         }
@@ -393,8 +410,7 @@ export default function ChatPage() {
             recordTimerRef.current = window.setInterval(() => {
                 setRecordSeconds((prev) => prev + 1);
             }, 1000);
-        } catch (error) {
-            console.error(error);
+        } catch {
             setRecording(false);
             showToast('Unable to access microphone.', 'error');
         }
@@ -673,6 +689,11 @@ export default function ChatPage() {
                             return (
                                 <div key={message.id} className={`flex ${mine ? 'justify-end' : 'justify-start'}`}>
                                     <div className={`max-w-[80%] rounded-2xl border px-3 py-2 ${mine ? 'border-primary bg-primary/10' : 'border-border bg-muted/30'}`}>
+                                        {isAdmin && (
+                                            <p className="text-[10px] text-muted-foreground mb-1">
+                                                {getAdminSenderLabel(message)}
+                                            </p>
+                                        )}
                                         {message.text_content && <p className="text-sm whitespace-pre-wrap">{message.text_content}</p>}
                                         {message.media_url && message.media_mime?.startsWith('image/') && (
                                             <Image

@@ -296,12 +296,12 @@ function AdminDashboard({ userName }: { userName: string }) {
 
     return (
         <div className="space-y-4">
-            <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 mb-6">
+            <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 mb-6 md:pr-28">
                 <div>
                     <h1 className="text-2xl font-bold text-foreground font-serif tracking-tight">Dashboard</h1>
                     <p className="text-sm text-muted-foreground mt-1">Gym Operations Center • {userName}</p>
                 </div>
-                <div className="flex items-center gap-2">
+                <div className="flex items-center gap-2 mt-1 md:mt-2">
                     <DateRangePicker date={dateRange} setDate={setDateRange} className="z-10" />
                 </div>
             </div>
@@ -323,10 +323,10 @@ function AdminDashboard({ userName }: { userName: string }) {
                                     <card.icon size={18} className="text-foreground" />
                                 </div>
                             </div>
-                            <div className="mt-auto w-full pt-2">
+                            <div className="mt-auto w-full pt-2 pb-2">
                                 <p className="text-xs text-muted-foreground">{card.subtitle}</p>
                                 {card.isAlert && (
-                                    <div className="flex items-center gap-2 mt-2 pt-2 border-t border-destructive/20 w-full">
+                                    <div className="flex items-center gap-2 mt-1.5 pt-1.5 border-t border-destructive/20 w-full">
                                         <span className="h-2 w-2 bg-destructive animate-ping" />
                                         <span className="text-xs text-destructive font-bold uppercase tracking-wider">Attention</span>
                                     </div>
