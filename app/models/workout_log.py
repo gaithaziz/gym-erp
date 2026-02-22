@@ -4,6 +4,14 @@ from sqlalchemy import Integer, ForeignKey, Text, DateTime, Float, String
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from app.database import Base
 
+__all__ = [
+    "WorkoutLog",
+    "WorkoutSession",
+    "WorkoutSessionEntry",
+    "DietFeedback",
+    "GymFeedback",
+]
+
 
 class WorkoutLog(Base):
     __tablename__ = "workout_logs"

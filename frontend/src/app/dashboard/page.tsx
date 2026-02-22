@@ -316,7 +316,7 @@ function AdminDashboard({ userName }: { userName: string }) {
                         <div className="flex items-start justify-between h-full flex-col">
                             <div className="w-full flex justify-between items-start">
                                 <div>
-                                    <p className="text-[0.65rem] font-bold text-muted-foreground uppercase tracking-wider font-mono">{card.title}</p>
+                                    <p className="inline-flex rounded-md border border-orange-500/30 bg-orange-500/10 px-2 py-1 text-xs font-extrabold text-orange-500 uppercase tracking-wider font-mono">{card.title}</p>
                                     <p className="text-3xl font-bold text-foreground mt-2 font-mono tracking-tighter">{card.value}</p>
                                 </div>
                                 <div className="p-2 border border-border bg-muted/50 mt-1">
@@ -341,7 +341,7 @@ function AdminDashboard({ userName }: { userName: string }) {
                     <div className="absolute top-2 right-2 text-muted-foreground/30 cursor-move drag-handle opacity-0 group-hover:opacity-100 transition-opacity z-10">
                         <Move size={14} />
                     </div>
-                    <h3 className="text-sm font-bold text-muted-foreground mb-6 uppercase tracking-wider font-mono">Visits by Hour (Last {selectedDays} Days)</h3>
+                    <h3 className="inline-flex rounded-md border border-orange-500/30 bg-orange-500/10 px-2 py-1 text-base font-extrabold text-orange-500 uppercase tracking-wider font-mono mb-6">Visits by Hour (Last {selectedDays} Days)</h3>
                     <div className="h-[calc(100%-2rem)]">
                         {attendanceData.length > 0 ? (
                             <ResponsiveContainer width="100%" height="100%" minHeight={1} minWidth={1}>
@@ -367,7 +367,7 @@ function AdminDashboard({ userName }: { userName: string }) {
                         <Move size={14} />
                     </div>
                     <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
-                        <h3 className="text-sm font-bold text-muted-foreground uppercase tracking-wider font-mono">Revenue vs. Expenses (Last {selectedDays} Days)</h3>
+                        <h3 className="inline-flex rounded-md border border-orange-500/30 bg-orange-500/10 px-2 py-1 text-base font-extrabold text-orange-500 uppercase tracking-wider font-mono">Revenue vs. Expenses (Last {selectedDays} Days)</h3>
                         <div className="flex items-center gap-1 border border-border bg-muted/20 p-1">
                             <button
                                 type="button"
@@ -457,7 +457,7 @@ function AdminDashboard({ userName }: { userName: string }) {
                         <Move size={14} />
                     </div>
                     <div className="p-4 border-b border-border flex-shrink-0">
-                        <h3 className="text-sm font-bold text-muted-foreground uppercase tracking-wider font-mono">Recent System Activity</h3>
+                        <h3 className="inline-flex rounded-md border border-orange-500/30 bg-orange-500/10 px-2 py-1 text-base font-extrabold text-orange-500 uppercase tracking-wider font-mono">Recent System Activity</h3>
                     </div>
                     <div className="divide-y divide-border overflow-y-auto flex-1">
                         {recentActivity.length > 0 ? (
@@ -482,7 +482,7 @@ function AdminDashboard({ userName }: { userName: string }) {
 
             <div className="kpi-card p-6">
                 <div className="flex items-center justify-between gap-3 mb-4">
-                    <h3 className="text-sm font-bold text-muted-foreground uppercase tracking-wider font-mono">Daily Visitor Report (Non-Live)</h3>
+                    <h3 className="inline-flex rounded-md border border-orange-500/30 bg-orange-500/10 px-2 py-1 text-base font-extrabold text-orange-500 uppercase tracking-wider font-mono">Daily Visitor Report (Non-Live)</h3>
                     <button type="button" className="btn-ghost !py-1.5 !px-3 text-xs flex items-center gap-1" onClick={exportDailyVisitorsCsv}>
                         <Download size={14} />
                         Export CSV
@@ -633,7 +633,7 @@ function CoachDashboard({ userName }: { userName: string }) {
                 <div className="kpi-card group">
                     <div className="flex items-start justify-between">
                         <div>
-                            <p className="text-[0.65rem] font-bold text-muted-foreground uppercase tracking-wider font-mono">Workout Plans</p>
+                            <p className="inline-flex rounded-md border border-orange-500/30 bg-orange-500/10 px-2 py-1 text-xs font-extrabold text-orange-500 uppercase tracking-wider font-mono">Workout Plans</p>
                             <p className="text-3xl font-bold text-foreground mt-2 font-mono tracking-tighter">{plansCount}</p>
                             <p className="text-xs text-muted-foreground mt-1">Plans created</p>
                         </div>
@@ -645,7 +645,7 @@ function CoachDashboard({ userName }: { userName: string }) {
                 <div className="kpi-card group">
                     <div className="flex items-start justify-between">
                         <div>
-                            <p className="text-[0.65rem] font-bold text-muted-foreground uppercase tracking-wider font-mono">Diet Plans</p>
+                            <p className="inline-flex rounded-md border border-orange-500/30 bg-orange-500/10 px-2 py-1 text-xs font-extrabold text-orange-500 uppercase tracking-wider font-mono">Diet Plans</p>
                             <p className="text-3xl font-bold text-foreground mt-2 font-mono tracking-tighter">{dietsCount}</p>
                             <p className="text-xs text-muted-foreground mt-1">Nutrition programs</p>
                         </div>
@@ -657,7 +657,7 @@ function CoachDashboard({ userName }: { userName: string }) {
                 <div className="kpi-card group">
                     <div className="flex items-start justify-between">
                         <div>
-                            <p className="text-[0.65rem] font-bold text-muted-foreground uppercase tracking-wider font-mono">Plan Adherence (7d)</p>
+                            <p className="inline-flex rounded-md border border-orange-500/30 bg-orange-500/10 px-2 py-1 text-xs font-extrabold text-orange-500 uppercase tracking-wider font-mono">Plan Adherence (7d)</p>
                             <p className="text-3xl font-bold text-foreground mt-2 font-mono tracking-tighter">{planAdherence.rate}%</p>
                             <p className="text-xs text-muted-foreground mt-1">
                                 {planAdherence.assigned > 0
@@ -728,7 +728,7 @@ function CoachDashboard({ userName }: { userName: string }) {
             {plans.length > 0 ? (
                 <div className="kpi-card p-0">
                     <div className="flex items-center justify-between p-4 border-b border-border">
-                        <h3 className="text-sm font-bold text-muted-foreground uppercase tracking-wider font-mono">Recently Created Plans</h3>
+                        <h3 className="inline-flex rounded-md border border-orange-500/30 bg-orange-500/10 px-2 py-1 text-base font-extrabold text-orange-500 uppercase tracking-wider font-mono">Recently Created Plans</h3>
                         <Link href="/dashboard/coach/plans" className="text-xs text-primary hover:text-primary/80 font-mono">VIEW ALL →</Link>
                     </div>
                     <div className="divide-y divide-border">
@@ -752,7 +752,7 @@ function CoachDashboard({ userName }: { userName: string }) {
             <div className="kpi-card p-6 space-y-4">
                 <div className="flex flex-col sm:flex-row sm:items-end sm:justify-between gap-3">
                     <div>
-                        <h3 className="text-sm font-bold text-muted-foreground uppercase tracking-wider font-mono">Client Progress Tracking</h3>
+                        <h3 className="inline-flex rounded-md border border-orange-500/30 bg-orange-500/10 px-2 py-1 text-base font-extrabold text-orange-500 uppercase tracking-wider font-mono">Client Progress Tracking</h3>
                         <p className="text-xs text-muted-foreground mt-1">Monitor member biometrics and progress trends</p>
                     </div>
                     <div className="w-full sm:w-72">
@@ -1190,7 +1190,7 @@ function CustomerDashboard({ userName, dateOfBirth }: { userName: string; dateOf
                         <div className="absolute inset-0 bg-gradient-to-br from-primary/5 to-transparent opacity-0 group-hover:opacity-100 transition-opacity" />
                         <div className="flex flex-col justify-between h-full relative z-10">
                             <div>
-                                <h3 className="text-xs font-bold text-muted-foreground uppercase tracking-wider mb-2">Weekly Goal</h3>
+                                <h3 className="inline-flex rounded-md border border-orange-500/30 bg-orange-500/10 px-2 py-1 text-sm font-extrabold text-orange-500 uppercase tracking-wider mb-2">Weekly Goal</h3>
                                 <div className="flex items-end gap-2 mb-1">
                                     <span className="text-3xl font-bold text-foreground">{weeklyProgress}</span>
                                     <span className="text-sm text-muted-foreground mb-1.5">/ {weeklyGoal} visits</span>
@@ -1212,7 +1212,7 @@ function CustomerDashboard({ userName, dateOfBirth }: { userName: string; dateOf
                     <div className="kpi-card">
                         <div className="flex items-start justify-between">
                             <div>
-                                <p className="text-[0.65rem] font-bold text-muted-foreground uppercase tracking-wider font-mono">Total Visits</p>
+                                <p className="inline-flex rounded-md border border-orange-500/30 bg-orange-500/10 px-2 py-1 text-xs font-extrabold text-orange-500 uppercase tracking-wider font-mono">Total Visits</p>
                                 <p className="text-2xl font-bold text-foreground mt-2 font-mono">{stats?.total_visits || 0}</p>
                             </div>
                             <div className="p-2 border border-border bg-muted/50 rounded-sm">
@@ -1224,7 +1224,7 @@ function CustomerDashboard({ userName, dateOfBirth }: { userName: string; dateOf
                     <div className="kpi-card">
                         <div className="flex items-start justify-between">
                             <div>
-                                <p className="text-[0.65rem] font-bold text-muted-foreground uppercase tracking-wider font-mono">Badges Earned</p>
+                                <p className="inline-flex rounded-md border border-orange-500/30 bg-orange-500/10 px-2 py-1 text-xs font-extrabold text-orange-500 uppercase tracking-wider font-mono">Badges Earned</p>
                                 <p className="text-2xl font-bold text-foreground mt-2 font-mono">{stats?.badges.length || 0}</p>
                             </div>
                             <div className="p-2 border border-border bg-muted/50 rounded-sm">
@@ -1237,7 +1237,7 @@ function CustomerDashboard({ userName, dateOfBirth }: { userName: string; dateOf
                 {/* Recent Badges / Quick Links */}
                 <div className="col-span-1 space-y-4">
                     <div className="kpi-card p-4">
-                        <h3 className="text-xs font-bold text-muted-foreground uppercase tracking-wider mb-3">Recent Badges</h3>
+                        <h3 className="inline-flex rounded-md border border-orange-500/30 bg-orange-500/10 px-2 py-1 text-sm font-extrabold text-orange-500 uppercase tracking-wider mb-3">Recent Badges</h3>
                         {stats?.badges && stats.badges.length > 0 ? (
                             <div className="space-y-3">
                                 {stats.badges.slice(0, 3).map(badge => (
@@ -1264,7 +1264,7 @@ function CustomerDashboard({ userName, dateOfBirth }: { userName: string; dateOf
             <div className="grid grid-cols-1 xl:grid-cols-3 gap-6 items-start">
                 <div className="space-y-6 xl:col-span-2">
                     <div className="kpi-card p-5">
-                        <h3 className="text-sm font-bold text-muted-foreground mb-3 uppercase tracking-wider font-mono">Workout Consistency (Last 30 Days)</h3>
+                        <h3 className="inline-flex rounded-md border border-orange-500/30 bg-orange-500/10 px-2 py-1 text-base font-extrabold text-orange-500 uppercase tracking-wider font-mono mb-3">Workout Consistency (Last 30 Days)</h3>
                         <div className="h-44">
                             {workoutStats.length > 0 ? (
                                 <ResponsiveContainer width="100%" height="100%" minHeight={1} minWidth={1}>
@@ -1304,7 +1304,7 @@ function CustomerDashboard({ userName, dateOfBirth }: { userName: string; dateOf
                     </div>
                     <div className="kpi-card p-5">
                         <div className="flex items-center justify-between mb-4">
-                            <h3 className="text-sm font-bold text-muted-foreground uppercase tracking-wider font-mono">Body Progress Tracking</h3>
+                            <h3 className="inline-flex rounded-md border border-orange-500/30 bg-orange-500/10 px-2 py-1 text-base font-extrabold text-orange-500 uppercase tracking-wider font-mono">Body Progress Tracking</h3>
                             <div className="flex items-center gap-1">
                                 {[7, 30, 90].map((days) => (
                                     <button
@@ -1380,7 +1380,7 @@ function CustomerDashboard({ userName, dateOfBirth }: { userName: string; dateOf
                     </div>
                     <div className="kpi-card p-4">
                         <div className="flex items-center justify-between mb-3">
-                            <h3 className="text-sm font-bold text-muted-foreground uppercase tracking-wider font-mono">Today&apos;s Focus</h3>
+                            <h3 className="inline-flex rounded-md border border-orange-500/30 bg-orange-500/10 px-2 py-1 text-base font-extrabold text-orange-500 uppercase tracking-wider font-mono">Today&apos;s Focus</h3>
                             <Dumbbell size={16} className="text-primary" />
                         </div>
                         <div className="space-y-2 mb-3">
@@ -1419,7 +1419,7 @@ function CustomerDashboard({ userName, dateOfBirth }: { userName: string; dateOf
                     </div>
 
                     <div className="kpi-card p-4">
-                        <h3 className="text-sm font-bold text-muted-foreground mb-3 uppercase tracking-wider font-mono">Quick Body Log</h3>
+                        <h3 className="inline-flex rounded-md border border-orange-500/30 bg-orange-500/10 px-2 py-1 text-base font-extrabold text-orange-500 uppercase tracking-wider font-mono mb-3">Quick Body Log</h3>
                         <form onSubmit={handleLogBiometrics} className="grid grid-cols-2 gap-2 items-end">
                             <div>
                                 <label className="block text-[10px] uppercase font-bold text-muted-foreground mb-1">Height (cm)</label>
@@ -1447,7 +1447,7 @@ function CustomerDashboard({ userName, dateOfBirth }: { userName: string; dateOf
 
             <div className="kpi-card p-6 space-y-4">
                 <div className="flex items-center justify-between">
-                    <h3 className="text-sm font-bold text-muted-foreground uppercase tracking-wider font-mono">Session Load Tracking ({trendRangeDays}d)</h3>
+                    <h3 className="inline-flex rounded-md border border-orange-500/30 bg-orange-500/10 px-2 py-1 text-base font-extrabold text-orange-500 uppercase tracking-wider font-mono">Session Load Tracking ({trendRangeDays}d)</h3>
                     <p className="text-xs text-muted-foreground font-mono">{filteredSessionLogs.length} sessions logged</p>
                 </div>
                 <div className="h-40">
@@ -1485,7 +1485,7 @@ function CustomerDashboard({ userName, dateOfBirth }: { userName: string; dateOf
                 </div>
 
                 <div className="space-y-2">
-                    <h4 className="text-xs font-bold text-muted-foreground uppercase tracking-wider">Recent Sessions</h4>
+                    <h4 className="inline-flex rounded-md border border-orange-500/30 bg-orange-500/10 px-2 py-1 text-sm font-extrabold text-orange-500 uppercase tracking-wider">Recent Sessions</h4>
                     {recentFilteredSessionLogs.length > 0 ? (
                         recentFilteredSessionLogs.map((session) => {
                             const planName = plans.find((plan) => plan.id === session.plan_id)?.name || 'Workout Plan';
@@ -1511,7 +1511,7 @@ function CustomerDashboard({ userName, dateOfBirth }: { userName: string; dateOf
 
                 <div className="kpi-card p-6">
                 <div className="flex items-center justify-between mb-4">
-                    <h3 className="text-sm font-bold text-muted-foreground uppercase tracking-wider font-mono">Exercise PR Table ({trendRangeDays}d)</h3>
+                    <h3 className="inline-flex rounded-md border border-orange-500/30 bg-orange-500/10 px-2 py-1 text-base font-extrabold text-orange-500 uppercase tracking-wider font-mono">Exercise PR Table ({trendRangeDays}d)</h3>
                     <p className="text-xs text-muted-foreground font-mono">{exercisePrTable.length} exercises</p>
                 </div>
                 {exercisePrTable.length > 0 ? (
@@ -1547,7 +1547,7 @@ function CustomerDashboard({ userName, dateOfBirth }: { userName: string; dateOf
             </div>
 
             {/* Quick Access Cards */}
-            <h3 className="text-sm font-bold text-muted-foreground uppercase tracking-wider font-mono mt-8">Quick Access</h3>
+            <h3 className="inline-flex rounded-md border border-orange-500/30 bg-orange-500/10 px-2 py-1 text-base font-extrabold text-orange-500 uppercase tracking-wider font-mono mt-8">Quick Access</h3>
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
                 <Link href="/dashboard/qr" className="kpi-card group cursor-pointer hover:border-primary transition-colors">
                     <div className="flex items-start justify-between">
@@ -1580,7 +1580,7 @@ function CustomerDashboard({ userName, dateOfBirth }: { userName: string; dateOf
 
             {/* Workout Plans */}
             <div className="kpi-card p-6">
-                <h3 className="text-sm font-bold text-muted-foreground mb-4 uppercase tracking-wider font-mono">My Workout Plans</h3>
+                <h3 className="inline-flex rounded-md border border-orange-500/30 bg-orange-500/10 px-2 py-1 text-base font-extrabold text-orange-500 uppercase tracking-wider font-mono mb-4">My Workout Plans</h3>
                 {plans.length > 0 ? (
                     <div className="space-y-3">
                         {plans.map((plan: Plan) => (
@@ -1635,7 +1635,7 @@ function CustomerDashboard({ userName, dateOfBirth }: { userName: string; dateOf
 
             {/* Diet Plans */}
             <div className="kpi-card p-6">
-                <h3 className="text-sm font-bold text-muted-foreground mb-4 uppercase tracking-wider font-mono">My Diet Plans</h3>
+                <h3 className="inline-flex rounded-md border border-orange-500/30 bg-orange-500/10 px-2 py-1 text-base font-extrabold text-orange-500 uppercase tracking-wider font-mono mb-4">My Diet Plans</h3>
                 {diets.length > 0 ? (
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                         {diets.map((diet: Diet) => (
@@ -1871,3 +1871,4 @@ export default function DashboardPage() {
             return <CustomerDashboard userName={user.full_name} dateOfBirth={user.date_of_birth} />;
     }
 }
+

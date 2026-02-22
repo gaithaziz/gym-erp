@@ -6,6 +6,7 @@ import { clearTokens, getAccessToken, setTokens } from '@/lib/tokenStorage';
 import { api } from '@/lib/api';
 
 interface User {
+    id: string;
     email: string;
     full_name: string;
     role: string;

@@ -83,6 +83,12 @@ async function refreshAccessToken(): Promise<string | null> {
 // Add a request interceptor to include the JWT token
 api.interceptors.request.use(
     (config) => {
+        if (typeof FormData !== 'undefined' && config.data instanceof FormData) {
+            if (config.headers) {
+                delete (config.headers as Record<string, unknown>)['Content-Type'];
+                delete (config.headers as Record<string, unknown>)['content-type'];
+            }
+        }
         if (isBrowser) {
             const token = getAccessToken();
             if (token) {

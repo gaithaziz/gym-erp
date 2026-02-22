@@ -3,7 +3,7 @@
 @theme {
   --font-sans: var(--font-sans);
   --font-serif: var(--font-serif);
-  --font-mono: var(--font-mono);
+  --font-mono: var(--font-serif);
 
   --color-background: var(--background);
   --color-foreground: var(--foreground);
@@ -126,30 +126,29 @@
 }
 
 body {
+  --font-mono: var(--font-serif);
   background: var(--background);
   color: var(--foreground);
-  font-family: var(--font-sans);
+  font-family: var(--font-serif);
   -webkit-font-smoothing: antialiased;
 }
 
 /* ====== DE-VIBECODED COMPONENT STYLES ====== */
 
-/* Cards: Flat, Hard Edges, No Glow */
+/* Cards */
 .kpi-card {
   background: var(--card);
   border: 1px solid var(--border);
-  border-radius: 0px;
-  /* Hard edges */
+  border-radius: 8px;
   padding: 1.5rem;
   position: relative;
   transition: border-color 0.2s ease, transform 0.2s ease;
-  /* No box-shadow or transition for hover glow */
 }
 
 .chart-card {
   background: var(--card);
   border: 1px solid var(--border);
-  border-radius: 0px;
+  border-radius: 8px;
   padding: 1.5rem;
 }
 
@@ -168,8 +167,7 @@ body {
   background: var(--primary);
   color: var(--primary-foreground);
   padding: 0.625rem 1.25rem;
-  border-radius: 2px;
-  /* Micro-rounding */
+  border-radius: 8px;
   font-size: 0.875rem;
   font-weight: 600;
   border: none;
@@ -196,7 +194,7 @@ body {
   background: transparent;
   color: var(--muted-foreground);
   padding: 0.625rem 1.25rem;
-  border-radius: 2px;
+  border-radius: 8px;
   font-size: 0.875rem;
   font-weight: 600;
   border: none;

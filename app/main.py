@@ -14,6 +14,7 @@ from app.routers.inventory import router as inventory_router
 from app.routers.users import router as users_router
 from app.routers.audit import router as audit_router
 from app.routers.notifications import router as notifications_router
+from app.routers.chat import router as chat_router
 from app.core import exceptions
 from fastapi.staticfiles import StaticFiles
 import os
@@ -74,6 +75,7 @@ app.include_router(inventory_router, prefix=f"{settings.API_V1_STR}/inventory", 
 app.include_router(users_router, prefix=f"{settings.API_V1_STR}/users", tags=["Users"])
 app.include_router(audit_router, prefix=f"{settings.API_V1_STR}/audit", tags=["Audit"])
 app.include_router(notifications_router, prefix=f"{settings.API_V1_STR}/admin/notifications", tags=["Notifications"])
+app.include_router(chat_router, prefix=f"{settings.API_V1_STR}/chat", tags=["Chat"])
 
 @app.get("/health")
 async def health_check():

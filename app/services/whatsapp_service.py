@@ -8,7 +8,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import settings
-from app.models.notification import WhatsAppDeliveryLog
+from app.models.notification import WhatsAppAutomationRule, WhatsAppDeliveryLog
 from app.models.user import User
 
 
@@ -61,6 +61,13 @@ def _get_provider() -> WhatsAppProvider:
 
 class WhatsAppNotificationService:
     @staticmethod
+    async def _resolve_rule(db: AsyncSession, event_type: str) -> WhatsAppAutomationRule | None:
+        result = await db.execute(
+            select(WhatsAppAutomationRule).where(WhatsAppAutomationRule.event_type == event_type)
+        )
+        return result.scalar_one_or_none()
+
+    @staticmethod
     async def queue_and_send(
         *,
         db: AsyncSession,
@@ -79,10 +86,13 @@ class WhatsAppNotificationService:
         if existing_log:
             return existing_log
 
+        rule = await WhatsAppNotificationService._resolve_rule(db, event_type)
+        resolved_template_key = rule.template_key if rule else template_key
+
         log = WhatsAppDeliveryLog(
             user_id=user.id if user else None,
             phone_number=phone_number,
-            template_key=template_key,
+            template_key=resolved_template_key,
             payload_json=json.dumps(params, ensure_ascii=True),
             event_type=event_type,
             event_ref=event_ref,
@@ -92,6 +102,13 @@ class WhatsAppNotificationService:
         db.add(log)
         await db.flush()
 
+        if rule and not rule.is_enabled:
+            log.status = "SKIPPED"
+            log.error_message = "Automation rule disabled"
+            log.failed_at = datetime.now(timezone.utc)
+            await db.commit()
+            return log
+
         if not phone_number:
             log.status = "SKIPPED"
             log.error_message = "No phone number"
@@ -100,7 +117,7 @@ class WhatsAppNotificationService:
             return log
 
         provider = _get_provider()
-        result = await provider.send_template_message(phone_number, template_key, params)
+        result = await provider.send_template_message(phone_number, resolved_template_key, params)
         now = datetime.now(timezone.utc)
         if result.status == "SENT":
             log.status = "SENT"

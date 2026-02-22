@@ -37,7 +37,8 @@ export default function RootLayout({
   return (
     <html lang="en" suppressHydrationWarning>
       <body
-        className={`${outfit.variable} ${fraunces.variable} ${jetbrainsMono.variable} antialiased font-sans bg-background text-foreground`}
+        className={`${outfit.variable} ${fraunces.variable} ${jetbrainsMono.variable} antialiased font-serif bg-background text-foreground`}
+        style={{ "--font-mono": "var(--font-serif)" } as { [key: string]: string }}
       >
         <ThemeProvider
           attribute="class"

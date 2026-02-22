@@ -22,9 +22,12 @@ import {
     ShoppingCart,
     ShieldAlert
 } from "lucide-react";
+import { MessageCircle } from "lucide-react";
 import { ThemeToggle } from "@/components/ThemeToggle";
 import { useEffect, useState } from 'react';
 import { resolveProfileImageUrl } from '@/lib/profileImage';
+import ChatDrawer from '@/components/chat/ChatDrawer';
+import { api } from '@/lib/api';
 
 const BLOCKED_ALLOWED_ROUTES = ['/dashboard/blocked', '/dashboard/support'];
 
@@ -37,9 +40,12 @@ export default function DashboardLayout({
     const router = useRouter();
     const pathname = usePathname();
     const [sidebarOpen, setSidebarOpen] = useState(false);
+    const [chatOpen, setChatOpen] = useState(false);
+    const [chatUnread, setChatUnread] = useState(0);
     const [failedProfileImageUrl, setFailedProfileImageUrl] = useState<string | null>(null);
     const profileImageUrl = resolveProfileImageUrl(user?.profile_picture_url);
     const isBlockedCustomer = user?.role === 'CUSTOMER' && Boolean(user?.is_subscription_blocked);
+    const canUseChat = ['ADMIN', 'COACH', 'CUSTOMER'].includes(user?.role || '') && !isBlockedCustomer;
 
     useEffect(() => {
         if (!isLoading && !user) {
@@ -69,6 +75,25 @@ export default function DashboardLayout({
         return () => clearTimeout(timer);
     }, [pathname]);
 
+    useEffect(() => {
+        if (!canUseChat) {
+            return;
+        }
+        const fetchUnread = async () => {
+            try {
+                const response = await api.get('/chat/threads', { params: { limit: 30 } });
+                const rows = (response.data?.data || []) as Array<{ unread_count?: number }>;
+                const total = rows.reduce((sum, row) => sum + (row.unread_count || 0), 0);
+                setChatUnread(total);
+            } catch {
+                setChatUnread(0);
+            }
+        };
+        fetchUnread();
+        const intervalId = window.setInterval(fetchUnread, 12000);
+        return () => window.clearInterval(intervalId);
+    }, [canUseChat, pathname]);
+
     if (isLoading || !user) {
         return (
             <div className="flex min-h-dvh items-center justify-center bg-background">
@@ -84,6 +109,7 @@ export default function DashboardLayout({
         { href: '/dashboard', label: 'Dashboard', icon: LayoutDashboard, roles: ['ADMIN', 'COACH', 'CUSTOMER', 'EMPLOYEE', 'CASHIER', 'RECEPTION', 'FRONT_DESK'], section: 'operations' },
         { href: '/dashboard/admin/inventory', label: 'Inventory', icon: Package, roles: ['ADMIN'], section: 'operations' },
         { href: '/dashboard/admin/pos', label: 'Cashier POS', icon: ShoppingCart, roles: ['ADMIN', 'CASHIER', 'EMPLOYEE'], section: 'operations' },
+        { href: '/dashboard/admin/notifications', label: 'WhatsApp Automation', icon: MessageSquare, roles: ['ADMIN', 'RECEPTION', 'FRONT_DESK'], section: 'operations' },
         { href: '/dashboard/admin/audit', label: 'Audit Logs', icon: ShieldAlert, roles: ['ADMIN'], section: 'operations' },
         { href: '/dashboard/admin/members', label: 'Reception/Registration', icon: UserCheck, roles: ['ADMIN', 'COACH', 'RECEPTION', 'FRONT_DESK'], section: 'people' },
         { href: '/dashboard/admin/staff', label: 'Staff', icon: Users, roles: ['ADMIN'], section: 'people' },
@@ -120,20 +146,38 @@ export default function DashboardLayout({
         <div className="flex min-h-dvh bg-background">
             {/* Mobile top bar */}
             <div
-                className="fixed top-0 left-0 right-0 z-40 flex items-center justify-between px-4 py-3 md:hidden bg-card border-b border-border"
+                className="fixed top-0 left-0 right-0 z-40 flex items-center justify-between px-4 py-3 md:hidden bg-card"
             >
                 <div className="flex items-center gap-3">
+                    <button
+                        onClick={() => setSidebarOpen(!sidebarOpen)}
+                        className="p-2 rounded-lg text-muted-foreground hover:text-foreground hover:bg-muted transition-colors"
+                        aria-label={sidebarOpen ? 'Close menu' : 'Open menu'}
+                    >
+                        {sidebarOpen ? <X size={22} /> : <Menu size={22} />}
+                    </button>
                     <div className="h-8 w-8 rounded-lg bg-primary/10 flex items-center justify-center">
                         <Dumbbell size={16} className="text-primary" />
                     </div>
                     <span className="text-sm font-bold text-foreground">GymERP</span>
                 </div>
-                <button
-                    onClick={() => setSidebarOpen(!sidebarOpen)}
-                    className="p-2 rounded-lg text-muted-foreground hover:text-foreground hover:bg-muted transition-colors"
-                >
-                    {sidebarOpen ? <X size={22} /> : <Menu size={22} />}
-                </button>
+                <div className="flex items-center gap-2">
+                    {canUseChat && (
+                        <button
+                            type="button"
+                            onClick={() => setChatOpen(true)}
+                            className="relative p-2 rounded-lg text-muted-foreground hover:text-foreground hover:bg-muted transition-colors"
+                            aria-label="Open chat"
+                        >
+                            <MessageCircle size={20} />
+                            {chatUnread > 0 && (
+                                <span className="absolute -top-1 -right-1 min-w-[18px] h-[18px] px-1 rounded-full bg-primary text-primary-foreground text-[10px] font-bold flex items-center justify-center">
+                                    {chatUnread > 99 ? '99+' : chatUnread}
+                                </span>
+                            )}
+                        </button>
+                    )}
+                </div>
             </div>
 
             {/* Mobile overlay */}
@@ -223,9 +267,21 @@ export default function DashboardLayout({
             </aside>
 
             {/* Main Content */}
-            <main className="flex-1 min-h-0 overflow-auto p-4 pt-16 md:p-8 md:pt-8 bg-background">
+            <main className="flex-1 min-h-0 overflow-auto p-4 pt-20 md:p-8 md:pt-8 bg-background">
+                {canUseChat && (
+                    <button
+                        type="button"
+                        onClick={() => setChatOpen(true)}
+                        className="hidden md:inline-flex fixed top-6 right-6 z-30 btn-primary !px-3 !py-2 shadow-sm"
+                    >
+                        <MessageCircle size={16} />
+                        <span className="text-xs">Chat</span>
+                        {chatUnread > 0 && <span className="badge badge-orange !px-1.5 !py-0">{chatUnread}</span>}
+                    </button>
+                )}
                 {children}
             </main>
+            {canUseChat && <ChatDrawer isOpen={chatOpen} onClose={() => setChatOpen(false)} />}
         </div>
     );
 }

@@ -15,7 +15,13 @@ from app.database import get_db
 from app.models.enums import Role
 from app.models.fitness import BiometricLog, DietPlan, Exercise, WorkoutExercise, WorkoutPlan
 from app.models.user import User
-from app.models.workout_log import DietFeedback, GymFeedback, WorkoutLog, WorkoutSession, WorkoutSessionEntry
+from app.models import workout_log as workout_log_models
+
+DietFeedback = workout_log_models.DietFeedback
+GymFeedback = workout_log_models.GymFeedback
+WorkoutLog = workout_log_models.WorkoutLog
+WorkoutSession = workout_log_models.WorkoutSession
+WorkoutSessionEntry = workout_log_models.WorkoutSessionEntry
 
 router = APIRouter()
 
