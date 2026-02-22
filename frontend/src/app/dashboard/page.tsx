@@ -20,7 +20,6 @@ import { Move } from 'lucide-react';
 // ======================== ADMIN DASHBOARD ========================
 
 interface DashboardStats {
-    live_headcount: number;
     today_visitors: number;
     todays_revenue: number;
     active_members: number;
@@ -263,7 +262,6 @@ function AdminDashboard({ userName }: { userName: string }) {
     }, [revenueData, revenueViewMode]);
 
     const kpiCards = [
-        { title: 'Live Headcount', value: stats?.live_headcount ?? '--', subtitle: 'Currently in the gym', icon: Users, badge: 'badge-blue', live: true },
         { title: "Today's Visitors (Non-Live)", value: stats?.today_visitors ?? '--', subtitle: 'Unique granted entries today', icon: Activity, badge: 'badge-blue' },
         { title: "Today's Revenue", value: stats ? `${stats.todays_revenue.toFixed(2)} JOD` : '--', subtitle: 'Collected today', icon: DollarSign, badge: 'badge-green' },
         { title: 'Pending Salaries', value: stats ? `${stats.pending_salaries.toFixed(2)} JOD` : '--', subtitle: 'Owed this month', icon: Clock, badge: 'badge-amber' },
@@ -327,12 +325,6 @@ function AdminDashboard({ userName }: { userName: string }) {
                             </div>
                             <div className="mt-auto w-full pt-2">
                                 <p className="text-xs text-muted-foreground">{card.subtitle}</p>
-                                {card.live && (
-                                    <div className="flex items-center gap-2 mt-2 pt-2 border-t border-border w-full">
-                                        <span className="h-2 w-2 bg-primary animate-pulse" />
-                                        <span className="text-xs text-primary font-bold uppercase tracking-wider">Live</span>
-                                    </div>
-                                )}
                                 {card.isAlert && (
                                     <div className="flex items-center gap-2 mt-2 pt-2 border-t border-destructive/20 w-full">
                                         <span className="h-2 w-2 bg-destructive animate-ping" />
