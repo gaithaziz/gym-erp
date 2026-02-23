@@ -20,7 +20,8 @@ import {
     Trophy,
     Package,
     ShoppingCart,
-    ShieldAlert
+    ShieldAlert,
+    LifeBuoy
 } from "lucide-react";
 import { MessageCircle } from "lucide-react";
 import { ThemeToggle } from "@/components/ThemeToggle";
@@ -122,6 +123,7 @@ export default function DashboardLayout({
         { href: '/dashboard/admin/inventory', label: 'Inventory', icon: Package, roles: ['ADMIN'], section: 'operations' },
         { href: '/dashboard/admin/pos', label: 'Cashier POS', icon: ShoppingCart, roles: ['ADMIN', 'CASHIER', 'EMPLOYEE'], section: 'operations' },
         { href: '/dashboard/admin/notifications', label: 'WhatsApp Automation', icon: MessageSquare, roles: ['ADMIN', 'RECEPTION', 'FRONT_DESK'], section: 'operations' },
+        { href: '/dashboard/admin/support', label: 'Support Desk', icon: LifeBuoy, roles: ['ADMIN', 'RECEPTION'], section: 'operations' },
         { href: '/dashboard/lost-found', label: 'Lost & Found', icon: MessageSquare, roles: ['ADMIN', 'MANAGER', 'FRONT_DESK', 'RECEPTION', 'COACH', 'EMPLOYEE', 'CASHIER', 'CUSTOMER'], section: 'operations' },
         { href: '/dashboard/admin/audit', label: 'Audit Logs', icon: ShieldAlert, roles: ['ADMIN'], section: 'operations' },
         { href: '/dashboard/admin/members', label: 'Reception/Registration', icon: UserCheck, roles: ['ADMIN', 'COACH', 'RECEPTION', 'FRONT_DESK'], section: 'people' },
@@ -175,21 +177,7 @@ export default function DashboardLayout({
                     <span className="text-sm font-bold text-foreground">GymERP</span>
                 </div>
                 <div className="flex items-center gap-2">
-                    {canUseChat && (
-                        <button
-                            type="button"
-                            onClick={() => setChatOpen(true)}
-                            className="relative p-2 rounded-lg text-muted-foreground hover:text-foreground hover:bg-muted transition-colors"
-                            aria-label="Open chat"
-                        >
-                            <MessageCircle size={20} />
-                            {chatUnread > 0 && (
-                                <span className="absolute -top-1 -right-1 min-w-[18px] h-[18px] px-1 rounded-full bg-primary text-primary-foreground text-[10px] font-bold flex items-center justify-center">
-                                    {chatUnread > 99 ? '99+' : chatUnread}
-                                </span>
-                            )}
-                        </button>
-                    )}
+                    {/* Mobile top-bar actions if any */}
                 </div>
             </div>
 
@@ -281,20 +269,24 @@ export default function DashboardLayout({
 
             {/* Main Content */}
             <main className="flex-1 min-h-0 overflow-auto p-4 pt-20 md:p-8 md:pt-8 bg-background">
-                {canUseChat && (
+                {canUseChat && !pathname.startsWith('/dashboard/chat') && (
                     <button
                         type="button"
                         onClick={() => setChatOpen(true)}
-                        className="hidden md:inline-flex fixed top-6 right-6 z-30 btn-primary !px-3 !py-2 shadow-sm"
+                        className="fixed bottom-6 right-6 z-50 flex h-14 w-14 items-center justify-center rounded-full bg-primary text-primary-foreground shadow-lg hover:bg-primary/90 hover:scale-105 active:scale-95 transition-all duration-200"
+                        aria-label="Open chat"
                     >
-                        <MessageCircle size={16} />
-                        <span className="text-xs">Chat</span>
-                        {chatUnread > 0 && <span className="badge badge-orange !px-1.5 !py-0">{chatUnread}</span>}
+                        <MessageCircle size={24} />
+                        {chatUnread > 0 && (
+                            <span className="absolute -top-1 -right-1 flex min-w-[20px] h-[20px] px-1.5 items-center justify-center rounded-full bg-red-500 text-white text-xs font-bold border-2 border-background shadow-sm">
+                                {chatUnread > 99 ? '99+' : chatUnread}
+                            </span>
+                        )}
                     </button>
                 )}
                 {children}
             </main>
-            {canUseChat && <ChatDrawer isOpen={chatOpen} onClose={() => setChatOpen(false)} />}
+            {canUseChat && !pathname.startsWith('/dashboard/chat') && <ChatDrawer isOpen={chatOpen} onClose={() => setChatOpen(false)} />}
         </div>
     );
 }

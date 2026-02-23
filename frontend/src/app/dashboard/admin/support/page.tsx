@@ -1,0 +1,399 @@
+'use client';
+
+import { useAuth } from '@/context/AuthContext';
+import { api } from '@/lib/api';
+import { resolveProfileImageUrl } from '@/lib/profileImage';
+import { useEffect, useState, useRef } from 'react';
+import Image from 'next/image';
+import {
+    LifeBuoy,
+    Send,
+    Tag,
+    Clock,
+    CheckCircle2,
+    AlertCircle,
+    ArrowLeft,
+    Filter,
+    Search
+} from 'lucide-react';
+import { format } from 'date-fns';
+
+type TicketCategory = 'GENERAL' | 'TECHNICAL' | 'BILLING' | 'SUBSCRIPTION';
+type TicketStatus = 'OPEN' | 'IN_PROGRESS' | 'RESOLVED' | 'CLOSED';
+
+interface SupportMessage {
+    id: string;
+    sender_id: string;
+    message: string;
+    created_at: string;
+}
+
+interface SupportTicket {
+    id: string;
+    customer_id: string;
+    subject: string;
+    category: TicketCategory;
+    status: TicketStatus;
+    created_at: string;
+    updated_at: string;
+    customer?: {
+        id: string;
+        full_name: string;
+        email: string;
+        profile_picture_url: string | null;
+    };
+}
+
+export default function AdminSupportPage() {
+    const { } = useAuth();
+    const [activeTab, setActiveTab] = useState<'ACTIVE' | 'COMPLETED'>('ACTIVE');
+    const [tickets, setTickets] = useState<SupportTicket[]>([]);
+    const [loading, setLoading] = useState(true);
+    const [error, setError] = useState<string | null>(null);
+
+    // Filters
+    const [categoryFilter, setCategoryFilter] = useState<TicketCategory | ''>('');
+    const [searchQuery, setSearchQuery] = useState('');
+
+    // Detail view state
+    const [selectedTicketId, setSelectedTicketId] = useState<string | null>(null);
+    const [ticketDetails, setTicketDetails] = useState<SupportTicket & { messages: SupportMessage[] } | null>(null);
+    const [replyText, setReplyText] = useState('');
+    const [isReplying, setIsReplying] = useState(false);
+    const messagesEndRef = useRef<HTMLDivElement>(null);
+
+    const fetchTickets = async () => {
+        try {
+            setLoading(true);
+            const params: any = {
+                is_active: activeTab === 'ACTIVE',
+                limit: 100
+            };
+            if (categoryFilter) {
+                params.category = categoryFilter;
+            }
+
+            const response = await api.get('/support/tickets', { params });
+            setTickets(response.data?.data || []);
+            setError(null);
+        } catch (err) {
+            const error = err as { response?: { data?: { detail?: string } } };
+            setError(error.response?.data?.detail || 'Failed to load tickets');
+        } finally {
+            setLoading(false);
+        }
+    };
+
+    useEffect(() => {
+        fetchTickets();
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [activeTab, categoryFilter]);
+
+    const fetchTicketDetails = async (id: string) => {
+        try {
+            const response = await api.get(`/support/tickets/${id}`);
+            setTicketDetails(response.data?.data);
+            setTimeout(() => {
+                messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+            }, 100);
+        } catch (err) {
+            console.error('Failed to fetch ticket details', err);
+        }
+    };
+
+    useEffect(() => {
+        if (selectedTicketId) {
+            fetchTicketDetails(selectedTicketId);
+        } else {
+            setTicketDetails(null);
+            fetchTickets(); // Refresh list on modal close to catch status changes
+        }
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [selectedTicketId]);
+
+    const handleReply = async (e: React.FormEvent) => {
+        e.preventDefault();
+        if (!selectedTicketId || !replyText.trim()) return;
+        try {
+            setIsReplying(true);
+            await api.post(`/support/tickets/${selectedTicketId}/messages`, {
+                message: replyText.trim()
+            });
+            setReplyText('');
+            await fetchTicketDetails(selectedTicketId);
+        } catch (err) {
+            const error = err as { response?: { data?: { detail?: string } } };
+            alert(error.response?.data?.detail || 'Failed to send message');
+        } finally {
+            setIsReplying(false);
+        }
+    };
+
+    const handleUpdateStatus = async (newStatus: TicketStatus) => {
+        if (!selectedTicketId) return;
+
+        const isClosing = newStatus === 'RESOLVED' || newStatus === 'CLOSED';
+        if (isClosing) {
+            if (!confirm(`Are you sure you want to mark this ticket as ${newStatus}? This will close the session.`)) return;
+        }
+
+        try {
+            await api.patch(`/support/tickets/${selectedTicketId}/status`, { status: newStatus });
+            if (isClosing) {
+                setSelectedTicketId(null);
+            } else {
+                fetchTicketDetails(selectedTicketId);
+            }
+        } catch (err) {
+            const error = err as { response?: { data?: { detail?: string } } };
+            alert(error.response?.data?.detail || 'Failed to update ticket status');
+        }
+    };
+
+    const getStatusIcon = (status: TicketStatus) => {
+        switch (status) {
+            case 'OPEN': return <AlertCircle size={14} className="text-yellow-500" />;
+            case 'IN_PROGRESS': return <Clock size={14} className="text-blue-500" />;
+            case 'RESOLVED': return <CheckCircle2 size={14} className="text-green-500" />;
+            case 'CLOSED': return <CheckCircle2 size={14} className="text-gray-500" />;
+        }
+    };
+
+    const filteredList = tickets.filter(t => {
+        if (!searchQuery) return true;
+        const q = searchQuery.toLowerCase();
+        return t.subject.toLowerCase().includes(q) ||
+            t.customer?.full_name.toLowerCase().includes(q) ||
+            t.customer?.email.toLowerCase().includes(q);
+    });
+
+    if (selectedTicketId && ticketDetails) {
+        const isClosed = ticketDetails.status === 'RESOLVED' || ticketDetails.status === 'CLOSED';
+        const profileImageUrl = resolveProfileImageUrl(ticketDetails.customer?.profile_picture_url);
+
+        return (
+            <div className="space-y-4 max-w-4xl mx-auto h-[80vh] flex flex-col">
+                <div className="flex items-center justify-between">
+                    <button
+                        onClick={() => setSelectedTicketId(null)}
+                        className="btn-ghost !px-2 flex items-center gap-2"
+                    >
+                        <ArrowLeft size={18} /> Back to Queue
+                    </button>
+                    {!isClosed && (
+                        <div className="flex gap-2">
+                            <button
+                                onClick={() => handleUpdateStatus('IN_PROGRESS')}
+                                className="btn-secondary !text-blue-500"
+                            >
+                                Mark In Progress
+                            </button>
+                            <button
+                                onClick={() => handleUpdateStatus('RESOLVED')}
+                                className="btn-secondary !text-green-500"
+                            >
+                                Mark Resolved
+                            </button>
+                        </div>
+                    )}
+                </div>
+
+                <div className="kpi-card !p-6 flex-none">
+                    <div className="flex justify-between items-start mb-4 border-b border-border pb-4">
+                        <div className="flex items-start gap-4">
+                            <div className="h-12 w-12 bg-primary/20 rounded-full flex items-center justify-center text-primary font-bold overflow-hidden relative mt-1 shrink-0">
+                                {profileImageUrl ? (
+                                    <Image src={profileImageUrl} alt={ticketDetails.customer?.full_name || ''} fill className="object-cover" unoptimized priority />
+                                ) : (
+                                    ticketDetails.customer?.full_name?.[0] || '?'
+                                )}
+                            </div>
+                            <div>
+                                <h1 className="text-xl font-bold mb-1">{ticketDetails.subject}</h1>
+
+                                <div className="text-sm font-semibold mb-2">
+                                    {ticketDetails.customer?.full_name} <span className="text-muted-foreground font-normal">({ticketDetails.customer?.email})</span>
+                                </div>
+
+                                <div className="flex items-center gap-4 text-xs font-semibold">
+                                    <span className="flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-primary/10 text-primary">
+                                        <Tag size={12} /> {ticketDetails.category}
+                                    </span>
+                                    <span className="flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-muted text-muted-foreground">
+                                        {getStatusIcon(ticketDetails.status)} {ticketDetails.status.replace('_', ' ')}
+                                    </span>
+                                </div>
+                            </div>
+                        </div>
+                        <div className="text-right text-xs text-muted-foreground">
+                            <div>Opened: {format(new Date(ticketDetails.created_at), 'MMM d, yyyy h:mm a')}</div>
+                        </div>
+                    </div>
+                </div>
+
+                <div className="kpi-card flex-1 flex flex-col overflow-hidden">
+                    <div className="flex-1 overflow-y-auto p-4 space-y-4">
+                        {ticketDetails.messages.map((msg) => {
+                            const isStaff = msg.sender_id !== ticketDetails.customer_id;
+                            return (
+                                <div key={msg.id} className={`flex ${isStaff ? 'justify-end' : 'justify-start'}`}>
+                                    <div className={`max-w-[80%] rounded-2xl p-4 ${isStaff ? 'bg-primary text-primary-foreground rounded-tr-sm' : 'bg-muted rounded-tl-sm'}`}>
+                                        <div className="text-xs font-semibold mb-1 opacity-70 flex justify-between gap-4">
+                                            <span>{isStaff ? 'Staff (You)' : ticketDetails.customer?.full_name?.split(' ')[0]}</span>
+                                            <span>{format(new Date(msg.created_at), 'h:mm a')}</span>
+                                        </div>
+                                        <div className="whitespace-pre-wrap text-sm leading-relaxed">{msg.message}</div>
+                                    </div>
+                                </div>
+                            );
+                        })}
+                        <div ref={messagesEndRef} />
+                    </div>
+
+                    {!isClosed && (
+                        <div className="p-4 border-t border-border bg-card/50">
+                            <form onSubmit={handleReply} className="flex gap-2">
+                                <input
+                                    type="text"
+                                    value={replyText}
+                                    onChange={(e) => setReplyText(e.target.value)}
+                                    placeholder="Type your reply to customer..."
+                                    className="input-dark flex-1"
+                                    disabled={isReplying}
+                                />
+                                <button
+                                    type="submit"
+                                    disabled={!replyText.trim() || isReplying}
+                                    className="btn-primary"
+                                >
+                                    <Send size={18} />
+                                    <span>Send</span>
+                                </button>
+                            </form>
+                        </div>
+                    )}
+                    {isClosed && (
+                        <div className="p-4 border-t border-border bg-card/50 text-center text-sm text-muted-foreground font-semibold">
+                            <AlertCircle size={16} className="inline-block mr-2 mb-0.5" />
+                            This ticket has been locked and closed.
+                        </div>
+                    )}
+                </div>
+            </div>
+        );
+    }
+
+    return (
+        <div className="space-y-6 max-w-6xl mx-auto">
+            <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
+                <div>
+                    <h1 className="text-2xl font-bold text-foreground flex items-center gap-2">
+                        <LifeBuoy className="text-primary" /> Support Desk
+                    </h1>
+                    <p className="text-sm text-muted-foreground mt-1">Manage customer support tickets</p>
+                </div>
+
+                {/* Tabs */}
+                <div className="flex bg-muted p-1 rounded-lg">
+                    <button
+                        onClick={() => setActiveTab('ACTIVE')}
+                        className={`px-4 py-2 text-sm font-semibold rounded-md transition-all ${activeTab === 'ACTIVE'
+                            ? 'bg-background text-foreground shadow-sm'
+                            : 'text-muted-foreground hover:text-foreground'
+                            }`}
+                    >
+                        Active Queue
+                    </button>
+                    <button
+                        onClick={() => setActiveTab('COMPLETED')}
+                        className={`px-4 py-2 text-sm font-semibold rounded-md transition-all ${activeTab === 'COMPLETED'
+                            ? 'bg-background text-foreground shadow-sm'
+                            : 'text-muted-foreground hover:text-foreground'
+                            }`}
+                    >
+                        Resolved
+                    </button>
+                </div>
+            </div>
+
+            {error && (
+                <div className="p-4 bg-red-500/10 border border-red-500/20 rounded-lg text-red-500 text-sm">
+                    {error}
+                </div>
+            )}
+
+            <div className="flex flex-col sm:flex-row gap-4 bg-card p-4 rounded-xl border border-border">
+                <div className="relative flex-1">
+                    <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" size={18} />
+                    <input
+                        type="text"
+                        placeholder="Search by subject or customer name..."
+                        value={searchQuery}
+                        onChange={(e) => setSearchQuery(e.target.value)}
+                        className="input-dark pl-10 w-full"
+                    />
+                </div>
+                <div className="relative shrink-0 w-full sm:w-48">
+                    <Filter className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" size={18} />
+                    <select
+                        value={categoryFilter}
+                        onChange={(e) => setCategoryFilter(e.target.value as TicketCategory | '')}
+                        className="input-dark pl-10 w-full"
+                    >
+                        <option value="">All Categories</option>
+                        <option value="GENERAL">General</option>
+                        <option value="TECHNICAL">Technical</option>
+                        <option value="BILLING">Billing</option>
+                        <option value="SUBSCRIPTION">Subscription</option>
+                    </select>
+                </div>
+            </div>
+
+            <div className="grid grid-cols-1 gap-4">
+                {loading && tickets.length === 0 ? (
+                    <div className="kpi-card py-16 text-center text-muted-foreground">Loading tickets...</div>
+                ) : filteredList.length === 0 ? (
+                    <div className="col-span-1 kpi-card py-16 text-center text-muted-foreground">
+                        <CheckCircle2 size={32} className="mx-auto mb-3 opacity-20" />
+                        <p>No tickets found in this queue.</p>
+                    </div>
+                ) : (
+                    filteredList.map((ticket) => (
+                        <div
+                            key={ticket.id}
+                            onClick={() => setSelectedTicketId(ticket.id)}
+                            className="kpi-card !p-5 cursor-pointer hover:border-primary/50 transition-colors group flex flex-col sm:flex-row gap-4 justify-between sm:items-center"
+                        >
+                            <div className="flex gap-4 items-center">
+                                <div className="h-10 w-10 bg-primary/20 rounded-full flex items-center justify-center text-primary font-bold overflow-hidden relative shrink-0">
+                                    {resolveProfileImageUrl(ticket.customer?.profile_picture_url) ? (
+                                        <Image src={resolveProfileImageUrl(ticket.customer?.profile_picture_url)!} alt="" fill className="object-cover" unoptimized />
+                                    ) : (
+                                        ticket.customer?.full_name?.[0] || '?'
+                                    )}
+                                </div>
+                                <div>
+                                    <h3 className="font-bold text-lg mb-0.5 group-hover:text-primary transition-colors">{ticket.subject}</h3>
+                                    <div className="text-sm font-semibold text-foreground/80 mb-2">{ticket.customer?.full_name}</div>
+                                    <div className="flex items-center gap-3 text-xs font-semibold">
+                                        <span className="flex items-center gap-1 text-primary bg-primary/10 px-2 py-0.5 rounded">
+                                            <Tag size={12} /> {ticket.category}
+                                        </span>
+                                        <span className="flex items-center gap-1 text-muted-foreground bg-muted px-2 py-0.5 rounded">
+                                            {getStatusIcon(ticket.status)} {ticket.status.replace('_', ' ')}
+                                        </span>
+                                    </div>
+                                </div>
+                            </div>
+                            <div className="text-sm text-muted-foreground text-left sm:text-right">
+                                <div className="text-xs uppercase tracking-wider mb-1 opacity-70">Updated</div>
+                                <div className="font-medium text-foreground">{format(new Date(ticket.updated_at), 'MMM d, yyyy')}</div>
+                                <div className="text-xs">{format(new Date(ticket.updated_at), 'h:mm a')}</div>
+                            </div>
+                        </div>
+                    ))
+                )}
+            </div>
+        </div>
+    );
+}

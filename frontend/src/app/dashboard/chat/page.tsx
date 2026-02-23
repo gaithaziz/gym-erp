@@ -608,7 +608,7 @@ export default function ChatPage() {
                                             placeholder={user?.role === 'CUSTOMER' ? 'Type coach name/email...' : 'Type client name/email...'}
                                         />
                                     </div>
-                                    <div className="max-h-44 overflow-y-auto space-y-1">
+                                    <div className="max-h-44 overflow-y-auto hide-scrollbar space-y-1">
                                         {filteredContacts.map((contact) => (
                                             <button
                                                 key={contact.id}
@@ -653,7 +653,7 @@ export default function ChatPage() {
                         </div>
                     )}
 
-                    <div className="space-y-1 max-h-[65vh] overflow-y-auto">
+                    <div className="space-y-1 max-h-[60vh] lg:max-h-[65vh] xl:max-h-[70vh] overflow-y-auto hide-scrollbar pr-1">
                         {threads.map((thread) => (
                             <button
                                 key={thread.id}
@@ -674,7 +674,7 @@ export default function ChatPage() {
                     </div>
                 </aside>
 
-                <section className="kpi-card !p-0 flex flex-col min-h-[70vh] relative">
+                <section className="kpi-card !p-0 flex flex-col h-[70vh] lg:h-[75vh] xl:h-[80vh] relative min-w-0">
                     <div className="border-b border-border px-4 py-3 flex items-center gap-2">
                         <MessageCircle size={16} className="text-primary" />
                         <p className="font-semibold text-sm">
@@ -682,7 +682,7 @@ export default function ChatPage() {
                         </p>
                     </div>
 
-                    <div ref={messageListRef} onScroll={handleMessageListScroll} className="flex-1 p-4 space-y-3 overflow-y-auto relative">
+                    <div ref={messageListRef} onScroll={handleMessageListScroll} className="flex-1 p-4 space-y-3 overflow-y-auto hide-scrollbar relative">
                         {messages.length === 0 && <p className="text-sm text-muted-foreground">No messages yet.</p>}
                         {messages.map((message) => {
                             const mine = message.sender_id === user?.id;

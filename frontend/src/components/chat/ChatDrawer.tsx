@@ -145,7 +145,7 @@ export default function ChatDrawer({ isOpen, onClose }: ChatDrawerProps) {
                     </button>
                 </div>
 
-                <div className="p-3 h-[calc(100%-57px)] overflow-y-auto space-y-2">
+                <div className="p-3 h-[calc(100%-57px)] overflow-y-auto hide-scrollbar space-y-2">
                     {!isReadOnly && (
                         <div className="border border-border rounded-sm p-2 space-y-2">
                             <button
@@ -168,7 +168,7 @@ export default function ChatDrawer({ isOpen, onClose }: ChatDrawerProps) {
                                             placeholder={user?.role === 'CUSTOMER' ? 'Search coaches...' : 'Search clients...'}
                                         />
                                     </div>
-                                    <div className="max-h-40 overflow-y-auto space-y-1">
+                                    <div className="max-h-40 overflow-y-auto hide-scrollbar space-y-1">
                                         {filteredContacts.map((contact) => (
                                             <button
                                                 key={contact.id}
