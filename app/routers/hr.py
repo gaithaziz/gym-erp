@@ -3,14 +3,15 @@ from typing import Annotated, Literal, Optional
 from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import HTMLResponse
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import func, select
+from sqlalchemy import func, select, or_
 from pydantic import BaseModel, Field
 
 from app.database import get_db
 from app.auth import dependencies
 from app.models.user import User
 from app.models.enums import Role
-from app.models.hr import Contract, Payroll, ContractType, LeaveRequest, LeaveType, LeaveStatus
+from app.models.hr import Contract, Payroll, ContractType, LeaveRequest, LeaveType, LeaveStatus, PayrollStatus
+from app.models.finance import Transaction, TransactionType, TransactionCategory, PaymentMethod
 from app.models.access import AttendanceLog
 from app.services.payroll_service import PayrollService
 from app.services.audit_service import AuditService
@@ -19,6 +20,10 @@ from app.core.responses import StandardResponse
 import uuid
 
 router = APIRouter()
+
+
+def _enum_value(value):
+    return value.value if hasattr(value, "value") else value
 
 # Schema for Contract
 class ContractCreate(BaseModel):
@@ -44,6 +49,10 @@ class LeaveRequestCreate(BaseModel):
 
 class LeaveRequestUpdate(BaseModel):
     status: LeaveStatus
+
+
+class PayrollStatusUpdate(BaseModel):
+    status: PayrollStatus
 
 @router.post("/contracts", response_model=StandardResponse)
 async def create_contract(
@@ -130,6 +139,147 @@ async def get_payrolls(
             "status": p.status
         } for p in payrolls
     ])
+
+
+@router.get("/payrolls/pending", response_model=StandardResponse)
+async def list_pending_payrolls(
+    current_user: Annotated[User, Depends(dependencies.RoleChecker([Role.ADMIN]))],
+    db: Annotated[AsyncSession, Depends(get_db)],
+    month: Optional[int] = Query(None, ge=1, le=12),
+    year: Optional[int] = Query(None, ge=2000, le=2100),
+    status: Optional[PayrollStatus] = Query(None),
+    user_id: Optional[uuid.UUID] = Query(None),
+    search: Optional[str] = Query(None),
+    limit: int = Query(100, ge=1, le=500),
+    offset: int = Query(0, ge=0),
+):
+    stmt = select(Payroll, User).join(User, User.id == Payroll.user_id)
+
+    if month:
+        stmt = stmt.where(Payroll.month == month)
+    if year:
+        stmt = stmt.where(Payroll.year == year)
+    if status:
+        stmt = stmt.where(Payroll.status == status)
+    if user_id:
+        stmt = stmt.where(Payroll.user_id == user_id)
+    if search:
+        q = f"%{search.strip().lower()}%"
+        stmt = stmt.where(
+            or_(
+                func.lower(User.full_name).like(q),
+                func.lower(User.email).like(q),
+            )
+        )
+
+    stmt = stmt.order_by(Payroll.year.desc(), Payroll.month.desc(), User.full_name.asc()).offset(offset).limit(limit)
+    result = await db.execute(stmt)
+    rows = result.all()
+
+    return StandardResponse(data=[
+        {
+            "id": str(payroll.id),
+            "user_id": str(payroll.user_id),
+            "user_name": user.full_name,
+            "user_email": user.email,
+            "month": payroll.month,
+            "year": payroll.year,
+            "base_pay": payroll.base_pay,
+            "overtime_hours": payroll.overtime_hours,
+            "overtime_pay": payroll.overtime_pay,
+            "commission_pay": payroll.commission_pay,
+            "bonus_pay": payroll.bonus_pay,
+            "deductions": payroll.deductions,
+            "total_pay": payroll.total_pay,
+            "status": payroll.status.value,
+            "paid_transaction_id": str(payroll.paid_transaction_id) if payroll.paid_transaction_id else None,
+            "paid_at": payroll.paid_at.isoformat() if payroll.paid_at else None,
+            "paid_by_user_id": str(payroll.paid_by_user_id) if payroll.paid_by_user_id else None,
+        }
+        for payroll, user in rows
+    ])
+
+
+@router.patch("/payrolls/{payroll_id}/status", response_model=StandardResponse)
+async def update_payroll_status(
+    payroll_id: uuid.UUID,
+    request: PayrollStatusUpdate,
+    current_user: Annotated[User, Depends(dependencies.RoleChecker([Role.ADMIN]))],
+    db: Annotated[AsyncSession, Depends(get_db)],
+):
+    stmt = select(Payroll).where(Payroll.id == payroll_id)
+    result = await db.execute(stmt)
+    payroll = result.scalar_one_or_none()
+    if not payroll:
+        raise HTTPException(status_code=404, detail="Payroll record not found")
+
+    if payroll.status == request.status:
+        return StandardResponse(
+            message="Payroll status unchanged",
+            data={
+                "id": str(payroll.id),
+                "status": payroll.status.value,
+                "paid_transaction_id": str(payroll.paid_transaction_id) if payroll.paid_transaction_id else None,
+            },
+        )
+
+    user_result = await db.execute(select(User).where(User.id == payroll.user_id))
+    staff_user = user_result.scalar_one_or_none()
+    staff_name = staff_user.full_name if staff_user else "Staff"
+    period = f"{payroll.month:02d}/{payroll.year}"
+    now = datetime.now(timezone.utc)
+
+    if request.status == PayrollStatus.PAID:
+        tx = Transaction(
+            amount=payroll.total_pay,
+            type=TransactionType.EXPENSE,
+            category=TransactionCategory.SALARY,
+            payment_method=PaymentMethod.SYSTEM,
+            description=f"Salary payout - {staff_name} ({period})",
+            user_id=payroll.user_id,
+        )
+        db.add(tx)
+        await db.flush()
+
+        payroll.status = PayrollStatus.PAID
+        payroll.paid_transaction_id = tx.id
+        payroll.paid_at = now
+        payroll.paid_by_user_id = current_user.id
+    else:
+        tx = Transaction(
+            amount=payroll.total_pay,
+            type=TransactionType.INCOME,
+            category=TransactionCategory.OTHER_INCOME,
+            payment_method=PaymentMethod.SYSTEM,
+            description=f"Salary reversal - {staff_name} ({period})",
+            user_id=payroll.user_id,
+        )
+        db.add(tx)
+        payroll.status = PayrollStatus.DRAFT
+        payroll.paid_transaction_id = None
+        payroll.paid_at = None
+        payroll.paid_by_user_id = None
+
+    await db.commit()
+
+    await AuditService.log_action(
+        db=db,
+        user_id=current_user.id,
+        action="UPDATE_PAYROLL_STATUS",
+        target_id=str(payroll.id),
+        details=f"Payroll set to {request.status.value}",
+    )
+    await db.commit()
+
+    return StandardResponse(
+        message=f"Payroll status updated to {request.status.value}",
+        data={
+            "id": str(payroll.id),
+            "status": payroll.status.value,
+            "paid_transaction_id": str(payroll.paid_transaction_id) if payroll.paid_transaction_id else None,
+            "paid_at": payroll.paid_at.isoformat() if payroll.paid_at else None,
+        },
+    )
 
 @router.get("/payroll/{payroll_id}/payslip", response_model=StandardResponse)
 async def generate_payslip(
@@ -292,6 +442,205 @@ async def list_attendance(
         })
 
     return StandardResponse(data=data)
+
+
+def _overlap_days(start_a: date, end_a: date, start_b: date, end_b: date) -> int:
+    start = max(start_a, start_b)
+    end = min(end_a, end_b)
+    if start > end:
+        return 0
+    return (end - start).days + 1
+
+
+@router.get("/staff/{user_id}/summary", response_model=StandardResponse)
+async def get_staff_summary(
+    user_id: uuid.UUID,
+    current_user: Annotated[User, Depends(dependencies.RoleChecker([Role.ADMIN]))],
+    db: Annotated[AsyncSession, Depends(get_db)],
+    start_date: Optional[date] = Query(None),
+    end_date: Optional[date] = Query(None),
+):
+    if start_date and end_date and start_date > end_date:
+        raise HTTPException(status_code=400, detail="start_date cannot be after end_date")
+
+    user_stmt = select(User, Contract).outerjoin(Contract, Contract.user_id == User.id).where(User.id == user_id)
+    user_result = await db.execute(user_stmt)
+    row = user_result.first()
+    if not row:
+        raise HTTPException(status_code=404, detail="Staff user not found")
+    user, contract = row
+
+    attendance_stmt = select(AttendanceLog).where(AttendanceLog.user_id == user_id)
+    if start_date:
+        attendance_stmt = attendance_stmt.where(func.date(AttendanceLog.check_in_time) >= start_date.isoformat())
+    if end_date:
+        attendance_stmt = attendance_stmt.where(func.date(AttendanceLog.check_in_time) <= end_date.isoformat())
+    attendance_stmt = attendance_stmt.order_by(AttendanceLog.check_in_time.desc())
+    attendance_result = await db.execute(attendance_stmt)
+    attendance_logs = attendance_result.scalars().all()
+
+    present_dates = {log.check_in_time.date().isoformat() for log in attendance_logs if log.check_in_time}
+    total_hours = round(sum(float(log.hours_worked or 0.0) for log in attendance_logs), 2)
+    days_present = len(present_dates)
+    avg_hours = round((total_hours / days_present), 2) if days_present else 0.0
+
+    leave_stmt = select(LeaveRequest).where(LeaveRequest.user_id == user_id)
+    if start_date:
+        leave_stmt = leave_stmt.where(LeaveRequest.end_date >= start_date)
+    if end_date:
+        leave_stmt = leave_stmt.where(LeaveRequest.start_date <= end_date)
+    leave_stmt = leave_stmt.order_by(LeaveRequest.start_date.desc())
+    leave_result = await db.execute(leave_stmt)
+    leaves = leave_result.scalars().all()
+
+    approved_days = 0
+    for leave in leaves:
+        if leave.status != LeaveStatus.APPROVED:
+            continue
+        if start_date and end_date:
+            approved_days += _overlap_days(leave.start_date, leave.end_date, start_date, end_date)
+        elif start_date:
+            approved_days += _overlap_days(leave.start_date, leave.end_date, start_date, leave.end_date)
+        elif end_date:
+            approved_days += _overlap_days(leave.start_date, leave.end_date, leave.start_date, end_date)
+        else:
+            approved_days += (leave.end_date - leave.start_date).days + 1
+
+    summary_data = {
+        "employee": {
+            "id": str(user.id),
+            "full_name": user.full_name,
+            "email": user.email,
+            "role": _enum_value(user.role),
+            "contract_type": _enum_value(contract.contract_type) if contract else None,
+            "base_salary": contract.base_salary if contract else None,
+        },
+        "range": {
+            "start_date": start_date.isoformat() if start_date else None,
+            "end_date": end_date.isoformat() if end_date else None,
+        },
+        "attendance_summary": {
+            "days_present": days_present,
+            "total_hours": total_hours,
+            "avg_hours_per_day": avg_hours,
+            "records": [
+                {
+                    "id": str(log.id),
+                    "check_in_time": log.check_in_time.isoformat() if log.check_in_time else None,
+                    "check_out_time": log.check_out_time.isoformat() if log.check_out_time else None,
+                    "hours_worked": float(log.hours_worked or 0.0),
+                }
+                for log in attendance_logs
+            ],
+        },
+        "leave_summary": {
+            "total_requests": len(leaves),
+            "approved_days": approved_days,
+            "pending_count": sum(1 for leave in leaves if _enum_value(leave.status) == LeaveStatus.PENDING.value),
+            "records": [
+                {
+                    "id": str(leave.id),
+                    "start_date": leave.start_date.isoformat(),
+                    "end_date": leave.end_date.isoformat(),
+                    "leave_type": _enum_value(leave.leave_type),
+                    "status": _enum_value(leave.status),
+                    "reason": leave.reason,
+                }
+                for leave in leaves
+            ],
+        },
+    }
+    return StandardResponse(data=summary_data)
+
+
+@router.get("/staff/{user_id}/summary/print", response_class=HTMLResponse)
+async def print_staff_summary(
+    user_id: uuid.UUID,
+    current_user: Annotated[User, Depends(dependencies.RoleChecker([Role.ADMIN]))],
+    db: Annotated[AsyncSession, Depends(get_db)],
+    start_date: Optional[date] = Query(None),
+    end_date: Optional[date] = Query(None),
+):
+    summary_response = await get_staff_summary(user_id, current_user, db, start_date, end_date)
+    data = summary_response.data
+    employee = data["employee"]
+    attendance = data["attendance_summary"]
+    leaves = data["leave_summary"]
+    range_text = "All Dates"
+    if data["range"]["start_date"] and data["range"]["end_date"]:
+        range_text = f"{data['range']['start_date']} to {data['range']['end_date']}"
+
+    attendance_rows = "".join([
+        f"""
+        <tr>
+          <td>{(row['check_in_time'] or '-')}</td>
+          <td>{(row['check_out_time'] or '-')}</td>
+          <td style='text-align:right;'>{row['hours_worked']:.2f}</td>
+        </tr>
+        """
+        for row in attendance["records"]
+    ]) or "<tr><td colspan='3' style='text-align:center;'>No attendance records</td></tr>"
+
+    leave_rows = "".join([
+        f"""
+        <tr>
+          <td>{row['start_date']}</td>
+          <td>{row['end_date']}</td>
+          <td>{row['leave_type']}</td>
+          <td>{row['status']}</td>
+        </tr>
+        """
+        for row in leaves["records"]
+    ]) or "<tr><td colspan='4' style='text-align:center;'>No leave records</td></tr>"
+
+    html = f"""
+    <html>
+      <head>
+        <title>Employee Summary - {employee['full_name']}</title>
+        <style>
+          body {{ font-family: Arial, sans-serif; background: #0b1220; color: #e5e7eb; padding: 24px; }}
+          .card {{ background: #111827; border: 1px solid #243045; border-radius: 12px; padding: 16px; margin-bottom: 14px; }}
+          .meta {{ color: #93a4c0; font-size: 12px; }}
+          .grid {{ display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; }}
+          table {{ width: 100%; border-collapse: collapse; font-size: 12px; margin-top: 8px; }}
+          th, td {{ border: 1px solid #243045; padding: 8px; text-align: left; }}
+          th {{ background: #182033; }}
+          h1, h2 {{ margin: 0 0 10px; }}
+        </style>
+      </head>
+      <body>
+        <div class="card">
+          <h1>{employee['full_name']}</h1>
+          <div class="meta">{employee['email']} • {employee['role']} • Range: {range_text}</div>
+        </div>
+        <div class="card">
+          <h2>Attendance Summary</h2>
+          <div class="grid">
+            <div><strong>Days Present</strong><br/>{attendance['days_present']}</div>
+            <div><strong>Total Hours</strong><br/>{attendance['total_hours']:.2f}</div>
+            <div><strong>Avg / Day</strong><br/>{attendance['avg_hours_per_day']:.2f}</div>
+          </div>
+          <table>
+            <thead><tr><th>Check In</th><th>Check Out</th><th style='text-align:right;'>Hours</th></tr></thead>
+            <tbody>{attendance_rows}</tbody>
+          </table>
+        </div>
+        <div class="card">
+          <h2>Leaves Summary</h2>
+          <div class="grid">
+            <div><strong>Total Requests</strong><br/>{leaves['total_requests']}</div>
+            <div><strong>Approved Days</strong><br/>{leaves['approved_days']}</div>
+            <div><strong>Pending Requests</strong><br/>{leaves['pending_count']}</div>
+          </div>
+          <table>
+            <thead><tr><th>Start</th><th>End</th><th>Type</th><th>Status</th></tr></thead>
+            <tbody>{leave_rows}</tbody>
+          </table>
+        </div>
+      </body>
+    </html>
+    """
+    return HTMLResponse(content=html)
 
 
 @router.put("/attendance/{attendance_id}", response_model=StandardResponse)
@@ -554,10 +903,42 @@ async def create_leave_request(
 @router.get("/leaves", response_model=StandardResponse)
 async def get_all_leaves(
     current_user: Annotated[User, Depends(dependencies.RoleChecker([Role.ADMIN]))],
-    db: Annotated[AsyncSession, Depends(get_db)]
+    db: Annotated[AsyncSession, Depends(get_db)],
+    status: Optional[LeaveStatus] = Query(None),
+    leave_type: Optional[LeaveType] = Query(None),
+    user_id: Optional[uuid.UUID] = Query(None),
+    search: Optional[str] = Query(None),
+    start_date: Optional[date] = Query(None),
+    end_date: Optional[date] = Query(None),
+    limit: int = Query(100, ge=1, le=500),
+    offset: int = Query(0, ge=0),
 ):
     """Admin gets all leaves"""
-    stmt = select(LeaveRequest, User).join(User, LeaveRequest.user_id == User.id).order_by(LeaveRequest.start_date.desc())
+    if start_date and end_date and start_date > end_date:
+        raise HTTPException(status_code=400, detail="start_date cannot be after end_date")
+
+    stmt = select(LeaveRequest, User).join(User, LeaveRequest.user_id == User.id)
+
+    if status:
+        stmt = stmt.where(LeaveRequest.status == status)
+    if leave_type:
+        stmt = stmt.where(LeaveRequest.leave_type == leave_type)
+    if user_id:
+        stmt = stmt.where(LeaveRequest.user_id == user_id)
+    if search:
+        q = f"%{search.strip().lower()}%"
+        stmt = stmt.where(
+            or_(
+                func.lower(User.full_name).like(q),
+                func.lower(User.email).like(q),
+            )
+        )
+    if start_date:
+        stmt = stmt.where(LeaveRequest.end_date >= start_date)
+    if end_date:
+        stmt = stmt.where(LeaveRequest.start_date <= end_date)
+
+    stmt = stmt.order_by(LeaveRequest.start_date.desc()).offset(offset).limit(limit)
     res = await db.execute(stmt)
     records = res.all()
     

@@ -1,8 +1,9 @@
 import uuid
+import os
 from datetime import datetime, timezone
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, UploadFile, status
 from pydantic import BaseModel
 from sqlalchemy import select, and_, or_
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -17,12 +18,19 @@ from app.models.user import User
 
 router = APIRouter()
 
+IMAGE_MIME_TYPES = {"image/jpeg", "image/png", "image/webp"}
+MAX_IMAGE_BYTES = 15 * 1024 * 1024
+UPLOAD_DIR = os.path.join("static", "support_media")
+
 
 class SupportMessageResponse(BaseModel):
     id: uuid.UUID
     ticket_id: uuid.UUID
     sender_id: uuid.UUID
     message: str
+    media_url: str | None = None
+    media_mime: str | None = None
+    media_size_bytes: int | None = None
     created_at: datetime
 
     class Config:
@@ -251,6 +259,82 @@ async def add_ticket_message(
     if current_user.role != Role.CUSTOMER and ticket.status == TicketStatus.OPEN:
         ticket.status = TicketStatus.IN_PROGRESS
         
+    ticket.updated_at = now
+    await db.commit()
+    await db.refresh(new_message)
+
+    return StandardResponse(data=SupportMessageResponse.model_validate(new_message))
+
+
+@router.post("/tickets/{ticket_id}/attachments", response_model=StandardResponse[SupportMessageResponse])
+async def add_ticket_attachment(
+    ticket_id: uuid.UUID,
+    current_user: Annotated[User, Depends(get_current_active_user)],
+    db: Annotated[AsyncSession, Depends(get_db)],
+    file: UploadFile = File(...),
+    message: str | None = Form(None),
+):
+    stmt = select(SupportTicket).where(SupportTicket.id == ticket_id)
+    result = await db.execute(stmt)
+    ticket = result.scalar_one_or_none()
+
+    if not ticket:
+        raise HTTPException(status_code=404, detail="Ticket not found")
+
+    if current_user.role == Role.CUSTOMER and ticket.customer_id != current_user.id:
+        raise HTTPException(status_code=403, detail="Not authorized to reply to this ticket")
+    elif current_user.role != Role.CUSTOMER and not _is_staff_role(current_user.role):
+        raise HTTPException(status_code=403, detail="Not authorized to reply to tickets")
+
+    if ticket.status in [TicketStatus.RESOLVED, TicketStatus.CLOSED]:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Cannot send attachments to a closed or resolved ticket"
+        )
+
+    raw_content_type = (file.content_type or "").lower()
+    content_type = raw_content_type.split(";")[0].strip()
+    if content_type not in IMAGE_MIME_TYPES:
+        raise HTTPException(status_code=400, detail=f"Unsupported media type: {raw_content_type or 'unknown'}")
+
+    ext = os.path.splitext(file.filename or "")[1].lower() or ".bin"
+    ticket_dir = os.path.join(UPLOAD_DIR, str(ticket.id))
+    os.makedirs(ticket_dir, exist_ok=True)
+
+    file_name = f"{uuid.uuid4()}{ext}"
+    file_path = os.path.join(ticket_dir, file_name)
+    total = 0
+    with open(file_path, "wb") as out_file:
+        while True:
+            chunk = await file.read(1024 * 1024)
+            if not chunk:
+                break
+            total += len(chunk)
+            if total > MAX_IMAGE_BYTES:
+                out_file.close()
+                try:
+                    os.remove(file_path)
+                except OSError:
+                    pass
+                raise HTTPException(status_code=400, detail="Attachment exceeds 15MB limit")
+            out_file.write(chunk)
+
+    now = datetime.now(timezone.utc)
+    text = (message or "").strip() or "[photo attachment]"
+    new_message = SupportMessage(
+        ticket_id=ticket.id,
+        sender_id=current_user.id,
+        message=text,
+        media_url=f"/static/support_media/{ticket.id}/{file_name}",
+        media_mime=content_type,
+        media_size_bytes=total,
+        created_at=now
+    )
+    db.add(new_message)
+
+    if current_user.role != Role.CUSTOMER and ticket.status == TicketStatus.OPEN:
+        ticket.status = TicketStatus.IN_PROGRESS
+
     ticket.updated_at = now
     await db.commit()
     await db.refresh(new_message)

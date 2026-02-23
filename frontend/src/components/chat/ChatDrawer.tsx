@@ -158,11 +158,11 @@ export default function ChatDrawer({ isOpen, onClose }: ChatDrawerProps) {
                             </button>
                             {newChatOpen && (
                                 <div className="space-y-2">
-                                    <div className="relative">
-                                        <Search size={14} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-muted-foreground" />
+                                    <div className="field-with-icon">
+                                        <Search size={14} className="field-icon" />
                                         <input
                                             type="text"
-                                            className="input-dark !pl-8"
+                                            className="input-dark input-with-icon"
                                             value={contactSearch}
                                             onChange={(e) => setContactSearch(e.target.value)}
                                             placeholder={user?.role === 'CUSTOMER' ? 'Search coaches...' : 'Search clients...'}
@@ -220,13 +220,18 @@ export default function ChatDrawer({ isOpen, onClose }: ChatDrawerProps) {
                                 className="block border border-border hover:border-primary rounded-sm p-3 transition-colors"
                             >
                                 <div className="flex items-center justify-between gap-2">
-                                    <p className="font-semibold text-sm text-foreground truncate">
+                                    <p className="font-semibold text-sm text-foreground truncate min-w-0 flex-1">
                                         {user?.role === 'ADMIN'
-                                            ? `${thread.customer.full_name || thread.customer.email} ↔ ${thread.coach.full_name || thread.coach.email}`
+                                            ? `${thread.customer.full_name || thread.customer.email} <-> ${thread.coach.full_name || thread.coach.email}`
                                             : (counterpart.full_name || counterpart.email)}
                                     </p>
                                     {unread > 0 && (
-                                        <span className="badge badge-orange">{unread}</span>
+                                        <span className="flex items-center gap-1.5 shrink-0">
+                                            <span className="h-2 w-2 rounded-full bg-red-500" aria-label="new conversation" />
+                                            <span className="inline-flex min-w-[20px] h-[20px] px-1.5 items-center justify-center rounded-full bg-black text-white text-xs font-bold">
+                                                {unread > 99 ? '99+' : unread}
+                                            </span>
+                                        </span>
                                     )}
                                 </div>
                                 <p className="text-xs text-muted-foreground mt-1 truncate">{formatPreview(thread.last_message)}</p>
@@ -238,3 +243,4 @@ export default function ChatDrawer({ isOpen, onClose }: ChatDrawerProps) {
         </>
     );
 }
+

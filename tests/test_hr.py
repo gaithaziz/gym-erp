@@ -1,4 +1,5 @@
 import pytest
+import uuid
 from httpx import AsyncClient
 from sqlalchemy.ext.asyncio import AsyncSession
 from app.config import settings
@@ -6,7 +7,8 @@ from app.models.user import User
 from app.auth.security import get_password_hash
 from datetime import date, datetime, timedelta, timezone
 from app.models.access import AttendanceLog
-from app.models.hr import Payroll, LeaveRequest, LeaveStatus, LeaveType
+from app.models.hr import Payroll, PayrollStatus, LeaveRequest, LeaveStatus, LeaveType
+from app.models.finance import Transaction, TransactionType, TransactionCategory
 from sqlalchemy import select, func
 
 @pytest.mark.asyncio
@@ -301,3 +303,233 @@ async def test_cashier_and_reception_can_view_own_payroll_list(client: AsyncClie
 
         own_payroll = await client.get(f"{settings.API_V1_STR}/hr/payroll/{user.id}", headers=headers)
         assert own_payroll.status_code == 200
+
+
+@pytest.mark.asyncio
+async def test_admin_leaves_filters(client: AsyncClient, db_session: AsyncSession):
+    password = "password123"
+    hashed = get_password_hash(password)
+    admin = User(email="admin_leave_filters@gym.com", hashed_password=hashed, role="ADMIN", full_name="Leave Filter Admin")
+    employee_a = User(email="leave_filter_a@gym.com", hashed_password=hashed, role="EMPLOYEE", full_name="Alice Filter")
+    employee_b = User(email="leave_filter_b@gym.com", hashed_password=hashed, role="EMPLOYEE", full_name="Bob Filter")
+    db_session.add_all([admin, employee_a, employee_b])
+    await db_session.flush()
+
+    leave_a = LeaveRequest(
+        user_id=employee_a.id,
+        start_date=date.today() - timedelta(days=1),
+        end_date=date.today() + timedelta(days=1),
+        leave_type=LeaveType.SICK,
+        status=LeaveStatus.PENDING,
+        reason="Alice pending",
+    )
+    leave_b = LeaveRequest(
+        user_id=employee_b.id,
+        start_date=date.today() - timedelta(days=8),
+        end_date=date.today() - timedelta(days=7),
+        leave_type=LeaveType.VACATION,
+        status=LeaveStatus.APPROVED,
+        reason="Bob approved",
+    )
+    db_session.add_all([leave_a, leave_b])
+    await db_session.commit()
+
+    login_resp = await client.post(
+        f"{settings.API_V1_STR}/auth/login",
+        json={"email": admin.email, "password": password},
+    )
+    headers = {"Authorization": f"Bearer {login_resp.json()['data']['access_token']}"}
+
+    resp = await client.get(
+        f"{settings.API_V1_STR}/hr/leaves",
+        params={
+            "status": "PENDING",
+            "leave_type": "SICK",
+            "search": "alice",
+            "start_date": (date.today() - timedelta(days=2)).isoformat(),
+            "end_date": (date.today() + timedelta(days=2)).isoformat(),
+            "limit": 20,
+            "offset": 0,
+        },
+        headers=headers,
+    )
+    assert resp.status_code == 200
+    rows = resp.json()["data"]
+    assert len(rows) == 1
+    assert rows[0]["id"] == str(leave_a.id)
+
+
+@pytest.mark.asyncio
+async def test_pending_payroll_status_workflow_and_idempotency(client: AsyncClient, db_session: AsyncSession):
+    password = "password123"
+    hashed = get_password_hash(password)
+    admin = User(email="admin_payroll_flow@gym.com", hashed_password=hashed, role="ADMIN", full_name="Payroll Flow Admin")
+    employee = User(email="payroll_flow_emp@gym.com", hashed_password=hashed, role="EMPLOYEE", full_name="Payroll Employee")
+    db_session.add_all([admin, employee])
+    await db_session.flush()
+
+    db_session.add(
+        LeaveRequest(
+            user_id=employee.id,
+            start_date=date.today(),
+            end_date=date.today(),
+            leave_type=LeaveType.OTHER,
+            status=LeaveStatus.DENIED,
+            reason="ignored",
+        )
+    )
+    await db_session.commit()
+
+    admin_login = await client.post(
+        f"{settings.API_V1_STR}/auth/login",
+        json={"email": admin.email, "password": password},
+    )
+    headers = {"Authorization": f"Bearer {admin_login.json()['data']['access_token']}"}
+
+    create_contract = await client.post(
+        f"{settings.API_V1_STR}/hr/contracts",
+        json={
+            "user_id": str(employee.id),
+            "start_date": str(date.today()),
+            "base_salary": 2000.0,
+            "contract_type": "FULL_TIME",
+            "standard_hours": 160,
+        },
+        headers=headers,
+    )
+    assert create_contract.status_code == 200
+
+    now = datetime.now(timezone.utc)
+    generate_resp = await client.post(
+        f"{settings.API_V1_STR}/hr/payroll/generate",
+        json={"user_id": str(employee.id), "month": now.month, "year": now.year},
+        headers=headers,
+    )
+    assert generate_resp.status_code == 200
+    payroll_id = generate_resp.json()["data"]["id"]
+
+    pending_resp = await client.get(
+        f"{settings.API_V1_STR}/hr/payrolls/pending",
+        params={"status": "DRAFT", "search": "payroll employee"},
+        headers=headers,
+    )
+    assert pending_resp.status_code == 200
+    pending_rows = pending_resp.json()["data"]
+    assert any(row["id"] == payroll_id for row in pending_rows)
+
+    paid_resp = await client.patch(
+        f"{settings.API_V1_STR}/hr/payrolls/{payroll_id}/status",
+        json={"status": "PAID"},
+        headers=headers,
+    )
+    assert paid_resp.status_code == 200
+
+    no_dup_resp = await client.patch(
+        f"{settings.API_V1_STR}/hr/payrolls/{payroll_id}/status",
+        json={"status": "PAID"},
+        headers=headers,
+    )
+    assert no_dup_resp.status_code == 200
+    assert no_dup_resp.json()["message"] == "Payroll status unchanged"
+
+    payroll_stmt = select(Payroll).where(Payroll.id == uuid.UUID(payroll_id))
+    payroll_result = await db_session.execute(payroll_stmt)
+    payroll = payroll_result.scalar_one()
+    assert payroll.status == PayrollStatus.PAID
+    assert payroll.paid_transaction_id is not None
+
+    salary_tx_stmt = select(func.count(Transaction.id)).where(
+        Transaction.user_id == employee.id,
+        Transaction.type == TransactionType.EXPENSE,
+        Transaction.category == TransactionCategory.SALARY,
+    )
+    salary_tx_count = (await db_session.execute(salary_tx_stmt)).scalar_one()
+    assert salary_tx_count == 1
+
+    reopen_resp = await client.patch(
+        f"{settings.API_V1_STR}/hr/payrolls/{payroll_id}/status",
+        json={"status": "DRAFT"},
+        headers=headers,
+    )
+    assert reopen_resp.status_code == 200
+
+    reversal_stmt = select(func.count(Transaction.id)).where(
+        Transaction.user_id == employee.id,
+        Transaction.type == TransactionType.INCOME,
+        Transaction.category == TransactionCategory.OTHER_INCOME,
+    )
+    reversal_count = (await db_session.execute(reversal_stmt)).scalar_one()
+    assert reversal_count == 1
+
+
+@pytest.mark.asyncio
+async def test_staff_summary_range_and_non_admin_forbidden(client: AsyncClient, db_session: AsyncSession):
+    password = "password123"
+    hashed = get_password_hash(password)
+    admin = User(email="admin_staff_summary@gym.com", hashed_password=hashed, role="ADMIN", full_name="Summary Admin")
+    employee = User(email="staff_summary_emp@gym.com", hashed_password=hashed, role="EMPLOYEE", full_name="Summary Employee")
+    other = User(email="staff_summary_other@gym.com", hashed_password=hashed, role="EMPLOYEE", full_name="Summary Other")
+    db_session.add_all([admin, employee, other])
+    await db_session.flush()
+
+    now = datetime.now(timezone.utc)
+    in_range_log = AttendanceLog(
+        user_id=employee.id,
+        check_in_time=now - timedelta(days=1, hours=2),
+        check_out_time=now - timedelta(days=1),
+        hours_worked=2.0,
+    )
+    out_of_range_log = AttendanceLog(
+        user_id=employee.id,
+        check_in_time=now - timedelta(days=10, hours=2),
+        check_out_time=now - timedelta(days=10),
+        hours_worked=2.0,
+    )
+    leave = LeaveRequest(
+        user_id=employee.id,
+        start_date=(date.today() - timedelta(days=1)),
+        end_date=(date.today() - timedelta(days=1)),
+        leave_type=LeaveType.SICK,
+        status=LeaveStatus.APPROVED,
+        reason="Summary leave",
+    )
+    db_session.add_all([in_range_log, out_of_range_log, leave])
+    await db_session.commit()
+
+    admin_login = await client.post(
+        f"{settings.API_V1_STR}/auth/login",
+        json={"email": admin.email, "password": password},
+    )
+    admin_headers = {"Authorization": f"Bearer {admin_login.json()['data']['access_token']}"}
+
+    start_date = (date.today() - timedelta(days=2)).isoformat()
+    end_date = date.today().isoformat()
+    summary_resp = await client.get(
+        f"{settings.API_V1_STR}/hr/staff/{employee.id}/summary",
+        params={"start_date": start_date, "end_date": end_date},
+        headers=admin_headers,
+    )
+    assert summary_resp.status_code == 200
+    data = summary_resp.json()["data"]
+    assert data["attendance_summary"]["days_present"] == 1
+    assert data["attendance_summary"]["total_hours"] == 2.0
+    assert data["leave_summary"]["approved_days"] == 1
+
+    print_resp = await client.get(
+        f"{settings.API_V1_STR}/hr/staff/{employee.id}/summary/print",
+        params={"start_date": start_date, "end_date": end_date},
+        headers=admin_headers,
+    )
+    assert print_resp.status_code == 200
+    assert "text/html" in print_resp.headers["content-type"]
+
+    other_login = await client.post(
+        f"{settings.API_V1_STR}/auth/login",
+        json={"email": other.email, "password": password},
+    )
+    other_headers = {"Authorization": f"Bearer {other_login.json()['data']['access_token']}"}
+    forbidden = await client.get(
+        f"{settings.API_V1_STR}/hr/staff/{employee.id}/summary",
+        headers=other_headers,
+    )
+    assert forbidden.status_code == 403

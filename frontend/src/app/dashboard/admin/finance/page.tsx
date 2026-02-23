@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { api } from '@/lib/api';
-import { Plus, ArrowUpCircle, ArrowDownCircle, Wallet, Printer, FileText } from 'lucide-react';
+import { Plus, ArrowUpCircle, ArrowDownCircle, Wallet, Printer, FileText, CircleDollarSign, RotateCcw, CheckCircle2, Search } from 'lucide-react';
 import { useFeedback } from '@/components/FeedbackProvider';
 
 interface Transaction {
@@ -15,11 +15,38 @@ interface Transaction {
     payment_method: string;
 }
 
+interface PayrollItem {
+    id: string;
+    user_id: string;
+    user_name: string;
+    user_email: string;
+    month: number;
+    year: number;
+    base_pay: number;
+    overtime_hours: number;
+    overtime_pay: number;
+    commission_pay: number;
+    bonus_pay: number;
+    deductions: number;
+    total_pay: number;
+    status: 'DRAFT' | 'PAID';
+    paid_transaction_id: string | null;
+    paid_at: string | null;
+    paid_by_user_id: string | null;
+}
+
 export default function FinancePage() {
     const { showToast } = useFeedback();
     const [transactions, setTransactions] = useState<Transaction[]>([]);
+    const [payrolls, setPayrolls] = useState<PayrollItem[]>([]);
     const [loading, setLoading] = useState(true);
     const [showModal, setShowModal] = useState(false);
+    const [activeSection, setActiveSection] = useState<'transactions' | 'salaries'>('transactions');
+    const [typeFilter, setTypeFilter] = useState<'ALL' | 'INCOME' | 'EXPENSE'>('ALL');
+    const [salaryStatusFilter, setSalaryStatusFilter] = useState<'ALL' | 'DRAFT' | 'PAID'>('ALL');
+    const [salarySearch, setSalarySearch] = useState('');
+    const [selectedPayroll, setSelectedPayroll] = useState<PayrollItem | null>(null);
+    const [updatingPayrollId, setUpdatingPayrollId] = useState<string | null>(null);
     const [datePreset, setDatePreset] = useState<'all' | 'today' | '7d' | '30d' | 'custom'>('30d');
 
     const [formData, setFormData] = useState({
@@ -36,11 +63,27 @@ export default function FinancePage() {
         const day = String(d.getDate()).padStart(2, '0');
         return `${year}-${month}-${day}`;
     };
+
     const today = new Date();
     const thirtyDaysAgo = new Date(today);
     thirtyDaysAgo.setDate(today.getDate() - 29);
     const [startDate, setStartDate] = useState(toDateInput(thirtyDaysAgo));
     const [endDate, setEndDate] = useState(toDateInput(today));
+
+    const fetchTransactions = useCallback(async () => {
+        const params: Record<string, string | number> = { limit: 500 };
+        if (typeFilter !== 'ALL') params.tx_type = typeFilter;
+        const listRes = await api.get('/finance/transactions', { params });
+        setTransactions(listRes.data.data || []);
+    }, [typeFilter]);
+
+    const fetchPayrolls = useCallback(async () => {
+        const params: Record<string, string | number> = { limit: 500 };
+        if (salaryStatusFilter !== 'ALL') params.status = salaryStatusFilter;
+        if (salarySearch.trim()) params.search = salarySearch.trim();
+        const payrollRes = await api.get('/hr/payrolls/pending', { params });
+        setPayrolls(payrollRes.data.data || []);
+    }, [salaryStatusFilter, salarySearch]);
 
     const fetchData = useCallback(async () => {
         if (startDate > endDate) {
@@ -49,13 +92,12 @@ export default function FinancePage() {
         }
         setLoading(true);
         try {
-            const listRes = await api.get('/finance/transactions', { params: { limit: 500 } });
-            setTransactions(listRes.data.data);
+            await Promise.all([fetchTransactions(), fetchPayrolls()]);
         } catch {
             showToast('Failed to load financial data.', 'error');
         }
         setLoading(false);
-    }, [endDate, showToast, startDate]);
+    }, [endDate, fetchPayrolls, fetchTransactions, showToast, startDate]);
 
     useEffect(() => { setTimeout(() => fetchData(), 0); }, [fetchData]);
 
@@ -85,24 +127,13 @@ export default function FinancePage() {
     }, [transactions, startDate, endDate, datePreset]);
 
     const filteredSummary = useMemo(() => {
-        const total_income = filteredTransactions
-            .filter(tx => tx.type === 'INCOME')
-            .reduce((sum, tx) => sum + tx.amount, 0);
-        const total_expenses = filteredTransactions
-            .filter(tx => tx.type === 'EXPENSE')
-            .reduce((sum, tx) => sum + tx.amount, 0);
+        const total_income = filteredTransactions.filter(tx => tx.type === 'INCOME').reduce((sum, tx) => sum + tx.amount, 0);
+        const total_expenses = filteredTransactions.filter(tx => tx.type === 'EXPENSE').reduce((sum, tx) => sum + tx.amount, 0);
         return {
             total_income,
             total_expenses,
             net_profit: total_income - total_expenses,
         };
-    }, [filteredTransactions]);
-
-    const reportRows = useMemo(() => {
-        return filteredTransactions.map(tx => ({
-            ...tx,
-            sign: tx.type === 'INCOME' ? '+' : '-',
-        }));
     }, [filteredTransactions]);
 
     const handlePrintReceipt = (tx: Transaction) => {
@@ -113,34 +144,7 @@ export default function FinancePage() {
                 return;
             }
 
-            const html = `
-                <html>
-                    <head>
-                        <title>Receipt - ${tx.id.slice(0, 8).toUpperCase()}</title>
-                        <style>
-                            body { font-family: monospace; padding: 20px; max-width: 400px; margin: 0 auto; color: #000; }
-                            h2 { text-align: center; border-bottom: 1px dashed #000; padding-bottom: 10px; }
-                            .row { display: flex; justify-content: space-between; margin-bottom: 8px; }
-                            .total { font-weight: bold; border-top: 1px dashed #000; padding-top: 10px; margin-top: 10px; }
-                            .footer { text-align: center; margin-top: 30px; font-size: 0.8rem; border-top: 1px dashed #000; padding-top: 10px; }
-                        </style>
-                    </head>
-                    <body>
-                        <h2>Gym ERP Management</h2>
-                        <div class="row"><span>Receipt No:</span> <span>${tx.id.slice(0, 8).toUpperCase()}</span></div>
-                        <div class="row"><span>Date:</span> <span>${new Date(tx.date).toLocaleString()}</span></div>
-                        <div class="row"><span>Billed To:</span> <span>Guest/System</span></div>
-                        <br/>
-                        <div class="row"><span>Item:</span> <span>${tx.description || 'Gym Service/Item'}</span></div>
-                        <div class="row"><span>Type:</span> <span>${tx.type} / ${tx.category.replace(/_/g, ' ')}</span></div>
-                        <div class="row"><span>Method:</span> <span>${tx.payment_method}</span></div>
-                        <div class="row total"><span>TOTAL:</span> <span>${tx.amount.toFixed(2)} JOD</span></div>
-                        
-                        <div class="footer">Thank you for your business!</div>
-                        <script>window.onload = function() { window.print(); window.close(); }</script>
-                    </body>
-                </html>
-            `;
+            const html = `<html><head><title>Receipt - ${tx.id.slice(0, 8).toUpperCase()}</title><style>body{font-family:monospace;padding:20px;max-width:400px;margin:0 auto;color:#000;}h2{text-align:center;border-bottom:1px dashed #000;padding-bottom:10px}.row{display:flex;justify-content:space-between;margin-bottom:8px}.total{font-weight:bold;border-top:1px dashed #000;padding-top:10px;margin-top:10px}.footer{text-align:center;margin-top:30px;font-size:.8rem;border-top:1px dashed #000;padding-top:10px}</style></head><body><h2>Gym ERP Management</h2><div class="row"><span>Receipt No:</span> <span>${tx.id.slice(0, 8).toUpperCase()}</span></div><div class="row"><span>Date:</span> <span>${new Date(tx.date).toLocaleString()}</span></div><div class="row"><span>Billed To:</span> <span>Guest/System</span></div><br/><div class="row"><span>Item:</span> <span>${tx.description || 'Gym Service/Item'}</span></div><div class="row"><span>Type:</span> <span>${tx.type} / ${tx.category.replace(/_/g, ' ')}</span></div><div class="row"><span>Method:</span> <span>${tx.payment_method}</span></div><div class="row total"><span>TOTAL:</span> <span>${tx.amount.toFixed(2)} JOD</span></div><div class="footer">Thank you for your business!</div><script>window.onload=function(){window.print();window.close();}</script></body></html>`;
             printWindow.document.write(html);
             printWindow.document.close();
         } catch {
@@ -155,58 +159,11 @@ export default function FinancePage() {
             return;
         }
 
-        const summaryData = filteredSummary ?? { total_income: 0, total_expenses: 0, net_profit: 0 };
-        const rowsHtml = reportRows.length > 0
-            ? reportRows.map((tx) => `
-                <tr>
-                    <td>${new Date(tx.date).toLocaleDateString()}</td>
-                    <td>${tx.description || '-'}</td>
-                    <td>${tx.category.replace(/_/g, ' ')}</td>
-                    <td>${tx.type}</td>
-                    <td style="text-align:right;">${tx.sign}${tx.amount.toFixed(2)}</td>
-                </tr>
-            `).join('')
+        const rowsHtml = filteredTransactions.length > 0
+            ? filteredTransactions.map((tx) => `<tr><td>${new Date(tx.date).toLocaleDateString()}</td><td>${tx.description || '-'}</td><td>${tx.category.replace(/_/g, ' ')}</td><td>${tx.type}</td><td style="text-align:right;">${tx.type === 'INCOME' ? '+' : '-'}${tx.amount.toFixed(2)}</td></tr>`).join('')
             : '<tr><td colspan="5" style="text-align:center; padding:16px;">No transactions in selected date range</td></tr>';
 
-        const html = `
-            <html>
-                <head>
-                    <title>Financial Report (${startDate} to ${endDate})</title>
-                    <style>
-                        body { font-family: Arial, sans-serif; padding: 24px; color: #111; }
-                        h2 { margin: 0 0 8px 0; }
-                        .meta { color: #555; margin-bottom: 14px; }
-                        .summary { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin: 14px 0 18px 0; }
-                        .card { border: 1px solid #ddd; padding: 10px; border-radius: 4px; }
-                        table { width: 100%; border-collapse: collapse; font-size: 12px; }
-                        th, td { border: 1px solid #ddd; padding: 8px; text-align: left; }
-                        th { background: #f5f5f5; }
-                    </style>
-                </head>
-                <body>
-                    <h2>Financial Report</h2>
-                    <div class="meta">Date range: ${datePreset === 'all' ? 'All Dates' : `${startDate} to ${endDate}`}</div>
-                    <div class="summary">
-                        <div class="card"><strong>Total Income</strong><br/>${summaryData.total_income.toFixed(2)} JOD</div>
-                        <div class="card"><strong>Total Expenses</strong><br/>${summaryData.total_expenses.toFixed(2)} JOD</div>
-                        <div class="card"><strong>Net Profit</strong><br/>${summaryData.net_profit.toFixed(2)} JOD</div>
-                    </div>
-                    <table>
-                        <thead>
-                            <tr>
-                                <th>Date</th>
-                                <th>Description</th>
-                                <th>Category</th>
-                                <th>Type</th>
-                                <th style="text-align:right;">Amount (JOD)</th>
-                            </tr>
-                        </thead>
-                        <tbody>${rowsHtml}</tbody>
-                    </table>
-                    <script>window.onload = function() { window.print(); window.close(); }</script>
-                </body>
-            </html>
-        `;
+        const html = `<html><head><title>Financial Report (${startDate} to ${endDate})</title><style>body{font-family:Arial,sans-serif;padding:24px;color:#111}h2{margin:0 0 8px}.meta{color:#555;margin-bottom:14px}.summary{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin:14px 0 18px}.card{border:1px solid #ddd;padding:10px;border-radius:4px}table{width:100%;border-collapse:collapse;font-size:12px}th,td{border:1px solid #ddd;padding:8px;text-align:left}th{background:#f5f5f5}</style></head><body><h2>Financial Report</h2><div class="meta">Date range: ${datePreset === 'all' ? 'All Dates' : `${startDate} to ${endDate}`} - Type: ${typeFilter}</div><div class="summary"><div class="card"><strong>Total Income</strong><br/>${filteredSummary.total_income.toFixed(2)} JOD</div><div class="card"><strong>Total Expenses</strong><br/>${filteredSummary.total_expenses.toFixed(2)} JOD</div><div class="card"><strong>Net Profit</strong><br/>${filteredSummary.net_profit.toFixed(2)} JOD</div></div><table><thead><tr><th>Date</th><th>Description</th><th>Category</th><th>Type</th><th style="text-align:right;">Amount (JOD)</th></tr></thead><tbody>${rowsHtml}</tbody></table><script>window.onload=function(){window.print();window.close();}</script></body></html>`;
         printWindow.document.write(html);
         printWindow.document.close();
     };
@@ -220,16 +177,27 @@ export default function FinancePage() {
             });
             setShowModal(false);
             setFormData({ amount: '', type: 'INCOME', category: 'OTHER_INCOME', description: '', payment_method: 'CASH' });
-            fetchData();
+            await fetchTransactions();
         } catch {
             showToast('Failed to log transaction', 'error');
         }
     };
 
+    const updatePayrollStatus = async (item: PayrollItem, status: 'PAID' | 'DRAFT') => {
+        try {
+            setUpdatingPayrollId(item.id);
+            await api.patch(`/hr/payrolls/${item.id}/status`, { status });
+            showToast(status === 'PAID' ? 'Salary marked as paid.' : 'Salary reopened to draft.', 'success');
+            await Promise.all([fetchPayrolls(), fetchTransactions()]);
+        } catch (err) {
+            showToast((err as { response?: { data?: { detail?: string } } })?.response?.data?.detail || 'Failed to update payroll', 'error');
+        } finally {
+            setUpdatingPayrollId(null);
+        }
+    };
+
     if (loading) return (
-        <div className="flex h-64 items-center justify-center">
-            <div className="h-8 w-8 animate-spin rounded-full border-4 border-[#FF6B00] border-t-transparent" />
-        </div>
+        <div className="flex h-64 items-center justify-center"><div className="h-8 w-8 animate-spin rounded-full border-4 border-[#FF6B00] border-t-transparent" /></div>
     );
 
     return (
@@ -237,225 +205,135 @@ export default function FinancePage() {
             <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
                 <div>
                     <h1 className="text-2xl font-bold text-foreground">Financials</h1>
-                    <p className="text-sm text-muted-foreground mt-1">Track income, expenses and profit</p>
+                    <p className="text-sm text-muted-foreground mt-1">Track transactions and manage salary payouts</p>
                 </div>
                 <div className="flex items-center gap-2">
-                    <button onClick={handlePrintReport} className="btn-ghost">
-                        <FileText size={16} /> Print Report
-                    </button>
-                    <button onClick={() => setShowModal(true)} className="btn-primary">
-                        <Plus size={18} /> Log Transaction
-                    </button>
-                </div>
-            </div>
-
-            <div className="chart-card p-4 border border-border space-y-3">
-                <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">Date Slicer</p>
-                <div className="flex flex-wrap gap-2">
-                    <button onClick={() => applyPreset('all')} className={`px-3 py-1.5 text-xs border rounded-sm transition-colors ${datePreset === 'all' ? 'bg-primary text-primary-foreground border-primary' : 'border-border text-muted-foreground hover:text-foreground'}`}>All Dates</button>
-                    <button onClick={() => applyPreset('today')} className={`px-3 py-1.5 text-xs border rounded-sm transition-colors ${datePreset === 'today' ? 'bg-primary text-primary-foreground border-primary' : 'border-border text-muted-foreground hover:text-foreground'}`}>Today</button>
-                    <button onClick={() => applyPreset('7d')} className={`px-3 py-1.5 text-xs border rounded-sm transition-colors ${datePreset === '7d' ? 'bg-primary text-primary-foreground border-primary' : 'border-border text-muted-foreground hover:text-foreground'}`}>Last 7 Days</button>
-                    <button onClick={() => applyPreset('30d')} className={`px-3 py-1.5 text-xs border rounded-sm transition-colors ${datePreset === '30d' ? 'bg-primary text-primary-foreground border-primary' : 'border-border text-muted-foreground hover:text-foreground'}`}>Last 30 Days</button>
-                    <button onClick={() => applyPreset('custom')} className={`px-3 py-1.5 text-xs border rounded-sm transition-colors ${datePreset === 'custom' ? 'bg-primary text-primary-foreground border-primary' : 'border-border text-muted-foreground hover:text-foreground'}`}>Custom</button>
-                </div>
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                    <div>
-                        <label className="block text-xs text-muted-foreground mb-1">Start Date</label>
-                        <input
-                            type="date"
-                            className="input-dark"
-                            value={startDate}
-                            onChange={(e) => {
-                                setDatePreset('custom');
-                                setStartDate(e.target.value);
-                                if (e.target.value > endDate) setEndDate(e.target.value);
-                            }}
-                        />
-                    </div>
-                    <div>
-                        <label className="block text-xs text-muted-foreground mb-1">End Date</label>
-                        <input
-                            type="date"
-                            className="input-dark"
-                            value={endDate}
-                            min={startDate}
-                            onChange={(e) => {
-                                setDatePreset('custom');
-                                setEndDate(e.target.value);
-                            }}
-                        />
-                    </div>
-                </div>
-            </div>
-
-            {/* Summary Cards */}
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-5">
-                <div className="kpi-card flex items-center gap-4 border border-border">
-                    <div className="h-12 w-12 rounded-xl flex items-center justify-center bg-emerald-500/10 border border-emerald-500/20">
-                        <ArrowUpCircle size={22} className="text-emerald-500" />
-                    </div>
-                    <div>
-                        <p className="text-[0.65rem] font-semibold text-muted-foreground uppercase tracking-wider">Total Income</p>
-                        <p className="text-2xl font-bold text-foreground">{filteredSummary.total_income.toFixed(2)} JOD</p>
-                    </div>
-                </div>
-                <div className="kpi-card flex items-center gap-4 border border-border">
-                    <div className="h-12 w-12 rounded-xl flex items-center justify-center bg-red-500/10 border border-red-500/20">
-                        <ArrowDownCircle size={22} className="text-red-500" />
-                    </div>
-                    <div>
-                        <p className="text-[0.65rem] font-semibold text-muted-foreground uppercase tracking-wider">Total Expenses</p>
-                        <p className="text-2xl font-bold text-foreground">{filteredSummary.total_expenses.toFixed(2)} JOD</p>
-                    </div>
-                </div>
-                <div className="kpi-card flex items-center gap-4 border border-border">
-                    <div className="h-12 w-12 rounded-xl flex items-center justify-center bg-blue-500/10 border border-blue-500/20">
-                        <Wallet size={22} className="text-blue-500" />
-                    </div>
-                    <div>
-                        <p className="text-[0.65rem] font-semibold text-muted-foreground uppercase tracking-wider">Net Profit</p>
-                        <p className={`text-2xl font-bold ${(filteredSummary.net_profit ?? 0) >= 0 ? 'text-emerald-500' : 'text-red-500'}`}>
-                            {filteredSummary.net_profit.toFixed(2)} JOD
-                        </p>
-                    </div>
-                </div>
-            </div>
-
-            {/* Transaction List */}
-            <div className="chart-card overflow-hidden !p-0 border border-border">
-                <div className="px-6 py-4 border-b border-border">
-                    <h3 className="text-sm font-semibold text-muted-foreground">Recent Transactions</h3>
-                </div>
-                <div className="hidden md:block overflow-x-auto">
-                    <table className="w-full text-left table-dark min-w-[550px]">
-                        <thead>
-                            <tr>
-                                <th>Date</th>
-                                <th>Description</th>
-                                <th>Category</th>
-                                <th>Type</th>
-                                <th className="text-right">Amount</th>
-                                <th className="text-right">Action</th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            {filteredTransactions.length === 0 && (
-                                <tr><td colSpan={7} className="text-center py-8 text-muted-foreground text-sm">No transactions yet</td></tr>
-                            )}
-                            {filteredTransactions.map((tx) => (
-                                <tr key={tx.id}>
-                                    <td>{new Date(tx.date).toLocaleDateString()}</td>
-                                    <td className="!text-foreground font-medium">{tx.description || '-'}</td>
-                                    <td className="text-xs">{tx.category.replace(/_/g, ' ')}</td>
-                                    <td>
-                                        <span className={`badge ${tx.type === 'INCOME' ? 'badge-green' : 'badge-red'}`}>
-                                            {tx.type}
-                                        </span>
-                                    </td>
-                                    <td className={`text-right font-mono text-sm font-semibold ${tx.type === 'INCOME' ? 'text-emerald-500' : 'text-red-500'}`}>
-                                        {tx.type === 'INCOME' ? '+' : '-'}{tx.amount.toFixed(2)}
-                                    </td>
-                                    <td className="text-right">
-                                        <button onClick={() => handlePrintReceipt(tx)} className="text-muted-foreground hover:text-primary transition-colors p-1" title="Print Receipt">
-                                            <Printer size={16} />
-                                        </button>
-                                    </td>
-                                </tr>
-                            ))}
-                        </tbody>
-                    </table>
-                </div>
-                <div className="md:hidden divide-y divide-border">
-                    {filteredTransactions.length === 0 && (
-                        <div className="px-4 py-8 text-center text-sm text-muted-foreground">No transactions yet</div>
+                    {activeSection === 'transactions' && (
+                        <>
+                            <button onClick={handlePrintReport} className="btn-ghost"><FileText size={16} /> Print Report</button>
+                            <button onClick={() => setShowModal(true)} className="btn-primary"><Plus size={18} /> Log Transaction</button>
+                        </>
                     )}
-                    {filteredTransactions.map((tx) => (
-                        <div key={tx.id} className="p-4">
-                            <div className="flex items-start justify-between gap-3">
-                                <div className="min-w-0">
-                                    <p className="font-medium text-foreground truncate">{tx.description || '--'}</p>
-                                    <p className="mt-0.5 text-xs text-muted-foreground">{new Date(tx.date).toLocaleDateString()}</p>
-                                </div>
-                                <span className={`badge ${tx.type === 'INCOME' ? 'badge-green' : 'badge-red'}`}>
-                                    {tx.type}
-                                </span>
-                            </div>
+                </div>
+            </div>
 
-                            <div className="mt-3 grid grid-cols-2 gap-2 text-xs">
-                                <div className="rounded-sm border border-border bg-muted/20 p-2">
-                                    <p className="text-muted-foreground">Category</p>
-                                    <p className="mt-0.5 font-medium text-foreground">{tx.category.replace(/_/g, ' ')}</p>
-                                </div>
-                                <div className="rounded-sm border border-border bg-muted/20 p-2">
-                                    <p className="text-muted-foreground">Amount</p>
-                                    <p className={`mt-0.5 font-mono font-semibold ${tx.type === 'INCOME' ? 'text-emerald-500' : 'text-red-500'}`}>
-                                        {tx.type === 'INCOME' ? '+' : '-'}{tx.amount.toFixed(2)}
-                                    </p>
-                                </div>
-                            </div>
+            <div className="flex flex-wrap gap-2">
+                <button onClick={() => setActiveSection('transactions')} className={`px-3 py-1.5 text-xs border rounded-sm transition-colors ${activeSection === 'transactions' ? 'bg-primary text-primary-foreground border-primary' : 'border-border text-muted-foreground hover:text-foreground'}`}>Transactions</button>
+                <button onClick={() => setActiveSection('salaries')} className={`px-3 py-1.5 text-xs border rounded-sm transition-colors ${activeSection === 'salaries' ? 'bg-primary text-primary-foreground border-primary' : 'border-border text-muted-foreground hover:text-foreground'}`}>Pending Salaries</button>
+            </div>
 
-                            <div className="mt-3 flex justify-end">
-                                <button
-                                    onClick={() => handlePrintReceipt(tx)}
-                                    className="btn-ghost !px-2 !py-2 h-auto text-xs justify-center"
-                                    title="Print Receipt"
-                                >
-                                    <Printer size={14} /> Receipt
-                                </button>
+            {activeSection === 'transactions' && (
+                <>
+                    <div className="chart-card p-4 border border-border space-y-3">
+                        <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">Filters</p>
+                        <div className="flex flex-wrap gap-2">
+                            <button onClick={() => setTypeFilter('ALL')} className={`px-3 py-1.5 text-xs border rounded-sm transition-colors ${typeFilter === 'ALL' ? 'bg-primary text-primary-foreground border-primary' : 'border-border text-muted-foreground hover:text-foreground'}`}>All</button>
+                            <button onClick={() => setTypeFilter('INCOME')} className={`px-3 py-1.5 text-xs border rounded-sm transition-colors ${typeFilter === 'INCOME' ? 'bg-primary text-primary-foreground border-primary' : 'border-border text-muted-foreground hover:text-foreground'}`}>Income</button>
+                            <button onClick={() => setTypeFilter('EXPENSE')} className={`px-3 py-1.5 text-xs border rounded-sm transition-colors ${typeFilter === 'EXPENSE' ? 'bg-primary text-primary-foreground border-primary' : 'border-border text-muted-foreground hover:text-foreground'}`}>Expense</button>
+                        </div>
+                        <div className="flex flex-wrap gap-2">
+                            <button onClick={() => applyPreset('all')} className={`px-3 py-1.5 text-xs border rounded-sm transition-colors ${datePreset === 'all' ? 'bg-primary text-primary-foreground border-primary' : 'border-border text-muted-foreground hover:text-foreground'}`}>All Dates</button>
+                            <button onClick={() => applyPreset('today')} className={`px-3 py-1.5 text-xs border rounded-sm transition-colors ${datePreset === 'today' ? 'bg-primary text-primary-foreground border-primary' : 'border-border text-muted-foreground hover:text-foreground'}`}>Today</button>
+                            <button onClick={() => applyPreset('7d')} className={`px-3 py-1.5 text-xs border rounded-sm transition-colors ${datePreset === '7d' ? 'bg-primary text-primary-foreground border-primary' : 'border-border text-muted-foreground hover:text-foreground'}`}>Last 7 Days</button>
+                            <button onClick={() => applyPreset('30d')} className={`px-3 py-1.5 text-xs border rounded-sm transition-colors ${datePreset === '30d' ? 'bg-primary text-primary-foreground border-primary' : 'border-border text-muted-foreground hover:text-foreground'}`}>Last 30 Days</button>
+                            <button onClick={() => applyPreset('custom')} className={`px-3 py-1.5 text-xs border rounded-sm transition-colors ${datePreset === 'custom' ? 'bg-primary text-primary-foreground border-primary' : 'border-border text-muted-foreground hover:text-foreground'}`}>Custom</button>
+                        </div>
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                            <div>
+                                <label className="block text-xs text-muted-foreground mb-1">Start Date</label>
+                                <input type="date" className="input-dark" value={startDate} onChange={(e) => { setDatePreset('custom'); setStartDate(e.target.value); if (e.target.value > endDate) setEndDate(e.target.value); }} />
+                            </div>
+                            <div>
+                                <label className="block text-xs text-muted-foreground mb-1">End Date</label>
+                                <input type="date" className="input-dark" value={endDate} min={startDate} onChange={(e) => { setDatePreset('custom'); setEndDate(e.target.value); }} />
                             </div>
                         </div>
-                    ))}
-                </div>
-            </div>
+                    </div>
 
-            {/* Modal */}
+                    <div className="grid grid-cols-1 md:grid-cols-3 gap-5">
+                        <div className="kpi-card flex items-center gap-4 border border-border"><div className="h-12 w-12 rounded-xl flex items-center justify-center bg-emerald-500/10 border border-emerald-500/20"><ArrowUpCircle size={22} className="text-emerald-500" /></div><div><p className="text-[0.65rem] font-semibold text-muted-foreground uppercase tracking-wider">Total Income</p><p className="text-2xl font-bold text-foreground">{filteredSummary.total_income.toFixed(2)} JOD</p></div></div>
+                        <div className="kpi-card flex items-center gap-4 border border-border"><div className="h-12 w-12 rounded-xl flex items-center justify-center bg-red-500/10 border border-red-500/20"><ArrowDownCircle size={22} className="text-red-500" /></div><div><p className="text-[0.65rem] font-semibold text-muted-foreground uppercase tracking-wider">Total Expenses</p><p className="text-2xl font-bold text-foreground">{filteredSummary.total_expenses.toFixed(2)} JOD</p></div></div>
+                        <div className="kpi-card flex items-center gap-4 border border-border"><div className="h-12 w-12 rounded-xl flex items-center justify-center bg-blue-500/10 border border-blue-500/20"><Wallet size={22} className="text-blue-500" /></div><div><p className="text-[0.65rem] font-semibold text-muted-foreground uppercase tracking-wider">Net Profit</p><p className={`text-2xl font-bold ${(filteredSummary.net_profit ?? 0) >= 0 ? 'text-emerald-500' : 'text-red-500'}`}>{filteredSummary.net_profit.toFixed(2)} JOD</p></div></div>
+                    </div>
+
+                    <div className="chart-card overflow-hidden !p-0 border border-border">
+                        <div className="px-6 py-4 border-b border-border"><h3 className="text-sm font-semibold text-muted-foreground">Transactions</h3></div>
+                        <div className="hidden md:block overflow-x-auto">
+                            <table className="w-full text-left table-dark min-w-[550px]"><thead><tr><th>Date</th><th>Description</th><th>Category</th><th>Type</th><th className="text-right">Amount</th><th className="text-right">Action</th></tr></thead>
+                                <tbody>
+                                    {filteredTransactions.length === 0 && (<tr><td colSpan={6} className="text-center py-8 text-muted-foreground text-sm">No transactions yet</td></tr>)}
+                                    {filteredTransactions.map((tx) => (<tr key={tx.id}><td>{new Date(tx.date).toLocaleDateString()}</td><td className="!text-foreground font-medium">{tx.description || '-'}</td><td className="text-xs">{tx.category.replace(/_/g, ' ')}</td><td><span className={`badge ${tx.type === 'INCOME' ? 'badge-green' : 'badge-red'}`}>{tx.type}</span></td><td className={`text-right font-mono text-sm font-semibold ${tx.type === 'INCOME' ? 'text-emerald-500' : 'text-red-500'}`}>{tx.type === 'INCOME' ? '+' : '-'}{tx.amount.toFixed(2)}</td><td className="text-right"><button onClick={() => handlePrintReceipt(tx)} className="text-muted-foreground hover:text-primary transition-colors p-1" title="Print Receipt"><Printer size={16} /></button></td></tr>))}
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                </>
+            )}
+
+            {activeSection === 'salaries' && (
+                <div className="space-y-4">
+                    <div className="chart-card p-4 border border-border space-y-3">
+                        <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">Salary Filters</p>
+                        <div className="flex flex-wrap gap-2">
+                            <button onClick={() => setSalaryStatusFilter('ALL')} className={`px-3 py-1.5 text-xs border rounded-sm transition-colors ${salaryStatusFilter === 'ALL' ? 'bg-primary text-primary-foreground border-primary' : 'border-border text-muted-foreground hover:text-foreground'}`}>All</button>
+                            <button onClick={() => setSalaryStatusFilter('DRAFT')} className={`px-3 py-1.5 text-xs border rounded-sm transition-colors ${salaryStatusFilter === 'DRAFT' ? 'bg-primary text-primary-foreground border-primary' : 'border-border text-muted-foreground hover:text-foreground'}`}>Draft</button>
+                            <button onClick={() => setSalaryStatusFilter('PAID')} className={`px-3 py-1.5 text-xs border rounded-sm transition-colors ${salaryStatusFilter === 'PAID' ? 'bg-primary text-primary-foreground border-primary' : 'border-border text-muted-foreground hover:text-foreground'}`}>Paid</button>
+                        </div>
+                        <div className="field-with-icon"><Search size={14} className="field-icon" /><input value={salarySearch} onChange={(e) => setSalarySearch(e.target.value)} placeholder="Search employee" className="input-dark input-with-icon" /></div>
+                    </div>
+
+                    <div className="chart-card overflow-hidden !p-0 border border-border">
+                        <div className="px-6 py-4 border-b border-border"><h3 className="text-sm font-semibold text-muted-foreground">Pending Salaries Management</h3></div>
+                        <div className="hidden md:block overflow-x-auto">
+                            <table className="w-full text-left table-dark min-w-[760px]"><thead><tr><th>Employee</th><th>Period</th><th>Status</th><th className="text-right">Total</th><th>Paid At</th><th className="text-right">Actions</th></tr></thead>
+                                <tbody>
+                                    {payrolls.length === 0 && (<tr><td colSpan={6} className="text-center py-8 text-muted-foreground text-sm">No payroll records</td></tr>)}
+                                    {payrolls.map((item) => (
+                                        <tr key={item.id}>
+                                            <td><p className="text-foreground font-medium">{item.user_name}</p><p className="text-xs text-muted-foreground">{item.user_email}</p></td>
+                                            <td>{String(item.month).padStart(2, '0')}/{item.year}</td>
+                                            <td><span className={`badge ${item.status === 'PAID' ? 'badge-green' : 'badge-amber'}`}>{item.status}</span></td>
+                                            <td className="text-right font-mono text-foreground">{item.total_pay.toFixed(2)} JOD</td>
+                                            <td className="text-xs text-muted-foreground">{item.paid_at ? new Date(item.paid_at).toLocaleString() : '-'}</td>
+                                            <td><div className="flex items-center justify-end gap-2"><button className="btn-ghost !px-2 !py-1 text-xs" onClick={() => setSelectedPayroll(item)}>Details</button>{item.status === 'DRAFT' ? (<button className="btn-primary !px-2 !py-1 text-xs" onClick={() => updatePayrollStatus(item, 'PAID')} disabled={updatingPayrollId === item.id}><CheckCircle2 size={14} /> Mark Paid</button>) : (<button className="btn-ghost !px-2 !py-1 text-xs text-amber-400" onClick={() => updatePayrollStatus(item, 'DRAFT')} disabled={updatingPayrollId === item.id}><RotateCcw size={14} /> Reopen</button>)}</div></td>
+                                        </tr>
+                                    ))}
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+            )}
+
             {showModal && (
                 <div className="fixed inset-0 bg-background/80 backdrop-blur-sm flex items-center justify-center p-4 z-50">
                     <div className="rounded-sm p-6 w-full max-w-md shadow-2xl bg-card border border-border">
                         <h2 className="text-lg font-bold text-foreground mb-5">Log Transaction</h2>
                         <form onSubmit={handleSubmit} className="space-y-4">
-                            <div>
-                                <label className="block text-xs font-medium text-muted-foreground mb-1.5">Type</label>
-                                <select className="input-dark" value={formData.type} onChange={e => setFormData({ ...formData, type: e.target.value })}>
-                                    <option value="INCOME">Income</option>
-                                    <option value="EXPENSE">Expense</option>
-                                </select>
-                            </div>
-                            <div>
-                                <label className="block text-xs font-medium text-muted-foreground mb-1.5">Category</label>
-                                <select className="input-dark" value={formData.category} onChange={e => setFormData({ ...formData, category: e.target.value })}>
-                                    <option value="OTHER_INCOME">Other Income</option>
-                                    <option value="SUBSCRIPTION">Subscription</option>
-                                    <option value="POS_SALE">POS Sale</option>
-                                    <option value="RENT">Rent</option>
-                                    <option value="SALARY">Salary</option>
-                                    <option value="UTILITIES">Utilities</option>
-                                    <option value="MAINTENANCE">Maintenance</option>
-                                    <option value="EQUIPMENT">Equipment</option>
-                                    <option value="OTHER_EXPENSE">Other Expense</option>
-                                </select>
-                            </div>
-                            <div>
-                                <label className="block text-xs font-medium text-muted-foreground mb-1.5">Amount (JOD)</label>
-                                <input type="number" step="0.01" required className="input-dark" value={formData.amount} onChange={e => setFormData({ ...formData, amount: e.target.value })} />
-                            </div>
-                            <div>
-                                <label className="block text-xs font-medium text-muted-foreground mb-1.5">Description</label>
-                                <input type="text" className="input-dark" value={formData.description} onChange={e => setFormData({ ...formData, description: e.target.value })} placeholder="e.g. Monthly gym subscription" />
-                            </div>
-                            <div>
-                                <label className="block text-xs font-medium text-muted-foreground mb-1.5">Payment Method</label>
-                                <select className="input-dark" value={formData.payment_method} onChange={e => setFormData({ ...formData, payment_method: e.target.value })}>
-                                    <option value="CASH">Cash</option>
-                                    <option value="CARD">Card</option>
-                                    <option value="BANK_TRANSFER">Bank Transfer</option>
-                                </select>
-                            </div>
-                            <div className="flex justify-end gap-3 pt-4 border-t border-border">
-                                <button type="button" onClick={() => setShowModal(false)} className="btn-ghost">Cancel</button>
-                                <button type="submit" className="btn-primary">Save Transaction</button>
-                            </div>
+                            <div><label className="block text-xs font-medium text-muted-foreground mb-1.5">Type</label><select className="input-dark" value={formData.type} onChange={e => setFormData({ ...formData, type: e.target.value })}><option value="INCOME">Income</option><option value="EXPENSE">Expense</option></select></div>
+                            <div><label className="block text-xs font-medium text-muted-foreground mb-1.5">Category</label><select className="input-dark" value={formData.category} onChange={e => setFormData({ ...formData, category: e.target.value })}><option value="OTHER_INCOME">Other Income</option><option value="SUBSCRIPTION">Subscription</option><option value="POS_SALE">POS Sale</option><option value="RENT">Rent</option><option value="SALARY">Salary</option><option value="UTILITIES">Utilities</option><option value="MAINTENANCE">Maintenance</option><option value="EQUIPMENT">Equipment</option><option value="OTHER_EXPENSE">Other Expense</option></select></div>
+                            <div><label className="block text-xs font-medium text-muted-foreground mb-1.5">Amount (JOD)</label><input type="number" step="0.01" required className="input-dark" value={formData.amount} onChange={e => setFormData({ ...formData, amount: e.target.value })} /></div>
+                            <div><label className="block text-xs font-medium text-muted-foreground mb-1.5">Description</label><input type="text" className="input-dark" value={formData.description} onChange={e => setFormData({ ...formData, description: e.target.value })} placeholder="e.g. Monthly gym subscription" /></div>
+                            <div><label className="block text-xs font-medium text-muted-foreground mb-1.5">Payment Method</label><select className="input-dark" value={formData.payment_method} onChange={e => setFormData({ ...formData, payment_method: e.target.value })}><option value="CASH">Cash</option><option value="CARD">Card</option><option value="TRANSFER">Bank Transfer</option></select></div>
+                            <div className="flex justify-end gap-3 pt-4 border-t border-border"><button type="button" onClick={() => setShowModal(false)} className="btn-ghost">Cancel</button><button type="submit" className="btn-primary">Save Transaction</button></div>
                         </form>
+                    </div>
+                </div>
+            )}
+
+            {selectedPayroll && (
+                <div className="fixed inset-0 bg-background/80 backdrop-blur-sm flex items-center justify-center p-4 z-50">
+                    <div className="rounded-sm p-6 w-full max-w-lg shadow-2xl bg-card border border-border space-y-4">
+                        <div className="flex items-start justify-between gap-4"><div><h2 className="text-lg font-bold text-foreground flex items-center gap-2"><CircleDollarSign size={18} /> Salary Details</h2><p className="text-sm text-muted-foreground">{selectedPayroll.user_name} - {String(selectedPayroll.month).padStart(2, '0')}/{selectedPayroll.year}</p></div><button className="btn-ghost !px-2 !py-1 text-xs" onClick={() => setSelectedPayroll(null)}>Close</button></div>
+                        <div className="grid grid-cols-2 gap-3 text-sm">
+                            <div className="rounded-lg p-3 bg-card border border-border"><p className="text-xs text-muted-foreground">Base Pay</p><p className="font-mono font-semibold text-foreground">{selectedPayroll.base_pay.toFixed(2)} JOD</p></div>
+                            <div className="rounded-lg p-3 bg-card border border-border"><p className="text-xs text-muted-foreground">Overtime Pay</p><p className="font-mono font-semibold text-foreground">{selectedPayroll.overtime_pay.toFixed(2)} JOD</p></div>
+                            <div className="rounded-lg p-3 bg-card border border-border"><p className="text-xs text-muted-foreground">Overtime Hours</p><p className="font-mono font-semibold text-foreground">{selectedPayroll.overtime_hours.toFixed(2)} h</p></div>
+                            <div className="rounded-lg p-3 bg-card border border-border"><p className="text-xs text-muted-foreground">Commission</p><p className="font-mono font-semibold text-foreground">{selectedPayroll.commission_pay.toFixed(2)} JOD</p></div>
+                            <div className="rounded-lg p-3 bg-card border border-border"><p className="text-xs text-muted-foreground">Bonus</p><p className="font-mono font-semibold text-foreground">{selectedPayroll.bonus_pay.toFixed(2)} JOD</p></div>
+                            <div className="rounded-lg p-3 bg-card border border-border"><p className="text-xs text-muted-foreground">Deductions</p><p className="font-mono font-semibold text-red-400">-{selectedPayroll.deductions.toFixed(2)} JOD</p></div>
+                        </div>
+                        <div className="rounded-lg p-3 bg-primary/10 border border-primary/20"><p className="text-xs text-muted-foreground">Net Total</p><p className="text-xl font-bold text-primary">{selectedPayroll.total_pay.toFixed(2)} JOD</p></div>
                     </div>
                 </div>
             )}

@@ -357,12 +357,12 @@ export default function MembersPage() {
                     <p className="text-sm text-muted-foreground mt-1">{members.length} registered {canManageMembers ? 'members' : 'clients'}</p>
                 </div>
                 <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3 w-full sm:w-auto">
-                    <div className="relative">
-                        <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
+                    <div className="field-with-icon">
+                        <Search size={16} className="field-icon" />
                         <input
                             type="text"
                             placeholder="Search members..."
-                            className="input-dark pl-9 w-full sm:w-64"
+                            className="input-dark input-with-icon w-full sm:w-64"
                             value={search}
                             onChange={e => setSearch(e.target.value)}
                         />

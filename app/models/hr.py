@@ -1,7 +1,7 @@
 import uuid
-from datetime import date
+from datetime import date, datetime
 from enum import Enum
-from sqlalchemy import Enum as SAEnum, ForeignKey, Float, Integer, Date, UniqueConstraint
+from sqlalchemy import Enum as SAEnum, ForeignKey, Float, Integer, Date, DateTime, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from app.database import Base
 
@@ -63,8 +63,11 @@ class Payroll(Base):
     total_pay: Mapped[float] = mapped_column(Float, default=0.0)
     
     status: Mapped[PayrollStatus] = mapped_column(SAEnum(PayrollStatus, native_enum=False), default=PayrollStatus.DRAFT, nullable=False)
+    paid_transaction_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("transactions.id"), nullable=True)
+    paid_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    paid_by_user_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("users.id"), nullable=True)
 
-    user = relationship("User")
+    user = relationship("User", foreign_keys=[user_id])
 
 class LeaveRequest(Base):
     __tablename__ = "leave_requests"

@@ -2,7 +2,9 @@
 
 import { useAuth } from '@/context/AuthContext';
 import { api } from '@/lib/api';
-import { useEffect, useState, useRef } from 'react';
+import { resolveProfileImageUrl } from '@/lib/profileImage';
+import { useFeedback } from '@/components/FeedbackProvider';
+import { ChangeEvent, useEffect, useState, useRef } from 'react';
 import {
     LifeBuoy,
     PlusCircle,
@@ -12,7 +14,8 @@ import {
     Clock,
     CheckCircle2,
     AlertCircle,
-    ArrowLeft
+    ArrowLeft,
+    ImagePlus
 } from 'lucide-react';
 import { format } from 'date-fns';
 import { useSearchParams } from 'next/navigation';
@@ -24,6 +27,9 @@ interface SupportMessage {
     id: string;
     sender_id: string;
     message: string;
+    media_url?: string | null;
+    media_mime?: string | null;
+    media_size_bytes?: number | null;
     created_at: string;
 }
 
@@ -38,6 +44,7 @@ interface SupportTicket {
 
 export default function CustomerSupportPage() {
     const { user } = useAuth();
+    const { showToast, confirm: confirmAction } = useFeedback();
     const searchParams = useSearchParams();
     const defaultType = searchParams?.get('type');
 
@@ -59,7 +66,9 @@ export default function CustomerSupportPage() {
     const [ticketDetails, setTicketDetails] = useState<SupportTicket & { messages: SupportMessage[] } | null>(null);
     const [replyText, setReplyText] = useState('');
     const [isReplying, setIsReplying] = useState(false);
-    const messagesEndRef = useRef<HTMLDivElement>(null);
+    const [isUploadingPhoto, setIsUploadingPhoto] = useState(false);
+    const photoInputRef = useRef<HTMLInputElement>(null);
+    const messageListRef = useRef<HTMLDivElement>(null);
 
     const fetchTickets = async () => {
         try {
@@ -88,10 +97,12 @@ export default function CustomerSupportPage() {
             const response = await api.get(`/support/tickets/${id}`);
             setTicketDetails(response.data?.data);
             setTimeout(() => {
-                messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-            }, 100);
+                if (messageListRef.current) {
+                    messageListRef.current.scrollTop = 0;
+                }
+            }, 50);
         } catch (err) {
-            console.error('Failed to fetch ticket details', err);
+            showToast('Failed to fetch ticket details.', 'error');
         }
     };
 
@@ -118,7 +129,7 @@ export default function CustomerSupportPage() {
             await fetchTickets();
         } catch (err) {
             const error = err as { response?: { data?: { detail?: string } } };
-            alert(error.response?.data?.detail || 'Failed to create ticket');
+            showToast(error.response?.data?.detail || 'Failed to create ticket', 'error');
         } finally {
             setIsSubmitting(false);
         }
@@ -136,7 +147,7 @@ export default function CustomerSupportPage() {
             await fetchTicketDetails(selectedTicketId);
         } catch (err) {
             const error = err as { response?: { data?: { detail?: string } } };
-            alert(error.response?.data?.detail || 'Failed to send message');
+            showToast(error.response?.data?.detail || 'Failed to send message', 'error');
         } finally {
             setIsReplying(false);
         }
@@ -144,14 +155,48 @@ export default function CustomerSupportPage() {
 
     const handleCloseTicket = async () => {
         if (!selectedTicketId) return;
-        if (!confirm('Are you sure you want to close this ticket?')) return;
+        const approved = await confirmAction({
+            title: 'Resolve Ticket',
+            description: 'Are you sure you want to close this ticket?',
+            confirmText: 'Yes, Resolve',
+            cancelText: 'Cancel',
+            destructive: true,
+        });
+        if (!approved) return;
         try {
             await api.patch(`/support/tickets/${selectedTicketId}/status`, { status: 'CLOSED' });
             setSelectedTicketId(null);
             fetchTickets();
         } catch (err) {
             const error = err as { response?: { data?: { detail?: string } } };
-            alert(error.response?.data?.detail || 'Failed to close ticket');
+            showToast(error.response?.data?.detail || 'Failed to close ticket', 'error');
+        }
+    };
+
+    const handlePhotoUpload = async (event: ChangeEvent<HTMLInputElement>) => {
+        const file = event.target.files?.[0];
+        if (!file || !selectedTicketId) return;
+
+        const contentType = (file.type || '').toLowerCase();
+        if (!contentType.startsWith('image/')) {
+            showToast('Only image files are supported.', 'error');
+            event.target.value = '';
+            return;
+        }
+
+        const formData = new FormData();
+        formData.append('file', file);
+
+        try {
+            setIsUploadingPhoto(true);
+            await api.post(`/support/tickets/${selectedTicketId}/attachments`, formData);
+            await fetchTicketDetails(selectedTicketId);
+        } catch (err) {
+            const error = err as { response?: { data?: { detail?: string } } };
+            showToast(error.response?.data?.detail || 'Failed to upload photo', 'error');
+        } finally {
+            setIsUploadingPhoto(false);
+            event.target.value = '';
         }
     };
 
@@ -171,7 +216,7 @@ export default function CustomerSupportPage() {
     if (selectedTicketId && ticketDetails) {
         return (
             <div className="space-y-4 max-w-3xl mx-auto h-[80vh] flex flex-col">
-                <div className="flex items-center justify-between">
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
                     <button
                         onClick={() => setSelectedTicketId(null)}
                         className="btn-ghost !px-2 flex items-center gap-2"
@@ -180,9 +225,9 @@ export default function CustomerSupportPage() {
                     </button>
                     <button
                         onClick={handleCloseTicket}
-                        className="btn-secondary !text-red-500 border-red-500/20 bg-red-500/10 hover:bg-red-500/20"
+                        className="btn-secondary border border-green-500/30 text-green-300 hover:bg-green-500/15 justify-center"
                     >
-                        Mark as Resolved
+                        Mark Resolved
                     </button>
                 </div>
 
@@ -206,7 +251,7 @@ export default function CustomerSupportPage() {
                 </div>
 
                 <div className="kpi-card flex-1 flex flex-col overflow-hidden">
-                    <div className="flex-1 overflow-y-auto p-4 space-y-4">
+                    <div ref={messageListRef} className="flex-1 overflow-y-auto p-4 space-y-4">
                         {ticketDetails.messages.map((msg) => {
                             const isMe = msg.sender_id === user?.id;
                             return (
@@ -217,27 +262,57 @@ export default function CustomerSupportPage() {
                                             <span>{format(new Date(msg.created_at), 'h:mm a')}</span>
                                         </div>
                                         <div className="whitespace-pre-wrap text-sm leading-relaxed">{msg.message}</div>
+                                        {msg.media_url && msg.media_mime?.startsWith('image/') && (
+                                            <a
+                                                href={resolveProfileImageUrl(msg.media_url)}
+                                                target="_blank"
+                                                rel="noreferrer"
+                                                className="block mt-2"
+                                            >
+                                                <img
+                                                    src={resolveProfileImageUrl(msg.media_url)}
+                                                    alt="Support attachment"
+                                                    className="max-h-64 rounded-lg border border-border/50"
+                                                />
+                                            </a>
+                                        )}
                                     </div>
                                 </div>
                             );
                         })}
-                        <div ref={messagesEndRef} />
                     </div>
 
                     {ticketDetails.status !== 'CLOSED' && ticketDetails.status !== 'RESOLVED' && (
                         <div className="p-4 border-t border-border bg-card/50">
                             <form onSubmit={handleReply} className="flex gap-2">
                                 <input
+                                    ref={photoInputRef}
+                                    type="file"
+                                    accept="image/png,image/jpeg,image/webp"
+                                    className="hidden"
+                                    onChange={handlePhotoUpload}
+                                />
+                                <button
+                                    type="button"
+                                    className="btn-secondary !px-3 hover:text-primary hover:border-primary cursor-pointer"
+                                    onClick={() => photoInputRef.current?.click()}
+                                    disabled={isUploadingPhoto || isReplying}
+                                    title="Attach photo"
+                                    aria-label="Attach photo"
+                                >
+                                    <ImagePlus size={18} />
+                                </button>
+                                <input
                                     type="text"
                                     value={replyText}
                                     onChange={(e) => setReplyText(e.target.value)}
                                     placeholder="Type your reply to support..."
                                     className="input-dark flex-1"
-                                    disabled={isReplying}
+                                    disabled={isReplying || isUploadingPhoto}
                                 />
                                 <button
                                     type="submit"
-                                    disabled={!replyText.trim() || isReplying}
+                                    disabled={!replyText.trim() || isReplying || isUploadingPhoto}
                                     className="btn-primary"
                                 >
                                     <Send size={18} />

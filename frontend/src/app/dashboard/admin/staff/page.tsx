@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react';
 import { api } from '@/lib/api';
 import Image from 'next/image';
+import { useRouter } from 'next/navigation';
 import { FileText, Pencil, Calculator, Save, Plus, Download, Eye } from 'lucide-react';
 import Modal from '@/components/Modal';
 import { useFeedback } from '@/components/FeedbackProvider';
@@ -82,6 +83,7 @@ const defaultEditForm = {
 
 export default function StaffPage() {
     const { showToast } = useFeedback();
+    const router = useRouter();
     const [staff, setStaff] = useState<StaffMember[]>([]);
     const [loading, setLoading] = useState(true);
     const [isAddOpen, setIsAddOpen] = useState(false);
@@ -94,15 +96,11 @@ export default function StaffPage() {
     const [payrollForm, setPayrollForm] = useState({ month: new Date().getMonth() + 1, year: new Date().getFullYear(), sales_volume: 0 });
     const [payrollResult, setPayrollResult] = useState<any>(null); // eslint-disable-line @typescript-eslint/no-explicit-any
 
-    // View Profile Modal
-    const [isViewOpen, setIsViewOpen] = useState(false);
-    const [viewMember, setViewMember] = useState<StaffMember | null>(null);
     const [failedImageUrls, setFailedImageUrls] = useState<Record<string, true>>({});
     const activeEditRule = CONTRACT_RULES[(editForm.contract_type as ContractType) || 'FULL_TIME'];
 
     const openView = (member: StaffMember) => {
-        setViewMember(member);
-        setIsViewOpen(true);
+        router.push(`/dashboard/admin/staff/${member.id}`);
     };
 
     const markImageFailed = (url?: string) => {
@@ -572,53 +570,6 @@ export default function StaffPage() {
                             <button onClick={() => handlePrintPayslip(payrollResult.id)} className="btn-primary w-full flex items-center justify-center gap-2">
                                 <Download size={16} /> Download Slip
                             </button>
-                        </div>
-                    </div>
-                )}
-            </Modal>
-
-            {/* VIEW PROFILE MODAL */}
-            <Modal isOpen={isViewOpen} onClose={() => setIsViewOpen(false)} title="Staff Profile">
-                {viewMember && (
-                    <div className="space-y-6">
-                        <div className="flex items-center gap-4 border-b border-border pb-6">
-                            {(() => {
-                                const imageUrl = resolveProfileImageUrl(viewMember.profile_picture_url);
-                                return (
-                            <div className="h-16 w-16 bg-primary/20 rounded-full flex items-center justify-center text-primary text-xl font-bold overflow-hidden relative flex-shrink-0">
-                                {canRenderImage(imageUrl) ? (
-                                    <Image src={imageUrl as string} alt={viewMember.full_name} fill className="object-cover" unoptimized onError={() => markImageFailed(imageUrl)} />
-                                ) : (
-                                    viewMember.full_name.charAt(0)
-                                )}
-                            </div>
-                                );
-                            })()}
-                            <div>
-                                <h3 className="text-xl font-bold text-foreground">{viewMember.full_name}</h3>
-                                <p className="text-sm text-muted-foreground">{viewMember.email}</p>
-                                <span className={`inline-block px-2 py-0.5 mt-1 rounded text-[10px] font-bold tracking-wider ${viewMember.role === 'COACH' ? 'bg-orange-500/20 text-orange-400' : viewMember.role === 'ADMIN' ? 'bg-blue-500/20 text-blue-400' : 'bg-zinc-800 text-zinc-300'}`}>
-                                    {viewMember.role}
-                                </span>
-                            </div>
-                        </div>
-                        <div className="grid grid-cols-2 gap-4 text-sm">
-                            <div>
-                                <p className="text-xs text-muted-foreground uppercase tracking-wider mb-1 font-semibold">Phone</p>
-                                <p className="font-medium text-foreground">{viewMember.phone_number || 'N/A'}</p>
-                            </div>
-                            <div>
-                                <p className="text-xs text-muted-foreground uppercase tracking-wider mb-1 font-semibold">Date of Birth</p>
-                                <p className="font-medium text-foreground">{viewMember.date_of_birth ? new Date(viewMember.date_of_birth).toLocaleDateString() : 'N/A'}</p>
-                            </div>
-                            <div className="col-span-2">
-                                <p className="text-xs text-muted-foreground uppercase tracking-wider mb-1 font-semibold">Emergency Contact</p>
-                                <p className="font-medium text-foreground">{viewMember.emergency_contact || 'N/A'}</p>
-                            </div>
-                            <div className="col-span-2">
-                                <p className="text-xs text-muted-foreground uppercase tracking-wider mb-1 font-semibold">Bio / Notes</p>
-                                <p className="font-medium text-foreground whitespace-pre-wrap">{viewMember.bio || 'No bio provided.'}</p>
-                            </div>
                         </div>
                     </div>
                 )}

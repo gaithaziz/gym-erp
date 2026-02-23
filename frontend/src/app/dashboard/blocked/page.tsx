@@ -1,11 +1,13 @@
 'use client';
 
-import Link from 'next/link';
+import { useMemo } from 'react';
 import { ShieldAlert, Lock, Snowflake, CalendarX } from 'lucide-react';
 import { useAuth } from '@/context/AuthContext';
+import { useRouter } from 'next/navigation';
 
 export default function SubscriptionBlockedPage() {
     const { user, logout } = useAuth();
+    const router = useRouter();
 
     const reason = user?.block_reason;
     const statusLabel = user?.subscription_status || 'NONE';
@@ -34,6 +36,20 @@ export default function SubscriptionBlockedPage() {
                 };
 
     const ReasonIcon = reasonMeta.icon;
+    const lockKey = `blocked_request_lock_${user?.id || 'anon'}`;
+    const lockUntilTs = useMemo(() => {
+        if (typeof window === 'undefined') return 0;
+        return Number(localStorage.getItem(lockKey) || 0);
+    }, [lockKey]);
+    const isRequestLocked = Date.now() < lockUntilTs;
+    const lockHoursRemaining = isRequestLocked ? Math.ceil((lockUntilTs - Date.now()) / (1000 * 60 * 60)) : 0;
+
+    const openRequest = (type: 'renewal' | 'unfreeze') => {
+        if (isRequestLocked) return;
+        const for48h = Date.now() + 48 * 60 * 60 * 1000;
+        localStorage.setItem(lockKey, String(for48h));
+        router.push(`/dashboard/support?type=${type}`);
+    };
 
     return (
         <div className="max-w-2xl mx-auto space-y-6">
@@ -70,13 +86,28 @@ export default function SubscriptionBlockedPage() {
                 </div>
 
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                    <Link href="/dashboard/support?type=renewal" className="btn-primary text-center">
+                    <button
+                        type="button"
+                        onClick={() => openRequest('renewal')}
+                        className="btn-primary text-center disabled:opacity-50 disabled:cursor-not-allowed"
+                        disabled={isRequestLocked}
+                    >
                         Request Renewal
-                    </Link>
-                    <Link href="/dashboard/support?type=unfreeze" className="btn-ghost text-center">
+                    </button>
+                    <button
+                        type="button"
+                        onClick={() => openRequest('unfreeze')}
+                        className="btn-primary text-center disabled:opacity-50 disabled:cursor-not-allowed"
+                        disabled={isRequestLocked}
+                    >
                         Request Unfreeze
-                    </Link>
+                    </button>
                 </div>
+                {isRequestLocked && (
+                    <p className="mt-2 text-xs text-muted-foreground">
+                        Requests are temporarily locked for {lockHoursRemaining} more hour(s).
+                    </p>
+                )}
 
                 <button
                     type="button"

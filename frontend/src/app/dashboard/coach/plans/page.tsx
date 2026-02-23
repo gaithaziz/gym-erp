@@ -78,14 +78,17 @@ export default function WorkoutPlansPage() {
     const [currentVideoUrl, setCurrentVideoUrl] = useState('');
     const [currentVideoFile, setCurrentVideoFile] = useState<File | null>(null);
 
-    const apiBase = (process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000').replace(/\/$/, '');
+    const configuredApiUrl = (process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000').replace(/\/+$/, '');
+    const apiOrigin = configuredApiUrl.endsWith('/api/v1')
+        ? configuredApiUrl.slice(0, -'/api/v1'.length)
+        : configuredApiUrl;
 
     const resolveVideoUrl = (exercise: WorkoutExerciseItem) => {
         if (exercise.video_type === 'EMBED' && exercise.video_url) return exercise.video_url;
         if (exercise.video_type === 'UPLOAD' && exercise.uploaded_video_url) {
             return exercise.uploaded_video_url.startsWith('http')
                 ? exercise.uploaded_video_url
-                : `${apiBase}${exercise.uploaded_video_url}`;
+                : `${apiOrigin}${exercise.uploaded_video_url}`;
         }
         return null;
     };

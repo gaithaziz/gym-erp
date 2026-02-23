@@ -3,7 +3,8 @@
 import { useAuth } from '@/context/AuthContext';
 import { api } from '@/lib/api';
 import { resolveProfileImageUrl } from '@/lib/profileImage';
-import { useEffect, useState, useRef } from 'react';
+import { useFeedback } from '@/components/FeedbackProvider';
+import { ChangeEvent, useEffect, useState, useRef } from 'react';
 import Image from 'next/image';
 import {
     LifeBuoy,
@@ -14,7 +15,8 @@ import {
     AlertCircle,
     ArrowLeft,
     Filter,
-    Search
+    Search,
+    ImagePlus
 } from 'lucide-react';
 import { format } from 'date-fns';
 
@@ -25,6 +27,9 @@ interface SupportMessage {
     id: string;
     sender_id: string;
     message: string;
+    media_url?: string | null;
+    media_mime?: string | null;
+    media_size_bytes?: number | null;
     created_at: string;
 }
 
@@ -46,6 +51,7 @@ interface SupportTicket {
 
 export default function AdminSupportPage() {
     const { } = useAuth();
+    const { showToast, confirm: confirmAction } = useFeedback();
     const [activeTab, setActiveTab] = useState<'ACTIVE' | 'COMPLETED'>('ACTIVE');
     const [tickets, setTickets] = useState<SupportTicket[]>([]);
     const [loading, setLoading] = useState(true);
@@ -60,7 +66,9 @@ export default function AdminSupportPage() {
     const [ticketDetails, setTicketDetails] = useState<SupportTicket & { messages: SupportMessage[] } | null>(null);
     const [replyText, setReplyText] = useState('');
     const [isReplying, setIsReplying] = useState(false);
-    const messagesEndRef = useRef<HTMLDivElement>(null);
+    const [isUploadingPhoto, setIsUploadingPhoto] = useState(false);
+    const photoInputRef = useRef<HTMLInputElement>(null);
+    const messageListRef = useRef<HTMLDivElement>(null);
 
     const fetchTickets = async () => {
         try {
@@ -94,10 +102,12 @@ export default function AdminSupportPage() {
             const response = await api.get(`/support/tickets/${id}`);
             setTicketDetails(response.data?.data);
             setTimeout(() => {
-                messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-            }, 100);
+                if (messageListRef.current) {
+                    messageListRef.current.scrollTop = 0;
+                }
+            }, 50);
         } catch (err) {
-            console.error('Failed to fetch ticket details', err);
+            showToast('Failed to fetch ticket details.', 'error');
         }
     };
 
@@ -123,7 +133,7 @@ export default function AdminSupportPage() {
             await fetchTicketDetails(selectedTicketId);
         } catch (err) {
             const error = err as { response?: { data?: { detail?: string } } };
-            alert(error.response?.data?.detail || 'Failed to send message');
+            showToast(error.response?.data?.detail || 'Failed to send message', 'error');
         } finally {
             setIsReplying(false);
         }
@@ -134,7 +144,14 @@ export default function AdminSupportPage() {
 
         const isClosing = newStatus === 'RESOLVED' || newStatus === 'CLOSED';
         if (isClosing) {
-            if (!confirm(`Are you sure you want to mark this ticket as ${newStatus}? This will close the session.`)) return;
+            const approved = await confirmAction({
+                title: 'Close Ticket',
+                description: `Are you sure you want to mark this ticket as ${newStatus}? This will close the session.`,
+                confirmText: 'Yes, Close',
+                cancelText: 'Cancel',
+                destructive: true,
+            });
+            if (!approved) return;
         }
 
         try {
@@ -146,7 +163,34 @@ export default function AdminSupportPage() {
             }
         } catch (err) {
             const error = err as { response?: { data?: { detail?: string } } };
-            alert(error.response?.data?.detail || 'Failed to update ticket status');
+            showToast(error.response?.data?.detail || 'Failed to update ticket status', 'error');
+        }
+    };
+
+    const handlePhotoUpload = async (event: ChangeEvent<HTMLInputElement>) => {
+        const file = event.target.files?.[0];
+        if (!file || !selectedTicketId) return;
+
+        const contentType = (file.type || '').toLowerCase();
+        if (!contentType.startsWith('image/')) {
+            showToast('Only image files are supported.', 'error');
+            event.target.value = '';
+            return;
+        }
+
+        const formData = new FormData();
+        formData.append('file', file);
+
+        try {
+            setIsUploadingPhoto(true);
+            await api.post(`/support/tickets/${selectedTicketId}/attachments`, formData);
+            await fetchTicketDetails(selectedTicketId);
+        } catch (err) {
+            const error = err as { response?: { data?: { detail?: string } } };
+            showToast(error.response?.data?.detail || 'Failed to upload photo', 'error');
+        } finally {
+            setIsUploadingPhoto(false);
+            event.target.value = '';
         }
     };
 
@@ -173,7 +217,7 @@ export default function AdminSupportPage() {
 
         return (
             <div className="space-y-4 max-w-4xl mx-auto h-[80vh] flex flex-col">
-                <div className="flex items-center justify-between">
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
                     <button
                         onClick={() => setSelectedTicketId(null)}
                         className="btn-ghost !px-2 flex items-center gap-2"
@@ -181,19 +225,23 @@ export default function AdminSupportPage() {
                         <ArrowLeft size={18} /> Back to Queue
                     </button>
                     {!isClosed && (
-                        <div className="flex gap-2">
-                            <button
-                                onClick={() => handleUpdateStatus('IN_PROGRESS')}
-                                className="btn-secondary !text-blue-500"
-                            >
-                                Mark In Progress
-                            </button>
-                            <button
-                                onClick={() => handleUpdateStatus('RESOLVED')}
-                                className="btn-secondary !text-green-500"
-                            >
-                                Mark Resolved
-                            </button>
+                        <div className="flex w-full sm:w-auto flex-col sm:flex-row gap-2 sm:justify-end">
+                            {ticketDetails.status === 'OPEN' && (
+                                <button
+                                    onClick={() => handleUpdateStatus('IN_PROGRESS')}
+                                    className="btn-secondary border border-blue-500/30 text-blue-300 hover:bg-blue-500/15 justify-center"
+                                >
+                                    Mark In Progress
+                                </button>
+                            )}
+                            {(ticketDetails.status === 'OPEN' || ticketDetails.status === 'IN_PROGRESS') && (
+                                <button
+                                    onClick={() => handleUpdateStatus('RESOLVED')}
+                                    className="btn-secondary border border-green-500/30 text-green-300 hover:bg-green-500/15 justify-center"
+                                >
+                                    Mark Resolved
+                                </button>
+                            )}
                         </div>
                     )}
                 </div>
@@ -232,7 +280,7 @@ export default function AdminSupportPage() {
                 </div>
 
                 <div className="kpi-card flex-1 flex flex-col overflow-hidden">
-                    <div className="flex-1 overflow-y-auto p-4 space-y-4">
+                    <div ref={messageListRef} className="flex-1 overflow-y-auto p-4 space-y-4">
                         {ticketDetails.messages.map((msg) => {
                             const isStaff = msg.sender_id !== ticketDetails.customer_id;
                             return (
@@ -243,27 +291,57 @@ export default function AdminSupportPage() {
                                             <span>{format(new Date(msg.created_at), 'h:mm a')}</span>
                                         </div>
                                         <div className="whitespace-pre-wrap text-sm leading-relaxed">{msg.message}</div>
+                                        {msg.media_url && msg.media_mime?.startsWith('image/') && (
+                                            <a
+                                                href={resolveProfileImageUrl(msg.media_url)}
+                                                target="_blank"
+                                                rel="noreferrer"
+                                                className="block mt-2"
+                                            >
+                                                <img
+                                                    src={resolveProfileImageUrl(msg.media_url)}
+                                                    alt="Support attachment"
+                                                    className="max-h-64 rounded-lg border border-border/50"
+                                                />
+                                            </a>
+                                        )}
                                     </div>
                                 </div>
                             );
                         })}
-                        <div ref={messagesEndRef} />
                     </div>
 
                     {!isClosed && (
                         <div className="p-4 border-t border-border bg-card/50">
                             <form onSubmit={handleReply} className="flex gap-2">
                                 <input
+                                    ref={photoInputRef}
+                                    type="file"
+                                    accept="image/png,image/jpeg,image/webp"
+                                    className="hidden"
+                                    onChange={handlePhotoUpload}
+                                />
+                                <button
+                                    type="button"
+                                    className="btn-secondary !px-3 hover:text-primary hover:border-primary cursor-pointer"
+                                    onClick={() => photoInputRef.current?.click()}
+                                    disabled={isUploadingPhoto || isReplying}
+                                    title="Attach photo"
+                                    aria-label="Attach photo"
+                                >
+                                    <ImagePlus size={18} />
+                                </button>
+                                <input
                                     type="text"
                                     value={replyText}
                                     onChange={(e) => setReplyText(e.target.value)}
                                     placeholder="Type your reply to customer..."
                                     className="input-dark flex-1"
-                                    disabled={isReplying}
+                                    disabled={isReplying || isUploadingPhoto}
                                 />
                                 <button
                                     type="submit"
-                                    disabled={!replyText.trim() || isReplying}
+                                    disabled={!replyText.trim() || isReplying || isUploadingPhoto}
                                     className="btn-primary"
                                 >
                                     <Send size={18} />
@@ -323,22 +401,22 @@ export default function AdminSupportPage() {
             )}
 
             <div className="flex flex-col sm:flex-row gap-4 bg-card p-4 rounded-xl border border-border">
-                <div className="relative flex-1">
-                    <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" size={18} />
+                <div className="field-with-icon flex-1">
+                    <Search className="field-icon" size={18} />
                     <input
                         type="text"
                         placeholder="Search by subject or customer name..."
                         value={searchQuery}
                         onChange={(e) => setSearchQuery(e.target.value)}
-                        className="input-dark pl-10 w-full"
+                        className="input-dark input-with-icon w-full"
                     />
                 </div>
-                <div className="relative shrink-0 w-full sm:w-48">
-                    <Filter className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" size={18} />
+                <div className="field-with-icon shrink-0 w-full sm:w-48">
+                    <Filter className="field-icon" size={18} />
                     <select
                         value={categoryFilter}
                         onChange={(e) => setCategoryFilter(e.target.value as TicketCategory | '')}
-                        className="input-dark pl-10 w-full"
+                        className="input-dark select-with-icon w-full"
                     >
                         <option value="">All Categories</option>
                         <option value="GENERAL">General</option>

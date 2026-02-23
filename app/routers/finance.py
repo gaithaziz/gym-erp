@@ -63,6 +63,7 @@ async def list_transactions(
     limit: int = 50,
     month: Optional[int] = Query(None, ge=1, le=12),
     year: Optional[int] = Query(None, ge=2000, le=2100),
+    tx_type: Optional[TransactionType] = Query(None),
     start_date: Optional[date] = Query(None),
     end_date: Optional[date] = Query(None),
 ):
@@ -71,6 +72,8 @@ async def list_transactions(
         raise HTTPException(status_code=400, detail="start_date cannot be after end_date")
 
     stmt = select(Transaction)
+    if tx_type:
+        stmt = stmt.where(Transaction.type == tx_type)
     if start_date or end_date:
         if start_date:
             start_dt = datetime(start_date.year, start_date.month, start_date.day, tzinfo=timezone.utc)

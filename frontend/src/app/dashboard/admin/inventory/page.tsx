@@ -154,14 +154,14 @@ export default function InventoryPage() {
 
             {/* Filters */}
             <div className="flex gap-3">
-                <div className="relative flex-1">
-                    <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
+                <div className="field-with-icon flex-1">
+                    <Search size={16} className="field-icon" />
                     <input
                         type="text"
                         placeholder="Search products..."
                         value={search}
                         onChange={(e) => setSearch(e.target.value)}
-                        className="input-dark pl-9 text-sm"
+                        className="input-dark input-with-icon text-sm"
                     />
                 </div>
                 <select

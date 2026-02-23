@@ -43,15 +43,20 @@ export default function DashboardLayout({
     const pathname = usePathname();
     const [sidebarOpen, setSidebarOpen] = useState(false);
     const [chatOpen, setChatOpen] = useState(false);
-    const [chatUnread, setChatUnread] = useState(0);
+    const [chatNewConversations, setChatNewConversations] = useState(0);
+    const [supportHasNew, setSupportHasNew] = useState(false);
+    const [lostFoundHasNew, setLostFoundHasNew] = useState(false);
     const [failedProfileImageUrl, setFailedProfileImageUrl] = useState<string | null>(null);
     const profileImageUrl = resolveProfileImageUrl(user?.profile_picture_url);
     const isBlockedCustomer =
         user?.role === 'CUSTOMER' &&
         (Boolean(user?.is_subscription_blocked) ||
             BLOCKED_SUBSCRIPTION_STATUSES.has(user?.subscription_status || 'NONE'));
-    const canUseChat = ['ADMIN', 'COACH', 'CUSTOMER'].includes(user?.role || '') && !isBlockedCustomer;
+    const canUseChat = ['COACH', 'CUSTOMER'].includes(user?.role || '') && !isBlockedCustomer;
     const isBlockedRouteAllowed = BLOCKED_ALLOWED_ROUTES.some((route) => pathname.startsWith(route));
+    const isSupportPage = pathname.startsWith('/dashboard/admin/support') || pathname.startsWith('/dashboard/support');
+    const isLostFoundPage = pathname.startsWith('/dashboard/lost-found');
+    const isChatPage = pathname.startsWith('/dashboard/chat');
 
     useEffect(() => {
         if (!isLoading && !user) {
@@ -78,23 +83,105 @@ export default function DashboardLayout({
     }, [pathname]);
 
     useEffect(() => {
-        if (!canUseChat) {
-            return;
-        }
-        const fetchUnread = async () => {
+        if (!user) return;
+
+        const seenKeySupport = `last_seen_support_${user.id}`;
+        const seenKeyLostFound = `last_seen_lost_found_${user.id}`;
+        const seenKeyChat = `last_seen_chat_${user.id}`;
+
+        const getSeenTs = (key: string) => {
+            const raw = localStorage.getItem(key);
+            if (!raw) return 0;
+            const parsed = Number(raw);
+            return Number.isFinite(parsed) ? parsed : 0;
+        };
+
+        const refreshIndicators = async () => {
             try {
-                const response = await api.get('/chat/threads', { params: { limit: 30 } });
-                const rows = (response.data?.data || []) as Array<{ unread_count?: number }>;
-                const total = rows.reduce((sum, row) => sum + (row.unread_count || 0), 0);
-                setChatUnread(total);
+                const tasks: Array<Promise<unknown>> = [];
+                let supportLatest: string | null = null;
+                let lostFoundLatest: string | null = null;
+                let chatThreads: Array<{ last_message_at?: string | null }> = [];
+
+                tasks.push(
+                    api.get('/support/tickets', { params: { is_active: true, limit: 1 } }).then((resp) => {
+                        const rows = resp.data?.data || [];
+                        supportLatest = rows[0]?.updated_at || null;
+                    }).catch(() => {
+                        supportLatest = null;
+                    })
+                );
+
+                tasks.push(
+                    api.get('/lost-found/items', { params: { limit: 1 } }).then((resp) => {
+                        const rows = resp.data?.data || [];
+                        lostFoundLatest = rows[0]?.updated_at || null;
+                    }).catch(() => {
+                        lostFoundLatest = null;
+                    })
+                );
+
+                if (canUseChat) {
+                    tasks.push(
+                        api.get('/chat/threads', { params: { limit: 100, sort_by: 'last_message_at', sort_order: 'desc' } }).then((resp) => {
+                            chatThreads = (resp.data?.data || []) as Array<{ last_message_at?: string | null }>;
+                        }).catch(() => {
+                            chatThreads = [];
+                        })
+                    );
+                }
+
+                await Promise.all(tasks);
+
+                const seenSupport = getSeenTs(seenKeySupport);
+                const seenLostFound = getSeenTs(seenKeyLostFound);
+                const supportTs = supportLatest ? new Date(supportLatest).getTime() : 0;
+                const lostFoundTs = lostFoundLatest ? new Date(lostFoundLatest).getTime() : 0;
+
+                setSupportHasNew(supportTs > seenSupport && supportTs > 0);
+                setLostFoundHasNew(lostFoundTs > seenLostFound && lostFoundTs > 0);
+
+                if (canUseChat) {
+                    const seenChat = getSeenTs(seenKeyChat);
+                    const newConvoCount = chatThreads.filter((t) => {
+                        const ts = t.last_message_at ? new Date(t.last_message_at).getTime() : 0;
+                        return ts > seenChat;
+                    }).length;
+                    setChatNewConversations(newConvoCount);
+                } else {
+                    setChatNewConversations(0);
+                }
             } catch {
-                setChatUnread(0);
+                setSupportHasNew(false);
+                setLostFoundHasNew(false);
+                setChatNewConversations(0);
             }
         };
-        fetchUnread();
-        const intervalId = window.setInterval(fetchUnread, 12000);
+
+        refreshIndicators();
+        const intervalId = window.setInterval(refreshIndicators, 12000);
         return () => window.clearInterval(intervalId);
-    }, [canUseChat, pathname]);
+    }, [user, canUseChat]);
+
+    useEffect(() => {
+        if (!user) return;
+        if (isSupportPage) {
+            localStorage.setItem(`last_seen_support_${user.id}`, String(Date.now()));
+            setSupportHasNew(false);
+        }
+        if (isLostFoundPage) {
+            localStorage.setItem(`last_seen_lost_found_${user.id}`, String(Date.now()));
+            setLostFoundHasNew(false);
+        }
+    }, [pathname, isSupportPage, isLostFoundPage, user]);
+
+    useEffect(() => {
+        if (!user) return;
+        if (chatOpen || isChatPage) {
+            localStorage.setItem(`last_seen_chat_${user.id}`, String(Date.now()));
+            setChatNewConversations(0);
+        }
+    }, [chatOpen, isChatPage, user]);
 
     if (isLoading || !user) {
         return (
@@ -239,6 +326,9 @@ export default function DashboardLayout({
                                 <div className="space-y-0.5">
                                     {sectionItems.map((item) => {
                                         const isActive = pathname === item.href;
+                                        const showDot =
+                                            (item.href === '/dashboard/lost-found' && lostFoundHasNew) ||
+                                            ((item.href === '/dashboard/admin/support' || item.href === '/dashboard/support') && supportHasNew);
                                         return (
                                             <Link
                                                 key={item.href}
@@ -246,7 +336,10 @@ export default function DashboardLayout({
                                                 className={`nav-link ${isActive ? 'active' : ''}`}
                                             >
                                                 <item.icon size={18} />
-                                                <span>{item.label}</span>
+                                                <span className="inline-flex items-center gap-2">
+                                                    {item.label}
+                                                    {showDot && <span className="h-2 w-2 rounded-full bg-red-500" aria-label="new activity" />}
+                                                </span>
                                             </Link>
                                         );
                                     })}
@@ -277,9 +370,9 @@ export default function DashboardLayout({
                         aria-label="Open chat"
                     >
                         <MessageCircle size={24} />
-                        {chatUnread > 0 && (
-                            <span className="absolute -top-1 -right-1 flex min-w-[20px] h-[20px] px-1.5 items-center justify-center rounded-full bg-red-500 text-white text-xs font-bold border-2 border-background shadow-sm">
-                                {chatUnread > 99 ? '99+' : chatUnread}
+                        {chatNewConversations > 0 && (
+                            <span className="absolute -top-1 -right-1 flex min-w-[20px] h-[20px] px-1.5 items-center justify-center rounded-full bg-black text-white text-xs font-bold border-2 border-background shadow-sm">
+                                {chatNewConversations > 99 ? '99+' : chatNewConversations}
                             </span>
                         )}
                     </button>

@@ -141,3 +141,58 @@ async def test_finance_date_range_filtering(client: AsyncClient, db_session: Asy
     summary = summary_resp.json()["data"]
     assert summary["total_income"] == 150.0
     assert summary["total_expenses"] == 0.0
+
+
+@pytest.mark.asyncio
+async def test_finance_transaction_type_filter(client: AsyncClient, db_session: AsyncSession):
+    password = "password123"
+    hashed = get_password_hash(password)
+    admin = User(email="admin_fin_type@gym.com", hashed_password=hashed, role=Role.ADMIN, full_name="Fin Type Admin")
+    db_session.add(admin)
+    await db_session.flush()
+
+    now = datetime.now(timezone.utc)
+    income_tx = Transaction(
+        amount=220.0,
+        type=TransactionType.INCOME,
+        category=TransactionCategory.SUBSCRIPTION,
+        description="Income only filter",
+        payment_method=PaymentMethod.CASH,
+        date=now,
+    )
+    expense_tx = Transaction(
+        amount=80.0,
+        type=TransactionType.EXPENSE,
+        category=TransactionCategory.RENT,
+        description="Expense only filter",
+        payment_method=PaymentMethod.CASH,
+        date=now,
+    )
+    db_session.add_all([income_tx, expense_tx])
+    await db_session.commit()
+
+    login_resp = await client.post(
+        f"{settings.API_V1_STR}/auth/login",
+        json={"email": admin.email, "password": password},
+    )
+    headers = {"Authorization": f"Bearer {login_resp.json()['data']['access_token']}"}
+
+    income_resp = await client.get(
+        f"{settings.API_V1_STR}/finance/transactions",
+        params={"tx_type": "INCOME", "limit": 100},
+        headers=headers,
+    )
+    assert income_resp.status_code == 200
+    income_rows = income_resp.json()["data"]
+    assert len(income_rows) >= 1
+    assert all(row["type"] == "INCOME" for row in income_rows)
+
+    expense_resp = await client.get(
+        f"{settings.API_V1_STR}/finance/transactions",
+        params={"tx_type": "EXPENSE", "limit": 100},
+        headers=headers,
+    )
+    assert expense_resp.status_code == 200
+    expense_rows = expense_resp.json()["data"]
+    assert len(expense_rows) >= 1
+    assert all(row["type"] == "EXPENSE" for row in expense_rows)

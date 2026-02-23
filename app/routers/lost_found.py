@@ -114,6 +114,10 @@ def _is_handler(user: User) -> bool:
     return user.role in HANDLER_ROLES
 
 
+def _is_admin(user: User) -> bool:
+    return user.role == Role.ADMIN
+
+
 def _to_actor(user: User) -> LostFoundActorResponse:
     return LostFoundActorResponse(
         id=user.id,
@@ -254,6 +258,7 @@ async def list_lost_found_items(
     status: LostFoundStatus | None = Query(None),
     assignee_id: uuid.UUID | None = Query(None),
     reporter_id: uuid.UUID | None = Query(None),
+    archived_only: bool = Query(False),
 ):
     stmt = (
         select(LostFoundItem)
@@ -267,6 +272,13 @@ async def list_lost_found_items(
         .limit(limit)
         .offset(offset)
     )
+
+    if archived_only:
+        if not _is_admin(current_user):
+            raise HTTPException(status_code=403, detail="Operation not permitted")
+        stmt = stmt.where(LostFoundItem.status.in_(TERMINAL_STATUSES))
+    else:
+        stmt = stmt.where(~LostFoundItem.status.in_(TERMINAL_STATUSES))
 
     if _is_handler(current_user):
         if status:
@@ -307,6 +319,8 @@ async def get_lost_found_item(
     db: Annotated[AsyncSession, Depends(get_db)],
 ):
     item = await _get_item_or_404(db, item_id)
+    if item.status in TERMINAL_STATUSES and not _is_admin(current_user):
+        raise HTTPException(status_code=403, detail="Access denied")
     _ensure_item_visible(current_user, item)
     return StandardResponse(data=_serialize_item(item))
 

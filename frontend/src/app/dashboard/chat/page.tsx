@@ -507,7 +507,9 @@ export default function ChatPage() {
         const apiOrigin = normalizedApiUrl.endsWith('/api/v1')
             ? normalizedApiUrl.slice(0, -'/api/v1'.length)
             : normalizedApiUrl;
-        const wsBase = apiOrigin.replace(/^http/, 'ws');
+        const wsBase = apiOrigin
+            ? apiOrigin.replace(/^http/, 'ws')
+            : `${window.location.protocol === 'https:' ? 'wss' : 'ws'}://${window.location.host}`;
         const ws = new WebSocket(`${wsBase}/api/v1/chat/ws?token=${encodeURIComponent(token)}`);
 
         ws.onopen = () => setSocketConnected(true);
@@ -598,11 +600,11 @@ export default function ChatPage() {
                                     <label className="text-xs text-muted-foreground block">
                                         {user?.role === 'CUSTOMER' ? 'Search coaches' : 'Search clients'}
                                     </label>
-                                    <div className="relative">
-                                        <Search size={14} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-muted-foreground" />
+                                    <div className="field-with-icon">
+                                        <Search size={14} className="field-icon" />
                                         <input
                                             type="text"
-                                            className="input-dark !pl-8"
+                                            className="input-dark input-with-icon"
                                             value={contactSearch}
                                             onChange={(e) => setContactSearch(e.target.value)}
                                             placeholder={user?.role === 'CUSTOMER' ? 'Type coach name/email...' : 'Type client name/email...'}
@@ -663,8 +665,15 @@ export default function ChatPage() {
                                     }`}
                             >
                                 <div className="flex items-center justify-between gap-2">
-                                    <p className="text-sm font-semibold truncate">{counterpartName(thread)}</p>
-                                    {!isAdmin && (thread.unread_count || 0) > 0 && <span className="badge badge-orange">{thread.unread_count}</span>}
+                                    <p className="text-sm font-semibold truncate min-w-0 flex-1">{counterpartName(thread)}</p>
+                                    {!isAdmin && (thread.unread_count || 0) > 0 && (
+                                        <span className="flex items-center gap-1.5 shrink-0">
+                                            <span className="h-2 w-2 rounded-full bg-red-500" aria-label="new conversation" />
+                                            <span className="inline-flex min-w-[20px] h-[20px] px-1.5 items-center justify-center rounded-full bg-black text-white text-xs font-bold">
+                                                {(thread.unread_count || 0) > 99 ? '99+' : thread.unread_count}
+                                            </span>
+                                        </span>
+                                    )}
                                 </div>
                                 <p className="text-xs text-muted-foreground truncate mt-1">
                                     {thread.last_message?.text_content || thread.last_message?.message_type || 'No messages yet'}

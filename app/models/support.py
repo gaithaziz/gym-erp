@@ -1,7 +1,7 @@
 import uuid
 from datetime import datetime, timezone
 import enum
-from sqlalchemy import Column, String, DateTime, ForeignKey, Text, Enum
+from sqlalchemy import Column, String, DateTime, ForeignKey, Text, Enum, Integer
 from sqlalchemy.dialects.postgresql import UUID as PGUUID
 from sqlalchemy.orm import relationship
 
@@ -45,6 +45,9 @@ class SupportMessage(Base):
     ticket_id = Column(PGUUID(as_uuid=True), ForeignKey("support_tickets.id"), nullable=False, index=True)
     sender_id = Column(PGUUID(as_uuid=True), ForeignKey("users.id"), nullable=False)
     message = Column(Text, nullable=False)
+    media_url = Column(Text, nullable=True)
+    media_mime = Column(String(100), nullable=True)
+    media_size_bytes = Column(Integer, nullable=True)
 
     created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
 

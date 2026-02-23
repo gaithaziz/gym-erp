@@ -73,6 +73,12 @@ const statusOptions: Array<{ value: LostFoundStatus; label: string }> = [
     { value: 'REJECTED', label: 'Rejected' },
     { value: 'DISPOSED', label: 'Disposed' },
 ];
+const activeStatusOptions = statusOptions.filter((opt) =>
+    ['REPORTED', 'UNDER_REVIEW', 'READY_FOR_PICKUP'].includes(opt.value)
+);
+const archiveStatusOptions = statusOptions.filter((opt) =>
+    ['CLOSED', 'REJECTED', 'DISPOSED'].includes(opt.value)
+);
 
 function resolveMediaUrl(url?: string | null): string {
     if (!url) return '';
@@ -97,6 +103,8 @@ export default function LostFoundPage() {
     const { user } = useAuth();
     const { showToast, confirm: confirmAction } = useFeedback();
     const isHandler = handlerRoles.includes(user?.role || '');
+    const isAdmin = user?.role === 'ADMIN';
+    const [viewMode, setViewMode] = useState<'ACTIVE' | 'ARCHIVE'>('ACTIVE');
 
     const [loading, setLoading] = useState(true);
     const [items, setItems] = useState<LostFoundItem[]>([]);
@@ -139,9 +147,13 @@ export default function LostFoundPage() {
         });
     }, [items, search, statusFilter]);
 
+    const visibleStatusOptions = viewMode === 'ARCHIVE' ? archiveStatusOptions : activeStatusOptions;
+
     const fetchItems = useCallback(async () => {
         try {
-            const params = statusFilter === 'ALL' ? {} : { status: statusFilter };
+            const params: Record<string, string | boolean> = {};
+            if (statusFilter !== 'ALL') params.status = statusFilter;
+            if (isAdmin) params.archived_only = viewMode === 'ARCHIVE';
             const response = await api.get('/lost-found/items', { params });
             const rows = (response.data?.data || []) as LostFoundItem[];
             setItems(rows);
@@ -152,7 +164,7 @@ export default function LostFoundPage() {
         } catch {
             setItems([]);
         }
-    }, [selectedItemId, statusFilter]);
+    }, [selectedItemId, statusFilter, isAdmin, viewMode]);
 
     const fetchSummary = useCallback(async () => {
         if (!isHandler) return;
@@ -183,6 +195,11 @@ export default function LostFoundPage() {
         }, 12000);
         return () => window.clearInterval(id);
     }, [fetchHandlers, fetchItems, fetchSummary]);
+
+    useEffect(() => {
+        setStatusFilter('ALL');
+        setSelectedItemId(null);
+    }, [viewMode]);
 
     useEffect(() => {
         return () => {
@@ -333,6 +350,28 @@ export default function LostFoundPage() {
                     <h1 className="text-2xl font-bold text-foreground">Lost & Found</h1>
                     <p className="text-sm text-muted-foreground">Report items and track their handling lifecycle.</p>
                 </div>
+                {isAdmin && (
+                    <div className="flex bg-muted p-1 rounded-lg">
+                        <button
+                            type="button"
+                            onClick={() => setViewMode('ACTIVE')}
+                            className={`px-4 py-2 text-sm font-semibold rounded-md transition-all ${
+                                viewMode === 'ACTIVE' ? 'bg-background text-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground'
+                            }`}
+                        >
+                            Active
+                        </button>
+                        <button
+                            type="button"
+                            onClick={() => setViewMode('ARCHIVE')}
+                            className={`px-4 py-2 text-sm font-semibold rounded-md transition-all ${
+                                viewMode === 'ARCHIVE' ? 'bg-background text-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground'
+                            }`}
+                        >
+                            Archive
+                        </button>
+                    </div>
+                )}
             </div>
 
             {isHandler && summary && (
@@ -347,31 +386,35 @@ export default function LostFoundPage() {
             <div className="grid gap-4 lg:grid-cols-[360px_1fr]">
                 <section className="card border border-border/90 overflow-hidden">
                     <div className="flex items-center justify-between gap-2 border-b border-border/80 px-3 py-3">
-                        <p className="text-sm font-semibold text-foreground">Reports</p>
-                        <button type="button" className="btn-primary text-xs !px-3 !py-1.5" onClick={() => setReportOpen(true)}>
-                            Report Item
-                        </button>
+                        <p className="text-sm font-semibold text-foreground">{viewMode === 'ARCHIVE' ? 'Archive' : 'Reports'}</p>
+                        {viewMode === 'ACTIVE' && (
+                            <button type="button" className="btn-primary text-xs !px-3 !py-1.5" onClick={() => setReportOpen(true)}>
+                                Report Item
+                            </button>
+                        )}
                     </div>
                     <div className="space-y-3 border-b border-border/80 bg-muted/10 px-3 py-3">
-                    <div className="flex items-center gap-2 rounded border border-border/90 bg-background px-2 py-1.5">
-                        <Search size={14} className="text-muted-foreground" />
+                    <div className="field-with-icon rounded border border-border/90 bg-background">
+                        <Search size={14} className="field-icon" />
                         <input
                             value={search}
                             onChange={(e) => setSearch(e.target.value)}
-                            className="w-full bg-transparent text-sm outline-none"
+                            className="input-with-icon w-full bg-transparent py-1.5 text-sm outline-none"
                             placeholder="Search reports"
                         />
                     </div>
-                    <div className="flex items-center gap-2">
-                        <ListFilter size={14} className="text-muted-foreground" />
+                    <div className="field-with-icon">
+                        <ListFilter size={14} className="field-icon" />
                         <select
                             value={statusFilter}
                             onChange={(e) => setStatusFilter((e.target.value || 'ALL') as LostFoundStatus | 'ALL')}
-                            className="input text-sm !text-foreground !bg-card border border-border/90"
+                            className="input select-with-icon w-full text-sm !text-foreground !bg-card border border-border/90"
                             style={{ color: '#f3f4f6', backgroundColor: '#0f172a' }}
                         >
-                            <option value="ALL" style={{ color: '#f3f4f6', backgroundColor: '#0f172a' }}>All statuses</option>
-                            {statusOptions.map((opt) => (
+                            <option value="ALL" style={{ color: '#f3f4f6', backgroundColor: '#0f172a' }}>
+                                {viewMode === 'ARCHIVE' ? 'All archived' : 'All active'}
+                            </option>
+                            {visibleStatusOptions.map((opt) => (
                                 <option key={opt.value} value={opt.value} style={{ color: '#f3f4f6', backgroundColor: '#0f172a' }}>
                                     {opt.label}
                                 </option>
@@ -383,7 +426,7 @@ export default function LostFoundPage() {
                     <div className="max-h-[60vh] overflow-auto space-y-2 p-3">
                         {filteredItems.length === 0 && (
                             <div className="rounded-md border border-dashed border-border/90 px-3 py-6 text-center text-sm text-muted-foreground">
-                                No reports found.
+                                {viewMode === 'ARCHIVE' ? 'No archived reports found.' : 'No reports found.'}
                             </div>
                         )}
                         {filteredItems.map((item) => (

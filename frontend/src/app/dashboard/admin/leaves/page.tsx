@@ -1,8 +1,8 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { api } from '@/lib/api';
-import { Check, X } from 'lucide-react';
+import { Check, X, Search } from 'lucide-react';
 import { useFeedback } from '@/components/FeedbackProvider';
 
 interface LeaveRequest {
@@ -20,21 +20,36 @@ export default function AdminLeavesPage() {
     const { showToast } = useFeedback();
     const [leaves, setLeaves] = useState<LeaveRequest[]>([]);
     const [loading, setLoading] = useState(true);
+    const [statusFilter, setStatusFilter] = useState('ALL');
+    const [typeFilter, setTypeFilter] = useState('ALL');
+    const [search, setSearch] = useState('');
+    const [startDate, setStartDate] = useState('');
+    const [endDate, setEndDate] = useState('');
 
-    const fetchLeaves = async () => {
+    const fetchLeaves = useCallback(async () => {
+        setLoading(true);
         try {
-            const res = await api.get('/hr/leaves');
-            setLeaves(res.data.data);
+            const params: Record<string, string> = {};
+            if (statusFilter !== 'ALL') params.status = statusFilter;
+            if (typeFilter !== 'ALL') params.leave_type = typeFilter;
+            if (search.trim()) params.search = search.trim();
+            if (startDate) params.start_date = startDate;
+            if (endDate) params.end_date = endDate;
+            const res = await api.get('/hr/leaves', { params });
+            setLeaves(res.data.data || []);
         } catch (err) {
-            console.error(err);
+            showToast(
+                (err as { response?: { data?: { detail?: string } } })?.response?.data?.detail || 'Failed to load leaves',
+                'error'
+            );
         } finally {
             setLoading(false);
         }
-    };
+    }, [endDate, search, showToast, startDate, statusFilter, typeFilter]);
 
     useEffect(() => {
-        fetchLeaves();
-    }, []);
+        setTimeout(() => fetchLeaves(), 0);
+    }, [fetchLeaves]);
 
     const updateStatus = async (id: string, status: string) => {
         try {
@@ -59,6 +74,30 @@ export default function AdminLeavesPage() {
             <div>
                 <h1 className="text-2xl font-bold text-foreground font-mono">Leave Requests</h1>
                 <p className="text-sm text-muted-foreground mt-1">Manage staff time off</p>
+            </div>
+
+            <div className="chart-card p-4 border border-border space-y-3">
+                <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">Filters</p>
+                <div className="grid grid-cols-1 md:grid-cols-4 gap-3">
+                    <select className="input-dark" value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)}>
+                        <option value="ALL">All Status</option>
+                        <option value="PENDING">Pending</option>
+                        <option value="APPROVED">Approved</option>
+                        <option value="DENIED">Denied</option>
+                    </select>
+                    <select className="input-dark" value={typeFilter} onChange={(e) => setTypeFilter(e.target.value)}>
+                        <option value="ALL">All Types</option>
+                        <option value="SICK">Sick</option>
+                        <option value="VACATION">Vacation</option>
+                        <option value="OTHER">Other</option>
+                    </select>
+                    <input type="date" className="input-dark" value={startDate} onChange={(e) => setStartDate(e.target.value)} />
+                    <input type="date" className="input-dark" value={endDate} onChange={(e) => setEndDate(e.target.value)} min={startDate || undefined} />
+                </div>
+                <div className="field-with-icon">
+                    <Search size={14} className="field-icon" />
+                    <input className="input-dark input-with-icon" value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search by staff name or email" />
+                </div>
             </div>
 
             <div className="chart-card overflow-hidden !p-0 border border-border">

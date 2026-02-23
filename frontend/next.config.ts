@@ -1,5 +1,7 @@
 import type { NextConfig } from "next";
 
+const backendInternalUrl = (process.env.BACKEND_INTERNAL_URL || "http://localhost:8000").replace(/\/+$/, "");
+
 const nextConfig: NextConfig = {
   onDemandEntries: {
     // period (in ms) where the server will keep pages in the buffer
@@ -23,6 +25,18 @@ const nextConfig: NextConfig = {
         pathname: '/static/**',
       },
     ],
+  },
+  async rewrites() {
+    return [
+      {
+        source: "/api/v1/:path*",
+        destination: `${backendInternalUrl}/api/v1/:path*`,
+      },
+      {
+        source: "/static/:path*",
+        destination: `${backendInternalUrl}/static/:path*`,
+      },
+    ];
   },
 };
 
