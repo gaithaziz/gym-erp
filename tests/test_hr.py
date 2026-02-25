@@ -1,5 +1,6 @@
 import pytest
 import uuid
+import uuid
 from httpx import AsyncClient
 from sqlalchemy.ext.asyncio import AsyncSession
 from app.config import settings
@@ -7,7 +8,7 @@ from app.models.user import User
 from app.auth.security import get_password_hash
 from datetime import date, datetime, timedelta, timezone
 from app.models.access import AttendanceLog
-from app.models.hr import Payroll, PayrollStatus, LeaveRequest, LeaveStatus, LeaveType
+from app.models.hr import Payroll, PayrollStatus, LeaveRequest, LeaveStatus, LeaveType, PayrollPayment
 from app.models.finance import Transaction, TransactionType, TransactionCategory
 from sqlalchemy import select, func
 
@@ -360,6 +361,145 @@ async def test_admin_leaves_filters(client: AsyncClient, db_session: AsyncSessio
 
 
 @pytest.mark.asyncio
+async def test_payroll_settings_and_partial_payments_flow(client: AsyncClient, db_session: AsyncSession):
+    password = "password123"
+    hashed = get_password_hash(password)
+    admin = User(email="admin_payroll_partial@gym.com", hashed_password=hashed, role="ADMIN", full_name="Payroll Partial Admin")
+    employee = User(email="employee_payroll_partial@gym.com", hashed_password=hashed, role="EMPLOYEE", full_name="Payroll Partial Employee")
+    db_session.add_all([admin, employee])
+    await db_session.flush()
+
+    login_resp = await client.post(
+        f"{settings.API_V1_STR}/auth/login",
+        json={"email": admin.email, "password": password},
+    )
+    headers = {"Authorization": f"Bearer {login_resp.json()['data']['access_token']}"}
+
+    settings_resp = await client.patch(
+        f"{settings.API_V1_STR}/hr/payrolls/settings",
+        json={"salary_cutoff_day": 25},
+        headers=headers,
+    )
+    assert settings_resp.status_code == 200
+
+    settings_get = await client.get(f"{settings.API_V1_STR}/hr/payrolls/settings", headers=headers)
+    assert settings_get.status_code == 200
+    assert settings_get.json()["data"]["salary_cutoff_day"] == 25
+
+    create_contract = await client.post(
+        f"{settings.API_V1_STR}/hr/contracts",
+        json={
+            "user_id": str(employee.id),
+            "start_date": str(date.today()),
+            "base_salary": 1000.0,
+            "contract_type": "FULL_TIME",
+            "standard_hours": 160,
+        },
+        headers=headers,
+    )
+    assert create_contract.status_code == 200
+
+    now = datetime.now(timezone.utc)
+    generate = await client.post(
+        f"{settings.API_V1_STR}/hr/payroll/generate",
+        json={"user_id": str(employee.id), "month": now.month, "year": now.year},
+        headers=headers,
+    )
+    assert generate.status_code == 200
+    payroll_id = generate.json()["data"]["id"]
+
+    mark_paid_too_early = await client.patch(
+        f"{settings.API_V1_STR}/hr/payrolls/{payroll_id}/status",
+        json={"status": "PAID"},
+        headers=headers,
+    )
+    assert mark_paid_too_early.status_code == 400
+
+    partial_payment = await client.post(
+        f"{settings.API_V1_STR}/hr/payrolls/{payroll_id}/payments",
+        json={"amount": 400.0, "payment_method": "CASH"},
+        headers=headers,
+    )
+    assert partial_payment.status_code == 200
+    payload = partial_payment.json()["data"]
+    assert payload["status"] == "PARTIAL"
+    assert payload["paid_amount"] == 400.0
+    assert payload["pending_amount"] == 600.0
+
+    full_settlement = await client.post(
+        f"{settings.API_V1_STR}/hr/payrolls/{payroll_id}/payments",
+        json={"amount": 600.0, "payment_method": "CARD"},
+        headers=headers,
+    )
+    assert full_settlement.status_code == 200
+    settle_payload = full_settlement.json()["data"]
+    assert settle_payload["status"] == "PARTIAL"
+    assert settle_payload["pending_amount"] == 0.0
+
+    mark_paid = await client.patch(
+        f"{settings.API_V1_STR}/hr/payrolls/{payroll_id}/status",
+        json={"status": "PAID"},
+        headers=headers,
+    )
+    assert mark_paid.status_code == 200
+    assert mark_paid.json()["data"]["status"] == "PAID"
+
+    reopen = await client.patch(
+        f"{settings.API_V1_STR}/hr/payrolls/{payroll_id}/status",
+        json={"status": "DRAFT"},
+        headers=headers,
+    )
+    assert reopen.status_code == 200
+    reopened = reopen.json()["data"]
+    assert reopened["status"] == "DRAFT"
+    assert reopened["paid_amount"] == 0.0
+    assert reopened["pending_amount"] == 1000.0
+
+    payment_count_stmt = select(func.count(PayrollPayment.id)).where(PayrollPayment.payroll_id == uuid.UUID(payroll_id))
+    payment_count_res = await db_session.execute(payment_count_stmt)
+    assert payment_count_res.scalar_one() == 0
+
+
+@pytest.mark.asyncio
+async def test_subscription_renewal_posts_finance_transaction(client: AsyncClient, db_session: AsyncSession):
+    password = "password123"
+    hashed = get_password_hash(password)
+    admin = User(email="admin_sub_payment@gym.com", hashed_password=hashed, role="ADMIN", full_name="Subscription Admin")
+    member = User(email="member_sub_payment@gym.com", hashed_password=hashed, role="CUSTOMER", full_name="Subscription Member")
+    db_session.add_all([admin, member])
+    await db_session.flush()
+
+    login_resp = await client.post(
+        f"{settings.API_V1_STR}/auth/login",
+        json={"email": admin.email, "password": password},
+    )
+    headers = {"Authorization": f"Bearer {login_resp.json()['data']['access_token']}"}
+
+    sub_resp = await client.post(
+        f"{settings.API_V1_STR}/hr/subscriptions",
+        json={
+            "user_id": str(member.id),
+            "plan_name": "Monthly",
+            "duration_days": 30,
+            "amount_paid": 75.0,
+            "payment_method": "CASH",
+        },
+        headers=headers,
+    )
+    assert sub_resp.status_code == 200
+
+    tx_stmt = select(Transaction).where(
+        Transaction.user_id == member.id,
+        Transaction.type == TransactionType.INCOME,
+        Transaction.category == TransactionCategory.SUBSCRIPTION,
+    )
+    tx_res = await db_session.execute(tx_stmt)
+    tx = tx_res.scalar_one_or_none()
+    assert tx is not None
+    assert float(tx.amount) == 75.0
+
+
+@pytest.mark.asyncio
 async def test_pending_payroll_status_workflow_and_idempotency(client: AsyncClient, db_session: AsyncSession):
     password = "password123"
     hashed = get_password_hash(password)
@@ -416,6 +556,22 @@ async def test_pending_payroll_status_workflow_and_idempotency(client: AsyncClie
     assert pending_resp.status_code == 200
     pending_rows = pending_resp.json()["data"]
     assert any(row["id"] == payroll_id for row in pending_rows)
+
+    paid_resp = await client.patch(
+        f"{settings.API_V1_STR}/hr/payrolls/{payroll_id}/status",
+        json={"status": "PAID"},
+        headers=headers,
+    )
+    assert paid_resp.status_code == 400
+
+    payment_resp = await client.post(
+        f"{settings.API_V1_STR}/hr/payrolls/{payroll_id}/payments",
+        json={"amount": 2000.0, "payment_method": "CASH"},
+        headers=headers,
+    )
+    assert payment_resp.status_code == 200
+    assert payment_resp.json()["data"]["status"] == "PARTIAL"
+    assert payment_resp.json()["data"]["pending_amount"] == 0.0
 
     paid_resp = await client.patch(
         f"{settings.API_V1_STR}/hr/payrolls/{payroll_id}/status",

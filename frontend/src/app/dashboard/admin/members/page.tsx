@@ -3,7 +3,8 @@
 import { useEffect, useMemo, useState } from 'react';
 import { api } from '@/lib/api';
 import Image from 'next/image';
-import { Search, UserPlus, Save, Shield, Snowflake, RefreshCw, Pencil, Trash2, Eye, Dumbbell, Utensils } from 'lucide-react';
+import { useRouter } from 'next/navigation';
+import { Search, UserPlus, Save, Shield, Snowflake, RefreshCw, Pencil, Trash2, Eye, Dumbbell, Utensils, MessageCircle } from 'lucide-react';
 import Modal from '@/components/Modal';
 import { useFeedback } from '@/components/FeedbackProvider';
 import { useAuth } from '@/context/AuthContext';
@@ -79,6 +80,7 @@ type AssignableType = 'WORKOUT' | 'DIET';
 type MemberStatusFilter = 'ALL' | 'ACTIVE' | 'FROZEN' | 'EXPIRED' | 'NONE';
 
 export default function MembersPage() {
+    const router = useRouter();
     const { user } = useAuth();
     const canManageMembers = ['ADMIN', 'RECEPTION', 'FRONT_DESK'].includes(user?.role || '');
     const { showToast, confirm: confirmAction } = useFeedback();
@@ -105,6 +107,8 @@ export default function MembersPage() {
     const [renewalMode, setRenewalMode] = useState<RenewalMode>('fixed');
     const [subPlan, setSubPlan] = useState<FixedPlan>('Monthly');
     const [subDays, setSubDays] = useState(30);
+    const [subAmountPaid, setSubAmountPaid] = useState('');
+    const [subPaymentMethod, setSubPaymentMethod] = useState<'CASH' | 'CARD' | 'TRANSFER'>('CASH');
 
     // View Profile Modal
     const [isViewOpen, setIsViewOpen] = useState(false);
@@ -249,6 +253,8 @@ export default function MembersPage() {
         setRenewalMode('fixed');
         setSubPlan('Monthly');
         setSubDays(30);
+        setSubAmountPaid('');
+        setSubPaymentMethod('CASH');
         setIsManageOpen(true);
     };
 
@@ -259,11 +265,18 @@ export default function MembersPage() {
             showToast('Duration must be a positive number of days.', 'error');
             return;
         }
+        const amountPaid = Number(subAmountPaid);
+        if (!Number.isFinite(amountPaid) || amountPaid <= 0) {
+            showToast('Paid amount must be greater than zero.', 'error');
+            return;
+        }
         try {
             await api.post('/hr/subscriptions', {
                 user_id: manageMember.id,
                 plan_name: renewalMode === 'fixed' ? subPlan : 'Custom',
-                duration_days: normalizedDays
+                duration_days: normalizedDays,
+                amount_paid: amountPaid,
+                payment_method: subPaymentMethod,
             });
             setIsManageOpen(false);
             fetchMembers();
@@ -328,6 +341,23 @@ export default function MembersPage() {
         } catch (err) {
             console.error(err);
             showToast(`Failed to assign ${assignType === 'WORKOUT' ? 'workout' : 'diet'} plan.`, 'error');
+        }
+    };
+
+    const handleMessageClient = async (memberId: string) => {
+        try {
+            const response = await api.post('/chat/threads', { customer_id: memberId });
+            const threadId = response.data?.data?.id as string | undefined;
+            if (!threadId) {
+                throw new Error('Missing thread id');
+            }
+            setIsViewOpen(false);
+            router.push(`/dashboard/chat?thread=${threadId}`);
+        } catch (err) {
+            showToast(
+                (err as { response?: { data?: { detail?: string } } })?.response?.data?.detail || 'Could not open chat with this client.',
+                'error'
+            );
         }
     };
     const manageMemberStatus = manageMember?.subscription?.status;
@@ -451,6 +481,15 @@ export default function MembersPage() {
                                             >
                                                 <Eye size={14} /> View
                                             </button>
+                                            {user?.role === 'COACH' && (
+                                                <button
+                                                    onClick={() => handleMessageClient(m.id)}
+                                                    className="btn-ghost py-1 px-2 h-auto text-xs text-primary hover:text-primary/80"
+                                                    title="Message Client"
+                                                >
+                                                    <MessageCircle size={14} /> Message
+                                                </button>
+                                            )}
                                             <button
                                                 onClick={() => openAssignPlan(m)}
                                                 className="btn-ghost py-1 px-2 h-auto text-xs text-orange-400 hover:text-orange-300"
@@ -545,6 +584,15 @@ export default function MembersPage() {
                                 >
                                     <Dumbbell size={14} /> Assign
                                 </button>
+                                {user?.role === 'COACH' && (
+                                    <button
+                                        onClick={() => handleMessageClient(m.id)}
+                                        className="btn-ghost !px-2 !py-2 h-auto text-xs text-primary hover:text-primary/80 justify-center"
+                                        title="Message Client"
+                                    >
+                                        <MessageCircle size={14} /> Message
+                                    </button>
+                                )}
                                 {canManageMembers && (
                                     <button
                                         onClick={() => openManage(m)}
@@ -704,6 +752,27 @@ export default function MembersPage() {
                                     />
                                 </div>
                             )}
+                        </div>
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                            <div>
+                                <label className="block text-xs text-muted-foreground mb-1">Amount Paid (JOD)</label>
+                                <input
+                                    type="number"
+                                    min={0.01}
+                                    step={0.01}
+                                    className="input-dark"
+                                    value={subAmountPaid}
+                                    onChange={e => setSubAmountPaid(e.target.value)}
+                                />
+                            </div>
+                            <div>
+                                <label className="block text-xs text-muted-foreground mb-1">Payment Method</label>
+                                <select className="input-dark" value={subPaymentMethod} onChange={(e) => setSubPaymentMethod(e.target.value as 'CASH' | 'CARD' | 'TRANSFER')}>
+                                    <option value="CASH">Cash</option>
+                                    <option value="CARD">Card</option>
+                                    <option value="TRANSFER">Bank Transfer</option>
+                                </select>
+                            </div>
                         </div>
                         <button onClick={handleCreateSub} className="btn-primary w-full justify-center">
                             <RefreshCw size={15} /> {manageMember?.subscription ? 'Renew Subscription' : 'Activate Subscription'}
@@ -928,6 +997,17 @@ export default function MembersPage() {
                                 </div>
                             </div>
                         </div>
+                        {user?.role === 'COACH' && (
+                            <div className="border-t border-border pt-4">
+                                <button
+                                    type="button"
+                                    className="btn-primary w-full justify-center"
+                                    onClick={() => handleMessageClient(viewMember.id)}
+                                >
+                                    <MessageCircle size={16} /> Message Client
+                                </button>
+                            </div>
+                        )}
                     </div>
                 )}
             </Modal>

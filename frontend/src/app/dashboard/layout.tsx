@@ -210,6 +210,7 @@ export default function DashboardLayout({
         { href: '/dashboard/admin/inventory', label: 'Inventory', icon: Package, roles: ['ADMIN'], section: 'operations' },
         { href: '/dashboard/admin/pos', label: 'Cashier POS', icon: ShoppingCart, roles: ['ADMIN', 'CASHIER', 'EMPLOYEE'], section: 'operations' },
         { href: '/dashboard/admin/notifications', label: 'WhatsApp Automation', icon: MessageSquare, roles: ['ADMIN', 'RECEPTION', 'FRONT_DESK'], section: 'operations' },
+        { href: '/dashboard/admin/entrance-qr', label: 'Entrance QR', icon: QrCode, roles: ['ADMIN'], section: 'operations' },
         { href: '/dashboard/admin/support', label: 'Support Desk', icon: LifeBuoy, roles: ['ADMIN', 'RECEPTION'], section: 'operations' },
         { href: '/dashboard/lost-found', label: 'Lost & Found', icon: MessageSquare, roles: ['ADMIN', 'MANAGER', 'FRONT_DESK', 'RECEPTION', 'COACH', 'EMPLOYEE', 'CASHIER', 'CUSTOMER'], section: 'operations' },
         { href: '/dashboard/admin/audit', label: 'Audit Logs', icon: ShieldAlert, roles: ['ADMIN'], section: 'operations' },

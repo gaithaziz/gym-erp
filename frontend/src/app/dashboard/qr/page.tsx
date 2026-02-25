@@ -2,10 +2,19 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { api } from '@/lib/api';
+import { useAuth } from '@/context/AuthContext';
 import { Camera, CameraOff, CheckCircle, RefreshCw, ScanLine, XCircle } from 'lucide-react';
 import jsQR from 'jsqr';
 
 const KIOSK_ID_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._:-]*$/;
+const STAFF_ROLES = new Set(['ADMIN', 'COACH', 'EMPLOYEE', 'CASHIER', 'RECEPTION', 'FRONT_DESK']);
+
+type ScanKind = 'client_entry' | 'staff_check_in' | 'staff_check_out';
+
+type ParsedQrPayload = {
+    kind: ScanKind;
+    kioskId: string;
+};
 
 type ScanResult = {
     status: string;
@@ -13,24 +22,30 @@ type ScanResult = {
     reason?: string | null;
 };
 
-const parseKioskIdFromQr = (rawValue: string): string | null => {
+const parseQrPayload = (rawValue: string): ParsedQrPayload | null => {
     const trimmed = rawValue.trim();
     if (!trimmed) return null;
 
     if (KIOSK_ID_PATTERN.test(trimmed)) {
-        return trimmed;
+        return { kind: 'client_entry', kioskId: trimmed };
     }
 
     if (trimmed.startsWith('gymerp://kiosk/')) {
         const kioskId = trimmed.replace('gymerp://kiosk/', '').trim();
-        return KIOSK_ID_PATTERN.test(kioskId) ? kioskId : null;
+        return KIOSK_ID_PATTERN.test(kioskId) ? { kind: 'client_entry', kioskId } : null;
     }
 
     if (trimmed.startsWith('{') && trimmed.endsWith('}')) {
         try {
-            const parsed = JSON.parse(trimmed) as { kiosk_id?: string };
+            const parsed = JSON.parse(trimmed) as { kiosk_id?: string; type?: string };
             const kioskId = parsed.kiosk_id?.trim();
-            return kioskId && KIOSK_ID_PATTERN.test(kioskId) ? kioskId : null;
+            if (!kioskId || !KIOSK_ID_PATTERN.test(kioskId)) return null;
+
+            if (!parsed.type) return { kind: 'client_entry', kioskId };
+            if (parsed.type === 'client_entry' || parsed.type === 'staff_check_in' || parsed.type === 'staff_check_out') {
+                return { kind: parsed.type, kioskId };
+            }
+            return null;
         } catch {
             return null;
         }
@@ -39,7 +54,14 @@ const parseKioskIdFromQr = (rawValue: string): string | null => {
     return null;
 };
 
+const headingByKind: Record<ScanKind, string> = {
+    client_entry: 'Client Entrance Check-In',
+    staff_check_in: 'Staff Clock In',
+    staff_check_out: 'Staff Clock Out',
+};
+
 export default function QRCodePage() {
+    const { user } = useAuth();
     const videoRef = useRef<HTMLVideoElement | null>(null);
     const canvasRef = useRef<HTMLCanvasElement | null>(null);
     const streamRef = useRef<MediaStream | null>(null);
@@ -47,10 +69,15 @@ export default function QRCodePage() {
 
     const [cameraReady, setCameraReady] = useState(false);
     const [cameraError, setCameraError] = useState('');
-    const [detectedKioskId, setDetectedKioskId] = useState('');
+    const [detectedScan, setDetectedScan] = useState<ParsedQrPayload | null>(null);
     const [manualKioskId, setManualKioskId] = useState('');
+    const [manualMode, setManualMode] = useState<ScanKind>('client_entry');
     const [scanResult, setScanResult] = useState<ScanResult | null>(null);
     const [submitting, setSubmitting] = useState(false);
+
+    useEffect(() => {
+        setManualMode(user?.role === 'CUSTOMER' ? 'client_entry' : 'staff_check_in');
+    }, [user?.role]);
 
     const stopScanner = useCallback(() => {
         if (scanIntervalRef.current) {
@@ -67,7 +94,7 @@ export default function QRCodePage() {
         stopScanner();
         setCameraReady(false);
         setCameraError('');
-        setDetectedKioskId('');
+        setDetectedScan(null);
 
         if (typeof window === 'undefined' || !navigator.mediaDevices?.getUserMedia) {
             setCameraError('Camera scanning is not supported on this device.');
@@ -98,7 +125,7 @@ export default function QRCodePage() {
             }
 
             scanIntervalRef.current = setInterval(async () => {
-                if (!videoRef.current || submitting || detectedKioskId) return;
+                if (!videoRef.current || submitting || detectedScan) return;
                 try {
                     let value: string | undefined;
 
@@ -123,9 +150,9 @@ export default function QRCodePage() {
                     }
 
                     if (!value) return;
-                    const kioskId = parseKioskIdFromQr(value);
-                    if (kioskId) {
-                        setDetectedKioskId(kioskId);
+                    const parsed = parseQrPayload(value);
+                    if (parsed) {
+                        setDetectedScan(parsed);
                         setScanResult(null);
                         stopScanner();
                     }
@@ -136,37 +163,69 @@ export default function QRCodePage() {
         } catch {
             setCameraError('Unable to access camera. Check browser permissions.');
         }
-    }, [detectedKioskId, stopScanner, submitting]);
+    }, [detectedScan, stopScanner, submitting]);
 
-    const confirmCheckIn = useCallback(async (kioskId: string) => {
-        if (!KIOSK_ID_PATTERN.test(kioskId)) {
+    const validateRoleAndMode = useCallback((kind: ScanKind): string | null => {
+        const role = user?.role || '';
+        if (role === 'CUSTOMER' && kind !== 'client_entry') {
+            return 'This QR is for staff attendance only.';
+        }
+        if (role !== 'CUSTOMER' && kind === 'client_entry') {
+            return 'Use staff start/end QR for attendance.';
+        }
+        if (kind !== 'client_entry' && !STAFF_ROLES.has(role)) {
+            return 'Your role is not allowed to record staff attendance.';
+        }
+        return null;
+    }, [user?.role]);
+
+    const submitAction = useCallback(async (payload: ParsedQrPayload) => {
+        if (!KIOSK_ID_PATTERN.test(payload.kioskId)) {
             setScanResult({ status: 'DENIED', reason: 'Invalid kiosk QR format.' });
+            return;
+        }
+
+        const modeError = validateRoleAndMode(payload.kind);
+        if (modeError) {
+            setScanResult({ status: 'DENIED', reason: modeError });
             return;
         }
 
         setSubmitting(true);
         setScanResult(null);
         try {
-            const res = await api.post('/access/scan-session', { kiosk_id: kioskId });
-            setScanResult(res.data.data as ScanResult);
+            if (payload.kind === 'client_entry') {
+                const res = await api.post('/access/scan-session', { kiosk_id: payload.kioskId });
+                setScanResult(res.data.data as ScanResult);
+            } else if (payload.kind === 'staff_check_in') {
+                const res = await api.post('/access/check-in');
+                setScanResult({ status: 'GRANTED', reason: res.data?.message || 'Clocked in successfully.' });
+            } else {
+                const res = await api.post('/access/check-out');
+                setScanResult({ status: 'GRANTED', reason: res.data?.message || 'Clocked out successfully.' });
+            }
         } catch (error: unknown) {
             const detail = (error as { response?: { data?: { detail?: string } } })?.response?.data?.detail;
-            setScanResult({ status: 'DENIED', reason: detail || 'Check-in failed.' });
+            setScanResult({ status: 'DENIED', reason: detail || 'Action failed.' });
         } finally {
             setSubmitting(false);
         }
-    }, []);
+    }, [validateRoleAndMode]);
 
     useEffect(() => {
         startScanner();
         return () => stopScanner();
     }, [startScanner, stopScanner]);
 
+    const currentKind = detectedScan?.kind || manualMode;
+
     return (
         <div className="max-w-xl mx-auto space-y-6 py-8">
             <div>
-                <h1 className="text-2xl font-bold text-foreground">Scan Entrance QR</h1>
-                <p className="text-sm text-muted-foreground mt-1">Scan the kiosk QR, then confirm your check-in.</p>
+                <h1 className="text-2xl font-bold text-foreground">{headingByKind[currentKind]}</h1>
+                <p className="text-sm text-muted-foreground mt-1">
+                    Scan a QR and confirm the action. Client entry grants access, staff QR codes clock in/out.
+                </p>
             </div>
 
             <div className="kpi-card p-4 space-y-4">
@@ -192,45 +251,62 @@ export default function QRCodePage() {
             </div>
 
             <div className="kpi-card p-4 space-y-3">
-                <label className="block text-xs font-bold uppercase tracking-wider text-muted-foreground">Detected Kiosk</label>
-                <div className="flex flex-col sm:flex-row gap-2">
+                <label className="block text-xs font-bold uppercase tracking-wider text-muted-foreground">Detected QR</label>
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
                     <input
-                        value={detectedKioskId}
-                        onChange={(e) => setDetectedKioskId(e.target.value)}
+                        value={detectedScan?.kioskId || ''}
+                        onChange={(e) => setDetectedScan((prev) => (prev ? { ...prev, kioskId: e.target.value } : prev))}
                         placeholder="Scan to auto-fill kiosk ID"
-                        className="input-dark flex-1 font-mono"
+                        className="input-dark sm:col-span-2 font-mono"
                     />
-                    <button
-                        type="button"
-                        onClick={() => confirmCheckIn(detectedKioskId)}
-                        disabled={!detectedKioskId || submitting}
-                        className="btn-primary sm:w-auto w-full"
+                    <select
+                        className="input-dark font-mono"
+                        value={detectedScan?.kind || manualMode}
+                        onChange={(e) => setDetectedScan((prev) => (prev ? { ...prev, kind: e.target.value as ScanKind } : prev))}
+                        disabled={!detectedScan}
                     >
-                        <ScanLine size={14} />
-                        {submitting ? 'Checking...' : 'Confirm Check-In'}
-                    </button>
+                        <option value="client_entry">client_entry</option>
+                        <option value="staff_check_in">staff_check_in</option>
+                        <option value="staff_check_out">staff_check_out</option>
+                    </select>
                 </div>
-                <p className="text-xs text-muted-foreground">Supported QR payloads: `kiosk_id`, `gymerp://kiosk/{'{id}'}`, or `{`"kiosk_id":"{id}"`}`.</p>
+                <button
+                    type="button"
+                    onClick={() => detectedScan && submitAction(detectedScan)}
+                    disabled={!detectedScan || submitting}
+                    className="btn-primary w-full"
+                >
+                    <ScanLine size={14} />
+                    {submitting ? 'Processing...' : 'Confirm Detected Action'}
+                </button>
+                <p className="text-xs text-muted-foreground">
+                    Supported payloads: raw `kiosk_id`, `gymerp://kiosk/{'{id}'}`, `{`"kiosk_id":"id"`}`, or typed JSON `{`"type":"staff_check_in","kiosk_id":"id"`}`.
+                </p>
             </div>
 
             <div className="kpi-card p-4 space-y-3">
                 <label className="block text-xs font-bold uppercase tracking-wider text-muted-foreground">Manual Fallback</label>
-                <div className="flex flex-col sm:flex-row gap-2">
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
                     <input
                         value={manualKioskId}
                         onChange={(e) => setManualKioskId(e.target.value)}
                         placeholder="Enter kiosk ID manually"
-                        className="input-dark flex-1 font-mono"
+                        className="input-dark sm:col-span-2 font-mono"
                     />
-                    <button
-                        type="button"
-                        onClick={() => confirmCheckIn(manualKioskId.trim())}
-                        disabled={!manualKioskId.trim() || submitting}
-                        className="btn-ghost sm:w-auto w-full"
-                    >
-                        Submit
-                    </button>
+                    <select className="input-dark font-mono" value={manualMode} onChange={(e) => setManualMode(e.target.value as ScanKind)}>
+                        <option value="client_entry">client_entry</option>
+                        <option value="staff_check_in">staff_check_in</option>
+                        <option value="staff_check_out">staff_check_out</option>
+                    </select>
                 </div>
+                <button
+                    type="button"
+                    onClick={() => submitAction({ kind: manualMode, kioskId: manualKioskId.trim() })}
+                    disabled={!manualKioskId.trim() || submitting}
+                    className="btn-ghost w-full"
+                >
+                    Submit Manual Action
+                </button>
             </div>
 
             {scanResult && (
@@ -243,7 +319,7 @@ export default function QRCodePage() {
                         )}
                         <div>
                             <p className="text-sm font-bold text-foreground">{scanResult.status}</p>
-                            <p className="text-sm text-muted-foreground">{scanResult.reason || 'Check-in recorded.'}</p>
+                            <p className="text-sm text-muted-foreground">{scanResult.reason || 'Action recorded.'}</p>
                             {scanResult.user_name && (
                                 <p className="text-sm text-foreground mt-1">{scanResult.user_name}</p>
                             )}

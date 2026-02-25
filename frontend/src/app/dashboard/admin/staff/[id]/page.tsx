@@ -53,9 +53,11 @@ export default function StaffSummaryPage() {
     const { showToast } = useFeedback();
     const params = useParams();
     const router = useRouter();
-    const id = params?.id as string;
+    const idParam = params?.id;
+    const id = Array.isArray(idParam) ? idParam[0] : idParam;
     const [loading, setLoading] = useState(true);
     const [summary, setSummary] = useState<StaffSummaryResponse | null>(null);
+    const [loadError, setLoadError] = useState<string | null>(null);
     const [preset, setPreset] = useState<'7d' | '30d' | 'custom'>('30d');
 
     const toDateInput = (d: Date) => {
@@ -81,17 +83,34 @@ export default function StaffSummaryPage() {
     };
 
     const fetchSummary = useCallback(async () => {
-        if (!id) return;
+        if (!id) {
+            setLoadError('Missing staff id in route.');
+            setLoading(false);
+            return;
+        }
         if (startDate > endDate) {
             showToast('Start date cannot be after end date.', 'error');
             return;
         }
         setLoading(true);
+        setLoadError(null);
         try {
             const res = await api.get(`/hr/staff/${id}/summary`, { params: { start_date: startDate, end_date: endDate } });
             setSummary(res.data.data);
         } catch (err) {
-            showToast((err as { response?: { data?: { detail?: string } } })?.response?.data?.detail || 'Failed to load staff summary', 'error');
+            const error = err as { response?: { status?: number, data?: { detail?: string } } };
+            const status = error.response?.status;
+            const apiDetail = error.response?.data?.detail;
+            let detail = 'Failed to load staff summary';
+            if (status === 404) {
+                detail = 'Staff user not found';
+            } else if (status === 403) {
+                detail = 'Admin access is required to view this summary';
+            } else if (apiDetail) {
+                detail = apiDetail;
+            }
+            setLoadError(detail);
+            showToast(detail, 'error');
         } finally {
             setLoading(false);
         }
@@ -154,7 +173,20 @@ export default function StaffSummaryPage() {
         </div>
     );
 
-    if (!summary) return null;
+    if (!summary) {
+        return (
+            <div className="space-y-4">
+                <button className="btn-ghost !px-0" onClick={() => router.push('/dashboard/admin/staff')}>
+                    <ArrowLeft size={16} /> Back to Staff
+                </button>
+                <div className="chart-card border border-border p-6 space-y-3">
+                    <h2 className="text-lg font-semibold text-foreground">Could not load staff summary</h2>
+                    <p className="text-sm text-muted-foreground">{loadError || 'Unknown error'}</p>
+                    <button className="btn-primary" onClick={fetchSummary}><Calendar size={14} /> Retry</button>
+                </div>
+            </div>
+        );
+    }
 
     return (
         <div className="space-y-6">

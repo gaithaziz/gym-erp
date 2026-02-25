@@ -196,3 +196,48 @@ async def test_finance_transaction_type_filter(client: AsyncClient, db_session: 
     expense_rows = expense_resp.json()["data"]
     assert len(expense_rows) >= 1
     assert all(row["type"] == "EXPENSE" for row in expense_rows)
+
+
+@pytest.mark.asyncio
+async def test_finance_transaction_category_filter(client: AsyncClient, db_session: AsyncSession):
+    password = "password123"
+    hashed = get_password_hash(password)
+    admin = User(email="admin_fin_category@gym.com", hashed_password=hashed, role=Role.ADMIN, full_name="Fin Category Admin")
+    db_session.add(admin)
+    await db_session.flush()
+
+    now = datetime.now(timezone.utc)
+    sub_tx = Transaction(
+        amount=99.0,
+        type=TransactionType.INCOME,
+        category=TransactionCategory.SUBSCRIPTION,
+        description="Subscription payment",
+        payment_method=PaymentMethod.CASH,
+        date=now,
+    )
+    util_tx = Transaction(
+        amount=50.0,
+        type=TransactionType.EXPENSE,
+        category=TransactionCategory.UTILITIES,
+        description="Utilities bill",
+        payment_method=PaymentMethod.CASH,
+        date=now,
+    )
+    db_session.add_all([sub_tx, util_tx])
+    await db_session.commit()
+
+    login_resp = await client.post(
+        f"{settings.API_V1_STR}/auth/login",
+        json={"email": admin.email, "password": password},
+    )
+    headers = {"Authorization": f"Bearer {login_resp.json()['data']['access_token']}"}
+
+    category_resp = await client.get(
+        f"{settings.API_V1_STR}/finance/transactions",
+        params={"category": "SUBSCRIPTION", "limit": 100},
+        headers=headers,
+    )
+    assert category_resp.status_code == 200
+    rows = category_resp.json()["data"]
+    assert len(rows) >= 1
+    assert all(row["category"] == "SUBSCRIPTION" for row in rows)

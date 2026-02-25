@@ -1,16 +1,28 @@
 from datetime import date, datetime, timedelta, timezone
 from typing import Annotated, Literal, Optional
+from decimal import Decimal
 from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import HTMLResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import func, select, or_
+from sqlalchemy.orm import selectinload
 from pydantic import BaseModel, Field
 
 from app.database import get_db
 from app.auth import dependencies
 from app.models.user import User
 from app.models.enums import Role
-from app.models.hr import Contract, Payroll, ContractType, LeaveRequest, LeaveType, LeaveStatus, PayrollStatus
+from app.models.hr import (
+    Contract,
+    Payroll,
+    PayrollPayment,
+    PayrollSettings,
+    ContractType,
+    LeaveRequest,
+    LeaveType,
+    LeaveStatus,
+    PayrollStatus,
+)
 from app.models.finance import Transaction, TransactionType, TransactionCategory, PaymentMethod
 from app.models.access import AttendanceLog
 from app.services.payroll_service import PayrollService
@@ -52,7 +64,72 @@ class LeaveRequestUpdate(BaseModel):
 
 
 class PayrollStatusUpdate(BaseModel):
-    status: PayrollStatus
+    status: Literal["DRAFT", "PAID"]
+
+
+class PayrollSettingsUpdate(BaseModel):
+    salary_cutoff_day: int = Field(..., ge=1, le=31)
+
+
+class PayrollPaymentCreate(BaseModel):
+    amount: float = Field(..., gt=0)
+    payment_method: PaymentMethod = PaymentMethod.CASH
+    description: str | None = None
+
+
+def _money(value: float | Decimal) -> float:
+    return float(Decimal(value).quantize(Decimal("0.01")))
+
+
+def _payroll_paid_amount(payroll: Payroll) -> float:
+    return _money(sum(float(p.amount) for p in getattr(payroll, "payments", [])))
+
+
+def _serialize_payroll(payroll: Payroll, user: User) -> dict:
+    paid_amount = _payroll_paid_amount(payroll)
+    pending_amount = _money(max(float(payroll.total_pay) - paid_amount, 0.0))
+    payments = list(getattr(payroll, "payments", []))
+    def _normalized(dt: datetime | None) -> datetime:
+        if dt is None:
+            return datetime.min.replace(tzinfo=timezone.utc)
+        return dt if dt.tzinfo else dt.replace(tzinfo=timezone.utc)
+
+    last_payment_at = max((_normalized(p.paid_at) for p in payments), default=None)
+    return {
+        "id": str(payroll.id),
+        "user_id": str(payroll.user_id),
+        "user_name": user.full_name,
+        "user_email": user.email,
+        "month": payroll.month,
+        "year": payroll.year,
+        "base_pay": payroll.base_pay,
+        "overtime_hours": payroll.overtime_hours,
+        "overtime_pay": payroll.overtime_pay,
+        "commission_pay": payroll.commission_pay,
+        "bonus_pay": payroll.bonus_pay,
+        "deductions": payroll.deductions,
+        "total_pay": payroll.total_pay,
+        "status": payroll.status.value,
+        "paid_amount": paid_amount,
+        "pending_amount": pending_amount,
+        "payment_count": len(payments),
+        "last_payment_at": last_payment_at.isoformat() if last_payment_at else None,
+        "paid_transaction_id": str(payroll.paid_transaction_id) if payroll.paid_transaction_id else None,
+        "paid_at": payroll.paid_at.isoformat() if payroll.paid_at else None,
+        "paid_by_user_id": str(payroll.paid_by_user_id) if payroll.paid_by_user_id else None,
+        "payments": [
+            {
+                "id": str(payment.id),
+                "amount": _money(payment.amount),
+                "payment_method": payment.payment_method.value,
+                "description": payment.description,
+                "transaction_id": str(payment.transaction_id),
+                "paid_at": payment.paid_at.isoformat(),
+                "paid_by_user_id": str(payment.paid_by_user_id),
+            }
+            for payment in sorted(payments, key=lambda p: _normalized(p.paid_at), reverse=True)
+        ],
+    }
 
 @router.post("/contracts", response_model=StandardResponse)
 async def create_contract(
@@ -136,9 +213,50 @@ async def get_payrolls(
             "month": p.month,
             "year": p.year,
             "total_pay": p.total_pay,
-            "status": p.status
+            "status": p.status.value
         } for p in payrolls
     ])
+
+
+@router.get("/payrolls/settings", response_model=StandardResponse)
+async def get_payroll_settings(
+    current_user: Annotated[User, Depends(dependencies.RoleChecker([Role.ADMIN]))],
+    db: Annotated[AsyncSession, Depends(get_db)],
+):
+    stmt = select(PayrollSettings).limit(1)
+    result = await db.execute(stmt)
+    settings = result.scalar_one_or_none()
+    if not settings:
+        settings = PayrollSettings(id=1, salary_cutoff_day=1)
+        db.add(settings)
+        await db.commit()
+    return StandardResponse(data={"salary_cutoff_day": settings.salary_cutoff_day})
+
+
+@router.patch("/payrolls/settings", response_model=StandardResponse)
+async def update_payroll_settings(
+    request: PayrollSettingsUpdate,
+    current_user: Annotated[User, Depends(dependencies.RoleChecker([Role.ADMIN]))],
+    db: Annotated[AsyncSession, Depends(get_db)],
+):
+    stmt = select(PayrollSettings).limit(1)
+    result = await db.execute(stmt)
+    settings = result.scalar_one_or_none()
+    if not settings:
+        settings = PayrollSettings(id=1, salary_cutoff_day=request.salary_cutoff_day)
+        db.add(settings)
+    else:
+        settings.salary_cutoff_day = request.salary_cutoff_day
+    await db.commit()
+    await AuditService.log_action(
+        db=db,
+        user_id=current_user.id,
+        action="UPDATE_PAYROLL_SETTINGS",
+        target_id="1",
+        details=f"salary_cutoff_day={request.salary_cutoff_day}",
+    )
+    await db.commit()
+    return StandardResponse(message="Payroll settings updated", data={"salary_cutoff_day": settings.salary_cutoff_day})
 
 
 @router.get("/payrolls/pending", response_model=StandardResponse)
@@ -153,7 +271,11 @@ async def list_pending_payrolls(
     limit: int = Query(100, ge=1, le=500),
     offset: int = Query(0, ge=0),
 ):
-    stmt = select(Payroll, User).join(User, User.id == Payroll.user_id)
+    stmt = (
+        select(Payroll, User)
+        .join(User, User.id == Payroll.user_id)
+        .options(selectinload(Payroll.payments))
+    )
 
     if month:
         stmt = stmt.where(Payroll.month == month)
@@ -176,28 +298,80 @@ async def list_pending_payrolls(
     result = await db.execute(stmt)
     rows = result.all()
 
-    return StandardResponse(data=[
-        {
-            "id": str(payroll.id),
-            "user_id": str(payroll.user_id),
-            "user_name": user.full_name,
-            "user_email": user.email,
-            "month": payroll.month,
-            "year": payroll.year,
-            "base_pay": payroll.base_pay,
-            "overtime_hours": payroll.overtime_hours,
-            "overtime_pay": payroll.overtime_pay,
-            "commission_pay": payroll.commission_pay,
-            "bonus_pay": payroll.bonus_pay,
-            "deductions": payroll.deductions,
-            "total_pay": payroll.total_pay,
-            "status": payroll.status.value,
-            "paid_transaction_id": str(payroll.paid_transaction_id) if payroll.paid_transaction_id else None,
-            "paid_at": payroll.paid_at.isoformat() if payroll.paid_at else None,
-            "paid_by_user_id": str(payroll.paid_by_user_id) if payroll.paid_by_user_id else None,
-        }
-        for payroll, user in rows
-    ])
+    return StandardResponse(data=[_serialize_payroll(payroll, user) for payroll, user in rows])
+
+
+@router.post("/payrolls/{payroll_id}/payments", response_model=StandardResponse)
+async def create_payroll_payment(
+    payroll_id: uuid.UUID,
+    request: PayrollPaymentCreate,
+    current_user: Annotated[User, Depends(dependencies.RoleChecker([Role.ADMIN]))],
+    db: Annotated[AsyncSession, Depends(get_db)],
+):
+    stmt = (
+        select(Payroll, User)
+        .join(User, User.id == Payroll.user_id)
+        .where(Payroll.id == payroll_id)
+        .options(selectinload(Payroll.payments))
+    )
+    result = await db.execute(stmt)
+    row = result.first()
+    if not row:
+        raise HTTPException(status_code=404, detail="Payroll record not found")
+    payroll, staff_user = row
+
+    paid_amount = _payroll_paid_amount(payroll)
+    pending_amount = _money(max(float(payroll.total_pay) - paid_amount, 0.0))
+    if pending_amount <= 0:
+        raise HTTPException(status_code=400, detail="Payroll has no pending amount")
+    if request.amount > pending_amount:
+        raise HTTPException(status_code=400, detail="Payment amount cannot exceed pending amount")
+
+    period = f"{payroll.month:02d}/{payroll.year}"
+    tx = Transaction(
+        amount=request.amount,
+        type=TransactionType.EXPENSE,
+        category=TransactionCategory.SALARY,
+        payment_method=request.payment_method,
+        description=request.description or f"Salary payment - {staff_user.full_name} ({period})",
+        user_id=payroll.user_id,
+    )
+    db.add(tx)
+    await db.flush()
+
+    payment = PayrollPayment(
+        payroll_id=payroll.id,
+        amount=request.amount,
+        payment_method=request.payment_method,
+        description=request.description,
+        transaction_id=tx.id,
+        paid_at=datetime.now(timezone.utc),
+        paid_by_user_id=current_user.id,
+    )
+    db.add(payment)
+    await db.flush()
+
+    payroll.status = PayrollStatus.PARTIAL
+    payroll.paid_transaction_id = None
+    payroll.paid_at = None
+    payroll.paid_by_user_id = None
+
+    await db.commit()
+
+    await AuditService.log_action(
+        db=db,
+        user_id=current_user.id,
+        action="CREATE_PAYROLL_PAYMENT",
+        target_id=str(payroll.id),
+        details=f"amount={request.amount}, method={request.payment_method.value}",
+    )
+    await db.commit()
+
+    await db.refresh(payroll, attribute_names=["payments"])
+    return StandardResponse(
+        message="Payroll payment recorded",
+        data=_serialize_payroll(payroll, staff_user),
+    )
 
 
 @router.patch("/payrolls/{payroll_id}/status", response_model=StandardResponse)
@@ -207,54 +381,60 @@ async def update_payroll_status(
     current_user: Annotated[User, Depends(dependencies.RoleChecker([Role.ADMIN]))],
     db: Annotated[AsyncSession, Depends(get_db)],
 ):
-    stmt = select(Payroll).where(Payroll.id == payroll_id)
+    stmt = (
+        select(Payroll, User)
+        .join(User, User.id == Payroll.user_id)
+        .where(Payroll.id == payroll_id)
+        .options(selectinload(Payroll.payments))
+    )
     result = await db.execute(stmt)
-    payroll = result.scalar_one_or_none()
-    if not payroll:
+    row = result.first()
+    if not row:
         raise HTTPException(status_code=404, detail="Payroll record not found")
+    payroll, staff_user = row
+    target_status = PayrollStatus(request.status)
+    paid_amount = _payroll_paid_amount(payroll)
+    pending_amount = _money(max(float(payroll.total_pay) - paid_amount, 0.0))
 
-    if payroll.status == request.status:
+    if payroll.status == target_status:
         return StandardResponse(
             message="Payroll status unchanged",
             data={
                 "id": str(payroll.id),
                 "status": payroll.status.value,
-                "paid_transaction_id": str(payroll.paid_transaction_id) if payroll.paid_transaction_id else None,
+                "pending_amount": pending_amount,
             },
         )
 
-    user_result = await db.execute(select(User).where(User.id == payroll.user_id))
-    staff_user = user_result.scalar_one_or_none()
     staff_name = staff_user.full_name if staff_user else "Staff"
     period = f"{payroll.month:02d}/{payroll.year}"
     now = datetime.now(timezone.utc)
 
-    if request.status == PayrollStatus.PAID:
-        tx = Transaction(
-            amount=payroll.total_pay,
-            type=TransactionType.EXPENSE,
-            category=TransactionCategory.SALARY,
-            payment_method=PaymentMethod.SYSTEM,
-            description=f"Salary payout - {staff_name} ({period})",
-            user_id=payroll.user_id,
-        )
-        db.add(tx)
-        await db.flush()
-
+    if target_status == PayrollStatus.PAID:
+        if pending_amount > 0:
+            raise HTTPException(status_code=400, detail="Cannot mark paid while pending amount is greater than zero")
         payroll.status = PayrollStatus.PAID
-        payroll.paid_transaction_id = tx.id
-        payroll.paid_at = now
-        payroll.paid_by_user_id = current_user.id
+        latest_payment = max(payroll.payments, key=lambda p: p.paid_at, default=None)
+        payroll.paid_transaction_id = latest_payment.transaction_id if latest_payment else payroll.paid_transaction_id
+        payroll.paid_at = latest_payment.paid_at if latest_payment else now
+        payroll.paid_by_user_id = latest_payment.paid_by_user_id if latest_payment else current_user.id
     else:
-        tx = Transaction(
-            amount=payroll.total_pay,
-            type=TransactionType.INCOME,
-            category=TransactionCategory.OTHER_INCOME,
-            payment_method=PaymentMethod.SYSTEM,
-            description=f"Salary reversal - {staff_name} ({period})",
-            user_id=payroll.user_id,
-        )
-        db.add(tx)
+        if paid_amount > 0:
+            tx_amount = _money(paid_amount)
+            tx = Transaction(
+                amount=tx_amount,
+                type=TransactionType.INCOME,
+                category=TransactionCategory.OTHER_INCOME,
+                payment_method=PaymentMethod.SYSTEM,
+                description=f"Salary reversal - {staff_name} ({period})",
+                user_id=payroll.user_id,
+            )
+            db.add(tx)
+            await db.flush()
+
+            for payment in list(payroll.payments):
+                await db.delete(payment)
+
         payroll.status = PayrollStatus.DRAFT
         payroll.paid_transaction_id = None
         payroll.paid_at = None
@@ -267,18 +447,14 @@ async def update_payroll_status(
         user_id=current_user.id,
         action="UPDATE_PAYROLL_STATUS",
         target_id=str(payroll.id),
-        details=f"Payroll set to {request.status.value}",
+        details=f"Payroll set to {target_status.value}",
     )
     await db.commit()
+    await db.refresh(payroll, attribute_names=["payments"])
 
     return StandardResponse(
-        message=f"Payroll status updated to {request.status.value}",
-        data={
-            "id": str(payroll.id),
-            "status": payroll.status.value,
-            "paid_transaction_id": str(payroll.paid_transaction_id) if payroll.paid_transaction_id else None,
-            "paid_at": payroll.paid_at.isoformat() if payroll.paid_at else None,
-        },
+        message=f"Payroll status updated to {target_status.value}",
+        data=_serialize_payroll(payroll, staff_user),
     )
 
 @router.get("/payroll/{payroll_id}/payslip", response_model=StandardResponse)
@@ -393,7 +569,10 @@ async def get_staff(
             "contract": {
                 "type": contract.contract_type.value if contract else None,
                 "base_salary": contract.base_salary if contract else None,
-                "commission_rate": contract.commission_rate if contract else None
+                "commission_rate": contract.commission_rate if contract else None,
+                "start_date": contract.start_date.isoformat() if contract and contract.start_date else None,
+                "end_date": contract.end_date.isoformat() if contract and contract.end_date else None,
+                "standard_hours": contract.standard_hours if contract else None,
             } if contract else None
         })
         
@@ -472,9 +651,9 @@ async def get_staff_summary(
 
     attendance_stmt = select(AttendanceLog).where(AttendanceLog.user_id == user_id)
     if start_date:
-        attendance_stmt = attendance_stmt.where(func.date(AttendanceLog.check_in_time) >= start_date.isoformat())
+        attendance_stmt = attendance_stmt.where(func.date(AttendanceLog.check_in_time) >= start_date)
     if end_date:
-        attendance_stmt = attendance_stmt.where(func.date(AttendanceLog.check_in_time) <= end_date.isoformat())
+        attendance_stmt = attendance_stmt.where(func.date(AttendanceLog.check_in_time) <= end_date)
     attendance_stmt = attendance_stmt.order_by(AttendanceLog.check_in_time.desc())
     attendance_result = await db.execute(attendance_stmt)
     attendance_logs = attendance_result.scalars().all()
@@ -707,20 +886,27 @@ async def list_members(
 
     data = []
     for u in users:
-        # Get subscription status
-        sub_stmt = select(Subscription).where(Subscription.user_id == u.id).order_by(Subscription.end_date.desc()).limit(1)
-        sub_result = await db.execute(sub_stmt)
-        sub = sub_result.scalar_one_or_none()
-        effective_status = None
+        # Get subscription status. Be defensive here so malformed legacy rows do not fail the entire list.
+        sub = None
+        effective_status = "NONE"
+        subscription_end_date = None
+        try:
+            sub_stmt = select(Subscription).where(Subscription.user_id == u.id).order_by(Subscription.end_date.desc()).limit(1)
+            sub_result = await db.execute(sub_stmt)
+            sub = sub_result.scalar_one_or_none()
+        except Exception:
+            sub = None
+
         if sub:
+            raw_status = sub.status.value if hasattr(sub.status, "value") else str(sub.status)
+            effective_status = raw_status
             end_date = sub.end_date
-            if end_date.tzinfo is None:
-                end_date = end_date.replace(tzinfo=timezone.utc)
-            effective_status = (
-                SubscriptionStatus.EXPIRED.value
-                if end_date < now
-                else sub.status.value
-            )
+            if end_date:
+                if end_date.tzinfo is None:
+                    end_date = end_date.replace(tzinfo=timezone.utc)
+                if end_date < now:
+                    effective_status = SubscriptionStatus.EXPIRED.value
+                subscription_end_date = end_date.isoformat()
 
         data.append({
             "id": str(u.id),
@@ -733,8 +919,8 @@ async def list_members(
             "emergency_contact": u.emergency_contact,
             "bio": u.bio,
             "subscription": {
-                "status": effective_status if sub else "NONE",
-                "end_date": sub.end_date.isoformat() if sub and sub.end_date else None,
+                "status": effective_status,
+                "end_date": subscription_end_date,
             } if sub else None
         })
 
@@ -747,6 +933,8 @@ class SubscriptionCreate(BaseModel):
     user_id: uuid.UUID
     plan_name: str = "Monthly"
     duration_days: int = Field(default=30, ge=1)
+    amount_paid: float = Field(..., gt=0)
+    payment_method: PaymentMethod = PaymentMethod.CASH
 
 class SubscriptionUpdate(BaseModel):
     status: Literal["ACTIVE", "FROZEN"]
@@ -787,6 +975,16 @@ async def create_subscription(
         db.add(sub)
         msg = "Subscription created"
 
+    tx = Transaction(
+        amount=data.amount_paid,
+        type=TransactionType.INCOME,
+        category=TransactionCategory.SUBSCRIPTION,
+        payment_method=data.payment_method,
+        description=f"Subscription {'renewal' if existing else 'activation'} - {data.plan_name}",
+        user_id=data.user_id,
+    )
+    db.add(tx)
+
     await db.commit()
 
     user_result = await db.execute(select(User).where(User.id == data.user_id))
@@ -813,7 +1011,7 @@ async def create_subscription(
         user_id=current_user.id,
         action="RENEW_SUBSCRIPTION" if existing else "CREATE_SUBSCRIPTION",
         target_id=str(data.user_id),
-        details=f"Plan: {data.plan_name}, Duration: {data.duration_days} days"
+        details=f"Plan: {data.plan_name}, Duration: {data.duration_days} days, Amount: {data.amount_paid} {data.payment_method.value}"
     )
     await db.commit()
 

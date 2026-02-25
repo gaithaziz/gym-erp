@@ -1,9 +1,11 @@
 import uuid
 from datetime import date, datetime
 from enum import Enum
-from sqlalchemy import Enum as SAEnum, ForeignKey, Float, Integer, Date, DateTime, UniqueConstraint
+from decimal import Decimal
+from sqlalchemy import Enum as SAEnum, ForeignKey, Float, Integer, Date, DateTime, Numeric, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from app.database import Base
+from app.models.finance import PaymentMethod
 
 class ContractType(str, Enum):
     FULL_TIME = "FULL_TIME"
@@ -13,6 +15,7 @@ class ContractType(str, Enum):
 
 class PayrollStatus(str, Enum):
     DRAFT = "DRAFT"
+    PARTIAL = "PARTIAL"
     PAID = "PAID"
 
 class LeaveStatus(str, Enum):
@@ -68,6 +71,31 @@ class Payroll(Base):
     paid_by_user_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("users.id"), nullable=True)
 
     user = relationship("User", foreign_keys=[user_id])
+    payments = relationship("PayrollPayment", back_populates="payroll", cascade="all, delete-orphan")
+
+
+class PayrollPayment(Base):
+    __tablename__ = "payroll_payments"
+
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
+    payroll_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("payrolls.id"), nullable=False, index=True)
+    amount: Mapped[Decimal] = mapped_column(Numeric(12, 2), nullable=False)
+    payment_method: Mapped[PaymentMethod] = mapped_column(SAEnum(PaymentMethod, native_enum=False), nullable=False)
+    description: Mapped[str | None] = mapped_column(nullable=True)
+    transaction_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("transactions.id"), nullable=False, unique=True)
+    paid_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, default=datetime.utcnow, index=True)
+    paid_by_user_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id"), nullable=False)
+
+    payroll = relationship("Payroll", back_populates="payments")
+    transaction = relationship("Transaction")
+    paid_by_user = relationship("User")
+
+
+class PayrollSettings(Base):
+    __tablename__ = "payroll_settings"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, default=1)
+    salary_cutoff_day: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
 
 class LeaveRequest(Base):
     __tablename__ = "leave_requests"

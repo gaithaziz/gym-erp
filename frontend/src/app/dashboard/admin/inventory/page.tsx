@@ -153,8 +153,8 @@ export default function InventoryPage() {
             )}
 
             {/* Filters */}
-            <div className="flex gap-3">
-                <div className="field-with-icon flex-1">
+            <div className="flex flex-col sm:flex-row gap-3">
+                <div className="field-with-icon w-full sm:flex-[2]">
                     <Search size={16} className="field-icon" />
                     <input
                         type="text"
@@ -167,7 +167,7 @@ export default function InventoryPage() {
                 <select
                     value={categoryFilter}
                     onChange={(e) => setCategoryFilter(e.target.value)}
-                    className="input-dark text-sm w-40"
+                    className="input-dark text-sm w-full sm:w-44"
                 >
                     <option value="">All Categories</option>
                     {CATEGORIES.map(c => <option key={c} value={c}>{c}</option>)}

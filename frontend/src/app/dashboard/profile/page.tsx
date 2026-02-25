@@ -3,7 +3,7 @@
 import { useState, useEffect } from 'react';
 import { useAuth } from '@/context/AuthContext';
 import { api } from '@/lib/api';
-import { User, Lock, Save, AlertCircle, CheckCircle } from 'lucide-react';
+import { User, Lock, Save, AlertCircle, CheckCircle, Eye, EyeOff } from 'lucide-react';
 import ImageCropper from '@/components/ImageCropper';
 import { useFeedback } from '@/components/FeedbackProvider';
 import { resolveProfileImageUrl } from '@/lib/profileImage';
@@ -41,6 +41,7 @@ export default function ProfilePage() {
     });
 
     const [passwords, setPasswords] = useState({ current: '', new: '', confirm: '' });
+    const [showPasswords, setShowPasswords] = useState(false);
     const [loadingPass, setLoadingPass] = useState(false);
     const [passMsg, setPassMsg] = useState<{ type: 'success' | 'error', text: string } | null>(null);
 
@@ -194,10 +195,21 @@ export default function ProfilePage() {
                         </div>
 
                         <form onSubmit={handlePasswordChange} className="space-y-4">
+                            <div className="flex items-center justify-between">
+                                <span className="text-xs font-mono text-muted-foreground uppercase">Password Fields</span>
+                                <button
+                                    type="button"
+                                    onClick={() => setShowPasswords((prev) => !prev)}
+                                    className="text-xs font-mono text-primary hover:text-primary/80 flex items-center gap-1"
+                                >
+                                    {showPasswords ? <EyeOff size={14} /> : <Eye size={14} />}
+                                    {showPasswords ? 'Hide Passwords' : 'Show Passwords'}
+                                </button>
+                            </div>
                             <div>
                                 <label className="block text-xs font-mono text-muted-foreground mb-1 uppercase">Current Password</label>
                                 <input
-                                    type="password"
+                                    type={showPasswords ? 'text' : 'password'}
                                     value={passwords.current}
                                     onChange={(e) => setPasswords({ ...passwords, current: e.target.value })}
                                     className="w-full p-2 bg-background border border-border focus:border-primary focus:ring-1 focus:ring-primary outline-none transition-all"
@@ -207,7 +219,7 @@ export default function ProfilePage() {
                             <div>
                                 <label className="block text-xs font-mono text-muted-foreground mb-1 uppercase">New Password</label>
                                 <input
-                                    type="password"
+                                    type={showPasswords ? 'text' : 'password'}
                                     value={passwords.new}
                                     onChange={(e) => setPasswords({ ...passwords, new: e.target.value })}
                                     className="w-full p-2 bg-background border border-border focus:border-primary focus:ring-1 focus:ring-primary outline-none transition-all"
@@ -218,7 +230,7 @@ export default function ProfilePage() {
                             <div>
                                 <label className="block text-xs font-mono text-muted-foreground mb-1 uppercase">Confirm Password</label>
                                 <input
-                                    type="password"
+                                    type={showPasswords ? 'text' : 'password'}
                                     value={passwords.confirm}
                                     onChange={(e) => setPasswords({ ...passwords, confirm: e.target.value })}
                                     className="w-full p-2 bg-background border border-border focus:border-primary focus:ring-1 focus:ring-primary outline-none transition-all"

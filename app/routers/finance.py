@@ -64,6 +64,7 @@ async def list_transactions(
     month: Optional[int] = Query(None, ge=1, le=12),
     year: Optional[int] = Query(None, ge=2000, le=2100),
     tx_type: Optional[TransactionType] = Query(None),
+    category: Optional[TransactionCategory] = Query(None),
     start_date: Optional[date] = Query(None),
     end_date: Optional[date] = Query(None),
 ):
@@ -74,6 +75,8 @@ async def list_transactions(
     stmt = select(Transaction)
     if tx_type:
         stmt = stmt.where(Transaction.type == tx_type)
+    if category:
+        stmt = stmt.where(Transaction.category == category)
     if start_date or end_date:
         if start_date:
             start_dt = datetime(start_date.year, start_date.month, start_date.day, tzinfo=timezone.utc)

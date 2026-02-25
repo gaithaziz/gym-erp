@@ -1,10 +1,10 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { api } from '@/lib/api';
 import Image from 'next/image';
 import { useRouter } from 'next/navigation';
-import { FileText, Pencil, Calculator, Save, Plus, Download, Eye } from 'lucide-react';
+import { Pencil, Calculator, Save, Plus, Download, Eye } from 'lucide-react';
 import Modal from '@/components/Modal';
 import { useFeedback } from '@/components/FeedbackProvider';
 import { resolveProfileImageUrl } from '@/lib/profileImage';
@@ -23,47 +23,26 @@ interface StaffMember {
         type: string;
         base_salary: number;
         commission_rate: number;
+        start_date?: string | null;
+        end_date?: string | null;
+        standard_hours?: number | null;
     } | null;
 }
 
-type ContractType = 'FULL_TIME' | 'PART_TIME' | 'HYBRID' | 'CONTRACTOR';
+type StaffRole = 'COACH' | 'EMPLOYEE' | 'CASHIER' | 'RECEPTION' | 'FRONT_DESK';
+type StaffRoleFilter = 'ALL' | StaffRole;
 
-const CONTRACT_RULES: Record<ContractType, {
-    label: string;
-    summary: string;
-    salaryLabel: string;
-    salaryHint: string;
-    commissionAllowed: boolean;
-}> = {
-    FULL_TIME: {
-        label: 'Full Time',
-        summary: 'Fixed monthly salary with overtime based on standard monthly hours.',
-        salaryLabel: 'Monthly Salary (JOD)',
-        salaryHint: 'Used as fixed monthly base pay.',
-        commissionAllowed: false,
-    },
-    PART_TIME: {
-        label: 'Part Time',
-        summary: 'Paid by logged hours only.',
-        salaryLabel: 'Hourly Rate (JOD)',
-        salaryHint: 'Used as per-hour payroll rate.',
-        commissionAllowed: false,
-    },
-    HYBRID: {
-        label: 'Hybrid',
-        summary: 'Monthly base salary plus commission from sales.',
-        salaryLabel: 'Base Salary (JOD)',
-        salaryHint: 'Used as fixed monthly pay before commission.',
-        commissionAllowed: true,
-    },
-    CONTRACTOR: {
-        label: 'Contractor',
-        summary: 'External/hour-based contract paid from logged hours.',
-        salaryLabel: 'Hourly Rate (JOD)',
-        salaryHint: 'Used as per-hour contractor payout.',
-        commissionAllowed: false,
-    },
+const STAFF_ROLES: StaffRole[] = ['COACH', 'EMPLOYEE', 'CASHIER', 'RECEPTION', 'FRONT_DESK'];
+
+const ROLE_LABELS: Record<StaffRole, string> = {
+    COACH: 'Coach',
+    EMPLOYEE: 'Employee',
+    CASHIER: 'Cashier',
+    RECEPTION: 'Reception',
+    FRONT_DESK: 'Front Desk',
 };
+
+const todayDateInput = () => new Date().toISOString().split('T')[0];
 
 const defaultAddForm = {
     full_name: '',
@@ -76,9 +55,10 @@ const defaultAddForm = {
 };
 
 const defaultEditForm = {
-    contract_type: 'FULL_TIME',
-    base_salary: 0,
-    commission_rate: 0
+    start_date: todayDateInput(),
+    end_date: '',
+    money_per_hour: 0,
+    standard_hours: 160,
 };
 
 export default function StaffPage() {
@@ -91,13 +71,49 @@ export default function StaffPage() {
     const [isEditOpen, setIsEditOpen] = useState(false);
     const [editTarget, setEditTarget] = useState<StaffMember | null>(null);
     const [editForm, setEditForm] = useState(defaultEditForm);
+    const [roleFilter, setRoleFilter] = useState<StaffRoleFilter>('ALL');
     const [isPayrollOpen, setIsPayrollOpen] = useState(false);
     const [payrollTarget, setPayrollTarget] = useState<StaffMember | null>(null);
     const [payrollForm, setPayrollForm] = useState({ month: new Date().getMonth() + 1, year: new Date().getFullYear(), sales_volume: 0 });
     const [payrollResult, setPayrollResult] = useState<any>(null); // eslint-disable-line @typescript-eslint/no-explicit-any
 
     const [failedImageUrls, setFailedImageUrls] = useState<Record<string, true>>({});
-    const activeEditRule = CONTRACT_RULES[(editForm.contract_type as ContractType) || 'FULL_TIME'];
+    const filteredStaff = useMemo(() => {
+        if (roleFilter === 'ALL') return staff;
+        return staff.filter((member) => member.role === roleFilter);
+    }, [roleFilter, staff]);
+
+    const getRoleBadgeClass = (role: string) => {
+        switch (role) {
+            case 'COACH':
+                return 'badge-orange';
+            case 'EMPLOYEE':
+                return 'badge-blue';
+            case 'CASHIER':
+                return 'badge-green';
+            case 'RECEPTION':
+                return 'badge-indigo';
+            case 'FRONT_DESK':
+                return 'badge-purple';
+            default:
+                return 'badge-gray';
+        }
+    };
+
+    const getContractBadgeClass = (contractType?: string | null) => {
+        switch (contractType) {
+            case 'FULL_TIME':
+                return 'badge-green';
+            case 'PART_TIME':
+                return 'badge-blue';
+            case 'HYBRID':
+                return 'badge-purple';
+            case 'CONTRACTOR':
+                return 'badge-gray';
+            default:
+                return 'badge-amber';
+        }
+    };
 
     const openView = (member: StaffMember) => {
         router.push(`/dashboard/admin/staff/${member.id}`);
@@ -144,10 +160,16 @@ export default function StaffPage() {
 
     const openEdit = (member: StaffMember) => {
         setEditTarget(member);
+        const standardHours = member.contract?.standard_hours && member.contract.standard_hours > 0
+            ? member.contract.standard_hours
+            : 160;
+        const monthlyBase = Number(member.contract?.base_salary || 0);
+        const hourlyRate = standardHours > 0 ? monthlyBase / standardHours : 0;
         setEditForm({
-            contract_type: member.contract?.type || 'FULL_TIME',
-            base_salary: member.contract?.base_salary || 0,
-            commission_rate: member.contract?.commission_rate || 0
+            start_date: member.contract?.start_date || todayDateInput(),
+            end_date: member.contract?.end_date || '',
+            money_per_hour: Number(hourlyRate.toFixed(2)),
+            standard_hours: standardHours,
         });
         setIsEditOpen(true);
     };
@@ -156,13 +178,17 @@ export default function StaffPage() {
         e.preventDefault();
         if (!editTarget) return;
         try {
-            const contractType = editForm.contract_type as ContractType;
+            const standardHours = Number(editForm.standard_hours) > 0 ? Number(editForm.standard_hours) : 160;
+            const hourlyRate = Number(editForm.money_per_hour);
+            const baseSalary = Number((hourlyRate * standardHours).toFixed(2));
             await api.post('/hr/contracts', {
                 user_id: editTarget.id,
-                contract_type: contractType,
-                base_salary: Number(editForm.base_salary),
-                commission_rate: contractType === 'HYBRID' ? Number(editForm.commission_rate) : 0,
-                start_date: new Date().toISOString().split('T')[0], standard_hours: 160
+                contract_type: 'FULL_TIME',
+                base_salary: baseSalary,
+                commission_rate: 0,
+                start_date: editForm.start_date,
+                end_date: editForm.end_date || null,
+                standard_hours: standardHours,
             });
             setIsEditOpen(false);
             setEditTarget(null);
@@ -264,11 +290,19 @@ export default function StaffPage() {
             <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
                 <div>
                     <h1 className="text-2xl font-bold text-foreground">Staff Management</h1>
-                    <p className="text-sm text-muted-foreground mt-1">{staff.length} staff members</p>
+                    <p className="text-sm text-muted-foreground mt-1">{filteredStaff.length} of {staff.length} staff members</p>
                 </div>
-                <button onClick={() => setIsAddOpen(true)} className="btn-primary">
-                    <Plus size={18} /> Add New Staff
-                </button>
+                <div className="flex items-center gap-3 w-full sm:w-auto">
+                    <select className="input-dark min-w-[180px]" value={roleFilter} onChange={(e) => setRoleFilter(e.target.value as StaffRoleFilter)}>
+                        <option value="ALL">All Roles</option>
+                        {STAFF_ROLES.map((role) => (
+                            <option key={role} value={role}>{ROLE_LABELS[role]}</option>
+                        ))}
+                    </select>
+                    <button onClick={() => setIsAddOpen(true)} className="btn-primary whitespace-nowrap">
+                        <Plus size={18} /> Add New Staff
+                    </button>
+                </div>
             </div>
 
             {/* Table */}
@@ -285,10 +319,10 @@ export default function StaffPage() {
                             </tr>
                         </thead>
                         <tbody>
-                            {staff.length === 0 && (
+                            {filteredStaff.length === 0 && (
                                 <tr><td colSpan={5} className="text-center py-8 text-muted-foreground text-sm">No staff members yet</td></tr>
                             )}
-                            {staff.map((member) => (
+                            {filteredStaff.map((member) => (
                                 <tr key={member.id}>
                                     <td>
                                         {(() => {
@@ -311,19 +345,14 @@ export default function StaffPage() {
                                         })()}
                                     </td>
                                     <td>
-                                        <span className={`badge ${member.role === 'COACH' ? 'badge-orange' : member.role === 'ADMIN' ? 'badge-blue' : 'badge-gray'}`}>
-                                            {member.role}
+                                        <span className={`badge ${getRoleBadgeClass(member.role)}`}>
+                                            {ROLE_LABELS[member.role as StaffRole] || member.role}
                                         </span>
                                     </td>
                                     <td>
-                                        {member.contract ? (
-                                            <div className="flex items-center gap-1.5 text-muted-foreground">
-                                                <FileText size={14} className="text-muted-foreground" />
-                                                {member.contract.type}
-                                            </div>
-                                        ) : (
-                                            <span className="badge badge-amber">No Contract</span>
-                                        )}
+                                        <span className={`badge ${getContractBadgeClass(member.contract?.type)}`}>
+                                            {member.contract ? member.contract.type : 'No Contract'}
+                                        </span>
                                     </td>
                                     <td className="font-mono text-sm text-foreground">
                                         {member.contract ? (
@@ -355,10 +384,10 @@ export default function StaffPage() {
                 </div>
 
                 <div className="md:hidden divide-y divide-border">
-                    {staff.length === 0 && (
+                    {filteredStaff.length === 0 && (
                         <div className="px-4 py-8 text-center text-sm text-muted-foreground">No staff members yet</div>
                     )}
-                    {staff.map((member) => (
+                    {filteredStaff.map((member) => (
                         <div key={member.id} className="p-4">
                             <div className="flex items-start justify-between gap-3">
                                 <div className="flex items-center gap-3 min-w-0">
@@ -379,17 +408,19 @@ export default function StaffPage() {
                                         <p className="text-xs text-muted-foreground truncate">{member.email}</p>
                                     </div>
                                 </div>
-                                <span className={`badge ${member.role === 'COACH' ? 'badge-orange' : member.role === 'ADMIN' ? 'badge-blue' : 'badge-gray'}`}>
-                                    {member.role}
+                                <span className={`badge ${getRoleBadgeClass(member.role)}`}>
+                                    {ROLE_LABELS[member.role as StaffRole] || member.role}
                                 </span>
                             </div>
 
                             <div className="mt-3 grid grid-cols-2 gap-2 text-xs">
                                 <div className="rounded-sm border border-border bg-muted/20 p-2">
                                     <p className="text-muted-foreground">Contract</p>
-                                    <p className="mt-0.5 font-medium text-foreground">
-                                        {member.contract ? member.contract.type : 'No Contract'}
-                                    </p>
+                                    <div className="mt-1">
+                                        <span className={`badge ${getContractBadgeClass(member.contract?.type)}`}>
+                                            {member.contract ? member.contract.type : 'No Contract'}
+                                        </span>
+                                    </div>
                                 </div>
                                 <div className="rounded-sm border border-border bg-muted/20 p-2">
                                     <p className="text-muted-foreground">Salary</p>
@@ -430,11 +461,9 @@ export default function StaffPage() {
                         <div>
                             <label className="block text-xs font-medium text-muted-foreground mb-1.5">Role</label>
                             <select className="input-dark" value={addForm.role} onChange={e => setAddForm({ ...addForm, role: e.target.value })}>
-                                <option value="COACH">Coach</option>
-                                <option value="ADMIN">Admin</option>
-                                <option value="EMPLOYEE">Employee</option>
-                                <option value="CASHIER">Cashier</option>
-                                <option value="RECEPTION">Reception</option>
+                                {STAFF_ROLES.map((role) => (
+                                    <option key={role} value={role}>{ROLE_LABELS[role]}</option>
+                                ))}
                             </select>
                         </div>
                         <div>
@@ -468,50 +497,53 @@ export default function StaffPage() {
             <Modal isOpen={isEditOpen} onClose={() => setIsEditOpen(false)} title={`Edit Contract - ${editTarget?.full_name}`}>
                 <form onSubmit={handleEdit} className="space-y-4">
                     <div className="rounded-sm border border-primary/30 bg-primary/10 p-3">
-                        <p className="text-xs font-semibold text-primary uppercase tracking-wide">{activeEditRule.label}</p>
-                        <p className="text-sm text-foreground mt-1">{activeEditRule.summary}</p>
-                    </div>
-                    <div>
-                        <label className="block text-xs font-medium text-muted-foreground mb-1.5">Contract Type</label>
-                        <select
-                            className="input-dark"
-                            value={editForm.contract_type}
-                            onChange={e => {
-                                const nextType = e.target.value as ContractType;
-                                setEditForm({
-                                    ...editForm,
-                                    contract_type: nextType,
-                                    commission_rate: CONTRACT_RULES[nextType].commissionAllowed ? editForm.commission_rate : 0,
-                                });
-                            }}
-                        >
-                            <option value="FULL_TIME">Full Time</option>
-                            <option value="PART_TIME">Part Time</option>
-                            <option value="HYBRID">Hybrid</option>
-                            <option value="CONTRACTOR">Contractor</option>
-                        </select>
+                        <p className="text-xs font-semibold text-primary uppercase tracking-wide">Full Time</p>
+                        <p className="text-sm text-foreground mt-1">Configure full-time contract details using date and hourly pay.</p>
                     </div>
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                         <div>
-                            <label className="block text-xs font-medium text-muted-foreground mb-1.5">{activeEditRule.salaryLabel}</label>
-                            <input type="number" className="input-dark" value={editForm.base_salary} onChange={e => setEditForm({ ...editForm, base_salary: Number(e.target.value) })} />
-                            <p className="mt-1 text-[11px] text-muted-foreground">{activeEditRule.salaryHint}</p>
+                            <label className="block text-xs font-medium text-muted-foreground mb-1.5">Start Date</label>
+                            <input
+                                type="date"
+                                className="input-dark"
+                                value={editForm.start_date}
+                                onChange={e => setEditForm({ ...editForm, start_date: e.target.value })}
+                                required
+                            />
                         </div>
                         <div>
-                            <label className="block text-xs font-medium text-muted-foreground mb-1.5">Commission Rate (0-1)</label>
+                            <label className="block text-xs font-medium text-muted-foreground mb-1.5">End Date (Optional)</label>
+                            <input
+                                type="date"
+                                className="input-dark"
+                                value={editForm.end_date}
+                                min={editForm.start_date || undefined}
+                                onChange={e => setEditForm({ ...editForm, end_date: e.target.value })}
+                            />
+                        </div>
+                    </div>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                        <div>
+                            <label className="block text-xs font-medium text-muted-foreground mb-1.5">Money Per Hour (JOD)</label>
                             <input
                                 type="number"
                                 step="0.01"
-                                max="1"
                                 min="0"
-                                disabled={!activeEditRule.commissionAllowed}
-                                className="input-dark disabled:opacity-50 disabled:cursor-not-allowed"
-                                value={activeEditRule.commissionAllowed ? editForm.commission_rate : 0}
-                                onChange={e => setEditForm({ ...editForm, commission_rate: Number(e.target.value) })}
+                                className="input-dark"
+                                value={editForm.money_per_hour}
+                                onChange={e => setEditForm({ ...editForm, money_per_hour: Number(e.target.value) })}
+                                required
                             />
-                            <p className="mt-1 text-[11px] text-muted-foreground">
-                                {activeEditRule.commissionAllowed ? 'Used in payroll with provided sales volume.' : 'Only Hybrid contracts support commission.'}
-                            </p>
+                        </div>
+                        <div>
+                            <label className="block text-xs font-medium text-muted-foreground mb-1.5">Standard Hours / Month</label>
+                            <input
+                                type="number"
+                                min="1"
+                                className="input-dark"
+                                value={editForm.standard_hours}
+                                onChange={e => setEditForm({ ...editForm, standard_hours: Number(e.target.value) })}
+                            />
                         </div>
                     </div>
                     <div className="flex justify-end gap-3 pt-4 border-t border-border">

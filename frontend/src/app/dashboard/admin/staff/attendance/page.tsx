@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { api } from '@/lib/api';
-import { Check, X, Edit2 } from 'lucide-react';
+import { Check, X, Edit2, Printer } from 'lucide-react';
 import { useFeedback } from '@/components/FeedbackProvider';
 
 interface AttendanceLog {
@@ -109,6 +109,27 @@ export default function AttendancePage() {
         return d.toLocaleString(undefined, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
     };
 
+    const printAttendance = () => {
+        const w = window.open('', '_blank');
+        if (!w) {
+            showToast('Popup blocked. Allow popups to print.', 'error');
+            return;
+        }
+        const rows = filteredLogs.map((log) => (
+            `<tr><td>${log.user_name}</td><td>${fmt(log.check_in_time)}</td><td>${fmt(log.check_out_time)}</td><td style="text-align:right;">${log.hours_worked ?? 0}</td></tr>`
+        )).join('') || '<tr><td colspan="4" style="text-align:center;">No attendance records</td></tr>';
+        w.document.write(`
+        <html><head><title>Attendance Summary</title>
+        <style>body{font-family:Arial,sans-serif;padding:24px;color:#111}table{width:100%;border-collapse:collapse;font-size:12px}th,td{border:1px solid #ddd;padding:8px;text-align:left}th{background:#f5f5f5}.meta{margin-bottom:10px;color:#555}</style>
+        </head><body>
+        <h2>Attendance Summary</h2>
+        <div class="meta">Range: ${datePreset === 'all' ? 'All Dates' : `${startDate} to ${endDate}`}</div>
+        <table><thead><tr><th>Employee</th><th>Clock In</th><th>Clock Out</th><th style="text-align:right;">Hours</th></tr></thead><tbody>${rows}</tbody></table>
+        <script>window.onload=function(){window.print();window.close();}</script>
+        </body></html>`);
+        w.document.close();
+    };
+
     if (loading) return (
         <div className="flex h-64 items-center justify-center">
             <div className="h-8 w-8 animate-spin rounded-full border-4 border-[#FF6B00] border-t-transparent" />
@@ -120,6 +141,7 @@ export default function AttendancePage() {
             <div>
                 <h1 className="text-2xl font-bold text-white">Attendance Timesheet</h1>
                 <p className="text-sm text-[#6B6B6B] mt-1">View and correct staff attendance records</p>
+                <button className="btn-ghost mt-3" onClick={printAttendance}><Printer size={14} /> Print Attendance Summary</button>
             </div>
 
             <div className="chart-card p-4 border border-border space-y-3">

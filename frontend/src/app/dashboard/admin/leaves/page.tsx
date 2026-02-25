@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useState } from 'react';
 import { api } from '@/lib/api';
-import { Check, X, Search } from 'lucide-react';
+import { Check, X, Search, Printer } from 'lucide-react';
 import { useFeedback } from '@/components/FeedbackProvider';
 
 interface LeaveRequest {
@@ -63,6 +63,28 @@ export default function AdminLeavesPage() {
         }
     };
 
+    const printLeaves = () => {
+        const w = window.open('', '_blank');
+        if (!w) {
+            showToast('Popup blocked. Allow popups to print.', 'error');
+            return;
+        }
+        const rows = leaves.map((l) => (
+            `<tr><td>${l.user_name}</td><td>${new Date(l.start_date).toLocaleDateString()}</td><td>${new Date(l.end_date).toLocaleDateString()}</td><td>${l.leave_type}</td><td>${l.status}</td></tr>`
+        )).join('') || '<tr><td colspan="5" style="text-align:center;">No leave requests</td></tr>';
+        const range = startDate || endDate ? `${startDate || '...'} to ${endDate || '...'}` : 'All Dates';
+        w.document.write(`
+        <html><head><title>HR Leaves Summary</title>
+        <style>body{font-family:Arial,sans-serif;padding:24px;color:#111}table{width:100%;border-collapse:collapse;font-size:12px}th,td{border:1px solid #ddd;padding:8px;text-align:left}th{background:#f5f5f5}.meta{margin-bottom:10px;color:#555}</style>
+        </head><body>
+        <h2>HR Leaves Summary</h2>
+        <div class="meta">Range: ${range} - Status: ${statusFilter} - Type: ${typeFilter}</div>
+        <table><thead><tr><th>Staff</th><th>Start</th><th>End</th><th>Type</th><th>Status</th></tr></thead><tbody>${rows}</tbody></table>
+        <script>window.onload=function(){window.print();window.close();}</script>
+        </body></html>`);
+        w.document.close();
+    };
+
     if (loading) return (
         <div className="flex h-64 items-center justify-center">
             <div className="h-8 w-8 animate-spin rounded-full border-4 border-[#FF6B00] border-t-transparent" />
@@ -74,6 +96,7 @@ export default function AdminLeavesPage() {
             <div>
                 <h1 className="text-2xl font-bold text-foreground font-mono">Leave Requests</h1>
                 <p className="text-sm text-muted-foreground mt-1">Manage staff time off</p>
+                <button className="btn-ghost mt-3" onClick={printLeaves}><Printer size={14} /> Print Leaves Summary</button>
             </div>
 
             <div className="chart-card p-4 border border-border space-y-3">
