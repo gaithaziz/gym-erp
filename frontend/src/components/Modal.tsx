@@ -9,9 +9,10 @@ interface ModalProps {
     onClose: () => void;
     title: string;
     children: React.ReactNode;
+    maxWidthClassName?: string;
 }
 
-export default function Modal({ isOpen, onClose, title, children }: ModalProps) {
+export default function Modal({ isOpen, onClose, title, children, maxWidthClassName = 'max-w-md' }: ModalProps) {
     const modalRef = useRef<HTMLDivElement>(null);
     const onCloseRef = useRef(onClose);
     const titleId = useId();
@@ -66,7 +67,7 @@ export default function Modal({ isOpen, onClose, title, children }: ModalProps) 
                 aria-modal="true"
                 aria-labelledby={titleId}
                 tabIndex={-1}
-                className="w-full max-w-md flex flex-col max-h-[90vh] overflow-hidden border border-border bg-card shadow-lg focus:outline-none"
+                className={`w-full ${maxWidthClassName} flex flex-col max-h-[90vh] overflow-hidden border border-border bg-card shadow-lg focus:outline-none`}
             >
                 <div className="flex-none flex items-center justify-between p-4 md:p-6 border-b border-border bg-muted/20">
                     <h2 id={titleId} className="text-lg font-bold text-foreground font-serif tracking-tight">{title}</h2>

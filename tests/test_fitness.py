@@ -1,4 +1,5 @@
 import pytest
+import uuid
 from datetime import datetime, timedelta, timezone
 from httpx import AsyncClient
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -7,6 +8,8 @@ from app.models.access import Subscription, SubscriptionStatus
 from app.models.user import User
 from app.models.enums import Role
 from app.auth.security import get_password_hash
+from app.models.fitness import WorkoutPlan
+from sqlalchemy import select
 
 
 def _active_subscription(user_id):
@@ -463,3 +466,158 @@ async def test_biometrics_supports_pagination(client: AsyncClient, db_session: A
     next_page_resp = await client.get(f"{settings.API_V1_STR}/fitness/biometrics?limit=1&offset=1", headers=headers)
     assert next_page_resp.status_code == 200
     assert len(next_page_resp.json()["data"]) == 1
+
+
+@pytest.mark.asyncio
+async def test_bulk_assign_replaces_active_and_aggregates_adherence(client: AsyncClient, db_session: AsyncSession):
+    password = "password123"
+    hashed = get_password_hash(password)
+    coach = User(email="coach_bulk@gym.com", hashed_password=hashed, role=Role.COACH, full_name="Coach Bulk")
+    member1 = User(email="bulk_m1@gym.com", hashed_password=hashed, role=Role.CUSTOMER, full_name="Bulk Member 1")
+    member2 = User(email="bulk_m2@gym.com", hashed_password=hashed, role=Role.CUSTOMER, full_name="Bulk Member 2")
+    db_session.add_all([coach, member1, member2])
+    await db_session.flush()
+    db_session.add_all([_active_subscription(member1.id), _active_subscription(member2.id)])
+    await db_session.commit()
+
+    login_resp = await client.post(
+        f"{settings.API_V1_STR}/auth/login",
+        json={"email": "coach_bulk@gym.com", "password": password},
+    )
+    headers = {"Authorization": f"Bearer {login_resp.json()['data']['access_token']}"}
+
+    ex_resp = await client.post(
+        f"{settings.API_V1_STR}/fitness/exercises",
+        json={"name": "Bulk Squat", "category": "Legs"},
+        headers=headers,
+    )
+    exercise_id = ex_resp.json()["data"]["id"]
+
+    old1 = await client.post(
+        f"{settings.API_V1_STR}/fitness/plans",
+        json={
+            "name": "Old M1 Plan",
+            "status": "PUBLISHED",
+            "member_id": str(member1.id),
+            "exercises": [{"exercise_id": exercise_id, "sets": 3, "reps": 8, "order": 1}],
+        },
+        headers=headers,
+    )
+    assert old1.status_code == 200
+    old2 = await client.post(
+        f"{settings.API_V1_STR}/fitness/plans",
+        json={
+            "name": "Old M2 Plan",
+            "status": "PUBLISHED",
+            "member_id": str(member2.id),
+            "exercises": [{"exercise_id": exercise_id, "sets": 3, "reps": 8, "order": 1}],
+        },
+        headers=headers,
+    )
+    assert old2.status_code == 200
+
+    source = await client.post(
+        f"{settings.API_V1_STR}/fitness/plans",
+        json={
+            "name": "Bulk Source",
+            "status": "PUBLISHED",
+            "is_template": True,
+            "exercises": [{"exercise_id": exercise_id, "sets": 4, "reps": 10, "order": 1}],
+        },
+        headers=headers,
+    )
+    assert source.status_code == 200
+    source_id = source.json()["data"]["id"]
+
+    bulk_resp = await client.post(
+        f"{settings.API_V1_STR}/fitness/plans/{source_id}/bulk-assign",
+        json={"member_ids": [str(member1.id), str(member2.id)], "replace_active": True},
+        headers=headers,
+    )
+    assert bulk_resp.status_code == 200
+    bulk_data = bulk_resp.json()["data"]
+    assert bulk_data["assigned_count"] == 2
+    assert bulk_data["replaced_count"] >= 2
+
+    plans_visible = await client.get(f"{settings.API_V1_STR}/fitness/plans", headers=headers)
+    assert plans_visible.status_code == 200
+    visible_ids = {p["id"] for p in plans_visible.json()["data"]}
+    assert old1.json()["data"]["id"] not in visible_ids
+    assert old2.json()["data"]["id"] not in visible_ids
+
+    plans_with_archived = await client.get(f"{settings.API_V1_STR}/fitness/plans?include_archived=true", headers=headers)
+    assert plans_with_archived.status_code == 200
+    all_plans = plans_with_archived.json()["data"]
+    archived_old = [p for p in all_plans if p["id"] in {old1.json()["data"]["id"], old2.json()["data"]["id"]}]
+    assert all(p["status"] == "ARCHIVED" for p in archived_old)
+
+    adherence_resp = await client.get(f"{settings.API_V1_STR}/fitness/plans/adherence?window_days=30", headers=headers)
+    assert adherence_resp.status_code == 200
+    adherence_rows = adherence_resp.json()["data"]
+    source_row = next((r for r in adherence_rows if r["plan_id"] == source_id), None)
+    assert source_row is not None
+    assert source_row["assigned_members"] == 2
+
+
+@pytest.mark.asyncio
+async def test_draft_publish_fork_publish_version_flow(client: AsyncClient, db_session: AsyncSession):
+    password = "password123"
+    hashed = get_password_hash(password)
+    coach = User(email="coach_lifecycle@gym.com", hashed_password=hashed, role=Role.COACH, full_name="Coach Lifecycle")
+    db_session.add(coach)
+    await db_session.flush()
+    await db_session.commit()
+
+    login_resp = await client.post(
+        f"{settings.API_V1_STR}/auth/login",
+        json={"email": "coach_lifecycle@gym.com", "password": password},
+    )
+    headers = {"Authorization": f"Bearer {login_resp.json()['data']['access_token']}"}
+
+    ex_resp = await client.post(
+        f"{settings.API_V1_STR}/fitness/exercises",
+        json={"name": "Lifecycle Pushup", "category": "Chest"},
+        headers=headers,
+    )
+    exercise_id = ex_resp.json()["data"]["id"]
+
+    create_resp = await client.post(
+        f"{settings.API_V1_STR}/fitness/plans",
+        json={
+            "name": "Lifecycle Plan",
+            "status": "DRAFT",
+            "exercises": [{"exercise_id": exercise_id, "sets": 3, "reps": 12, "order": 1}],
+        },
+        headers=headers,
+    )
+    assert create_resp.status_code == 200
+    draft_id = create_resp.json()["data"]["id"]
+
+    publish_resp = await client.post(f"{settings.API_V1_STR}/fitness/plans/{draft_id}/publish", headers=headers)
+    assert publish_resp.status_code == 200
+
+    blocked_update = await client.put(
+        f"{settings.API_V1_STR}/fitness/plans/{draft_id}",
+        json={
+            "name": "Should Fail",
+            "status": "PUBLISHED",
+            "exercises": [{"exercise_id": exercise_id, "sets": 4, "reps": 8, "order": 1}],
+        },
+        headers=headers,
+    )
+    assert blocked_update.status_code == 400
+
+    fork_resp = await client.post(f"{settings.API_V1_STR}/fitness/plans/{draft_id}/fork-draft", headers=headers)
+    assert fork_resp.status_code == 200
+    fork_id = fork_resp.json()["data"]["id"]
+
+    republish_resp = await client.post(f"{settings.API_V1_STR}/fitness/plans/{fork_id}/publish", headers=headers)
+    assert republish_resp.status_code == 200
+
+    stmt = select(WorkoutPlan).where(WorkoutPlan.id.in_([uuid.UUID(draft_id), uuid.UUID(fork_id)]))
+    result = await db_session.execute(stmt)
+    by_id = {str(p.id): p for p in result.scalars().all()}
+    assert by_id[draft_id].status == "PUBLISHED"
+    assert by_id[fork_id].status == "PUBLISHED"
+    assert by_id[fork_id].parent_plan_id == by_id[draft_id].id
+    assert by_id[fork_id].version == by_id[draft_id].version + 1

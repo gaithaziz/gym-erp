@@ -2,6 +2,8 @@ import os
 from typing import Annotated, List, Literal
 from datetime import datetime, timedelta
 import uuid
+import re
+from urllib.parse import parse_qs, urlparse
 
 from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile
 from pydantic import AnyHttpUrl, BaseModel, Field, field_validator
@@ -13,7 +15,15 @@ from app.auth import dependencies
 from app.core.responses import StandardResponse
 from app.database import get_db
 from app.models.enums import Role
-from app.models.fitness import BiometricLog, DietPlan, Exercise, WorkoutExercise, WorkoutPlan
+from app.models.fitness import (
+    BiometricLog,
+    DietPlan,
+    Exercise,
+    ExerciseLibraryItem,
+    ExerciseLibraryRecent,
+    WorkoutExercise,
+    WorkoutPlan,
+)
 from app.models.user import User
 from app.models import workout_log as workout_log_models
 
@@ -24,10 +34,109 @@ WorkoutSession = workout_log_models.WorkoutSession
 WorkoutSessionEntry = workout_log_models.WorkoutSessionEntry
 
 router = APIRouter()
+ALLOWED_VIDEO_HOSTS = {
+    "youtube.com",
+    "www.youtube.com",
+    "m.youtube.com",
+    "youtu.be",
+    "youtube-nocookie.com",
+    "www.youtube-nocookie.com",
+}
+ALLOWED_DIRECT_VIDEO_EXTENSIONS = (".mp4", ".webm", ".mov", ".avi", ".m4v", ".ogg")
+PLAN_STATUSES = {"DRAFT", "PUBLISHED", "ARCHIVED"}
 
 
 def _is_admin_or_coach(user: User) -> bool:
     return user.role in [Role.ADMIN, Role.COACH]
+
+
+def _extract_youtube_video_id(url: str) -> str | None:
+    try:
+        parsed = urlparse(url)
+        host = parsed.netloc.lower().replace("www.", "")
+        if host in {"youtube.com", "m.youtube.com"}:
+            qs = parse_qs(parsed.query or "")
+            vid = (qs.get("v") or [None])[0]
+            if vid and re.match(r"^[a-zA-Z0-9_-]{11}$", vid):
+                return vid
+            match = re.search(r"/(shorts|embed|live)/([a-zA-Z0-9_-]{11})", parsed.path or "")
+            if match:
+                return match.group(2)
+        if host == "youtu.be":
+            candidate = (parsed.path or "").strip("/").split("/")[0]
+            if candidate and re.match(r"^[a-zA-Z0-9_-]{11}$", candidate):
+                return candidate
+        if host in {"youtube-nocookie.com", "www.youtube-nocookie.com"}:
+            match = re.search(r"/embed/([a-zA-Z0-9_-]{11})", parsed.path or "")
+            if match:
+                return match.group(1)
+    except Exception:
+        return None
+    return None
+
+
+def _normalize_video_metadata(
+    *,
+    video_type: Literal["EMBED", "UPLOAD"] | None,
+    video_url: str | None,
+    uploaded_video_url: str | None,
+) -> dict[str, str | None]:
+    if video_type == "UPLOAD":
+        if not uploaded_video_url:
+            raise HTTPException(status_code=400, detail="uploaded_video_url is required when video_type is UPLOAD")
+        return {
+            "video_provider": "upload",
+            "video_id": None,
+            "embed_url": uploaded_video_url,
+            "playback_type": "DIRECT",
+        }
+
+    if video_type == "EMBED":
+        if not video_url:
+            raise HTTPException(status_code=400, detail="video_url is required when video_type is EMBED")
+        parsed = urlparse(video_url)
+        host = parsed.netloc.lower()
+        if host.startswith("www."):
+            host = host[4:]
+        if host not in ALLOWED_VIDEO_HOSTS:
+            raise HTTPException(status_code=400, detail="Unsupported video host. Only YouTube links are allowed.")
+        video_id = _extract_youtube_video_id(video_url)
+        if not video_id:
+            raise HTTPException(status_code=400, detail="Invalid YouTube URL. Could not resolve video id.")
+        embed_url = f"https://www.youtube-nocookie.com/embed/{video_id}"
+        return {
+            "video_provider": "youtube",
+            "video_id": video_id,
+            "embed_url": embed_url,
+            "playback_type": "EMBED",
+        }
+
+    if video_url:
+        parsed = urlparse(video_url)
+        host = parsed.netloc.lower().replace("www.", "")
+        if host in ALLOWED_VIDEO_HOSTS:
+            vid = _extract_youtube_video_id(video_url)
+            if vid:
+                return {
+                    "video_provider": "youtube",
+                    "video_id": vid,
+                    "embed_url": f"https://www.youtube-nocookie.com/embed/{vid}",
+                    "playback_type": "EMBED",
+                }
+        if video_url.lower().endswith(ALLOWED_DIRECT_VIDEO_EXTENSIONS):
+            return {
+                "video_provider": "direct",
+                "video_id": None,
+                "embed_url": video_url,
+                "playback_type": "DIRECT",
+            }
+
+    return {
+        "video_provider": None,
+        "video_id": None,
+        "embed_url": None,
+        "playback_type": None,
+    }
 
 
 async def _get_workout_plan_or_404(
@@ -79,6 +188,11 @@ def _apply_date_filters(stmt, model_date_field, from_date: datetime | None, to_d
 
 def _add_workout_exercises(db: AsyncSession, plan_id: uuid.UUID, exercises: List["WorkoutExerciseData"]) -> None:
     for exercise_data in exercises:
+        video_meta = _normalize_video_metadata(
+            video_type=exercise_data.video_type,
+            video_url=str(exercise_data.video_url) if exercise_data.video_url else None,
+            uploaded_video_url=exercise_data.uploaded_video_url,
+        )
         db.add(
             WorkoutExercise(
                 plan_id=plan_id,
@@ -88,6 +202,10 @@ def _add_workout_exercises(db: AsyncSession, plan_id: uuid.UUID, exercises: List
                 video_type=exercise_data.video_type,
                 video_url=str(exercise_data.video_url) if exercise_data.video_url else None,
                 uploaded_video_url=exercise_data.uploaded_video_url,
+                video_provider=video_meta["video_provider"],
+                video_id=video_meta["video_id"],
+                embed_url=video_meta["embed_url"],
+                playback_type=video_meta["playback_type"],
                 sets=exercise_data.sets,
                 reps=exercise_data.reps,
                 duration_minutes=exercise_data.duration_minutes,
@@ -180,6 +298,10 @@ class WorkoutExerciseResponse(BaseModel):
     video_type: str | None = None
     video_url: str | None = None
     uploaded_video_url: str | None = None
+    video_provider: str | None = None
+    video_id: str | None = None
+    embed_url: str | None = None
+    playback_type: str | None = None
     exercise: ExerciseResponse | None = None  # Nested optional
     
     class Config:
@@ -190,6 +312,8 @@ class WorkoutPlanCreate(BaseModel):
     description: str | None = None
     member_id: uuid.UUID | None = None # Optional assignment
     is_template: bool = False
+    status: Literal["DRAFT", "PUBLISHED", "ARCHIVED"] | None = None
+    expected_sessions_per_30d: int | None = Field(default=None, ge=1, le=60)
     exercises: List[WorkoutExerciseData] = Field(default_factory=list)
 
 class WorkoutPlanResponse(BaseModel):
@@ -199,6 +323,12 @@ class WorkoutPlanResponse(BaseModel):
     creator_id: uuid.UUID
     member_id: uuid.UUID | None
     is_template: bool
+    status: str
+    version: int
+    parent_plan_id: uuid.UUID | None = None
+    published_at: datetime | None = None
+    archived_at: datetime | None = None
+    expected_sessions_per_30d: int
     exercises: List[WorkoutExerciseResponse] = Field(default_factory=list)
     
     class Config:
@@ -208,6 +338,61 @@ class WorkoutPlanResponse(BaseModel):
 class WorkoutPlanCloneRequest(BaseModel):
     name: str | None = None
     member_id: uuid.UUID | None = None
+
+
+class BulkAssignRequest(BaseModel):
+    member_ids: List[uuid.UUID] = Field(default_factory=list)
+    replace_active: bool = True
+
+
+class PlanPreviewSection(BaseModel):
+    section_name: str
+    exercise_names: List[str]
+
+
+class WorkoutPlanSummaryResponse(BaseModel):
+    id: uuid.UUID
+    name: str
+    status: str
+    version: int
+    member_id: uuid.UUID | None = None
+    total_sections: int
+    total_exercises: int
+    total_videos: int
+    preview_sections: List[PlanPreviewSection]
+
+
+class ExerciseLibraryItemCreate(BaseModel):
+    name: str
+    category: str | None = None
+    muscle_group: str | None = None
+    equipment: str | None = None
+    tags: List[str] = Field(default_factory=list)
+    default_video_url: AnyHttpUrl | None = None
+    is_global: bool = False
+
+
+class ExerciseLibraryItemResponse(BaseModel):
+    id: uuid.UUID
+    name: str
+    category: str | None = None
+    muscle_group: str | None = None
+    equipment: str | None = None
+    tags: List[str] = Field(default_factory=list)
+    default_video_url: str | None = None
+    is_global: bool
+    owner_coach_id: uuid.UUID | None = None
+
+    class Config:
+        from_attributes = True
+
+
+class PlanAdherenceRow(BaseModel):
+    plan_id: uuid.UUID
+    plan_name: str
+    assigned_members: int
+    adherent_members: int
+    adherence_percent: float
 
 
 class DietPlanCloneRequest(BaseModel):
@@ -277,12 +462,20 @@ async def create_workout_plan(
     db: Annotated[AsyncSession, Depends(get_db)]
 ):
     """Create a new workout plan."""
+    status = data.status or "DRAFT"
+    if status not in PLAN_STATUSES:
+        raise HTTPException(status_code=400, detail="Invalid plan status")
     plan = WorkoutPlan(
         name=data.name,
         description=data.description,
         creator_id=current_user.id,
         member_id=data.member_id,
         is_template=data.is_template,
+        status=status,
+        version=1,
+        expected_sessions_per_30d=data.expected_sessions_per_30d or 12,
+        published_at=datetime.utcnow() if status == "PUBLISHED" else None,
+        archived_at=datetime.utcnow() if status == "ARCHIVED" else None,
     )
     db.add(plan)
     await db.flush()
@@ -294,7 +487,8 @@ async def create_workout_plan(
 @router.get("/plans", response_model=StandardResponse[List[WorkoutPlanResponse]])
 async def list_plans(
     current_user: Annotated[User, Depends(dependencies.require_active_customer_subscription)],
-    db: Annotated[AsyncSession, Depends(get_db)]
+    db: Annotated[AsyncSession, Depends(get_db)],
+    include_archived: bool = Query(False),
 ):
     """List plans visible to the user (Created by them OR Assigned to them)."""
     plan_exercises = selectinload(WorkoutPlan.exercises).selectinload(WorkoutExercise.exercise)
@@ -302,6 +496,8 @@ async def list_plans(
         stmt = select(WorkoutPlan).where(WorkoutPlan.creator_id == current_user.id).options(plan_exercises)
     else:
         stmt = select(WorkoutPlan).where(WorkoutPlan.member_id == current_user.id).options(plan_exercises)
+    if not include_archived:
+        stmt = stmt.where(WorkoutPlan.status != "ARCHIVED")
         
     result = await db.execute(stmt)
     plans = result.scalars().all()
@@ -319,12 +515,18 @@ async def update_workout_plan(
     """Update an existing workout plan (overwrite exercises)."""
     plan = await _get_workout_plan_or_404(db, plan_id, with_exercises=True)
     _ensure_plan_owned_by_requester_or_admin(plan, current_user, action="edit")
+    if plan.status == "PUBLISHED":
+        raise HTTPException(status_code=400, detail="Published plans are read-only. Fork a draft first.")
+    if plan.status == "ARCHIVED":
+        raise HTTPException(status_code=400, detail="Archived plans cannot be edited.")
 
     # Update basic fields
     plan.name = data.name
     plan.description = data.description  # type: ignore
     plan.member_id = data.member_id  # type: ignore
     plan.is_template = data.is_template
+    if data.expected_sessions_per_30d is not None:
+        plan.expected_sessions_per_30d = data.expected_sessions_per_30d
     
     for ex in plan.exercises:
         await db.delete(ex)
@@ -371,6 +573,11 @@ async def clone_workout_plan(
         creator_id=current_user.id,
         member_id=clone_data.member_id,
         is_template=False,
+        status="PUBLISHED",
+        version=1,
+        parent_plan_id=source_plan.id,
+        published_at=datetime.utcnow(),
+        expected_sessions_per_30d=source_plan.expected_sessions_per_30d or 12,
     )
     db.add(cloned_plan)
     await db.flush()
@@ -397,6 +604,454 @@ async def clone_workout_plan(
 
     await db.commit()
     return StandardResponse(message="Plan cloned successfully", data={"id": str(cloned_plan.id)})
+
+
+def _build_plan_summary(plan: WorkoutPlan) -> WorkoutPlanSummaryResponse:
+    grouped: dict[str, list[str]] = {}
+    total_videos = 0
+    for ex in sorted(plan.exercises, key=lambda e: e.order):
+        section = (ex.section_name or "General").strip() or "General"
+        name = (ex.exercise_name or (ex.exercise.name if ex.exercise else None) or "Exercise").strip()
+        grouped.setdefault(section, []).append(name)
+        if ex.video_url or ex.uploaded_video_url or ex.embed_url:
+            total_videos += 1
+    preview_sections = [
+        PlanPreviewSection(section_name=section, exercise_names=names[:3])
+        for section, names in grouped.items()
+    ]
+    return WorkoutPlanSummaryResponse(
+        id=plan.id,
+        name=plan.name,
+        status=plan.status,
+        version=plan.version,
+        member_id=plan.member_id,
+        total_sections=len(grouped),
+        total_exercises=sum(len(v) for v in grouped.values()),
+        total_videos=total_videos,
+        preview_sections=preview_sections,
+    )
+
+
+@router.get("/plan-summaries", response_model=StandardResponse[List[WorkoutPlanSummaryResponse]])
+async def list_plan_summaries(
+    current_user: Annotated[User, Depends(dependencies.require_active_customer_subscription)],
+    db: Annotated[AsyncSession, Depends(get_db)],
+    include_archived: bool = Query(False),
+):
+    if not _is_admin_or_coach(current_user):
+        raise HTTPException(status_code=403, detail="Only admin/coach can access plan summaries")
+    stmt = (
+        select(WorkoutPlan)
+        .where(WorkoutPlan.creator_id == current_user.id)
+        .options(selectinload(WorkoutPlan.exercises).selectinload(WorkoutExercise.exercise))
+        .order_by(WorkoutPlan.name)
+    )
+    if not include_archived:
+        stmt = stmt.where(WorkoutPlan.status != "ARCHIVED")
+    result = await db.execute(stmt)
+    plans = result.scalars().all()
+    return StandardResponse(data=[_build_plan_summary(plan) for plan in plans])
+
+
+@router.post("/plans/{plan_id}/bulk-assign", response_model=StandardResponse)
+async def bulk_assign_workout_plan(
+    plan_id: uuid.UUID,
+    payload: BulkAssignRequest,
+    current_user: Annotated[User, Depends(dependencies.RoleChecker([Role.ADMIN, Role.COACH]))],
+    db: Annotated[AsyncSession, Depends(get_db)],
+):
+    source_plan = await _get_workout_plan_or_404(db, plan_id, with_exercises=True)
+    _ensure_plan_owned_by_requester_or_admin(source_plan, current_user, action="assign")
+    if source_plan.status == "ARCHIVED":
+        raise HTTPException(status_code=400, detail="Cannot assign archived plan")
+    if not payload.member_ids:
+        raise HTTPException(status_code=400, detail="member_ids cannot be empty")
+
+    assigned_count = 0
+    replaced_count = 0
+    skipped: list[str] = []
+    errors: list[str] = []
+    unique_member_ids = list(dict.fromkeys(payload.member_ids))
+
+    for member_id in unique_member_ids:
+        try:
+            member = await db.get(User, member_id)
+            if not member:
+                skipped.append(f"{member_id}: member not found")
+                continue
+            if payload.replace_active:
+                active_stmt = select(WorkoutPlan).where(
+                    WorkoutPlan.member_id == member_id,
+                    WorkoutPlan.status != "ARCHIVED",
+                )
+                active_res = await db.execute(active_stmt)
+                active_plans = active_res.scalars().all()
+                for active_plan in active_plans:
+                    active_plan.status = "ARCHIVED"
+                    active_plan.archived_at = datetime.utcnow()
+                    replaced_count += 1
+
+            cloned_plan = WorkoutPlan(
+                name=f"{source_plan.name} - {member.full_name}",
+                description=source_plan.description,
+                creator_id=current_user.id,
+                member_id=member.id,
+                is_template=False,
+                status="PUBLISHED",
+                version=1,
+                parent_plan_id=source_plan.id,
+                published_at=datetime.utcnow(),
+                expected_sessions_per_30d=source_plan.expected_sessions_per_30d or 12,
+            )
+            db.add(cloned_plan)
+            await db.flush()
+            _add_workout_exercises(
+                db,
+                cloned_plan.id,
+                [
+                    WorkoutExerciseData(
+                        exercise_id=exercise.exercise_id,
+                        exercise_name=exercise.exercise_name,
+                        section_name=exercise.section_name,
+                        video_type=exercise.video_type,  # type: ignore[arg-type]
+                        video_url=exercise.video_url,
+                        uploaded_video_url=exercise.uploaded_video_url,
+                        sets=exercise.sets,
+                        reps=exercise.reps,
+                        duration_minutes=exercise.duration_minutes,
+                        order=exercise.order,
+                    )
+                    for exercise in source_plan.exercises
+                ],
+            )
+            assigned_count += 1
+        except Exception as exc:
+            errors.append(f"{member_id}: {exc}")
+
+    await db.commit()
+    return StandardResponse(
+        message="Bulk assignment completed",
+        data={
+            "assigned_count": assigned_count,
+            "replaced_count": replaced_count,
+            "skipped": skipped,
+            "errors": errors,
+        },
+    )
+
+
+@router.post("/plans/{plan_id}/publish", response_model=StandardResponse)
+async def publish_workout_plan(
+    plan_id: uuid.UUID,
+    current_user: Annotated[User, Depends(dependencies.RoleChecker([Role.ADMIN, Role.COACH]))],
+    db: Annotated[AsyncSession, Depends(get_db)],
+):
+    plan = await _get_workout_plan_or_404(db, plan_id)
+    _ensure_plan_owned_by_requester_or_admin(plan, current_user, action="publish")
+    if plan.status == "ARCHIVED":
+        raise HTTPException(status_code=400, detail="Archived plans cannot be published")
+    plan.status = "PUBLISHED"
+    plan.published_at = datetime.utcnow()
+    await db.commit()
+    return StandardResponse(message="Plan published", data={"id": str(plan.id)})
+
+
+@router.post("/plans/{plan_id}/archive", response_model=StandardResponse)
+async def archive_workout_plan(
+    plan_id: uuid.UUID,
+    current_user: Annotated[User, Depends(dependencies.RoleChecker([Role.ADMIN, Role.COACH]))],
+    db: Annotated[AsyncSession, Depends(get_db)],
+):
+    plan = await _get_workout_plan_or_404(db, plan_id)
+    _ensure_plan_owned_by_requester_or_admin(plan, current_user, action="archive")
+    plan.status = "ARCHIVED"
+    plan.archived_at = datetime.utcnow()
+    await db.commit()
+    return StandardResponse(message="Plan archived", data={"id": str(plan.id)})
+
+
+@router.post("/plans/{plan_id}/fork-draft", response_model=StandardResponse)
+async def fork_workout_plan_as_draft(
+    plan_id: uuid.UUID,
+    current_user: Annotated[User, Depends(dependencies.RoleChecker([Role.ADMIN, Role.COACH]))],
+    db: Annotated[AsyncSession, Depends(get_db)],
+):
+    source_plan = await _get_workout_plan_or_404(db, plan_id, with_exercises=True)
+    _ensure_plan_owned_by_requester_or_admin(source_plan, current_user, action="fork")
+    draft = WorkoutPlan(
+        name=f"{source_plan.name} (Draft)",
+        description=source_plan.description,
+        creator_id=current_user.id,
+        member_id=source_plan.member_id,
+        is_template=source_plan.is_template,
+        status="DRAFT",
+        version=(source_plan.version or 1) + 1,
+        parent_plan_id=source_plan.id,
+        expected_sessions_per_30d=source_plan.expected_sessions_per_30d or 12,
+    )
+    db.add(draft)
+    await db.flush()
+    _add_workout_exercises(
+        db,
+        draft.id,
+        [
+            WorkoutExerciseData(
+                exercise_id=exercise.exercise_id,
+                exercise_name=exercise.exercise_name,
+                section_name=exercise.section_name,
+                video_type=exercise.video_type,  # type: ignore[arg-type]
+                video_url=exercise.video_url,
+                uploaded_video_url=exercise.uploaded_video_url,
+                sets=exercise.sets,
+                reps=exercise.reps,
+                duration_minutes=exercise.duration_minutes,
+                order=exercise.order,
+            )
+            for exercise in source_plan.exercises
+        ],
+    )
+    await db.commit()
+    return StandardResponse(message="Draft fork created", data={"id": str(draft.id)})
+
+
+@router.get("/plans/adherence", response_model=StandardResponse[List[PlanAdherenceRow]])
+async def get_plan_adherence_summary(
+    current_user: Annotated[User, Depends(dependencies.RoleChecker([Role.ADMIN, Role.COACH]))],
+    db: Annotated[AsyncSession, Depends(get_db)],
+    window_days: int = Query(30, ge=7, le=180),
+    threshold: float = Query(0.7, ge=0.1, le=1.0),
+):
+    from_dt = datetime.utcnow() - timedelta(days=window_days)
+    plan_stmt = select(WorkoutPlan).where(
+        WorkoutPlan.creator_id == current_user.id,
+        WorkoutPlan.member_id.is_not(None),
+        WorkoutPlan.status != "ARCHIVED",
+    )
+    plan_res = await db.execute(plan_stmt)
+    plans = plan_res.scalars().all()
+    grouped: dict[str, dict[str, int | float | str | uuid.UUID]] = {}
+    for plan in plans:
+        if not plan.member_id:
+            continue
+        root_id = plan.parent_plan_id or plan.id
+        root_key = str(root_id)
+        sessions_stmt = select(func.count(WorkoutSession.id)).where(
+            WorkoutSession.plan_id == plan.id,
+            WorkoutSession.performed_at >= from_dt,
+        )
+        sessions_count = (await db.execute(sessions_stmt)).scalar_one() or 0
+        expected = max(1, int((plan.expected_sessions_per_30d or 12) * (window_days / 30)))
+        score = sessions_count / expected
+        adherent = 1 if score >= threshold else 0
+
+        if root_key not in grouped:
+            plan_name = plan.name
+            if plan.parent_plan_id:
+                parent = await db.get(WorkoutPlan, plan.parent_plan_id)
+                if parent:
+                    plan_name = parent.name
+            grouped[root_key] = {
+                "plan_id": root_id,
+                "plan_name": plan_name,
+                "assigned_members": 0,
+                "adherent_members": 0,
+            }
+        grouped[root_key]["assigned_members"] = int(grouped[root_key]["assigned_members"]) + 1
+        grouped[root_key]["adherent_members"] = int(grouped[root_key]["adherent_members"]) + adherent
+
+    rows: list[PlanAdherenceRow] = []
+    for g in grouped.values():
+        assigned_members = int(g["assigned_members"])
+        adherent_members = int(g["adherent_members"])
+        adherence_percent = round((adherent_members / assigned_members) * 100.0, 2) if assigned_members else 0.0
+        rows.append(
+            PlanAdherenceRow(
+                plan_id=g["plan_id"],  # type: ignore[arg-type]
+                plan_name=str(g["plan_name"]),
+                assigned_members=assigned_members,
+                adherent_members=adherent_members,
+                adherence_percent=adherence_percent,
+            )
+        )
+    return StandardResponse(data=rows)
+
+
+@router.get("/plans/{plan_id}/adherence", response_model=StandardResponse[PlanAdherenceRow])
+async def get_single_plan_adherence(
+    plan_id: uuid.UUID,
+    current_user: Annotated[User, Depends(dependencies.RoleChecker([Role.ADMIN, Role.COACH]))],
+    db: Annotated[AsyncSession, Depends(get_db)],
+    window_days: int = Query(30, ge=7, le=180),
+    threshold: float = Query(0.7, ge=0.1, le=1.0),
+):
+    plan = await _get_workout_plan_or_404(db, plan_id)
+    _ensure_plan_owned_by_requester_or_admin(plan, current_user, action="view adherence for")
+    root_id = plan.parent_plan_id or plan.id
+    from_dt = datetime.utcnow() - timedelta(days=window_days)
+    family_stmt = select(WorkoutPlan).where(
+        WorkoutPlan.creator_id == current_user.id,
+        WorkoutPlan.status != "ARCHIVED",
+        ((WorkoutPlan.id == root_id) | (WorkoutPlan.parent_plan_id == root_id)),
+    )
+    family_plans = (await db.execute(family_stmt)).scalars().all()
+    assigned_members = len([p for p in family_plans if p.member_id])
+    adherent_members = 0
+    root_plan_name = plan.name
+    if plan.parent_plan_id:
+        parent = await db.get(WorkoutPlan, plan.parent_plan_id)
+        if parent:
+            root_plan_name = parent.name
+
+    for family_plan in family_plans:
+        if not family_plan.member_id:
+            continue
+        sessions_stmt = select(func.count(WorkoutSession.id)).where(
+            WorkoutSession.plan_id == family_plan.id,
+            WorkoutSession.performed_at >= from_dt,
+        )
+        sessions_count = (await db.execute(sessions_stmt)).scalar_one() or 0
+        expected = max(1, int((family_plan.expected_sessions_per_30d or 12) * (window_days / 30)))
+        score = sessions_count / expected
+        if score >= threshold:
+            adherent_members += 1
+
+    adherence_percent = round((adherent_members / assigned_members) * 100.0, 2) if assigned_members else 0.0
+    row = PlanAdherenceRow(
+        plan_id=root_id,
+        plan_name=root_plan_name,
+        assigned_members=assigned_members,
+        adherent_members=adherent_members,
+        adherence_percent=adherence_percent,
+    )
+    return StandardResponse(data=row)
+
+
+@router.get("/exercise-library", response_model=StandardResponse[List[ExerciseLibraryItemResponse]])
+async def list_exercise_library(
+    current_user: Annotated[User, Depends(dependencies.RoleChecker([Role.ADMIN, Role.COACH]))],
+    db: Annotated[AsyncSession, Depends(get_db)],
+    scope: Literal["global", "mine", "all"] = Query("all"),
+    query: str | None = Query(default=None),
+):
+    stmt = select(ExerciseLibraryItem).order_by(ExerciseLibraryItem.name)
+    if scope == "global":
+        stmt = stmt.where(ExerciseLibraryItem.is_global.is_(True))
+    elif scope == "mine":
+        stmt = stmt.where(ExerciseLibraryItem.owner_coach_id == current_user.id)
+    else:
+        stmt = stmt.where(
+            (ExerciseLibraryItem.is_global.is_(True)) | (ExerciseLibraryItem.owner_coach_id == current_user.id)
+        )
+    if query:
+        like = f"%{query.strip()}%"
+        stmt = stmt.where(
+            (ExerciseLibraryItem.name.ilike(like))
+            | (ExerciseLibraryItem.category.ilike(like))
+            | (ExerciseLibraryItem.muscle_group.ilike(like))
+            | (ExerciseLibraryItem.equipment.ilike(like))
+            | (ExerciseLibraryItem.tags.ilike(like))
+        )
+    result = await db.execute(stmt)
+    items = result.scalars().all()
+    data = [
+        ExerciseLibraryItemResponse(
+            id=item.id,
+            name=item.name,
+            category=item.category,
+            muscle_group=item.muscle_group,
+            equipment=item.equipment,
+            tags=[t for t in (item.tags or "").split(",") if t],
+            default_video_url=item.default_video_url,
+            is_global=item.is_global,
+            owner_coach_id=item.owner_coach_id,
+        )
+        for item in items
+    ]
+    return StandardResponse(data=data)
+
+
+@router.post("/exercise-library", response_model=StandardResponse)
+async def create_exercise_library_item(
+    payload: ExerciseLibraryItemCreate,
+    current_user: Annotated[User, Depends(dependencies.RoleChecker([Role.ADMIN, Role.COACH]))],
+    db: Annotated[AsyncSession, Depends(get_db)],
+):
+    item = ExerciseLibraryItem(
+        name=payload.name.strip(),
+        category=payload.category.strip() if payload.category else None,
+        muscle_group=payload.muscle_group.strip() if payload.muscle_group else None,
+        equipment=payload.equipment.strip() if payload.equipment else None,
+        tags=",".join(t.strip() for t in payload.tags if t.strip()) or None,
+        default_video_url=str(payload.default_video_url) if payload.default_video_url else None,
+        is_global=bool(payload.is_global and current_user.role == Role.ADMIN),
+        owner_coach_id=None if payload.is_global and current_user.role == Role.ADMIN else current_user.id,
+        created_at=datetime.utcnow(),
+    )
+    db.add(item)
+    await db.commit()
+    return StandardResponse(message="Library item created", data={"id": str(item.id)})
+
+
+@router.post("/exercise-library/{item_id}/quick-add", response_model=StandardResponse)
+async def mark_exercise_library_recent(
+    item_id: uuid.UUID,
+    current_user: Annotated[User, Depends(dependencies.RoleChecker([Role.ADMIN, Role.COACH]))],
+    db: Annotated[AsyncSession, Depends(get_db)],
+):
+    item = await db.get(ExerciseLibraryItem, item_id)
+    if not item:
+        raise HTTPException(status_code=404, detail="Library item not found")
+    stmt = select(ExerciseLibraryRecent).where(
+        ExerciseLibraryRecent.coach_id == current_user.id,
+        ExerciseLibraryRecent.exercise_library_item_id == item_id,
+    )
+    existing = (await db.execute(stmt)).scalar_one_or_none()
+    if existing:
+        existing.last_used_at = datetime.utcnow()
+    else:
+        db.add(
+            ExerciseLibraryRecent(
+                coach_id=current_user.id,
+                exercise_library_item_id=item_id,
+                last_used_at=datetime.utcnow(),
+            )
+        )
+    await db.commit()
+    return StandardResponse(message="Recent usage recorded")
+
+
+@router.get("/exercise-library/recent", response_model=StandardResponse[List[ExerciseLibraryItemResponse]])
+async def list_exercise_library_recent(
+    current_user: Annotated[User, Depends(dependencies.RoleChecker([Role.ADMIN, Role.COACH]))],
+    db: Annotated[AsyncSession, Depends(get_db)],
+):
+    stmt = (
+        select(ExerciseLibraryRecent)
+        .where(ExerciseLibraryRecent.coach_id == current_user.id)
+        .options(selectinload(ExerciseLibraryRecent.exercise_library_item))
+        .order_by(ExerciseLibraryRecent.last_used_at.desc())
+        .limit(10)
+    )
+    rows = (await db.execute(stmt)).scalars().all()
+    data: list[ExerciseLibraryItemResponse] = []
+    for row in rows:
+        item = row.exercise_library_item
+        if not item:
+            continue
+        data.append(
+            ExerciseLibraryItemResponse(
+                id=item.id,
+                name=item.name,
+                category=item.category,
+                muscle_group=item.muscle_group,
+                equipment=item.equipment,
+                tags=[t for t in (item.tags or "").split(",") if t],
+                default_video_url=item.default_video_url,
+                is_global=item.is_global,
+                owner_coach_id=item.owner_coach_id,
+            )
+        )
+    return StandardResponse(data=data)
 
 
 

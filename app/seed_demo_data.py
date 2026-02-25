@@ -30,9 +30,13 @@ from app.models.hr import (
     PayrollStatus,
 )
 from app.models.inventory import Product, ProductCategory
+from app.models.lost_found import LostFoundComment, LostFoundItem, LostFoundMedia, LostFoundStatus
+from app.models.notification import WhatsAppAutomationRule, WhatsAppDeliveryLog
+from app.models.support import SupportMessage, SupportTicket, TicketCategory, TicketStatus
 from app.models.subscription_enums import SubscriptionStatus
 from app.models.user import User
-from app.models.workout_log import WorkoutLog
+from app.models.chat import ChatMessage, ChatReadReceipt, ChatThread
+from app.models.workout_log import DietFeedback, GymFeedback, WorkoutLog, WorkoutSession, WorkoutSessionEntry
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -64,11 +68,20 @@ DEMO_USERS = [
     {
         "email": "staff.frontdesk.demo@gym-erp.com",
         "full_name": "Morgan Frontdesk",
-        "role": Role.EMPLOYEE,
+        "role": Role.RECEPTION,
         "phone_number": "+1-555-100-2002",
         "date_of_birth": date(1995, 1, 9),
         "emergency_contact": "Rowan Frontdesk - +1-555-000-1113",
         "bio": "Front desk and member support.",
+    },
+    {
+        "email": "staff.cashier.demo@gym-erp.com",
+        "full_name": "Riley Cashier",
+        "role": Role.CASHIER,
+        "phone_number": "+1-555-100-2004",
+        "date_of_birth": date(1994, 9, 12),
+        "emergency_contact": "Jamie Cashier - +1-555-000-1115",
+        "bio": "Handles POS and checkout transactions.",
     },
     {
         "email": "staff.maint.demo@gym-erp.com",
@@ -293,6 +306,12 @@ async def seed_demo_data():
             contract_type=ContractType.PART_TIME,
             base_salary=1200.0,
         )
+        await _upsert_contract(
+            session,
+            user=users_by_email["staff.cashier.demo@gym-erp.com"],
+            contract_type=ContractType.PART_TIME,
+            base_salary=1350.0,
+        )
         await session.commit()
 
         logger.info("Seeding payroll records...")
@@ -300,6 +319,7 @@ async def seed_demo_data():
             users_by_email["coach.demo@gym-erp.com"],
             users_by_email["staff.frontdesk.demo@gym-erp.com"],
             users_by_email["staff.maint.demo@gym-erp.com"],
+            users_by_email["staff.cashier.demo@gym-erp.com"],
         ]
         now = datetime.now(timezone.utc)
         for idx, user in enumerate(payroll_targets):
@@ -364,6 +384,14 @@ async def seed_demo_data():
                 LeaveType.OTHER,
                 LeaveStatus.DENIED,
                 f"{DEMO_TAG} Personal errand",
+            ),
+            (
+                users_by_email["staff.cashier.demo@gym-erp.com"].id,
+                date.today() + timedelta(days=5),
+                date.today() + timedelta(days=6),
+                LeaveType.VACATION,
+                LeaveStatus.PENDING,
+                f"{DEMO_TAG} Family event",
             ),
         ]
         for user_id, start_d, end_d, leave_type, status, reason in leave_payloads:
@@ -490,6 +518,7 @@ async def seed_demo_data():
             users_by_email["coach.demo@gym-erp.com"],
             users_by_email["staff.frontdesk.demo@gym-erp.com"],
             users_by_email["staff.maint.demo@gym-erp.com"],
+            users_by_email["staff.cashier.demo@gym-erp.com"],
         ]
         start_window = date.today() - timedelta(days=14)
         for day in range(14):
@@ -721,6 +750,495 @@ Pre-workout: Espresso + dates""",
                     muscle_mass_kg=33.5 + (i * 0.15),
                 )
             )
+        await session.commit()
+
+        logger.info("Seeding workout sessions and feedback...")
+        anna_diet_stmt = select(DietPlan).where(
+            DietPlan.name == "Demo Lean Meal Plan - Anna",
+            DietPlan.creator_id == coach.id,
+        )
+        anna_diet = (await session.execute(anna_diet_stmt)).scalar_one_or_none()
+
+        session_anchor = datetime.utcnow().replace(hour=19, minute=0, second=0, microsecond=0)
+        for i in range(6):
+            note = f"{DEMO_TAG} Tracked session {i + 1}"
+            performed_at = session_anchor - timedelta(days=i)
+            session_stmt = select(WorkoutSession).where(
+                WorkoutSession.member_id == anna.id,
+                WorkoutSession.plan_id == anna_plan.id,
+                WorkoutSession.notes == note,
+            )
+            workout_session = (await session.execute(session_stmt)).scalar_one_or_none()
+            if workout_session:
+                continue
+
+            workout_session = WorkoutSession(
+                member_id=anna.id,
+                plan_id=anna_plan.id,
+                performed_at=performed_at,
+                duration_minutes=48 + (i * 3),
+                notes=note,
+            )
+            session.add(workout_session)
+            await session.flush()
+
+            entry_defs = [
+                ("Demo Incline Dumbbell Press", 3, 12, 3, 11, 18.0 + i, "Slow eccentrics"),
+                ("Demo Seated Row", 3, 12, 3, 12, 30.0 + (i * 1.5), None),
+                ("Demo Romanian Deadlift", 3, 10, 3, 10, 42.5 + (i * 2.0), "Grip improving"),
+                ("Demo Treadmill Intervals", 1, 1, 1, 1, None, "Intervals completed"),
+            ]
+            for order, (exercise_name, target_sets, target_reps, sets_done, reps_done, weight, notes) in enumerate(entry_defs, start=1):
+                ex = exercise_map[exercise_name]
+                session.add(
+                    WorkoutSessionEntry(
+                        session_id=workout_session.id,
+                        exercise_id=ex.id,
+                        exercise_name=exercise_name,
+                        target_sets=target_sets,
+                        target_reps=target_reps,
+                        sets_completed=sets_done,
+                        reps_completed=reps_done,
+                        weight_kg=weight,
+                        notes=notes,
+                        order=order,
+                    )
+                )
+
+        if anna_diet is not None:
+            feedback_anchor = datetime.utcnow().replace(hour=9, minute=0, second=0, microsecond=0)
+            for i in range(4):
+                created_at = feedback_anchor - timedelta(days=(i * 5))
+                comment = f"{DEMO_TAG} Diet week {i + 1}: adherence {90 - (i * 5)}%"
+                feedback_stmt = select(DietFeedback).where(
+                    DietFeedback.member_id == anna.id,
+                    DietFeedback.diet_plan_id == anna_diet.id,
+                    DietFeedback.comment == comment,
+                )
+                existing_feedback = (await session.execute(feedback_stmt)).scalar_one_or_none()
+                if existing_feedback:
+                    continue
+                session.add(
+                    DietFeedback(
+                        member_id=anna.id,
+                        diet_plan_id=anna_diet.id,
+                        coach_id=coach.id,
+                        rating=max(3, 5 - i),
+                        comment=comment,
+                        created_at=created_at,
+                    )
+                )
+
+        gym_feedback_defs = [
+            ("EQUIPMENT", 5, f"{DEMO_TAG} New dumbbells are great."),
+            ("CLEANLINESS", 4, f"{DEMO_TAG} Locker rooms are clean overall."),
+            ("STAFF", 5, f"{DEMO_TAG} Front desk support was excellent."),
+            ("CLASSES", 4, f"{DEMO_TAG} HIIT class pacing felt balanced."),
+            ("GENERAL", 5, f"{DEMO_TAG} Great atmosphere this month."),
+        ]
+        gym_feedback_anchor = datetime.utcnow().replace(hour=17, minute=0, second=0, microsecond=0)
+        for idx, (category, rating, comment) in enumerate(gym_feedback_defs):
+            created_at = gym_feedback_anchor - timedelta(days=(idx * 3))
+            gym_stmt = select(GymFeedback).where(
+                GymFeedback.member_id == anna.id,
+                GymFeedback.category == category,
+                GymFeedback.comment == comment,
+            )
+            existing = (await session.execute(gym_stmt)).scalar_one_or_none()
+            if existing:
+                continue
+            session.add(
+                GymFeedback(
+                    member_id=anna.id,
+                    category=category,
+                    rating=rating,
+                    comment=comment,
+                    created_at=created_at,
+                )
+            )
+        await session.commit()
+
+        logger.info("Seeding support tickets and messages...")
+        support_defs = [
+            {
+                "customer": users_by_email["member.anna.demo@gym-erp.com"],
+                "subject": f"{DEMO_TAG} Card payment not reflected",
+                "category": TicketCategory.BILLING,
+                "status": TicketStatus.IN_PROGRESS,
+                "messages": [
+                    (users_by_email["member.anna.demo@gym-erp.com"], "I paid yesterday but I still cannot see it."),
+                    (users_by_email["staff.frontdesk.demo@gym-erp.com"], "Checking transaction logs now."),
+                    (users_by_email["member.anna.demo@gym-erp.com"], "Thank you, sharing screenshot in app."),
+                ],
+            },
+            {
+                "customer": users_by_email["member.leo.demo@gym-erp.com"],
+                "subject": f"{DEMO_TAG} Need help updating phone number",
+                "category": TicketCategory.GENERAL,
+                "status": TicketStatus.RESOLVED,
+                "messages": [
+                    (users_by_email["member.leo.demo@gym-erp.com"], "Can you update my account phone?"),
+                    (users_by_email["staff.frontdesk.demo@gym-erp.com"], "Done. Please confirm if visible now."),
+                ],
+            },
+            {
+                "customer": users_by_email["member.maya.demo@gym-erp.com"],
+                "subject": f"{DEMO_TAG} Subscription frozen by mistake",
+                "category": TicketCategory.SUBSCRIPTION,
+                "status": TicketStatus.OPEN,
+                "messages": [
+                    (users_by_email["member.maya.demo@gym-erp.com"], "I think my account was frozen accidentally."),
+                ],
+            },
+        ]
+
+        for idx, item in enumerate(support_defs):
+            ticket_stmt = select(SupportTicket).where(
+                SupportTicket.customer_id == item["customer"].id,
+                SupportTicket.subject == item["subject"],
+            )
+            ticket = (await session.execute(ticket_stmt)).scalar_one_or_none()
+            now_ts = datetime.now(timezone.utc) - timedelta(days=(idx * 2))
+            if not ticket:
+                ticket = SupportTicket(
+                    customer_id=item["customer"].id,
+                    subject=item["subject"],
+                    category=item["category"],
+                    status=item["status"],
+                    created_at=now_ts,
+                    updated_at=now_ts,
+                )
+                session.add(ticket)
+                await session.flush()
+            else:
+                ticket.category = item["category"]
+                ticket.status = item["status"]
+                ticket.updated_at = now_ts
+
+            for msg_idx, (sender, text) in enumerate(item["messages"]):
+                msg_stmt = select(SupportMessage).where(
+                    SupportMessage.ticket_id == ticket.id,
+                    SupportMessage.sender_id == sender.id,
+                    SupportMessage.message == text,
+                )
+                exists_msg = (await session.execute(msg_stmt)).scalar_one_or_none()
+                if exists_msg:
+                    continue
+                session.add(
+                    SupportMessage(
+                        ticket_id=ticket.id,
+                        sender_id=sender.id,
+                        message=text,
+                        created_at=now_ts + timedelta(minutes=(msg_idx + 1) * 7),
+                    )
+                )
+        await session.commit()
+
+        logger.info("Seeding chat threads, messages, and read receipts...")
+        chat_pairs = [
+            (users_by_email["member.anna.demo@gym-erp.com"], coach),
+            (users_by_email["member.leo.demo@gym-erp.com"], coach),
+            (users_by_email["member.sophia.demo@gym-erp.com"], coach),
+        ]
+        chat_anchor = datetime.now(timezone.utc).replace(hour=14, minute=0, second=0, microsecond=0)
+        for pair_idx, (customer, coach_user) in enumerate(chat_pairs):
+            thread_stmt = select(ChatThread).where(
+                ChatThread.customer_id == customer.id,
+                ChatThread.coach_id == coach_user.id,
+            )
+            thread = (await session.execute(thread_stmt)).scalar_one_or_none()
+            created_at = chat_anchor - timedelta(days=(pair_idx + 1))
+            if not thread:
+                thread = ChatThread(
+                    customer_id=customer.id,
+                    coach_id=coach_user.id,
+                    created_at=created_at,
+                    updated_at=created_at,
+                    last_message_at=created_at,
+                )
+                session.add(thread)
+                await session.flush()
+
+            msg_defs = [
+                (customer, "TEXT", f"{DEMO_TAG} Hi coach, can we review my progress?", None),
+                (coach_user, "TEXT", f"{DEMO_TAG} Sure, send your latest workout notes.", None),
+                (customer, "IMAGE", f"{DEMO_TAG} Uploaded meal photo", "image/jpeg"),
+            ]
+            last_message = None
+            for msg_idx, (sender, msg_type, text, mime) in enumerate(msg_defs):
+                created_msg_at = created_at + timedelta(minutes=(msg_idx + 1) * 9)
+                msg_stmt = select(ChatMessage).where(
+                    ChatMessage.thread_id == thread.id,
+                    ChatMessage.sender_id == sender.id,
+                    ChatMessage.message_type == msg_type,
+                    ChatMessage.text_content == text,
+                )
+                existing_msg = (await session.execute(msg_stmt)).scalar_one_or_none()
+                if existing_msg:
+                    last_message = existing_msg
+                    continue
+                message = ChatMessage(
+                    thread_id=thread.id,
+                    sender_id=sender.id,
+                    message_type=msg_type,
+                    text_content=text,
+                    media_url=f"/static/chat_media/{thread.id}/demo-{msg_idx + 1}.jpg" if msg_type == "IMAGE" else None,
+                    media_mime=mime,
+                    media_size_bytes=164823 if msg_type == "IMAGE" else None,
+                    created_at=created_msg_at,
+                    is_deleted=False,
+                )
+                session.add(message)
+                await session.flush()
+                last_message = message
+
+            if last_message is not None:
+                thread.updated_at = last_message.created_at
+                thread.last_message_at = last_message.created_at
+
+                receipt_defs = [
+                    (customer.id, last_message.id, last_message.created_at),
+                    (coach_user.id, last_message.id, last_message.created_at + timedelta(minutes=2)),
+                ]
+                for receipt_user_id, last_message_id, read_at in receipt_defs:
+                    receipt_stmt = select(ChatReadReceipt).where(
+                        ChatReadReceipt.thread_id == thread.id,
+                        ChatReadReceipt.user_id == receipt_user_id,
+                    )
+                    receipt = (await session.execute(receipt_stmt)).scalar_one_or_none()
+                    if not receipt:
+                        receipt = ChatReadReceipt(
+                            thread_id=thread.id,
+                            user_id=receipt_user_id,
+                            last_read_message_id=last_message_id,
+                            last_read_at=read_at,
+                        )
+                        session.add(receipt)
+                    else:
+                        receipt.last_read_message_id = last_message_id
+                        receipt.last_read_at = read_at
+        await session.commit()
+
+        logger.info("Seeding lost & found...")
+        lost_found_defs = [
+            (
+                users_by_email["member.anna.demo@gym-erp.com"],
+                users_by_email["staff.frontdesk.demo@gym-erp.com"],
+                LostFoundStatus.UNDER_REVIEW,
+                "Black lifting gloves",
+                "Pair of black lifting gloves left near free weights.",
+                "ACCESSORY",
+                date.today() - timedelta(days=2),
+                "Free weights area",
+            ),
+            (
+                users_by_email["member.leo.demo@gym-erp.com"],
+                users_by_email["staff.frontdesk.demo@gym-erp.com"],
+                LostFoundStatus.READY_FOR_PICKUP,
+                "Silver water bottle",
+                "Metal bottle with blue sticker near treadmill.",
+                "BOTTLE",
+                date.today() - timedelta(days=4),
+                "Cardio zone",
+            ),
+            (
+                users_by_email["member.maya.demo@gym-erp.com"],
+                users_by_email["admin.demo@gym-erp.com"],
+                LostFoundStatus.CLOSED,
+                "Wireless earbuds case",
+                "Small black earbuds charging case.",
+                "ELECTRONICS",
+                date.today() - timedelta(days=10),
+                "Locker room",
+            ),
+        ]
+        for idx, (reporter, assignee, status_value, title, description, category, found_date, location) in enumerate(lost_found_defs):
+            item_stmt = select(LostFoundItem).where(
+                LostFoundItem.reporter_id == reporter.id,
+                LostFoundItem.title == title,
+            )
+            item = (await session.execute(item_stmt)).scalar_one_or_none()
+            created_at = datetime.now(timezone.utc) - timedelta(days=(idx * 3 + 1))
+            if not item:
+                item = LostFoundItem(
+                    reporter_id=reporter.id,
+                    assignee_id=assignee.id,
+                    status=status_value,
+                    title=title,
+                    description=description,
+                    category=category,
+                    found_date=found_date,
+                    found_location=location,
+                    contact_note=f"{DEMO_TAG} Contact front desk",
+                    created_at=created_at,
+                    updated_at=created_at,
+                    closed_at=created_at + timedelta(days=2) if status_value in {LostFoundStatus.CLOSED, LostFoundStatus.REJECTED, LostFoundStatus.DISPOSED} else None,
+                )
+                session.add(item)
+                await session.flush()
+            else:
+                item.assignee_id = assignee.id
+                item.status = status_value
+                item.updated_at = created_at
+                item.closed_at = created_at + timedelta(days=2) if status_value in {LostFoundStatus.CLOSED, LostFoundStatus.REJECTED, LostFoundStatus.DISPOSED} else None
+
+            media_stmt = select(LostFoundMedia).where(
+                LostFoundMedia.item_id == item.id,
+                LostFoundMedia.media_url == f"/static/lost_found_media/{item.id}/demo-proof-{idx + 1}.jpg",
+            )
+            media = (await session.execute(media_stmt)).scalar_one_or_none()
+            if not media:
+                session.add(
+                    LostFoundMedia(
+                        item_id=item.id,
+                        uploader_id=reporter.id,
+                        media_url=f"/static/lost_found_media/{item.id}/demo-proof-{idx + 1}.jpg",
+                        media_mime="image/jpeg",
+                        media_size_bytes=242_000 + (idx * 10_000),
+                        created_at=created_at + timedelta(minutes=5),
+                    )
+                )
+
+            comments = [
+                (reporter.id, f"{DEMO_TAG} Reported by member."),
+                (assignee.id, f"{DEMO_TAG} Reviewed by handler."),
+            ]
+            for comment_author_id, text in comments:
+                comment_stmt = select(LostFoundComment).where(
+                    LostFoundComment.item_id == item.id,
+                    LostFoundComment.author_id == comment_author_id,
+                    LostFoundComment.text == text,
+                )
+                existing_comment = (await session.execute(comment_stmt)).scalar_one_or_none()
+                if existing_comment:
+                    continue
+                session.add(
+                    LostFoundComment(
+                        item_id=item.id,
+                        author_id=comment_author_id,
+                        text=text,
+                        created_at=created_at + timedelta(minutes=12),
+                    )
+                )
+        await session.commit()
+
+        logger.info("Seeding WhatsApp automation and delivery logs...")
+        notifications_manager = users_by_email["staff.frontdesk.demo@gym-erp.com"]
+        automation_defs = [
+            (
+                "ACCESS_GRANTED",
+                "Access Grant Message",
+                "access_granted_v1",
+                "Hi {name}, your gym access was granted at {time}.",
+                True,
+            ),
+            (
+                "SUBSCRIPTION_CREATED",
+                "Subscription Activated",
+                "subscription_created_v1",
+                "Welcome {name}, your {plan} subscription is now active.",
+                True,
+            ),
+            (
+                "SUBSCRIPTION_RENEWED",
+                "Subscription Renewed",
+                "subscription_renewed_v1",
+                "Hi {name}, your subscription has been renewed successfully.",
+                True,
+            ),
+            (
+                "SUBSCRIPTION_STATUS_CHANGED",
+                "Subscription Status Update",
+                "subscription_status_changed_v1",
+                "Hi {name}, your subscription status changed to {status}.",
+                True,
+            ),
+        ]
+        for event_type, trigger_name, template_key, message_template, is_enabled in automation_defs:
+            rule_stmt = select(WhatsAppAutomationRule).where(
+                WhatsAppAutomationRule.event_type == event_type
+            )
+            rule = (await session.execute(rule_stmt)).scalar_one_or_none()
+            if not rule:
+                rule = WhatsAppAutomationRule(
+                    event_type=event_type,
+                    trigger_name=trigger_name,
+                    template_key=template_key,
+                    message_template=message_template,
+                    is_enabled=is_enabled,
+                    updated_by=notifications_manager.id,
+                    updated_at=datetime.now(timezone.utc),
+                )
+                session.add(rule)
+            else:
+                rule.trigger_name = trigger_name
+                rule.template_key = template_key
+                rule.message_template = message_template
+                rule.is_enabled = is_enabled
+                rule.updated_by = notifications_manager.id
+                rule.updated_at = datetime.now(timezone.utc)
+
+        delivery_defs = [
+            (
+                users_by_email["member.anna.demo@gym-erp.com"],
+                "ACCESS_GRANTED",
+                "SENT",
+                "access_granted_v1",
+                "ENTRY-1001",
+                1,
+            ),
+            (
+                users_by_email["member.maya.demo@gym-erp.com"],
+                "SUBSCRIPTION_STATUS_CHANGED",
+                "FAILED",
+                "subscription_status_changed_v1",
+                "SUB-2201",
+                2,
+            ),
+            (
+                users_by_email["member.leo.demo@gym-erp.com"],
+                "SUBSCRIPTION_RENEWED",
+                "SENT",
+                "subscription_renewed_v1",
+                "SUB-2202",
+                1,
+            ),
+        ]
+        for idx, (member, event_type, status_value, template_key, event_ref, attempts) in enumerate(delivery_defs):
+            idempotency_key = f"demo-wa-{event_type.lower()}-{member.id}"
+            log_stmt = select(WhatsAppDeliveryLog).where(
+                WhatsAppDeliveryLog.idempotency_key == idempotency_key
+            )
+            log = (await session.execute(log_stmt)).scalar_one_or_none()
+            created_at = datetime.now(timezone.utc) - timedelta(hours=(idx * 6 + 1))
+            if not log:
+                log = WhatsAppDeliveryLog(
+                    user_id=member.id,
+                    phone_number=member.phone_number,
+                    template_key=template_key,
+                    payload_json=f'{{"name":"{member.full_name}","event":"{event_type}"}}',
+                    event_type=event_type,
+                    event_ref=event_ref,
+                    idempotency_key=idempotency_key,
+                    status=status_value,
+                    provider_message_id=f"provider-msg-{idx + 1}" if status_value == "SENT" else None,
+                    error_message="Provider timeout" if status_value == "FAILED" else None,
+                    attempt_count=attempts,
+                    created_at=created_at,
+                    sent_at=created_at + timedelta(seconds=12) if status_value == "SENT" else None,
+                    failed_at=created_at + timedelta(seconds=18) if status_value == "FAILED" else None,
+                )
+                session.add(log)
+            else:
+                log.status = status_value
+                log.template_key = template_key
+                log.payload_json = f'{{"name":"{member.full_name}","event":"{event_type}"}}'
+                log.event_ref = event_ref
+                log.attempt_count = attempts
+                log.provider_message_id = f"provider-msg-{idx + 1}" if status_value == "SENT" else None
+                log.error_message = "Provider timeout" if status_value == "FAILED" else None
+                log.sent_at = created_at + timedelta(seconds=12) if status_value == "SENT" else None
+                log.failed_at = created_at + timedelta(seconds=18) if status_value == "FAILED" else None
         await session.commit()
 
         logger.info("Seeding gamification...")
