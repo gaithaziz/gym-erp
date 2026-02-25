@@ -245,6 +245,8 @@ export default function ChatPage() {
             setMessages(rows);
             if (!isAdmin) {
                 await api.post(`/chat/threads/${threadId}/read`);
+                await fetchThreads();
+                window.dispatchEvent(new Event('chat:sync-indicators'));
             }
         } catch (err: unknown) {
             const statusCode = (err as { response?: { status?: number } })?.response?.status;

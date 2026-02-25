@@ -57,7 +57,6 @@ export default function DashboardLayout({
     const isBlockedRouteAllowed = BLOCKED_ALLOWED_ROUTES.some((route) => pathname.startsWith(route));
     const isSupportPage = pathname.startsWith('/dashboard/admin/support') || pathname.startsWith('/dashboard/support');
     const isLostFoundPage = pathname.startsWith('/dashboard/lost-found');
-    const isChatPage = pathname.startsWith('/dashboard/chat');
 
     useEffect(() => {
         if (!isLoading && !user) {
@@ -88,7 +87,6 @@ export default function DashboardLayout({
 
         const seenKeySupport = `last_seen_support_${user.id}`;
         const seenKeyLostFound = `last_seen_lost_found_${user.id}`;
-        const seenKeyChat = `last_seen_chat_${user.id}`;
 
         const getSeenTs = (key: string) => {
             const raw = localStorage.getItem(key);
@@ -102,7 +100,7 @@ export default function DashboardLayout({
                 const tasks: Array<Promise<unknown>> = [];
                 let supportLatest: string | null = null;
                 let lostFoundLatest: string | null = null;
-                let chatThreads: Array<{ last_message_at?: string | null }> = [];
+                let chatThreads: Array<{ unread_count?: number | null }> = [];
 
                 tasks.push(
                     api.get('/support/tickets', { params: { is_active: true, limit: 1 } }).then((resp) => {
@@ -125,7 +123,7 @@ export default function DashboardLayout({
                 if (canUseChat) {
                     tasks.push(
                         api.get('/chat/threads', { params: { limit: 100, sort_by: 'last_message_at', sort_order: 'desc' } }).then((resp) => {
-                            chatThreads = (resp.data?.data || []) as Array<{ last_message_at?: string | null }>;
+                            chatThreads = (resp.data?.data || []) as Array<{ unread_count?: number | null }>;
                         }).catch(() => {
                             chatThreads = [];
                         })
@@ -143,11 +141,7 @@ export default function DashboardLayout({
                 setLostFoundHasNew(lostFoundTs > seenLostFound && lostFoundTs > 0);
 
                 if (canUseChat) {
-                    const seenChat = getSeenTs(seenKeyChat);
-                    const newConvoCount = chatThreads.filter((t) => {
-                        const ts = t.last_message_at ? new Date(t.last_message_at).getTime() : 0;
-                        return ts > seenChat;
-                    }).length;
+                    const newConvoCount = chatThreads.filter((t) => (t.unread_count || 0) > 0).length;
                     setChatNewConversations(newConvoCount);
                 } else {
                     setChatNewConversations(0);
@@ -160,8 +154,15 @@ export default function DashboardLayout({
         };
 
         refreshIndicators();
+        const handleChatIndicatorSync = () => {
+            void refreshIndicators();
+        };
+        window.addEventListener('chat:sync-indicators', handleChatIndicatorSync);
         const intervalId = window.setInterval(refreshIndicators, 12000);
-        return () => window.clearInterval(intervalId);
+        return () => {
+            window.clearInterval(intervalId);
+            window.removeEventListener('chat:sync-indicators', handleChatIndicatorSync);
+        };
     }, [user, canUseChat]);
 
     useEffect(() => {
@@ -175,14 +176,6 @@ export default function DashboardLayout({
             setLostFoundHasNew(false);
         }
     }, [pathname, isSupportPage, isLostFoundPage, user]);
-
-    useEffect(() => {
-        if (!user) return;
-        if (chatOpen || isChatPage) {
-            localStorage.setItem(`last_seen_chat_${user.id}`, String(Date.now()));
-            setChatNewConversations(0);
-        }
-    }, [chatOpen, isChatPage, user]);
 
     if (isLoading || !user) {
         return (

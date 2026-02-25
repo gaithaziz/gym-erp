@@ -313,3 +313,25 @@
 - `npm run build` (frontend) passed after each major frontend change set.
 - `docker compose up -d --build backend` completed successfully.
 - Backend startup logs confirmed healthy service after model fix.
+
+## 27) Chat Indicators: Receiver-Only + Faster Read Sync
+- Reported issue:
+  - When coach/customer sent a message, both sides could appear as having a "new chat" indicator.
+  - Read status could feel delayed before indicators cleared.
+- Root cause:
+  - Floating chat badge in dashboard layout was computed from `last_message_at` vs local `last_seen_chat`, which is sender/receiver symmetric.
+- Implemented fixes:
+  - Switched floating badge logic to backend unread state:
+    - Count unread threads using `thread.unread_count > 0`.
+    - Removed chat `last_seen_chat_*` dependency for badge calculation.
+  - Added immediate indicator sync after marking thread as read:
+    - Chat page now refreshes threads and dispatches `chat:sync-indicators` right after `POST /chat/threads/{threadId}/read`.
+    - Dashboard layout listens for `chat:sync-indicators` and refreshes indicators immediately.
+- Scope confirmation:
+  - Drawer and chat page thread badges already used `unread_count` and were kept.
+  - Admin remains read-only and does not show unread chat badge behavior.
+- Files changed:
+  - `frontend/src/app/dashboard/layout.tsx`
+  - `frontend/src/app/dashboard/chat/page.tsx`
+- Validation note:
+  - Targeted lint still shows a pre-existing `react-hooks/set-state-in-effect` warning in `layout.tsx` (support/lost-found effect), unrelated to the chat indicator logic.
