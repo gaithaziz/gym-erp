@@ -95,6 +95,7 @@ export default function MembersPage() {
     const router = useRouter();
     const { user } = useAuth();
     const canManageMembers = ['ADMIN', 'RECEPTION', 'FRONT_DESK'].includes(user?.role || '');
+    const canAssignPlans = ['ADMIN', 'COACH'].includes(user?.role || '');
     const canMessageClient = ['ADMIN', 'COACH'].includes(user?.role || '');
     const { showToast, confirm: confirmAction } = useFeedback();
     const [members, setMembers] = useState<Member[]>([]);
@@ -337,6 +338,7 @@ export default function MembersPage() {
     };
 
     const openAssignPlan = async (member: Member) => {
+        if (!canAssignPlans) return;
         setAssignMember(member);
         if (plans.length === 0) await fetchPlans();
         if (dietPlans.length === 0) await fetchDietPlans();
@@ -539,13 +541,15 @@ export default function MembersPage() {
                                                     <MessageCircle size={14} /> Message
                                                 </button>
                                             )}
-                                            <button
-                                                onClick={() => openAssignPlan(m)}
-                                                className="btn-ghost py-1 px-2 h-auto text-xs text-orange-400 hover:text-orange-300"
-                                                title="Assign Plan"
-                                            >
-                                                <Dumbbell size={14} /> Assign
-                                            </button>
+                                            {canAssignPlans && (
+                                                <button
+                                                    onClick={() => openAssignPlan(m)}
+                                                    className="btn-ghost py-1 px-2 h-auto text-xs text-orange-400 hover:text-orange-300"
+                                                    title="Assign Plan"
+                                                >
+                                                    <Dumbbell size={14} /> Assign
+                                                </button>
+                                            )}
                                             {canManageMembers && (
                                                 <button
                                                     onClick={() => openManage(m)}
@@ -626,13 +630,15 @@ export default function MembersPage() {
                                 >
                                     <Eye size={14} /> View
                                 </button>
-                                <button
-                                    onClick={() => openAssignPlan(m)}
-                                    className="btn-ghost !px-2 !py-2 h-auto text-xs text-orange-400 hover:text-orange-300 justify-center"
-                                    title="Assign Plan"
-                                >
-                                    <Dumbbell size={14} /> Assign
-                                </button>
+                                {canAssignPlans && (
+                                    <button
+                                        onClick={() => openAssignPlan(m)}
+                                        className="btn-ghost !px-2 !py-2 h-auto text-xs text-orange-400 hover:text-orange-300 justify-center"
+                                        title="Assign Plan"
+                                    >
+                                        <Dumbbell size={14} /> Assign
+                                    </button>
+                                )}
                                 {canMessageClient && (
                                     <button
                                         onClick={() => handleMessageClient(m.id)}
@@ -851,7 +857,7 @@ export default function MembersPage() {
             </Modal>
 
             {/* ASSIGN PLAN MODAL */}
-            <Modal isOpen={isAssignPlanOpen} onClose={() => setIsAssignPlanOpen(false)} title={`Assign Plan - ${assignMember?.full_name || ''}`}>
+            <Modal isOpen={isAssignPlanOpen && canAssignPlans} onClose={() => setIsAssignPlanOpen(false)} title={`Assign Plan - ${assignMember?.full_name || ''}`}>
                 <form onSubmit={handleAssignPlan} className="space-y-4">
                     <div>
                         <label className="block text-xs font-medium text-muted-foreground mb-1.5">Plan Type</label>
