@@ -69,6 +69,7 @@ interface Diet {
     name: string;
     description?: string;
     content: string;
+    member_id?: string | null;
 }
 
 interface MemberSummary {
@@ -86,6 +87,8 @@ interface BiometricLogResponse {
     body_fat_pct?: number;
     muscle_mass_kg?: number;
 }
+
+type CoachBiometricMetricKey = 'weight_kg' | 'body_fat_pct' | 'muscle_mass_kg';
 
 interface WorkoutSessionEntry {
     id: string;
@@ -535,12 +538,19 @@ function AdminDashboard({ userName }: { userName: string }) {
 // ======================== COACH DASHBOARD ========================
 
 function CoachDashboard({ userName }: { userName: string }) {
+    const chartMetricConfig: Array<{ key: CoachBiometricMetricKey; label: string; color: string }> = [
+        { key: 'weight_kg', label: 'Weight (kg)', color: 'var(--primary)' },
+        { key: 'body_fat_pct', label: 'Body Fat (%)', color: '#f97316' },
+        { key: 'muscle_mass_kg', label: 'Muscle Mass (kg)', color: '#22c55e' },
+    ];
+
     const [plansCount, setPlansCount] = useState(0);
     const [dietsCount, setDietsCount] = useState(0);
     const [plans, setPlans] = useState<Plan[]>([]);
     const [members, setMembers] = useState<MemberSummary[]>([]);
     const [selectedMemberId, setSelectedMemberId] = useState('');
     const [memberBiometrics, setMemberBiometrics] = useState<BiometricLogResponse[]>([]);
+    const [selectedMetric, setSelectedMetric] = useState<CoachBiometricMetricKey>('weight_kg');
     const [planAdherence, setPlanAdherence] = useState({ rate: 0, adherent: 0, assigned: 0 });
     const [loading, setLoading] = useState(true);
 
@@ -593,10 +603,11 @@ function CoachDashboard({ userName }: { userName: string }) {
         ]).then(([plansRes, dietsRes, membersRes]) => {
             const plansData = plansRes.data.data || [];
             const dietsData = dietsRes.data.data || [];
+            const assignedDietsData = dietsData.filter((diet: Diet) => !!diet.member_id);
             const membersData = membersRes.data.data || [];
             setPlans(plansData);
             setPlansCount(plansData.length);
-            setDietsCount(dietsData.length);
+            setDietsCount(assignedDietsData.length);
             setMembers(membersData);
             if (membersData.length > 0) setSelectedMemberId(membersData[0].id);
             fetchPlanAdherence(plansData).catch(() => setPlanAdherence({ rate: 0, adherent: 0, assigned: 0 }));
@@ -620,6 +631,8 @@ function CoachDashboard({ userName }: { userName: string }) {
     const selectedMember = members.find(member => member.id === selectedMemberId);
     const selectedMemberAge = calculateAge(selectedMember?.date_of_birth);
     const latestMemberMetrics = memberBiometrics.length > 0 ? memberBiometrics[memberBiometrics.length - 1] : null;
+
+    const selectedMetricConfig = chartMetricConfig.find((metric) => metric.key === selectedMetric) ?? chartMetricConfig[0];
 
     return (
         <div className="space-y-8">
@@ -645,9 +658,9 @@ function CoachDashboard({ userName }: { userName: string }) {
                 <div className="kpi-card group">
                     <div className="flex items-start justify-between">
                         <div>
-                            <p className="inline-flex rounded-md border border-orange-500/30 bg-orange-500/10 px-2 py-1 text-xs font-extrabold text-orange-500 uppercase tracking-wider font-mono">Diet Plans</p>
+                            <p className="inline-flex rounded-md border border-orange-500/30 bg-orange-500/10 px-2 py-1 text-xs font-extrabold text-orange-500 uppercase tracking-wider font-mono">Assigned Diet Plans</p>
                             <p className="text-3xl font-bold text-foreground mt-2 font-mono tracking-tighter">{dietsCount}</p>
-                            <p className="text-xs text-muted-foreground mt-1">Nutrition programs</p>
+                            <p className="text-xs text-muted-foreground mt-1">Assigned to members</p>
                         </div>
                         <div className="p-2 border border-border bg-muted/50">
                             <Utensils size={18} className="text-foreground" />
@@ -790,7 +803,37 @@ function CoachDashboard({ userName }: { userName: string }) {
                     <div className="text-sm text-muted-foreground">No client selected.</div>
                 )}
 
-                <div className="h-56 lg:h-64">
+                <div className="space-y-3">
+                    <div className="flex flex-wrap gap-2">
+                        {chartMetricConfig.map((metric) => {
+                            const enabled = selectedMetric === metric.key;
+                            return (
+                                <label
+                                    key={metric.key}
+                                    className={`min-h-9 rounded-sm border px-2.5 py-1 text-xs font-semibold transition-colors ${
+                                        enabled
+                                            ? 'border-primary bg-primary/10 text-primary'
+                                            : 'border-border bg-muted/20 text-muted-foreground hover:text-foreground'
+                                    }`}
+                                    title={`Show ${metric.label}`}
+                                >
+                                    <input
+                                        type="radio"
+                                        name="coach-biometric-metric"
+                                        className="sr-only"
+                                        checked={enabled}
+                                        onChange={() => setSelectedMetric(metric.key)}
+                                    />
+                                    <span className="inline-flex items-center gap-2">
+                                        <span className="h-2.5 w-2.5 rounded-full" style={{ backgroundColor: metric.color }} />
+                                        {metric.label}
+                                    </span>
+                                </label>
+                            );
+                        })}
+                    </div>
+
+                    <div className="h-56 lg:h-64">
                     {memberBiometrics.length > 0 ? (
                         <ResponsiveContainer width="100%" height="100%" minHeight={1} minWidth={1}>
                             <LineChart data={memberBiometrics}>
@@ -804,9 +847,14 @@ function CoachDashboard({ userName }: { userName: string }) {
                                 />
                                 <YAxis tick={{ fontSize: 11, fill: 'var(--muted-foreground)', fontFamily: 'var(--font-mono)' }} axisLine={false} tickLine={false} />
                                 <Tooltip contentStyle={{ background: 'var(--card)', border: '1px solid var(--border)', borderRadius: '0px', fontSize: '0.8rem', color: 'var(--foreground)' }} labelFormatter={(label) => new Date(label as string).toLocaleDateString()} />
-                                <Line type="monotone" dataKey="weight_kg" stroke="var(--primary)" strokeWidth={2} name="Weight (kg)" dot={{ r: 3, fill: 'var(--primary)' }} />
-                                <Line type="monotone" dataKey="body_fat_pct" stroke="#f97316" strokeWidth={2} name="Body Fat (%)" dot={{ r: 3, fill: '#f97316' }} />
-                                <Line type="monotone" dataKey="muscle_mass_kg" stroke="#22c55e" strokeWidth={2} name="Muscle Mass (kg)" dot={{ r: 3, fill: '#22c55e' }} />
+                                <Line
+                                    type="monotone"
+                                    dataKey={selectedMetricConfig.key}
+                                    stroke={selectedMetricConfig.color}
+                                    strokeWidth={2}
+                                    name={selectedMetricConfig.label}
+                                    dot={{ r: 3, fill: selectedMetricConfig.color }}
+                                />
                             </LineChart>
                         </ResponsiveContainer>
                     ) : (
@@ -815,6 +863,7 @@ function CoachDashboard({ userName }: { userName: string }) {
                             <span>NO BIOMETRIC DATA FOR THIS CLIENT</span>
                         </div>
                     )}
+                </div>
                 </div>
             </div>
         </div>

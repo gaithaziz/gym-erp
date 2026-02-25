@@ -60,5 +60,3 @@ Then try running `npm run dev` again.
 docker compose up -d --build backend frontend
 docker exec gym_erp_backend alembic upgrade head
 docker compose stop
-
-

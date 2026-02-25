@@ -3,10 +3,14 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { api } from '@/lib/api';
 import Link from 'next/link';
-import { Plus, Dumbbell, Trash2, ChevronDown, ChevronUp, UserPlus, Pencil, Save, X, Video, PlayCircle, RefreshCw, Send } from 'lucide-react';
+import { Plus, Dumbbell, Trash2, Archive, UserPlus, Pencil, Save, X, Video, PlayCircle, RefreshCw, Send } from 'lucide-react';
 import Modal from '@/components/Modal';
 import { useFeedback } from '@/components/FeedbackProvider';
 import MemberSearchSelect from '@/components/MemberSearchSelect';
+import PlanCardShell from '@/components/PlanCardShell';
+import PlanDetailsToggle from '@/components/PlanDetailsToggle';
+import PlanSectionHeader from '@/components/PlanSectionHeader';
+import AssignPlanSummaryPanel from '@/components/AssignPlanSummaryPanel';
 
 interface Member {
     id: string;
@@ -104,7 +108,9 @@ export default function WorkoutPlansPage() {
 
     const [showModal, setShowModal] = useState(false);
     const [editingPlan, setEditingPlan] = useState<Plan | null>(null);
-    const [expandedPlan, setExpandedPlan] = useState<string | null>(null);
+    const [modalStep, setModalStep] = useState<1 | 2>(1);
+    const [expandedTemplatePlanId, setExpandedTemplatePlanId] = useState<string | null>(null);
+    const [expandedAssignedPlanId, setExpandedAssignedPlanId] = useState<string | null>(null);
     const [videoPopup, setVideoPopup] = useState<{
         title: string;
         youtubeEmbedUrl?: string;
@@ -262,6 +268,7 @@ export default function WorkoutPlansPage() {
     const resetForm = () => {
         const defaultSection = { id: makeId(), name: 'General', exercises: [] };
         setEditingPlan(null);
+        setModalStep(1);
         setPlanName('');
         setPlanDesc('');
         setPlanStatus('DRAFT');
@@ -358,6 +365,7 @@ export default function WorkoutPlansPage() {
         setCurrentVideoType('');
         setCurrentVideoUrl('');
         setCurrentVideoFile(null);
+        setLibraryOpen(false);
     };
 
     const removeExerciseFromSection = (sectionId: string, idx: number) => {
@@ -426,6 +434,7 @@ export default function WorkoutPlansPage() {
         const nextSections = mappedSections.length > 0 ? mappedSections : [{ id: makeId(), name: 'General', exercises: [] }];
         setSections(nextSections);
         setActiveSectionId(nextSections[0].id);
+        setModalStep(1);
         setShowModal(true);
         fetchExerciseLibrary();
     };
@@ -433,6 +442,14 @@ export default function WorkoutPlansPage() {
     const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
         const exercises = flattenExercises();
+        if (!planName.trim()) {
+            showToast('Plan name is required.', 'error');
+            return;
+        }
+        if (expectedSessions30d < 1 || expectedSessions30d > 60) {
+            showToast('Expected sessions must be between 1 and 60.', 'error');
+            return;
+        }
         if (exercises.length === 0) { showToast('Add at least one exercise before saving.', 'error'); return; }
         try {
             const payload = {
@@ -458,6 +475,27 @@ export default function WorkoutPlansPage() {
             setShowModal(false);
             fetchData();
         } catch { showToast(`Failed to ${editingPlan ? 'update' : 'create'} plan`, 'error'); }
+    };
+
+    const goToBuilderStep = () => {
+        if (!planName.trim()) {
+            showToast('Plan name is required.', 'error');
+            return;
+        }
+        if (expectedSessions30d < 1 || expectedSessions30d > 60) {
+            showToast('Expected sessions must be between 1 and 60.', 'error');
+            return;
+        }
+        setModalStep(2);
+    };
+
+    const handleModalSubmit = (e: React.FormEvent) => {
+        if (modalStep === 1) {
+            e.preventDefault();
+            goToBuilderStep();
+            return;
+        }
+        handleSubmit(e);
     };
 
     const openAssign = (plan: Plan) => {
@@ -537,8 +575,6 @@ export default function WorkoutPlansPage() {
         }
     };
 
-    const toggleExpand = (planId: string) => setExpandedPlan(expandedPlan === planId ? null : planId);
-
     const renderExerciseLine = (
         ex: WorkoutExerciseItem,
         key: string | number,
@@ -596,6 +632,31 @@ export default function WorkoutPlansPage() {
         );
     };
 
+    const renderGroupedPreview = (plan: Plan, expanded: boolean) => {
+        const grouped = groupExercises(plan.exercises);
+        const entries = Object.entries(grouped);
+        const visibleEntries = expanded ? entries : entries.slice(0, 2);
+
+        return (
+            <div className="space-y-2">
+                {visibleEntries.map(([sectionName, exercises]) => (
+                    <div key={`${plan.id}-${sectionName}`} className="rounded-sm border border-border bg-muted/20 px-3 py-2 space-y-2">
+                        <div className="flex items-center justify-between gap-2">
+                            <p className="text-[11px] uppercase tracking-wider text-primary font-semibold">{sectionName}</p>
+                            <span className="text-[11px] font-mono text-muted-foreground">{exercises.length} exercises</span>
+                        </div>
+                        {expanded && exercises.map((exercise, index) => (
+                            renderExerciseLine(exercise, `${plan.id}-${sectionName}-${index}`, { compact: true })
+                        ))}
+                    </div>
+                ))}
+                {!expanded && entries.length > 2 && (
+                    <p className="text-xs text-primary font-medium">+{entries.length - 2} more section(s)</p>
+                )}
+            </div>
+        );
+    };
+
     const templatePlans = useMemo(() => plans.filter(p => !p.member_id), [plans]);
     const assignedPlans = useMemo(() => plans.filter(p => p.member_id), [plans]);
     const templateStatusFilters: Array<'ALL' | Plan['status']> = ['ALL', 'PUBLISHED', 'DRAFT', 'ARCHIVED'];
@@ -639,35 +700,6 @@ export default function WorkoutPlansPage() {
 
     if (loading) return <div className="flex h-64 items-center justify-center"><div className="h-8 w-8 animate-spin rounded-full border-4 border-primary border-t-transparent" /></div>;
 
-    const renderGrouped = (plan: Plan, compact: boolean) => {
-        const grouped = groupExercises(plan.exercises);
-        const entries = Object.entries(grouped);
-        if (compact) {
-            return (
-                <div className="space-y-3">
-                    {entries.map(([sec, exs]) => (
-                        <div key={sec} className="rounded-sm border border-border/80 bg-muted/10 px-3 py-2">
-                            <div className="flex items-center justify-between gap-3">
-                                <p className="text-[11px] uppercase tracking-wider text-primary font-semibold">{sec}</p>
-                                <span className="text-[11px] font-mono text-muted-foreground">{exs.length} workouts</span>
-                            </div>
-                        </div>
-                    ))}
-                </div>
-            );
-        }
-        return (
-            <div className="space-y-3">
-                {entries.map(([sec, exs]) => (
-                    <div key={sec} className="rounded-sm border border-primary/25 bg-primary/5 p-2.5 sm:p-3 space-y-2">
-                        <p className="text-[10px] uppercase tracking-wider text-primary font-semibold">{sec}</p>
-                        {exs.map((ex, i) => renderExerciseLine(ex, `${plan.id}-${sec}-${i}`))}
-                    </div>
-                ))}
-            </div>
-        );
-    };
-
     return (
         <div className="space-y-8">
             <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
@@ -675,7 +707,10 @@ export default function WorkoutPlansPage() {
                     <h1 className="text-2xl font-bold text-foreground">Workout Plans</h1>
                     <p className="text-sm text-muted-foreground mt-1">Create section-based workout splits with manual exercises and videos</p>
                 </div>
-                <div className="flex items-center gap-2">
+                <div className="flex flex-wrap items-center gap-2">
+                    <Link href="/dashboard/coach/library" className="btn-ghost min-h-11">
+                        Open Library
+                    </Link>
                     <button onClick={fetchData} className="btn-ghost min-h-11" title="Refresh">
                         <RefreshCw size={16} className={refreshing ? 'animate-spin' : ''} /> Refresh
                     </button>
@@ -708,112 +743,137 @@ export default function WorkoutPlansPage() {
             )}
 
             <div className="space-y-3">
-                <h2 className="text-xl font-bold text-foreground">Workout Templates</h2>
+                <PlanSectionHeader title="Templates" subtitle="Reusable workout plans by status." />
                 <div className="flex flex-wrap gap-2">
                     {templateStatusFilters.map(status => (
                         <button
                             key={status}
                             type="button"
                             onClick={() => setSelectedTemplateStatus(status)}
-                            className={`min-h-11 rounded-sm border px-3 py-2 text-xs font-medium ${
+                            className={`px-3 py-2 min-h-11 text-xs rounded-sm border transition-colors ${
                                 selectedTemplateStatus === status
-                                    ? 'border-primary bg-primary/15 text-primary'
-                                    : 'border-border bg-muted/20 text-muted-foreground hover:text-foreground'
+                                    ? 'border-primary text-primary bg-primary/10'
+                                    : 'border-border text-muted-foreground hover:text-foreground hover:bg-white/5'
                             }`}
                         >
                             {status === 'ALL' ? 'All Statuses' : status}
                         </button>
                     ))}
                 </div>
-            </div>
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-                {filteredTemplatePlans.map((plan) => (
-                    <div key={plan.id} className="kpi-card group relative">
-                        <div className="flex justify-between items-start mb-4">
-                            <div>
-                                <h3 className="text-lg font-bold text-foreground group-hover:text-primary transition-colors">{plan.name}</h3>
-                                <p className="text-xs text-muted-foreground mt-1 line-clamp-2">{plan.description}</p>
-                            </div>
-                            <div className="flex flex-col items-end gap-1">
-                                <span className={`badge ${statusBadgeClass(plan.status)} rounded-sm`}>{plan.status}</span>
-                                <span className="badge badge-orange rounded-sm">{plan.exercises?.length || 0} Ex</span>
-                            </div>
+                <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-5">
+                    {filteredTemplatePlans.map((plan) => (
+                        <PlanCardShell
+                            key={plan.id}
+                            header={(
+                                <div className="flex justify-between items-start gap-2">
+                                    <div className="min-w-0">
+                                        <div className="h-11 w-11 rounded-sm bg-primary/10 flex items-center justify-center border border-primary/20 mb-3">
+                                            <Dumbbell size={20} className="text-primary" />
+                                        </div>
+                                        <h3 className="font-bold text-lg text-foreground mb-1 group-hover:text-primary transition-colors">
+                                            {plan.name} <span className="text-xs text-muted-foreground">v{plan.version}</span>
+                                        </h3>
+                                        <p className="text-muted-foreground text-sm line-clamp-2">{plan.description || 'No description'}</p>
+                                    </div>
+                                    <div className="flex flex-col items-end gap-1">
+                                        <span className={`badge ${statusBadgeClass(plan.status)} rounded-sm`}>{plan.status}</span>
+                                        <span className="badge badge-orange rounded-sm">{plan.exercises?.length || 0} Ex</span>
+                                    </div>
+                                </div>
+                            )}
+                            body={renderGroupedPreview(plan, expandedTemplatePlanId === plan.id)}
+                            actions={(
+                                <>
+                                    <button disabled={plan.status === 'ARCHIVED'} onClick={() => handleEditClick(plan)} className="btn-ghost text-xs min-h-11 disabled:opacity-40"><Pencil size={14} /> Edit</button>
+                                    <button disabled={plan.status === 'ARCHIVED'} onClick={() => openAssign(plan)} className="btn-ghost text-xs min-h-11 disabled:opacity-40"><UserPlus size={14} /> Assign</button>
+                                    {plan.status === 'DRAFT' && <button onClick={() => handlePublish(plan.id)} className="btn-ghost text-xs min-h-11"><Send size={14} /> Publish</button>}
+                                    {plan.status !== 'ARCHIVED' && <button onClick={() => handleArchive(plan.id)} className="btn-ghost text-xs min-h-11"><Archive size={14} /> Archive</button>}
+                                    <button onClick={() => handleDelete(plan.id)} className="btn-ghost text-xs min-h-11 text-destructive hover:text-destructive/80"><Trash2 size={14} /> Delete</button>
+                                </>
+                            )}
+                            footer={(
+                                <PlanDetailsToggle
+                                    expanded={expandedTemplatePlanId === plan.id}
+                                    onClick={() => setExpandedTemplatePlanId((prev) => (prev === plan.id ? null : plan.id))}
+                                />
+                            )}
+                        />
+                    ))}
+                    {filteredTemplatePlans.length === 0 && (
+                        <div className="text-center py-16 chart-card border-dashed border-border col-span-full">
+                            <Dumbbell size={40} className="mx-auto text-muted-foreground mb-3 opacity-50" />
+                            <p className="text-muted-foreground text-sm">
+                                {templatePlans.length === 0
+                                    ? 'No workout templates yet. Create your first one!'
+                                    : 'No templates for selected status.'}
+                            </p>
                         </div>
-                        {expandedPlan === plan.id ? (
-                            <div className="mb-4 space-y-2">{renderGrouped(plan, false)}</div>
-                        ) : (
-                            <div className="space-y-2 mb-4">{renderGrouped(plan, true)}</div>
-                        )}
-                        <div className="flex flex-wrap gap-2 mt-4 pt-4 border-t border-border sticky bottom-0 bg-card/95 backdrop-blur-sm">
-                            <button disabled={plan.status === 'ARCHIVED'} onClick={() => handleEditClick(plan)} className="flex-1 min-w-[90px] min-h-11 btn-ghost text-xs py-2 h-auto hover:text-blue-400 disabled:opacity-40"><Pencil size={14} /> Edit</button>
-                            <button disabled={plan.status === 'ARCHIVED'} onClick={() => openAssign(plan)} className="flex-1 min-w-[90px] min-h-11 btn-ghost text-xs py-2 h-auto hover:text-green-400 disabled:opacity-40"><UserPlus size={14} /> Assign</button>
-                            {plan.status === 'DRAFT' && <button onClick={() => handlePublish(plan.id)} className="flex-1 min-w-[90px] min-h-11 btn-ghost text-xs py-2 h-auto hover:text-emerald-400"><Send size={14} /> Publish</button>}
-                            {plan.status !== 'ARCHIVED' && <button onClick={() => handleArchive(plan.id)} className="flex-1 min-w-[90px] min-h-11 btn-ghost text-xs py-2 h-auto hover:text-yellow-400"><Trash2 size={14} /> Archive</button>}
-                            <button onClick={() => handleDelete(plan.id)} className="flex-1 min-w-[90px] btn-ghost text-xs py-2 h-auto text-destructive hover:text-destructive hover:bg-destructive/10"><Trash2 size={14} /> Del</button>
-                        </div>
-                        <div className="border-t border-border pt-3"><button onClick={() => toggleExpand(plan.id)} className="text-primary text-sm font-medium hover:text-primary/80 transition-colors flex items-center gap-1">{expandedPlan === plan.id ? <><ChevronUp size={16} /> Collapse</> : <><ChevronDown size={16} /> View Details</>}</button></div>
-                    </div>
-                ))}
-                {filteredTemplatePlans.length === 0 && (
-                    <div className="col-span-full text-center py-16 chart-card border-dashed !border-border">
-                                <Dumbbell size={40} className="mx-auto text-muted-foreground mb-3" />
-                                <p className="text-muted-foreground text-sm">
-                                    {templatePlans.length === 0
-                                        ? 'No workout templates yet. Create your first one!'
-                                        : 'No templates match this status filter.'}
-                                </p>
-                            </div>
-                        )}
+                    )}
+                </div>
             </div>
 
-            <h2 className="text-xl font-bold text-foreground mt-8">Active Assigned Plans</h2>
             <div className="space-y-4">
-                {assignedPlanGroups.map(group => (
-                    <div key={group.rootId} className="kpi-card border border-border/80">
-                        <div className="flex flex-wrap items-center justify-between gap-2 border-b border-border pb-3">
-                            <div>
-                                <h3 className="text-base sm:text-lg font-bold text-foreground">{group.rootPlanName}</h3>
-                                <p className="text-xs text-muted-foreground mt-1">
-                                    {group.members.length} member{group.members.length > 1 ? 's' : ''} assigned
-                                </p>
+                <PlanSectionHeader title="Assigned Plans" subtitle="Active workout plans assigned to members." />
+                <div className="space-y-4">
+                    {assignedPlanGroups.map(group => (
+                        <div key={group.rootId} className="kpi-card">
+                            <div className="flex items-center justify-between gap-2 mb-3">
+                                <div>
+                                    <p className="text-base font-semibold text-foreground">{group.rootPlanName}</p>
+                                    <p className="text-xs text-muted-foreground">{group.members.length} assigned member{group.members.length > 1 ? 's' : ''}</p>
+                                </div>
                             </div>
-                        </div>
-                        <div className="mt-3 space-y-2">
-                            {group.members.map(plan => {
-                                const memberName = members.find(m => m.id === plan.member_id)?.full_name || 'Unknown Member';
-                                return (
-                                    <div key={plan.id} className="rounded-sm border border-border bg-muted/15 p-3">
-                                        <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-                                            <div className="min-w-0">
-                                                <p className="text-sm font-semibold text-foreground truncate">{memberName}</p>
-                                                <p className="text-xs text-muted-foreground">
-                                                    {plan.exercises?.length || 0} exercises | v{plan.version}
-                                                </p>
-                                            </div>
-                                            <div className="flex flex-wrap items-center gap-2">
+                            <div className="space-y-3">
+                                {group.members.map(plan => {
+                                    const memberName = members.find(m => m.id === plan.member_id)?.full_name || 'Unknown Member';
+                                    return (
+                                        <div key={plan.id} className="rounded-sm border border-border p-3 bg-muted/15">
+                                            <div className="flex items-center justify-between gap-2 mb-2">
+                                                <div className="min-w-0">
+                                                    <p className="text-sm font-semibold text-foreground truncate">{memberName}</p>
+                                                    <p className="text-[11px] text-muted-foreground">{plan.exercises?.length || 0} exercises | v{plan.version}</p>
+                                                </div>
                                                 <span className={`badge ${statusBadgeClass(plan.status)} rounded-sm`}>{plan.status}</span>
-                                                <button onClick={() => handleEditClick(plan)} className="min-h-11 btn-ghost text-xs py-2 h-auto hover:text-blue-400">
-                                                    <Pencil size={14} /> Edit
-                                                </button>
-                                                <button onClick={() => handleDelete(plan.id)} className="min-h-11 btn-ghost text-xs py-2 h-auto text-destructive hover:text-destructive hover:bg-destructive/10">
-                                                    <Trash2 size={14} /> Unassign
-                                                </button>
+                                            </div>
+                                            <div className="rounded-sm p-2 text-sm text-muted-foreground max-h-44 overflow-y-auto bg-muted/30 border border-border space-y-1.5">
+                                                {renderGroupedPreview(plan, expandedAssignedPlanId === plan.id)}
+                                            </div>
+                                            <div className="flex flex-wrap gap-2 mt-3 pt-2 border-t border-border">
+                                                {plan.status !== 'ARCHIVED' && <button onClick={() => handleArchive(plan.id)} className="btn-ghost text-xs min-h-11"><Archive size={14} /> Archive</button>}
+                                                <button onClick={() => handleEditClick(plan)} className="btn-ghost text-xs min-h-11"><Pencil size={14} /> Edit</button>
+                                                <button onClick={() => handleDelete(plan.id)} className="btn-ghost text-xs min-h-11 text-destructive hover:text-destructive/80"><Trash2 size={14} /> Unassign</button>
+                                            </div>
+                                            <div className="border-t border-border pt-2 mt-2">
+                                                <PlanDetailsToggle
+                                                    expanded={expandedAssignedPlanId === plan.id}
+                                                    onClick={() => setExpandedAssignedPlanId((prev) => (prev === plan.id ? null : plan.id))}
+                                                    size="sm"
+                                                />
                                             </div>
                                         </div>
-                                    </div>
-                                );
-                            })}
+                                    );
+                                })}
+                            </div>
                         </div>
-                    </div>
-                ))}
-                {assignedPlans.length === 0 && <div className="col-span-full text-center py-8 text-muted-foreground text-sm">No active plans assigned to members.</div>}
+                    ))}
+                    {assignedPlans.length === 0 && <div className="text-center py-8 text-muted-foreground text-sm">No active plans assigned to members.</div>}
+                </div>
             </div>
 
-            {showModal && (
-                <div className="fixed inset-0 bg-background/80 backdrop-blur-sm flex items-center justify-center p-4 z-50">
-                    <div className="rounded-sm border border-border bg-card p-6 w-full max-w-3xl max-h-[90vh] overflow-y-auto shadow-lg">
-                        <div className="flex justify-between items-center mb-5"><h2 className="text-lg font-bold text-foreground">{editingPlan ? 'Edit Workout Plan' : 'Create New Workout Plan'}</h2><button onClick={() => setShowModal(false)}><X size={20} className="text-muted-foreground" /></button></div>
-                        <form onSubmit={handleSubmit} className="space-y-5">
+            <Modal
+                isOpen={showModal}
+                onClose={() => setShowModal(false)}
+                title={editingPlan ? 'Edit Workout Plan' : 'Create New Workout Plan'}
+                maxWidthClassName="max-w-3xl"
+            >
+                <form onSubmit={handleModalSubmit} className="space-y-5">
+                    <div className="flex items-center gap-2 text-xs">
+                        <span className={`rounded-sm border px-2 py-1 ${modalStep === 1 ? 'border-primary text-primary bg-primary/10' : 'border-border text-muted-foreground'}`}>Step 1: Plan Basics</span>
+                        <span className={`rounded-sm border px-2 py-1 ${modalStep === 2 ? 'border-primary text-primary bg-primary/10' : 'border-border text-muted-foreground'}`}>Step 2: Workout Builder</span>
+                    </div>
+
+                    {modalStep === 1 && (
+                        <div className="space-y-4">
                             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                                 <input type="text" required className="input-dark" value={planName} onChange={e => setPlanName(e.target.value)} placeholder="Plan Name" />
                                 <input type="text" className="input-dark" value={planDesc} onChange={e => setPlanDesc(e.target.value)} placeholder="Description" />
@@ -834,7 +894,26 @@ export default function WorkoutPlansPage() {
                                     placeholder="Search member by name or email..."
                                 />
                             )}
-                            <div className="p-4 rounded-sm border border-border bg-muted/20 space-y-3"><div className="flex gap-2"><input type="text" className="input-dark" value={sectionNameInput} onChange={e => setSectionNameInput(e.target.value)} placeholder="Section name" /><button type="button" className="btn-primary" onClick={addSection}><Plus size={16} /> Add Section</button></div><div className="flex flex-wrap gap-2">{sections.map(section => <div key={section.id} className={`flex items-center gap-2 px-3 py-1.5 border rounded-sm ${activeSectionId === section.id ? 'border-primary text-primary bg-primary/10' : 'border-border text-muted-foreground'}`}><button type="button" onClick={() => setActiveSectionId(section.id)}>{section.name}</button><button type="button" onClick={() => removeSection(section.id)} className="text-destructive"><Trash2 size={12} /></button></div>)}</div></div>
+                        </div>
+                    )}
+
+                    {modalStep === 2 && (
+                        <div className="space-y-4">
+                            <div className="p-4 rounded-sm border border-border bg-muted/20 space-y-3">
+                                <div className="flex gap-2">
+                                    <input type="text" className="input-dark" value={sectionNameInput} onChange={e => setSectionNameInput(e.target.value)} placeholder="Section name" />
+                                    <button type="button" className="btn-primary min-h-11" onClick={addSection}><Plus size={16} /> Add Section</button>
+                                </div>
+                                <div className="flex flex-wrap gap-2">
+                                    {sections.map(section => (
+                                        <div key={section.id} className={`flex items-center gap-2 px-3 py-1.5 border rounded-sm ${activeSectionId === section.id ? 'border-primary text-primary bg-primary/10' : 'border-border text-muted-foreground'}`}>
+                                            <button type="button" onClick={() => setActiveSectionId(section.id)}>{section.name}</button>
+                                            <button type="button" onClick={() => removeSection(section.id)} className="text-destructive"><Trash2 size={12} /></button>
+                                        </div>
+                                    ))}
+                                </div>
+                            </div>
+
                             <div className="p-4 rounded-sm border border-border bg-muted/20 space-y-3">
                                 <div className="flex flex-wrap items-center justify-between gap-2">
                                     <p className="text-xs font-medium text-muted-foreground">Exercise Builder</p>
@@ -878,13 +957,60 @@ export default function WorkoutPlansPage() {
                                         </div>
                                     </div>
                                 )}
-                                <div className="grid grid-cols-1 md:grid-cols-4 gap-3"><input type="text" className="input-dark md:col-span-2" value={currentExerciseName} onChange={e => setCurrentExerciseName(e.target.value)} placeholder="Exercise name" /><input type="number" className="input-dark text-center" value={currentSets} min={1} onChange={e => setCurrentSets(parseInt(e.target.value) || 1)} /><input type="number" className="input-dark text-center" value={currentReps} min={1} onChange={e => setCurrentReps(parseInt(e.target.value) || 1)} /></div><div className="grid grid-cols-1 md:grid-cols-3 gap-3"><select className="input-dark" value={currentVideoType} onChange={e => setCurrentVideoType(e.target.value as VideoType)}><option value="">No Video</option><option value="EMBED">Embed URL</option><option value="UPLOAD">Upload Video</option></select>{currentVideoType === 'EMBED' && <input type="url" className="input-dark md:col-span-2" value={currentVideoUrl} onChange={e => setCurrentVideoUrl(e.target.value)} placeholder="https://youtube.com/..." />}{currentVideoType === 'UPLOAD' && <input type="file" accept="video/*" className="input-dark md:col-span-2" onChange={e => setCurrentVideoFile(e.target.files?.[0] || null)} />}</div><button type="button" onClick={addExerciseToSection} className="btn-primary min-h-11"><Plus size={16} /> Add Exercise</button></div>
-                            <div className="space-y-3">{sections.map(section => <div key={section.id} className="border border-border rounded-sm p-3"><p className="text-sm font-semibold text-primary mb-2">{section.name}</p>{section.exercises.length === 0 && <p className="text-xs text-muted-foreground">No exercises in this section yet.</p>}{section.exercises.map((ex, idx) => <div key={idx} className="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-2 border border-border p-3 rounded-sm text-sm bg-muted/10 mb-2"><div><p className="font-medium text-foreground">{getExerciseDisplayName(ex)}</p><p className="text-xs text-muted-foreground">{ex.sets} x {ex.reps}</p></div><div className="flex items-center gap-2">{resolveVideoUrl(ex) && <span className="inline-flex items-center gap-1 rounded-sm border border-border px-2 py-1 text-xs text-muted-foreground"><Video size={12} /> Added</span>}<button type="button" onClick={() => saveExerciseAsReusable(ex)} className="btn-ghost !px-2 !py-1 h-auto text-xs">Save reusable</button><button type="button" onClick={() => removeExerciseFromSection(section.id, idx)} className="text-muted-foreground hover:text-destructive"><Trash2 size={16} /></button></div></div>)}</div>)}</div>
-                            <div className="flex justify-end gap-3 pt-4 border-t border-border"><button type="button" onClick={() => setShowModal(false)} className="btn-ghost">Cancel</button><button type="submit" className="btn-primary"><Save size={16} /> {editingPlan ? 'Update Plan' : 'Save Plan'}</button></div>
-                        </form>
+                                <div className="grid grid-cols-1 md:grid-cols-4 gap-3">
+                                    <input type="text" className="input-dark md:col-span-2" value={currentExerciseName} onChange={e => setCurrentExerciseName(e.target.value)} placeholder="Exercise name" />
+                                    <input type="number" className="input-dark text-center" value={currentSets} min={1} onChange={e => setCurrentSets(parseInt(e.target.value) || 1)} />
+                                    <input type="number" className="input-dark text-center" value={currentReps} min={1} onChange={e => setCurrentReps(parseInt(e.target.value) || 1)} />
+                                </div>
+                                <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                                    <select className="input-dark" value={currentVideoType} onChange={e => setCurrentVideoType(e.target.value as VideoType)}>
+                                        <option value="">No Video</option>
+                                        <option value="EMBED">Embed URL</option>
+                                        <option value="UPLOAD">Upload Video</option>
+                                    </select>
+                                    {currentVideoType === 'EMBED' && <input type="url" className="input-dark md:col-span-2" value={currentVideoUrl} onChange={e => setCurrentVideoUrl(e.target.value)} placeholder="https://youtube.com/..." />}
+                                    {currentVideoType === 'UPLOAD' && <input type="file" accept="video/*" className="input-dark md:col-span-2" onChange={e => setCurrentVideoFile(e.target.files?.[0] || null)} />}
+                                </div>
+                                <button type="button" onClick={addExerciseToSection} className="btn-primary min-h-11"><Plus size={16} /> Add Exercise</button>
+                            </div>
+
+                            <div className="space-y-3">
+                                {sections.map(section => (
+                                    <div key={section.id} className="border border-border rounded-sm p-3">
+                                        <p className="text-sm font-semibold text-primary mb-2">{section.name}</p>
+                                        {section.exercises.length === 0 && <p className="text-xs text-muted-foreground">No exercises in this section yet.</p>}
+                                        {section.exercises.map((ex, idx) => (
+                                            <div key={idx} className="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-2 border border-border p-3 rounded-sm text-sm bg-muted/10 mb-2">
+                                                <div>
+                                                    <p className="font-medium text-foreground">{getExerciseDisplayName(ex)}</p>
+                                                    <p className="text-xs text-muted-foreground">{ex.sets} x {ex.reps}</p>
+                                                </div>
+                                                <div className="flex items-center gap-2">
+                                                    {resolveVideoUrl(ex) && <span className="inline-flex items-center gap-1 rounded-sm border border-border px-2 py-1 text-xs text-muted-foreground"><Video size={12} /> Added</span>}
+                                                    <button type="button" onClick={() => saveExerciseAsReusable(ex)} className="btn-ghost !px-2 !py-1 h-auto text-xs">Save reusable</button>
+                                                    <button type="button" onClick={() => removeExerciseFromSection(section.id, idx)} className="text-muted-foreground hover:text-destructive"><Trash2 size={16} /></button>
+                                                </div>
+                                            </div>
+                                        ))}
+                                    </div>
+                                ))}
+                            </div>
+                        </div>
+                    )}
+
+                    <div className="flex flex-wrap justify-end gap-3 pt-4 border-t border-border">
+                        <button type="button" onClick={() => setShowModal(false)} className="btn-ghost min-h-11">Cancel</button>
+                        {modalStep === 2 && (
+                            <button type="button" onClick={() => setModalStep(1)} className="btn-ghost min-h-11">Back</button>
+                        )}
+                        {modalStep === 1 ? (
+                            <button type="submit" className="btn-primary min-h-11">Next</button>
+                        ) : (
+                            <button type="submit" className="btn-primary min-h-11"><Save size={16} /> {editingPlan ? 'Update Plan' : 'Save Plan'}</button>
+                        )}
                     </div>
-                </div>
-            )}
+                </form>
+            </Modal>
 
             {videoPopup && (
                 <div className="fixed inset-0 z-[100] bg-background/85 backdrop-blur-sm flex items-center justify-center p-3 sm:p-4">
@@ -947,26 +1073,15 @@ export default function WorkoutPlansPage() {
                     {assigningPlan && (() => {
                         const summary = getPlanSummary(assigningPlan.id);
                         return (
-                            <div className="rounded-sm border border-border bg-muted/20 p-3 space-y-2">
-                                <div className="flex items-center justify-between">
-                                    <p className="text-sm font-semibold text-foreground">{assigningPlan.name}</p>
-                                    <span className={`badge ${statusBadgeClass(assigningPlan.status)}`}>{assigningPlan.status}</span>
-                                </div>
-                                <p className="text-xs text-muted-foreground">
-                                    {summary ? `${summary.total_sections} sections | ${summary.total_exercises} exercises | ${summary.total_videos} videos` : `${assigningPlan.exercises.length} exercises`}
-                                </p>
-                                {summary && summary.preview_sections.length > 0 && (
-                                    <div className="space-y-1">
-                                        {summary.preview_sections.map(sec => (
-                                            <p key={sec.section_name} className="text-xs text-muted-foreground">
-                                                <span className="text-primary font-medium">{sec.section_name}:</span> {sec.exercise_names.join(', ')}
-                                            </p>
-                                        ))}
-                                    </div>
-                                )}
-                                {assigningPlan.status === 'DRAFT' && <p className="text-xs text-yellow-400">Warning: you are assigning a draft plan.</p>}
-                                {assigningPlan.status === 'ARCHIVED' && <p className="text-xs text-destructive">Archived plans cannot be assigned.</p>}
-                            </div>
+                            <AssignPlanSummaryPanel
+                                planName={assigningPlan.name}
+                                status={assigningPlan.status}
+                                statusBadgeClass={statusBadgeClass(assigningPlan.status)}
+                                summaryLine={summary ? `${summary.total_sections} sections | ${summary.total_exercises} exercises | ${summary.total_videos} videos` : `${assigningPlan.exercises.length} exercises`}
+                                previewSections={summary?.preview_sections || []}
+                                draftWarning={assigningPlan.status === 'DRAFT' ? 'Warning: you are assigning a draft plan.' : undefined}
+                                archivedWarning={assigningPlan.status === 'ARCHIVED' ? 'Archived plans cannot be assigned.' : undefined}
+                            />
                         );
                     })()}
 

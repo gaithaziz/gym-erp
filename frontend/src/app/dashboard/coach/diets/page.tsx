@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
-import { Plus, Utensils, Trash2, Pencil, Save, X, Send, Archive, RefreshCw, UserPlus } from 'lucide-react';
+import { Plus, Utensils, Trash2, Pencil, Save, X, Send, Archive, RefreshCw, UserPlus, ChevronDown, ChevronUp } from 'lucide-react';
 import { api } from '@/lib/api';
 import Modal from '@/components/Modal';
 import { useFeedback } from '@/components/FeedbackProvider';
@@ -29,7 +29,37 @@ interface Member {
     email: string;
 }
 
+interface DietLibraryItem {
+    id: string;
+    name: string;
+    description?: string | null;
+    content: string;
+    is_global: boolean;
+    owner_coach_id?: string | null;
+}
+
+interface MealItemDraft {
+    id: string;
+    name: string;
+}
+
+interface MealGroupDraft {
+    id: string;
+    name: string;
+    meals: MealItemDraft[];
+}
+
 type PlanStatusFilter = 'ALL' | 'PUBLISHED' | 'DRAFT' | 'ARCHIVED';
+
+const makeId = () => Math.random().toString(36).slice(2, 10);
+
+const newMealItem = (name = ''): MealItemDraft => ({ id: makeId(), name });
+
+const newMealGroup = (name = 'Meal Group', meals?: MealItemDraft[]): MealGroupDraft => ({
+    id: makeId(),
+    name,
+    meals: meals && meals.length > 0 ? meals : [newMealItem('Meal 1')],
+});
 
 const getErrorMessage = (error: unknown, fallback: string) => {
     const detail = (error as { response?: { data?: { detail?: string } } })?.response?.data?.detail;
@@ -42,6 +72,124 @@ const statusBadgeClass = (status: DietPlan['status']) => {
     return 'badge-orange';
 };
 
+const normalizeMealGroups = (groups: MealGroupDraft[]): MealGroupDraft[] => {
+    const cleaned = groups
+        .map(group => ({
+            ...group,
+            name: group.name.trim(),
+            meals: group.meals
+                .map(meal => ({ ...meal, name: meal.name.trim() }))
+                .filter(meal => meal.name.length > 0),
+        }))
+        .filter(group => group.name.length > 0);
+
+    if (cleaned.length === 0) {
+        return [newMealGroup('Meal Group 1', [newMealItem('Meal 1')])];
+    }
+
+    return cleaned.map((group, idx) => ({
+        ...group,
+        name: group.name || `Meal Group ${idx + 1}`,
+        meals: group.meals.length > 0 ? group.meals : [newMealItem('Meal 1')],
+    }));
+};
+
+const buildContentFromMealGroups = (groups: MealGroupDraft[]): string => {
+    return groups
+        .map(group => {
+            const meals = group.meals.map(meal => `- ${meal.name}`).join('\n');
+            return `${group.name}:\n${meals}`;
+        })
+        .join('\n\n');
+};
+
+const buildStructuredFromMealGroups = (groups: MealGroupDraft[]) => {
+    return {
+        meal_groups: groups.map(group => ({
+            name: group.name,
+            meals: group.meals.map(meal => ({ name: meal.name })),
+        })),
+    };
+};
+
+const parseStructuredMealGroups = (structured: DietPlan['content_structured']): MealGroupDraft[] | null => {
+    if (!structured || Array.isArray(structured) || typeof structured !== 'object') return null;
+    const rawGroups = (structured as { meal_groups?: unknown }).meal_groups;
+    if (!Array.isArray(rawGroups)) return null;
+
+    const parsed: MealGroupDraft[] = [];
+    rawGroups.forEach((rawGroup, groupIdx) => {
+        if (!rawGroup || typeof rawGroup !== 'object') return;
+        const groupName = String((rawGroup as { name?: unknown }).name || `Meal Group ${groupIdx + 1}`).trim();
+        const rawMeals = (rawGroup as { meals?: unknown }).meals;
+        const meals: MealItemDraft[] = [];
+        if (Array.isArray(rawMeals)) {
+            rawMeals.forEach((rawMeal, mealIdx) => {
+                if (typeof rawMeal === 'string') {
+                    const mealName = rawMeal.trim();
+                    if (mealName) meals.push(newMealItem(mealName));
+                    return;
+                }
+                if (rawMeal && typeof rawMeal === 'object') {
+                    const mealName = String((rawMeal as { name?: unknown }).name || `Meal ${mealIdx + 1}`).trim();
+                    if (mealName) meals.push(newMealItem(mealName));
+                }
+            });
+        }
+        parsed.push(newMealGroup(groupName || `Meal Group ${groupIdx + 1}`, meals));
+    });
+
+    return parsed.length > 0 ? parsed : null;
+};
+
+const parseContentMealGroups = (content: string): MealGroupDraft[] => {
+    const lines = content
+        .split(/\r?\n/)
+        .map(line => line.trim())
+        .filter(Boolean);
+
+    if (lines.length === 0) return [newMealGroup('Meal Group 1', [newMealItem('Meal 1')])];
+
+    const groups: MealGroupDraft[] = [];
+    let currentGroup = newMealGroup('Meal Group 1', []);
+
+    lines.forEach((line) => {
+        const groupMatch = line.match(/^(.*):$/);
+        if (groupMatch && !line.startsWith('-')) {
+            if (currentGroup.meals.length > 0) {
+                groups.push(currentGroup);
+            }
+            const name = groupMatch[1].trim() || `Meal Group ${groups.length + 1}`;
+            currentGroup = newMealGroup(name, []);
+            return;
+        }
+
+        const mealName = line.replace(/^[-*]\s*/, '').trim();
+        if (!mealName) return;
+        currentGroup.meals.push(newMealItem(mealName));
+    });
+
+    if (currentGroup.meals.length > 0) {
+        groups.push(currentGroup);
+    }
+
+    if (groups.length === 0) {
+        return [newMealGroup('Meal Group 1', lines.map((line) => newMealItem(line.replace(/^[-*]\s*/, '').trim())).filter(meal => meal.name))];
+    }
+
+    return groups.map((group, idx) => ({
+        ...group,
+        name: group.name || `Meal Group ${idx + 1}`,
+        meals: group.meals.length > 0 ? group.meals : [newMealItem('Meal 1')],
+    }));
+};
+
+const getPlanMealGroups = (plan: DietPlan): MealGroupDraft[] => {
+    const structured = parseStructuredMealGroups(plan.content_structured);
+    if (structured && structured.length > 0) return structured;
+    return parseContentMealGroups(plan.content || '');
+};
+
 export default function DietPlansPage() {
     const { showToast, confirm: confirmAction } = useFeedback();
     const [plans, setPlans] = useState<DietPlan[]>([]);
@@ -51,14 +199,20 @@ export default function DietPlansPage() {
 
     const [showModal, setShowModal] = useState(false);
     const [editingPlan, setEditingPlan] = useState<DietPlan | null>(null);
+    const [expandedTemplatePlanId, setExpandedTemplatePlanId] = useState<string | null>(null);
+    const [expandedAssignedPlanId, setExpandedAssignedPlanId] = useState<string | null>(null);
 
     const [planName, setPlanName] = useState('');
     const [planDesc, setPlanDesc] = useState('');
-    const [planContent, setPlanContent] = useState('');
-    const [planStructuredJson, setPlanStructuredJson] = useState('');
     const [planStatus, setPlanStatus] = useState<DietPlan['status']>('DRAFT');
     const [isTemplate, setIsTemplate] = useState(true);
     const [assignedMemberId, setAssignedMemberId] = useState('');
+    const [mealGroups, setMealGroups] = useState<MealGroupDraft[]>([newMealGroup('Meal Group 1', [newMealItem('Meal 1')])]);
+    const [newGroupName, setNewGroupName] = useState('');
+    const [libraryOpen, setLibraryOpen] = useState(false);
+    const [libraryQuery, setLibraryQuery] = useState('');
+    const [libraryLoading, setLibraryLoading] = useState(false);
+    const [dietLibraryItems, setDietLibraryItems] = useState<DietLibraryItem[]>([]);
 
     const [statusFilter, setStatusFilter] = useState<PlanStatusFilter>('ALL');
 
@@ -66,6 +220,11 @@ export default function DietPlansPage() {
     const [assigningPlan, setAssigningPlan] = useState<DietPlan | null>(null);
     const [bulkAssignMemberIds, setBulkAssignMemberIds] = useState<string[]>([]);
     const [memberSearch, setMemberSearch] = useState('');
+
+    const generatedContentPreview = useMemo(() => {
+        const cleaned = normalizeMealGroups(mealGroups);
+        return buildContentFromMealGroups(cleaned);
+    }, [mealGroups]);
 
     const fetchData = useCallback(async () => {
         setRefreshing(true);
@@ -83,6 +242,23 @@ export default function DietPlansPage() {
         setRefreshing(false);
     }, [showToast]);
 
+    const fetchDietLibrary = useCallback(async (query?: string) => {
+        setLibraryLoading(true);
+        try {
+            const response = await api.get('/fitness/diet-library', {
+                params: {
+                    scope: 'all',
+                    query: query?.trim() || undefined,
+                },
+            });
+            setDietLibraryItems(response.data?.data || []);
+        } catch {
+            setDietLibraryItems([]);
+            showToast('Failed to load diet library items.', 'error');
+        }
+        setLibraryLoading(false);
+    }, [showToast]);
+
     useEffect(() => {
         setTimeout(() => fetchData(), 0);
     }, [fetchData]);
@@ -91,11 +267,14 @@ export default function DietPlansPage() {
         setEditingPlan(null);
         setPlanName('');
         setPlanDesc('');
-        setPlanContent('');
-        setPlanStructuredJson('');
         setPlanStatus('DRAFT');
         setIsTemplate(true);
         setAssignedMemberId('');
+        setMealGroups([newMealGroup('Meal Group 1', [newMealItem('Meal 1')])]);
+        setNewGroupName('');
+        setLibraryOpen(false);
+        setLibraryQuery('');
+        setDietLibraryItems([]);
     };
 
     const filteredTemplatePlans = useMemo(() => {
@@ -114,9 +293,103 @@ export default function DietPlansPage() {
         return members.filter(m => m.full_name.toLowerCase().includes(q) || m.email.toLowerCase().includes(q));
     }, [memberSearch, members]);
 
+    const memberNameById = useMemo(() => {
+        const lookup: Record<string, string> = {};
+        members.forEach(member => {
+            lookup[member.id] = member.full_name;
+        });
+        return lookup;
+    }, [members]);
+
+    const assignedPlanGroups = useMemo(() => {
+        const grouped: Record<string, DietPlan[]> = {};
+        assignedPlans.forEach(plan => {
+            const rootId = plan.parent_plan_id || plan.id;
+            if (!grouped[rootId]) grouped[rootId] = [];
+            grouped[rootId].push(plan);
+        });
+
+        return Object.entries(grouped)
+            .map(([rootId, memberPlans]) => {
+                const rootPlan = plans.find(plan => plan.id === rootId) || memberPlans[0];
+                return {
+                    rootId,
+                    rootPlanName: rootPlan?.name || 'Assigned Diet Plan',
+                    members: [...memberPlans].sort((a, b) => {
+                        const aName = a.member_id ? (memberNameById[a.member_id] || '') : '';
+                        const bName = b.member_id ? (memberNameById[b.member_id] || '') : '';
+                        return aName.localeCompare(bName);
+                    }),
+                };
+            })
+            .sort((a, b) => b.members.length - a.members.length || a.rootPlanName.localeCompare(b.rootPlanName));
+    }, [assignedPlans, memberNameById, plans]);
+
     const handleOpenCreate = () => {
         resetForm();
         setShowModal(true);
+        fetchDietLibrary();
+    };
+
+    const addGroup = () => {
+        const explicitName = newGroupName.trim();
+        const autoName = `Meal Group ${mealGroups.length + 1}`;
+        setMealGroups(prev => [...prev, newMealGroup(explicitName || autoName, [newMealItem('Meal 1')])]);
+        setNewGroupName('');
+    };
+
+    const removeGroup = (groupId: string) => {
+        if (mealGroups.length === 1) {
+            showToast('At least one meal group is required.', 'error');
+            return;
+        }
+        setMealGroups(prev => prev.filter(group => group.id !== groupId));
+    };
+
+    const renameGroup = (groupId: string, value: string) => {
+        setMealGroups(prev => prev.map(group => (group.id === groupId ? { ...group, name: value } : group)));
+    };
+
+    const addMealToGroup = (groupId: string) => {
+        setMealGroups(prev => prev.map(group => (
+            group.id === groupId
+                ? { ...group, meals: [...group.meals, newMealItem(`Meal ${group.meals.length + 1}`)] }
+                : group
+        )));
+    };
+
+    const renameMeal = (groupId: string, mealId: string, value: string) => {
+        setMealGroups(prev => prev.map(group => (
+            group.id === groupId
+                ? {
+                    ...group,
+                    meals: group.meals.map(meal => (meal.id === mealId ? { ...meal, name: value } : meal)),
+                }
+                : group
+        )));
+    };
+
+    const removeMeal = (groupId: string, mealId: string) => {
+        setMealGroups(prev => prev.map(group => {
+            if (group.id !== groupId) return group;
+            if (group.meals.length === 1) {
+                showToast('A meal group needs at least one meal.', 'error');
+                return group;
+            }
+            return {
+                ...group,
+                meals: group.meals.filter(meal => meal.id !== mealId),
+            };
+        }));
+    };
+
+    const applyLibraryItemToPlanner = (item: DietLibraryItem) => {
+        const parsedGroups = parseContentMealGroups(item.content || '');
+        setMealGroups(parsedGroups);
+        if (!editingPlan && !planName.trim()) setPlanName(item.name);
+        if (!planDesc.trim() && item.description) setPlanDesc(item.description);
+        setLibraryOpen(false);
+        showToast(`Loaded "${item.name}" into planner.`, 'success');
     };
 
     const handleEditClick = async (plan: DietPlan) => {
@@ -144,37 +417,33 @@ export default function DietPlansPage() {
         setEditingPlan(plan);
         setPlanName(plan.name);
         setPlanDesc(plan.description || '');
-        setPlanContent(plan.content || '');
-        setPlanStructuredJson(plan.content_structured ? JSON.stringify(plan.content_structured, null, 2) : '');
         setPlanStatus(plan.status || 'DRAFT');
         setIsTemplate(Boolean(plan.is_template));
         setAssignedMemberId(plan.member_id || '');
+        const structuredGroups = parseStructuredMealGroups(plan.content_structured);
+        const parsedGroups = structuredGroups || parseContentMealGroups(plan.content || '');
+        setMealGroups(parsedGroups);
+        setLibraryOpen(false);
+        setLibraryQuery('');
+        setDietLibraryItems([]);
         setShowModal(true);
+        fetchDietLibrary();
     };
 
     const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
-        let structuredPayload: Record<string, unknown> | unknown[] | null = null;
-        const trimmedJson = planStructuredJson.trim();
-        if (trimmedJson) {
-            try {
-                const parsed = JSON.parse(trimmedJson) as unknown;
-                if (!Array.isArray(parsed) && (typeof parsed !== 'object' || parsed === null)) {
-                    showToast('Structured content must be a JSON object or array.', 'error');
-                    return;
-                }
-                structuredPayload = parsed as Record<string, unknown> | unknown[];
-            } catch {
-                showToast('Structured content is not valid JSON.', 'error');
-                return;
-            }
+        const cleanedGroups = normalizeMealGroups(mealGroups);
+        const hasAnyMeal = cleanedGroups.some(group => group.meals.some(meal => meal.name.trim().length > 0));
+        if (!hasAnyMeal) {
+            showToast('Add at least one meal before saving.', 'error');
+            return;
         }
 
         const payload = {
             name: planName,
             description: planDesc,
-            content: planContent,
-            content_structured: structuredPayload,
+            content: buildContentFromMealGroups(cleanedGroups),
+            content_structured: buildStructuredFromMealGroups(cleanedGroups),
             member_id: assignedMemberId || undefined,
             is_template: isTemplate,
             status: planStatus,
@@ -335,8 +604,21 @@ export default function DietPlansPage() {
                                 {plan.name} <span className="text-xs text-muted-foreground">v{plan.version}</span>
                             </h3>
                             <p className="text-muted-foreground text-sm mb-3 line-clamp-2">{plan.description || 'No description'}</p>
-                            <div className="rounded-sm p-3 text-sm text-muted-foreground max-h-24 overflow-y-auto whitespace-pre-wrap bg-muted/30 border border-border">
-                                {plan.content}
+                            <div className="rounded-sm p-3 text-sm text-muted-foreground max-h-28 overflow-y-auto bg-muted/30 border border-border space-y-2">
+                                {(
+                                    expandedTemplatePlanId === plan.id
+                                        ? getPlanMealGroups(plan)
+                                        : getPlanMealGroups(plan).slice(0, 2)
+                                ).map(group => (
+                                    <div key={group.id || group.name}>
+                                        <p className="text-foreground text-xs font-semibold">{group.name}</p>
+                                        {expandedTemplatePlanId === plan.id && (
+                                            <p className="text-xs text-muted-foreground">
+                                                {group.meals.map(meal => meal.name).join(', ')}
+                                            </p>
+                                        )}
+                                    </div>
+                                ))}
                             </div>
                             <p className="text-[11px] text-muted-foreground mt-2">Structured: {plan.content_structured ? 'Yes' : 'No'}</p>
                             <div className="flex flex-wrap gap-2 mt-4">
@@ -346,6 +628,15 @@ export default function DietPlansPage() {
                                 {plan.status !== 'ARCHIVED' && <button onClick={() => handleArchive(plan.id)} className="btn-ghost text-xs min-h-11"><Archive size={14} /> Archive</button>}
                                 {plan.status !== 'DRAFT' && <button onClick={() => handleForkDraft(plan.id)} className="btn-ghost text-xs min-h-11">Fork Draft</button>}
                                 <button onClick={() => handleDelete(plan.id)} className="btn-ghost text-xs min-h-11 text-destructive hover:text-destructive/80"><Trash2 size={14} /> Delete</button>
+                            </div>
+                            <div className="border-t border-border pt-3 mt-3">
+                                <button
+                                    type="button"
+                                    onClick={() => setExpandedTemplatePlanId(prev => prev === plan.id ? null : plan.id)}
+                                    className="text-primary text-sm font-medium hover:text-primary/80 transition-colors flex items-center gap-1"
+                                >
+                                    {expandedTemplatePlanId === plan.id ? <><ChevronUp size={16} /> Collapse</> : <><ChevronDown size={16} /> View Details</>}
+                                </button>
                             </div>
                         </div>
                     ))}
@@ -360,23 +651,63 @@ export default function DietPlansPage() {
 
             <div className="space-y-4">
                 <h2 className="text-sm font-semibold uppercase tracking-wider text-muted-foreground">Assigned Plans</h2>
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                    {assignedPlans.map(plan => (
-                        <div key={plan.id} className="border border-border rounded-sm p-4 bg-muted/10">
-                            <div className="flex items-center justify-between gap-2">
+                <div className="space-y-4">
+                    {assignedPlanGroups.map(group => (
+                        <div key={group.rootId} className="kpi-card">
+                            <div className="flex items-center justify-between gap-2 mb-3">
                                 <div>
-                                    <p className="text-sm font-semibold text-foreground">{plan.name}</p>
-                                    <p className="text-xs text-muted-foreground">Member ID: {plan.member_id}</p>
+                                    <p className="text-base font-semibold text-foreground">{group.rootPlanName}</p>
+                                    <p className="text-xs text-muted-foreground">{group.members.length} assigned member{group.members.length > 1 ? 's' : ''}</p>
                                 </div>
-                                <span className={`badge ${statusBadgeClass(plan.status)} rounded-sm`}>{plan.status}</span>
                             </div>
-                            <div className="flex flex-wrap gap-2 mt-3">
-                                {plan.status !== 'ARCHIVED' && <button onClick={() => handleArchive(plan.id)} className="btn-ghost text-xs min-h-11">Archive</button>}
-                                <button onClick={() => handleDelete(plan.id)} className="btn-ghost text-xs min-h-11 text-destructive hover:text-destructive/80">Unassign</button>
+
+                            <div className="space-y-3">
+                                {group.members.map(plan => (
+                                    <div key={plan.id} className="rounded-sm border border-border p-3 bg-muted/15">
+                                        <div className="flex items-center justify-between gap-2 mb-2">
+                                            <div>
+                                                <p className="text-sm font-semibold text-foreground">{plan.member_id ? (memberNameById[plan.member_id] || 'Unknown member') : 'Unknown member'}</p>
+                                                <p className="text-[11px] text-muted-foreground">{plan.name}</p>
+                                            </div>
+                                            <span className={`badge ${statusBadgeClass(plan.status)} rounded-sm`}>{plan.status}</span>
+                                        </div>
+
+                                        <div className="rounded-sm p-2 text-sm text-muted-foreground max-h-24 overflow-y-auto bg-muted/30 border border-border space-y-1.5">
+                                            {(
+                                                expandedAssignedPlanId === plan.id
+                                                    ? getPlanMealGroups(plan)
+                                                    : getPlanMealGroups(plan).slice(0, 2)
+                                            ).map(mealGroup => (
+                                                <div key={mealGroup.id || mealGroup.name}>
+                                                    <p className="text-foreground text-[11px] font-semibold">{mealGroup.name}</p>
+                                                    {expandedAssignedPlanId === plan.id && (
+                                                        <p className="text-[11px] text-muted-foreground">
+                                                            {mealGroup.meals.map(meal => meal.name).join(', ')}
+                                                        </p>
+                                                    )}
+                                                </div>
+                                            ))}
+                                        </div>
+
+                                        <div className="flex flex-wrap gap-2 mt-3 pt-2 border-t border-border">
+                                            {plan.status !== 'ARCHIVED' && <button onClick={() => handleArchive(plan.id)} className="btn-ghost text-xs min-h-11"><Archive size={14} /> Archive</button>}
+                                            <button onClick={() => handleDelete(plan.id)} className="btn-ghost text-xs min-h-11 text-destructive hover:text-destructive/80"><Trash2 size={14} /> Unassign</button>
+                                        </div>
+                                        <div className="border-t border-border pt-2 mt-2">
+                                            <button
+                                                type="button"
+                                                onClick={() => setExpandedAssignedPlanId(prev => prev === plan.id ? null : plan.id)}
+                                                className="text-primary text-xs font-medium hover:text-primary/80 transition-colors flex items-center gap-1"
+                                            >
+                                                {expandedAssignedPlanId === plan.id ? <><ChevronUp size={14} /> Collapse</> : <><ChevronDown size={14} /> View Details</>}
+                                            </button>
+                                        </div>
+                                    </div>
+                                ))}
                             </div>
                         </div>
                     ))}
-                    {assignedPlans.length === 0 && <div className="text-center py-8 text-muted-foreground text-sm col-span-full">No active diet plans assigned to members.</div>}
+                    {assignedPlanGroups.length === 0 && <div className="text-center py-8 text-muted-foreground text-sm">No active diet plans assigned to members.</div>}
                 </div>
             </div>
 
@@ -390,8 +721,112 @@ export default function DietPlansPage() {
                         <form onSubmit={handleSubmit} className="space-y-4">
                             <input type="text" required className="input-dark" value={planName} onChange={e => setPlanName(e.target.value)} placeholder="Plan Name" />
                             <input type="text" className="input-dark" value={planDesc} onChange={e => setPlanDesc(e.target.value)} placeholder="Description" />
-                            <textarea rows={6} required className="input-dark resize-none" value={planContent} onChange={e => setPlanContent(e.target.value)} placeholder={'Breakfast: ...\nLunch: ...\nDinner: ...'} />
-                            <textarea rows={6} className="input-dark resize-none font-mono text-xs" value={planStructuredJson} onChange={e => setPlanStructuredJson(e.target.value)} placeholder={'Optional JSON structured content\n{\n  "days": []\n}'} />
+
+                            <div className="rounded-sm border border-border p-4 space-y-4 bg-muted/10">
+                                <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
+                                    <h3 className="text-sm font-semibold text-foreground uppercase tracking-wider">Meal Planner</h3>
+                                    <button
+                                        type="button"
+                                        className="btn-ghost text-xs min-h-11"
+                                        onClick={() => {
+                                            const next = !libraryOpen;
+                                            setLibraryOpen(next);
+                                            if (next && dietLibraryItems.length === 0) {
+                                                fetchDietLibrary(libraryQuery);
+                                            }
+                                        }}
+                                    >
+                                        {libraryOpen ? 'Hide Library' : 'Choose from Library'}
+                                    </button>
+                                </div>
+
+                                {libraryOpen && (
+                                    <div className="rounded-sm border border-border p-3 bg-card space-y-2">
+                                        <input
+                                            type="text"
+                                            className="input-dark"
+                                            placeholder="Search library templates..."
+                                            value={libraryQuery}
+                                            onChange={e => setLibraryQuery(e.target.value)}
+                                        />
+                                        <div className="flex gap-2">
+                                            <button type="button" className="btn-ghost text-xs min-h-11" onClick={() => fetchDietLibrary(libraryQuery)}>Search</button>
+                                            <button type="button" className="btn-ghost text-xs min-h-11" onClick={() => { setLibraryQuery(''); fetchDietLibrary(''); }}>Clear</button>
+                                        </div>
+                                        <div className="max-h-52 overflow-y-auto divide-y divide-border border border-border rounded-sm">
+                                            {libraryLoading && <p className="px-3 py-3 text-xs text-muted-foreground">Loading library...</p>}
+                                            {!libraryLoading && dietLibraryItems.length === 0 && <p className="px-3 py-3 text-xs text-muted-foreground">No library items found.</p>}
+                                            {dietLibraryItems.map(item => (
+                                                <div key={item.id} className="px-3 py-2 flex items-center justify-between gap-3">
+                                                    <div className="min-w-0">
+                                                        <p className="text-sm text-foreground truncate">{item.name}</p>
+                                                        <p className="text-xs text-muted-foreground truncate">{item.description || 'No description'}</p>
+                                                    </div>
+                                                    <button type="button" className="btn-ghost text-xs min-h-11" onClick={() => applyLibraryItemToPlanner(item)}>Use</button>
+                                                </div>
+                                            ))}
+                                        </div>
+                                    </div>
+                                )}
+
+                                <div className="space-y-3">
+                                    {mealGroups.map((group, groupIndex) => (
+                                        <div key={group.id} className="border border-border rounded-sm p-3 space-y-3 bg-card/50">
+                                            <div className="flex items-center gap-2">
+                                                <input
+                                                    type="text"
+                                                    className="input-dark"
+                                                    value={group.name}
+                                                    onChange={e => renameGroup(group.id, e.target.value)}
+                                                    placeholder={`Meal Group ${groupIndex + 1}`}
+                                                />
+                                                <button type="button" className="btn-ghost text-xs min-h-11 text-destructive" onClick={() => removeGroup(group.id)}>
+                                                    <Trash2 size={14} />
+                                                </button>
+                                            </div>
+
+                                            <div className="space-y-2">
+                                                {group.meals.map((meal, mealIndex) => (
+                                                    <div key={meal.id} className="flex items-center gap-2">
+                                                        <input
+                                                            type="text"
+                                                            className="input-dark"
+                                                            value={meal.name}
+                                                            onChange={e => renameMeal(group.id, meal.id, e.target.value)}
+                                                            placeholder={`Meal ${mealIndex + 1}`}
+                                                        />
+                                                        <button type="button" className="btn-ghost text-xs min-h-11 text-destructive" onClick={() => removeMeal(group.id, meal.id)}>
+                                                            <Trash2 size={14} />
+                                                        </button>
+                                                    </div>
+                                                ))}
+                                            </div>
+
+                                            <button type="button" className="btn-ghost text-xs min-h-11" onClick={() => addMealToGroup(group.id)}>
+                                                <Plus size={14} /> Add Meal
+                                            </button>
+                                        </div>
+                                    ))}
+                                </div>
+
+                                <div className="flex flex-col sm:flex-row gap-2">
+                                    <input
+                                        type="text"
+                                        className="input-dark"
+                                        value={newGroupName}
+                                        onChange={e => setNewGroupName(e.target.value)}
+                                        placeholder="New meal group name (optional)"
+                                    />
+                                    <button type="button" className="btn-ghost min-h-11" onClick={addGroup}>
+                                        <Plus size={14} /> Add Meal Group
+                                    </button>
+                                </div>
+
+                                <div>
+                                    <p className="text-xs text-muted-foreground mb-2">Generated Content Preview</p>
+                                    <textarea rows={6} readOnly className="input-dark resize-none font-mono text-xs" value={generatedContentPreview} />
+                                </div>
+                            </div>
                             <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
                                 <select className="input-dark" value={planStatus} onChange={e => setPlanStatus(e.target.value as DietPlan['status'])}>
                                     <option value="DRAFT">Draft</option>
