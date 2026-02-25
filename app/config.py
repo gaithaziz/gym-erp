@@ -16,6 +16,10 @@ class Settings(BaseSettings):
     KIOSK_SIGNING_KEY: str | None = None
     KIOSK_TOKEN_EXPIRE_MINUTES: int = 60
     GYM_TIMEZONE: str = "UTC"
+    PAYROLL_AUTO_ENABLED: bool = True
+    PAYROLL_AUTO_HOUR_LOCAL: int = 2
+    PAYROLL_AUTO_MINUTE_LOCAL: int = 0
+    PAYROLL_AUTO_TZ: str | None = None
 
     # Validation
     BACKEND_CORS_ORIGINS: List[AnyHttpUrl] = []

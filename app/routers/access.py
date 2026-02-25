@@ -18,6 +18,7 @@ from app.models.access import AccessLog
 from app.models.enums import Role
 from app.models.user import User
 from app.services.access_service import AccessRateLimiter, AccessService
+from app.services.payroll_automation_service import PayrollAutomationService
 
 router = APIRouter()
 
@@ -169,6 +170,17 @@ async def check_out(
     db: Annotated[AsyncSession, Depends(get_db)]
 ):
     log = await AccessService.process_check_out(current_user.id, db)
+    try:
+        periods = await PayrollAutomationService.get_current_previous_periods(db)
+        await PayrollAutomationService.recalc_user_for_periods(
+            db,
+            user_id=current_user.id,
+            periods=periods,
+            dry_run=False,
+        )
+    except Exception:
+        # Best effort only, checkout should not fail on payroll refresh errors.
+        pass
     return StandardResponse(message=f"Clocked Out. Hours: {log.hours_worked}")
 
 

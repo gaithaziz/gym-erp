@@ -1,7 +1,13 @@
+import asyncio
+import logging
+from datetime import datetime, timedelta, timezone
+from zoneinfo import ZoneInfo
+
 from fastapi import FastAPI
 from fastapi import Request
 from fastapi.exceptions import RequestValidationError
 from sqlalchemy.exc import IntegrityError
+from sqlalchemy import text
 from app.config import settings
 from app.auth import router as auth_router
 from app.routers.access import router as access_router
@@ -21,8 +27,14 @@ from app.core import exceptions
 from fastapi.staticfiles import StaticFiles
 import os
 import uuid
+from app.database import AsyncSessionLocal
+from app.services.payroll_automation_service import PayrollAutomationService
 
 from fastapi.middleware.cors import CORSMiddleware
+
+logger = logging.getLogger(__name__)
+PAYROLL_SCHEDULER_LOCK_KEY = 995311042
+payroll_scheduler_task: asyncio.Task | None = None
 
 app = FastAPI(
     title=settings.PROJECT_NAME,
@@ -93,3 +105,89 @@ async def root():
 async def favicon():
     from fastapi.responses import Response
     return Response(content=b"", media_type="image/x-icon")
+
+
+def _payroll_scheduler_tz() -> ZoneInfo:
+    tz_name = settings.PAYROLL_AUTO_TZ or settings.GYM_TIMEZONE
+    try:
+        return ZoneInfo(tz_name)
+    except Exception:
+        logger.warning("Invalid payroll scheduler timezone '%s'; falling back to UTC", tz_name)
+        return ZoneInfo("UTC")
+
+
+def _seconds_until_next_run(now_utc: datetime) -> float:
+    tz = _payroll_scheduler_tz()
+    now_local = now_utc.astimezone(tz)
+    target_local = now_local.replace(
+        hour=settings.PAYROLL_AUTO_HOUR_LOCAL,
+        minute=settings.PAYROLL_AUTO_MINUTE_LOCAL,
+        second=0,
+        microsecond=0,
+    )
+    if now_local >= target_local:
+        target_local += timedelta(days=1)
+    return max((target_local.astimezone(timezone.utc) - now_utc).total_seconds(), 1.0)
+
+
+async def _run_payroll_scheduler_once() -> None:
+    async with AsyncSessionLocal() as db:
+        locked = bool((await db.execute(text("SELECT pg_try_advisory_lock(:key)"), {"key": PAYROLL_SCHEDULER_LOCK_KEY})).scalar())
+        if not locked:
+            logger.info("Payroll scheduler lock busy; skipping this cycle")
+            return
+        try:
+            summary = await PayrollAutomationService.run(db, reason="scheduled_daily")
+            logger.info(
+                "Payroll scheduler run complete: users=%s periods=%s created=%s updated=%s skipped_paid=%s errors=%s",
+                summary["users_scanned"],
+                summary["periods_scanned"],
+                summary["created"],
+                summary["updated"],
+                summary["skipped_paid"],
+                len(summary["errors"]),
+            )
+        finally:
+            await db.execute(text("SELECT pg_advisory_unlock(:key)"), {"key": PAYROLL_SCHEDULER_LOCK_KEY})
+            await db.commit()
+
+
+async def _payroll_scheduler_loop() -> None:
+    while True:
+        delay = _seconds_until_next_run(datetime.now(timezone.utc))
+        await asyncio.sleep(delay)
+        try:
+            await _run_payroll_scheduler_once()
+        except asyncio.CancelledError:
+            raise
+        except Exception:
+            logger.exception("Payroll scheduler iteration failed")
+
+
+@app.on_event("startup")
+async def startup_payroll_scheduler() -> None:
+    global payroll_scheduler_task
+    if not settings.PAYROLL_AUTO_ENABLED:
+        logger.info("Payroll auto scheduler disabled by config")
+        return
+    if payroll_scheduler_task and not payroll_scheduler_task.done():
+        return
+    payroll_scheduler_task = asyncio.create_task(_payroll_scheduler_loop())
+    logger.info(
+        "Payroll scheduler started (hour=%s minute=%s tz=%s)",
+        settings.PAYROLL_AUTO_HOUR_LOCAL,
+        settings.PAYROLL_AUTO_MINUTE_LOCAL,
+        settings.PAYROLL_AUTO_TZ or settings.GYM_TIMEZONE,
+    )
+
+
+@app.on_event("shutdown")
+async def shutdown_payroll_scheduler() -> None:
+    global payroll_scheduler_task
+    if payroll_scheduler_task and not payroll_scheduler_task.done():
+        payroll_scheduler_task.cancel()
+        try:
+            await payroll_scheduler_task
+        except asyncio.CancelledError:
+            pass
+    payroll_scheduler_task = None

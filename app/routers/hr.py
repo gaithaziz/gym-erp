@@ -1,6 +1,7 @@
 from datetime import date, datetime, timedelta, timezone
 from typing import Annotated, Literal, Optional
 from decimal import Decimal
+import logging
 from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import HTMLResponse
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -26,12 +27,14 @@ from app.models.hr import (
 from app.models.finance import Transaction, TransactionType, TransactionCategory, PaymentMethod
 from app.models.access import AttendanceLog
 from app.services.payroll_service import PayrollService
+from app.services.payroll_automation_service import PayrollAutomationService
 from app.services.audit_service import AuditService
 from app.services.whatsapp_service import WhatsAppNotificationService
 from app.core.responses import StandardResponse
 import uuid
 
 router = APIRouter()
+logger = logging.getLogger(__name__)
 
 
 def _enum_value(value):
@@ -75,6 +78,13 @@ class PayrollPaymentCreate(BaseModel):
     amount: float = Field(..., gt=0)
     payment_method: PaymentMethod = PaymentMethod.CASH
     description: str | None = None
+
+
+class PayrollAutomationRunRequest(BaseModel):
+    month: int | None = Field(default=None, ge=1, le=12)
+    year: int | None = Field(default=None, ge=2000, le=2100)
+    user_id: uuid.UUID | None = None
+    dry_run: bool = False
 
 
 def _money(value: float | Decimal) -> float:
@@ -131,6 +141,19 @@ def _serialize_payroll(payroll: Payroll, user: User) -> dict:
         ],
     }
 
+
+async def _best_effort_recalc_user_current_previous(db: AsyncSession, user_id: uuid.UUID, *, reason: str) -> None:
+    try:
+        periods = await PayrollAutomationService.get_current_previous_periods(db)
+        await PayrollAutomationService.recalc_user_for_periods(
+            db,
+            user_id=user_id,
+            periods=periods,
+            dry_run=False,
+        )
+    except Exception:
+        logger.exception("Payroll auto-recalc failed for user %s (%s)", user_id, reason)
+
 @router.post("/contracts", response_model=StandardResponse)
 async def create_contract(
     contract_data: ContractCreate,
@@ -172,6 +195,11 @@ async def create_contract(
         details=f"Type: {contract_data.contract_type.value}, Base: {contract_data.base_salary}"
     )
     await db.commit() # Commit the audit log
+    await _best_effort_recalc_user_current_previous(
+        db,
+        contract_data.user_id,
+        reason="contract_update",
+    )
     
     return StandardResponse(message=msg)
 
@@ -181,7 +209,17 @@ async def generate_payroll(
     current_user: Annotated[User, Depends(dependencies.RoleChecker([Role.ADMIN]))],
     db: Annotated[AsyncSession, Depends(get_db)]
 ):
-    payroll = await PayrollService.calculate_payroll(request.user_id, request.month, request.year, request.sales_volume, db)
+    try:
+        payroll = await PayrollService.calculate_payroll(
+            request.user_id,
+            request.month,
+            request.year,
+            request.sales_volume,
+            db,
+            allow_paid_recalc=False,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
     return StandardResponse(
         message=f"Payroll generated for {request.month}/{request.year}",
         data={
@@ -257,6 +295,44 @@ async def update_payroll_settings(
     )
     await db.commit()
     return StandardResponse(message="Payroll settings updated", data={"salary_cutoff_day": settings.salary_cutoff_day})
+
+
+@router.get("/payrolls/automation/status", response_model=StandardResponse)
+async def get_payroll_automation_status(
+    current_user: Annotated[User, Depends(dependencies.RoleChecker([Role.ADMIN]))],
+):
+    _ = current_user
+    return StandardResponse(data=PayrollAutomationService.status())
+
+
+@router.post("/payrolls/automation/run", response_model=StandardResponse)
+async def run_payroll_automation(
+    request: PayrollAutomationRunRequest,
+    current_user: Annotated[User, Depends(dependencies.RoleChecker([Role.ADMIN]))],
+    db: Annotated[AsyncSession, Depends(get_db)],
+):
+    if (request.month is None) != (request.year is None):
+        raise HTTPException(status_code=400, detail="month and year must be provided together")
+    summary = await PayrollAutomationService.run(
+        db,
+        month=request.month,
+        year=request.year,
+        user_id=request.user_id,
+        dry_run=request.dry_run,
+        reason="manual",
+    )
+    await AuditService.log_action(
+        db=db,
+        user_id=current_user.id,
+        action="RUN_PAYROLL_AUTOMATION",
+        target_id=str(request.user_id) if request.user_id else None,
+        details=(
+            f"dry_run={request.dry_run}, month={request.month}, year={request.year}, "
+            f"created={summary['created']}, updated={summary['updated']}, skipped_paid={summary['skipped_paid']}"
+        ),
+    )
+    await db.commit()
+    return StandardResponse(message="Payroll automation run completed", data=summary)
 
 
 @router.get("/payrolls/pending", response_model=StandardResponse)
@@ -867,6 +943,11 @@ async def correct_attendance(
         details="Attendance record corrected by admin",
     )
     await db.commit()
+    await _best_effort_recalc_user_current_previous(
+        db,
+        log.user_id,
+        reason="attendance_correction",
+    )
 
     return StandardResponse(message="Attendance record corrected")
 
@@ -1194,4 +1275,30 @@ async def update_leave_status(
     await db.commit()
     
     await AuditService.log_action(db, current_user.id, "LEAVE_STATUS_UPDATED", f"Leave {leave_id} status changed from {old_status} to {request.status}")
+    await db.commit()
+
+    should_recalc = (
+        (old_status == LeaveStatus.APPROVED and request.status != LeaveStatus.APPROVED)
+        or (old_status != LeaveStatus.APPROVED and request.status == LeaveStatus.APPROVED)
+    )
+    if should_recalc:
+        try:
+            periods = await PayrollAutomationService.get_current_previous_periods(db)
+            start_dt = datetime.combine(leave.start_date, datetime.min.time(), tzinfo=timezone.utc)
+            end_dt = datetime.combine(leave.end_date, datetime.max.time(), tzinfo=timezone.utc)
+            periods_from_leave = await PayrollAutomationService.periods_from_date_range(
+                db,
+                start_date=start_dt,
+                end_date=end_dt,
+            )
+            merged_periods = list(dict.fromkeys([*periods, *periods_from_leave]))
+            await PayrollAutomationService.recalc_user_for_periods(
+                db,
+                user_id=leave.user_id,
+                periods=merged_periods,
+                dry_run=False,
+            )
+        except Exception:
+            logger.exception("Payroll auto-recalc failed for leave status change %s", leave_id)
+
     return StandardResponse(message=f"Leave status updated to {request.status.value}")

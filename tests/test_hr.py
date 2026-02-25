@@ -689,3 +689,176 @@ async def test_staff_summary_range_and_non_admin_forbidden(client: AsyncClient, 
         headers=other_headers,
     )
     assert forbidden.status_code == 403
+
+
+@pytest.mark.asyncio
+async def test_paid_payroll_is_locked_from_regeneration(client: AsyncClient, db_session: AsyncSession):
+    password = "password123"
+    hashed = get_password_hash(password)
+    admin = User(email="admin_paid_lock@gym.com", hashed_password=hashed, role="ADMIN", full_name="Paid Lock Admin")
+    employee = User(email="employee_paid_lock@gym.com", hashed_password=hashed, role="EMPLOYEE", full_name="Paid Lock Employee")
+    db_session.add_all([admin, employee])
+    await db_session.flush()
+    await db_session.commit()
+
+    login_resp = await client.post(
+        f"{settings.API_V1_STR}/auth/login",
+        json={"email": admin.email, "password": password},
+    )
+    headers = {"Authorization": f"Bearer {login_resp.json()['data']['access_token']}"}
+
+    contract_resp = await client.post(
+        f"{settings.API_V1_STR}/hr/contracts",
+        json={
+            "user_id": str(employee.id),
+            "start_date": str(date.today()),
+            "base_salary": 1500.0,
+            "contract_type": "FULL_TIME",
+            "standard_hours": 160,
+        },
+        headers=headers,
+    )
+    assert contract_resp.status_code == 200
+
+    now = datetime.now(timezone.utc)
+    generate = await client.post(
+        f"{settings.API_V1_STR}/hr/payroll/generate",
+        json={"user_id": str(employee.id), "month": now.month, "year": now.year},
+        headers=headers,
+    )
+    assert generate.status_code == 200
+    payroll_id = generate.json()["data"]["id"]
+
+    pay_all = await client.post(
+        f"{settings.API_V1_STR}/hr/payrolls/{payroll_id}/payments",
+        json={"amount": 1500.0, "payment_method": "CASH"},
+        headers=headers,
+    )
+    assert pay_all.status_code == 200
+    mark_paid = await client.patch(
+        f"{settings.API_V1_STR}/hr/payrolls/{payroll_id}/status",
+        json={"status": "PAID"},
+        headers=headers,
+    )
+    assert mark_paid.status_code == 200
+
+    locked_regen = await client.post(
+        f"{settings.API_V1_STR}/hr/payroll/generate",
+        json={"user_id": str(employee.id), "month": now.month, "year": now.year},
+        headers=headers,
+    )
+    assert locked_regen.status_code == 400
+    assert "locked" in (locked_regen.json().get("detail") or "").lower()
+
+
+@pytest.mark.asyncio
+async def test_contract_update_triggers_auto_payroll_refresh(client: AsyncClient, db_session: AsyncSession):
+    password = "password123"
+    hashed = get_password_hash(password)
+    admin = User(email="admin_contract_auto@gym.com", hashed_password=hashed, role="ADMIN", full_name="Contract Auto Admin")
+    employee = User(email="employee_contract_auto@gym.com", hashed_password=hashed, role="EMPLOYEE", full_name="Contract Auto Employee")
+    db_session.add_all([admin, employee])
+    await db_session.flush()
+    await db_session.commit()
+
+    login_resp = await client.post(
+        f"{settings.API_V1_STR}/auth/login",
+        json={"email": admin.email, "password": password},
+    )
+    headers = {"Authorization": f"Bearer {login_resp.json()['data']['access_token']}"}
+
+    create_contract = await client.post(
+        f"{settings.API_V1_STR}/hr/contracts",
+        json={
+            "user_id": str(employee.id),
+            "start_date": str(date.today()),
+            "base_salary": 1200.0,
+            "contract_type": "FULL_TIME",
+            "standard_hours": 160,
+        },
+        headers=headers,
+    )
+    assert create_contract.status_code == 200
+
+    now = datetime.now(timezone.utc)
+    generate = await client.post(
+        f"{settings.API_V1_STR}/hr/payroll/generate",
+        json={"user_id": str(employee.id), "month": now.month, "year": now.year},
+        headers=headers,
+    )
+    assert generate.status_code == 200
+    assert generate.json()["data"]["base_pay"] == 1200.0
+
+    update_contract = await client.post(
+        f"{settings.API_V1_STR}/hr/contracts",
+        json={
+            "user_id": str(employee.id),
+            "start_date": str(date.today()),
+            "base_salary": 1700.0,
+            "contract_type": "FULL_TIME",
+            "standard_hours": 160,
+        },
+        headers=headers,
+    )
+    assert update_contract.status_code == 200
+
+    check_payroll = await client.get(
+        f"{settings.API_V1_STR}/hr/payrolls/pending",
+        params={"user_id": str(employee.id), "month": now.month, "year": now.year, "limit": 1},
+        headers=headers,
+    )
+    assert check_payroll.status_code == 200
+    rows = check_payroll.json()["data"]
+    assert len(rows) >= 1
+    assert rows[0]["base_pay"] == 1700.0
+
+
+@pytest.mark.asyncio
+async def test_payroll_automation_run_and_status_endpoints(client: AsyncClient, db_session: AsyncSession):
+    password = "password123"
+    hashed = get_password_hash(password)
+    admin = User(email="admin_payroll_auto_endpoints@gym.com", hashed_password=hashed, role="ADMIN", full_name="Auto Endpoint Admin")
+    employee = User(email="employee_payroll_auto_endpoints@gym.com", hashed_password=hashed, role="EMPLOYEE", full_name="Auto Endpoint Employee")
+    db_session.add_all([admin, employee])
+    await db_session.flush()
+    await db_session.commit()
+
+    login_resp = await client.post(
+        f"{settings.API_V1_STR}/auth/login",
+        json={"email": admin.email, "password": password},
+    )
+    headers = {"Authorization": f"Bearer {login_resp.json()['data']['access_token']}"}
+
+    create_contract = await client.post(
+        f"{settings.API_V1_STR}/hr/contracts",
+        json={
+            "user_id": str(employee.id),
+            "start_date": str(date.today()),
+            "base_salary": 1300.0,
+            "contract_type": "FULL_TIME",
+            "standard_hours": 160,
+        },
+        headers=headers,
+    )
+    assert create_contract.status_code == 200
+
+    now = datetime.now(timezone.utc)
+    run_resp = await client.post(
+        f"{settings.API_V1_STR}/hr/payrolls/automation/run",
+        json={"user_id": str(employee.id), "month": now.month, "year": now.year},
+        headers=headers,
+    )
+    assert run_resp.status_code == 200
+    run_data = run_resp.json()["data"]
+    assert run_data["users_scanned"] == 1
+    assert run_data["periods_scanned"] == 1
+
+    status_resp = await client.get(
+        f"{settings.API_V1_STR}/hr/payrolls/automation/status",
+        headers=headers,
+    )
+    assert status_resp.status_code == 200
+    status_data = status_resp.json()["data"]
+    assert "enabled" in status_data
+    assert "schedule" in status_data
+    assert "last_summary" in status_data

@@ -75,3 +75,44 @@
   - `alembic upgrade head`
   - then rebuild services if needed:
     - `docker compose up -d --build backend frontend`
+
+## 11) Diet Plan Workflow Parity (Full + Hybrid Content)
+- Implemented full diet lifecycle parity with workout plans:
+  - Added fields to `DietPlan`: `status`, `version`, `parent_plan_id`, `published_at`, `archived_at`, `is_template`, `content_structured`.
+  - Added self-referential version lineage for diet plans.
+- Added backend endpoints/features:
+  - Updated: `POST /fitness/diets`, `GET /fitness/diets`, `GET /fitness/diets/{diet_id}`, `POST /fitness/diets/{diet_id}/clone`
+  - Added: `PUT /fitness/diets/{diet_id}`, `POST /fitness/diets/{diet_id}/publish`, `POST /fitness/diets/{diet_id}/archive`, `POST /fitness/diets/{diet_id}/fork-draft`, `POST /fitness/diets/{diet_id}/bulk-assign`, `GET /fitness/diet-summaries`
+  - Added lifecycle enforcement:
+    - Published diets are read-only; must fork draft to edit.
+    - Archived diets are non-editable and non-assignable.
+  - Updated diet library conversion:
+    - `POST /fitness/diet-library/{item_id}/to-plan` now creates a `DRAFT` diet by default.
+- Added migration:
+  - `alembic/versions/a7d3b91f4c2e_add_diet_lifecycle_parity.py`
+  - Includes schema changes, backfill to published defaults for existing rows, FK, and indexes:
+    - `ix_diet_plans_creator_status`
+    - `ix_diet_plans_member_status`
+    - `ix_diet_plans_parent_plan_id`
+- Frontend parity updates:
+  - Rebuilt coach diets page to mirror workout workflow:
+    - status chips, template/assigned grouping, lifecycle actions, bulk assign modal
+    - create/edit modal includes optional `content_structured` JSON with validation
+  - Updated admin member assignment modal:
+    - diet status filter chips + warnings
+    - diet assignment now uses `bulk-assign` endpoint
+    - archived diet assignment guardrails
+- Files:
+  - `app/models/fitness.py`
+  - `app/routers/fitness.py`
+  - `alembic/versions/a7d3b91f4c2e_add_diet_lifecycle_parity.py`
+  - `frontend/src/app/dashboard/coach/diets/page.tsx`
+  - `frontend/src/app/dashboard/admin/members/page.tsx`
+  - `tests/test_fitness.py`
+
+## 12) Validation Performed (Post-Parity)
+- `python -m py_compile app/routers/fitness.py app/models/fitness.py alembic/versions/a7d3b91f4c2e_add_diet_lifecycle_parity.py` passed.
+- `npx tsc --noEmit` (frontend) passed.
+- `pytest -q tests/test_fitness.py` passed (`16 passed`).
+- `pytest -q tests/test_phase3_4.py` passed (`3 passed`).
+- `pytest -q tests/test_roles_feedback_notifications.py -k "diet or feedback"` passed (`6 passed`).

@@ -65,6 +65,8 @@ class PayrollService:
         year: int,
         sales_volume: float,
         db: AsyncSession,
+        *,
+        allow_paid_recalc: bool = False,
     ) -> Payroll:
         stmt = select(Contract).where(Contract.user_id == user_id)
         result = await db.execute(stmt)
@@ -136,6 +138,8 @@ class PayrollService:
         existing = result_payroll.scalar_one_or_none()
 
         if existing:
+            if existing.status == PayrollStatus.PAID and not allow_paid_recalc:
+                raise ValueError("Payroll is locked because it is marked as PAID. Reopen it first.")
             payroll = existing
             payroll.base_pay = _round_money(base_pay)
             payroll.overtime_hours = _round_money(overtime_hours)
@@ -144,8 +148,6 @@ class PayrollService:
             payroll.bonus_pay = _round_money(bonus_pay)
             payroll.deductions = _round_money(deductions)
             payroll.total_pay = _round_money(total_pay)
-            if payroll.status == PayrollStatus.PAID:
-                pass
         else:
             payroll = Payroll(
                 user_id=user_id,
