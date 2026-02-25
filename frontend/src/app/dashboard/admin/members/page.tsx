@@ -95,6 +95,7 @@ export default function MembersPage() {
     const router = useRouter();
     const { user } = useAuth();
     const canManageMembers = ['ADMIN', 'RECEPTION', 'FRONT_DESK'].includes(user?.role || '');
+    const canMessageClient = ['ADMIN', 'COACH'].includes(user?.role || '');
     const { showToast, confirm: confirmAction } = useFeedback();
     const [members, setMembers] = useState<Member[]>([]);
     const [plans, setPlans] = useState<WorkoutPlan[]>([]);
@@ -190,8 +191,20 @@ export default function MembersPage() {
 
     const fetchDietPlans = async () => {
         try {
-            const res = await api.get('/fitness/diet-summaries', { params: { include_archived: true } }).catch(
-                () => api.get('/fitness/diets', { params: { include_archived: true } }),
+            const res = await api.get('/fitness/diet-summaries', {
+                params: {
+                    include_archived: true,
+                    include_all_creators: true,
+                    templates_only: true,
+                },
+            }).catch(
+                () => api.get('/fitness/diets', {
+                    params: {
+                        include_archived: true,
+                        include_all_creators: true,
+                        templates_only: true,
+                    },
+                }),
             );
             const allPlans = res.data?.data ?? [];
             setDietPlans(allPlans.filter((plan: DietPlan) => !plan.member_id));
@@ -517,7 +530,7 @@ export default function MembersPage() {
                                             >
                                                 <Eye size={14} /> View
                                             </button>
-                                            {user?.role === 'COACH' && (
+                                            {canMessageClient && (
                                                 <button
                                                     onClick={() => handleMessageClient(m.id)}
                                                     className="btn-ghost py-1 px-2 h-auto text-xs text-primary hover:text-primary/80"
@@ -620,7 +633,7 @@ export default function MembersPage() {
                                 >
                                     <Dumbbell size={14} /> Assign
                                 </button>
-                                {user?.role === 'COACH' && (
+                                {canMessageClient && (
                                     <button
                                         onClick={() => handleMessageClient(m.id)}
                                         className="btn-ghost !px-2 !py-2 h-auto text-xs text-primary hover:text-primary/80 justify-center"
@@ -1145,7 +1158,7 @@ export default function MembersPage() {
                                 </div>
                             </div>
                         </div>
-                        {user?.role === 'COACH' && (
+                        {canMessageClient && (
                             <div className="border-t border-border pt-4">
                                 <button
                                     type="button"

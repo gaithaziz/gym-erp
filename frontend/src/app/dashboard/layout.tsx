@@ -52,7 +52,7 @@ export default function DashboardLayout({
         user?.role === 'CUSTOMER' &&
         (Boolean(user?.is_subscription_blocked) ||
             BLOCKED_SUBSCRIPTION_STATUSES.has(user?.subscription_status || 'NONE'));
-    const canUseChat = ['COACH', 'CUSTOMER'].includes(user?.role || '') && !isBlockedCustomer;
+    const canUseChat = ['ADMIN', 'COACH', 'CUSTOMER'].includes(user?.role || '') && !isBlockedCustomer;
     const isBlockedRouteAllowed = BLOCKED_ALLOWED_ROUTES.some((route) => pathname.startsWith(route));
     const isSupportPage = pathname.startsWith('/dashboard/admin/support') || pathname.startsWith('/dashboard/support');
     const isLostFoundPage = pathname.startsWith('/dashboard/lost-found');

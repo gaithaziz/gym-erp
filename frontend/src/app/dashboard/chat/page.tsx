@@ -224,11 +224,17 @@ export default function ChatPage() {
             const response = await api.get('/chat/threads', { params });
             const rows = response.data?.data || [];
             setThreads(rows);
-            if (!selectedThreadId && rows.length > 0) {
+            if (rows.length === 0) {
+                setSelectedThreadId(null);
+                setMessages([]);
+                return;
+            }
+            const selectedStillExists = !!selectedThreadId && rows.some((thread: ChatThread) => thread.id === selectedThreadId);
+            if (!selectedStillExists) {
                 setSelectedThreadId(rows[0].id);
             }
         } catch {
-            setThreads([]);
+            // Keep existing threads/messages on transient failures.
         }
     };
 
@@ -240,8 +246,17 @@ export default function ChatPage() {
             if (!isAdmin) {
                 await api.post(`/chat/threads/${threadId}/read`);
             }
-        } catch {
-            setMessages([]);
+        } catch (err: unknown) {
+            const statusCode = (err as { response?: { status?: number } })?.response?.status;
+            if (statusCode === 404) {
+                // Selected thread no longer exists; clear and refresh list.
+                if (selectedThreadId === threadId) {
+                    setMessages([]);
+                    setSelectedThreadId(null);
+                }
+                fetchThreads();
+            }
+            // For transient failures keep current messages.
         }
     };
 
@@ -434,10 +449,18 @@ export default function ChatPage() {
     }, [adminCoachFilter, adminCustomerFilter]); // eslint-disable-line react-hooks/exhaustive-deps
 
     useEffect(() => {
+        window.scrollTo({ top: 0, behavior: 'auto' });
+    }, []);
+
+    useEffect(() => {
         if (selectedThreadId) {
+            // On chat/thread entry, start from top of the message list.
+            wasNearBottomRef.current = false;
+            setShowJumpToLatest(true);
             fetchMessages(selectedThreadId);
         } else {
             setMessages([]);
+            setShowJumpToLatest(false);
         }
     }, [selectedThreadId]); // eslint-disable-line react-hooks/exhaustive-deps
 

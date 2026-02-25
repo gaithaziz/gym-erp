@@ -519,6 +519,241 @@ async def test_non_owner_coach_cannot_manage_other_coach_diet_lifecycle(client: 
 
 
 @pytest.mark.asyncio
+async def test_coach_bulk_assign_diet_replace_active_only_archives_own_plans(client: AsyncClient, db_session: AsyncSession):
+    password = "password123"
+    hashed = get_password_hash(password)
+
+    coach_a = User(email="coach_a_replace_diet@gym.com", hashed_password=hashed, role=Role.COACH, full_name="Coach A")
+    coach_b = User(email="coach_b_replace_diet@gym.com", hashed_password=hashed, role=Role.COACH, full_name="Coach B")
+    member = User(email="member_replace_diet@gym.com", hashed_password=hashed, role=Role.CUSTOMER, full_name="Member Replace")
+    db_session.add_all([coach_a, coach_b, member])
+    await db_session.flush()
+    db_session.add(_active_subscription(member.id))
+    await db_session.commit()
+
+    coach_a_login = await client.post(
+        f"{settings.API_V1_STR}/auth/login",
+        json={"email": coach_a.email, "password": password},
+    )
+    coach_a_headers = {"Authorization": f"Bearer {coach_a_login.json()['data']['access_token']}"}
+    coach_b_login = await client.post(
+        f"{settings.API_V1_STR}/auth/login",
+        json={"email": coach_b.email, "password": password},
+    )
+    coach_b_headers = {"Authorization": f"Bearer {coach_b_login.json()['data']['access_token']}"}
+
+    coach_a_old = await client.post(
+        f"{settings.API_V1_STR}/fitness/diets",
+        json={"name": "Coach A Old", "content": "A", "status": "PUBLISHED", "member_id": str(member.id)},
+        headers=coach_a_headers,
+    )
+    assert coach_a_old.status_code == 200
+    coach_b_old = await client.post(
+        f"{settings.API_V1_STR}/fitness/diets",
+        json={"name": "Coach B Old", "content": "B", "status": "PUBLISHED", "member_id": str(member.id)},
+        headers=coach_b_headers,
+    )
+    assert coach_b_old.status_code == 200
+
+    source = await client.post(
+        f"{settings.API_V1_STR}/fitness/diets",
+        json={"name": "Coach A Source", "content": "Template", "status": "PUBLISHED", "is_template": True},
+        headers=coach_a_headers,
+    )
+    assert source.status_code == 200
+    source_id = source.json()["data"]["id"]
+
+    assign_resp = await client.post(
+        f"{settings.API_V1_STR}/fitness/diets/{source_id}/bulk-assign",
+        json={"member_ids": [str(member.id)], "replace_active": True},
+        headers=coach_a_headers,
+    )
+    assert assign_resp.status_code == 200
+    assert assign_resp.json()["data"]["assigned_count"] == 1
+    assert assign_resp.json()["data"]["replaced_count"] == 1
+
+    coach_a_plans = await client.get(f"{settings.API_V1_STR}/fitness/diets?include_archived=true", headers=coach_a_headers)
+    assert coach_a_plans.status_code == 200
+    coach_a_by_id = {row["id"]: row for row in coach_a_plans.json()["data"]}
+    assert coach_a_by_id[coach_a_old.json()["data"]["id"]]["status"] == "ARCHIVED"
+
+    coach_b_plans = await client.get(f"{settings.API_V1_STR}/fitness/diets?include_archived=true", headers=coach_b_headers)
+    assert coach_b_plans.status_code == 200
+    coach_b_by_id = {row["id"]: row for row in coach_b_plans.json()["data"]}
+    assert coach_b_by_id[coach_b_old.json()["data"]["id"]]["status"] == "PUBLISHED"
+
+
+@pytest.mark.asyncio
+async def test_admin_bulk_assign_diet_archives_all_active_and_skips_non_customer_targets(client: AsyncClient, db_session: AsyncSession):
+    password = "password123"
+    hashed = get_password_hash(password)
+
+    admin = User(email="admin_replace_diet@gym.com", hashed_password=hashed, role=Role.ADMIN, full_name="Admin Replace")
+    coach = User(email="coach_replace_diet_admin@gym.com", hashed_password=hashed, role=Role.COACH, full_name="Coach Replace")
+    member = User(email="member_replace_diet_admin@gym.com", hashed_password=hashed, role=Role.CUSTOMER, full_name="Member Replace")
+    db_session.add_all([admin, coach, member])
+    await db_session.flush()
+    db_session.add(_active_subscription(member.id))
+    await db_session.commit()
+
+    admin_login = await client.post(
+        f"{settings.API_V1_STR}/auth/login",
+        json={"email": admin.email, "password": password},
+    )
+    admin_headers = {"Authorization": f"Bearer {admin_login.json()['data']['access_token']}"}
+    coach_login = await client.post(
+        f"{settings.API_V1_STR}/auth/login",
+        json={"email": coach.email, "password": password},
+    )
+    coach_headers = {"Authorization": f"Bearer {coach_login.json()['data']['access_token']}"}
+
+    coach_old = await client.post(
+        f"{settings.API_V1_STR}/fitness/diets",
+        json={"name": "Coach Old", "content": "C", "status": "PUBLISHED", "member_id": str(member.id)},
+        headers=coach_headers,
+    )
+    assert coach_old.status_code == 200
+    admin_old = await client.post(
+        f"{settings.API_V1_STR}/fitness/diets",
+        json={"name": "Admin Old", "content": "A", "status": "PUBLISHED", "member_id": str(member.id)},
+        headers=admin_headers,
+    )
+    assert admin_old.status_code == 200
+    admin_source = await client.post(
+        f"{settings.API_V1_STR}/fitness/diets",
+        json={"name": "Admin Source", "content": "Template", "status": "PUBLISHED", "is_template": True},
+        headers=admin_headers,
+    )
+    assert admin_source.status_code == 200
+
+    assign_resp = await client.post(
+        f"{settings.API_V1_STR}/fitness/diets/{admin_source.json()['data']['id']}/bulk-assign",
+        json={"member_ids": [str(member.id), str(coach.id)], "replace_active": True},
+        headers=admin_headers,
+    )
+    assert assign_resp.status_code == 200
+    data = assign_resp.json()["data"]
+    assert data["assigned_count"] == 1
+    assert data["replaced_count"] == 2
+    assert any(str(coach.id) in row and "not a customer" in row for row in data["skipped"])
+
+    admin_plans = await client.get(f"{settings.API_V1_STR}/fitness/diets?include_archived=true", headers=admin_headers)
+    assert admin_plans.status_code == 200
+    by_id = {row["id"]: row for row in admin_plans.json()["data"]}
+    assert by_id[admin_old.json()["data"]["id"]]["status"] == "ARCHIVED"
+
+    coach_plans = await client.get(f"{settings.API_V1_STR}/fitness/diets?include_archived=true", headers=coach_headers)
+    assert coach_plans.status_code == 200
+    coach_by_id = {row["id"]: row for row in coach_plans.json()["data"]}
+    assert coach_by_id[coach_old.json()["data"]["id"]]["status"] == "ARCHIVED"
+
+
+@pytest.mark.asyncio
+async def test_coach_can_read_other_coach_diet_by_id_but_customer_cannot(client: AsyncClient, db_session: AsyncSession):
+    password = "password123"
+    hashed = get_password_hash(password)
+
+    owner = User(email="coach_read_owner_diet@gym.com", hashed_password=hashed, role=Role.COACH, full_name="Owner Coach")
+    other = User(email="coach_read_other_diet@gym.com", hashed_password=hashed, role=Role.COACH, full_name="Other Coach")
+    member = User(email="member_read_other_diet@gym.com", hashed_password=hashed, role=Role.CUSTOMER, full_name="Member Read")
+    db_session.add_all([owner, other, member])
+    await db_session.flush()
+    db_session.add(_active_subscription(member.id))
+    await db_session.commit()
+
+    owner_login = await client.post(
+        f"{settings.API_V1_STR}/auth/login",
+        json={"email": owner.email, "password": password},
+    )
+    owner_headers = {"Authorization": f"Bearer {owner_login.json()['data']['access_token']}"}
+    other_login = await client.post(
+        f"{settings.API_V1_STR}/auth/login",
+        json={"email": other.email, "password": password},
+    )
+    other_headers = {"Authorization": f"Bearer {other_login.json()['data']['access_token']}"}
+    member_login = await client.post(
+        f"{settings.API_V1_STR}/auth/login",
+        json={"email": member.email, "password": password},
+    )
+    member_headers = {"Authorization": f"Bearer {member_login.json()['data']['access_token']}"}
+
+    create_resp = await client.post(
+        f"{settings.API_V1_STR}/fitness/diets",
+        json={"name": "Owner Template", "content": "X", "status": "DRAFT", "is_template": True},
+        headers=owner_headers,
+    )
+    assert create_resp.status_code == 200
+    diet_id = create_resp.json()["data"]["id"]
+
+    other_read = await client.get(f"{settings.API_V1_STR}/fitness/diets/{diet_id}", headers=other_headers)
+    assert other_read.status_code == 200
+    assert other_read.json()["data"]["id"] == diet_id
+
+    member_read = await client.get(f"{settings.API_V1_STR}/fitness/diets/{diet_id}", headers=member_headers)
+    assert member_read.status_code == 403
+
+
+@pytest.mark.asyncio
+async def test_admin_can_list_diet_summaries_across_creators_with_flag(client: AsyncClient, db_session: AsyncSession):
+    password = "password123"
+    hashed = get_password_hash(password)
+
+    admin = User(email="admin_all_creators_diet@gym.com", hashed_password=hashed, role=Role.ADMIN, full_name="Admin All Creators")
+    coach = User(email="coach_all_creators_diet@gym.com", hashed_password=hashed, role=Role.COACH, full_name="Coach All Creators")
+    db_session.add_all([admin, coach])
+    await db_session.flush()
+    await db_session.commit()
+
+    admin_login = await client.post(
+        f"{settings.API_V1_STR}/auth/login",
+        json={"email": admin.email, "password": password},
+    )
+    admin_headers = {"Authorization": f"Bearer {admin_login.json()['data']['access_token']}"}
+    coach_login = await client.post(
+        f"{settings.API_V1_STR}/auth/login",
+        json={"email": coach.email, "password": password},
+    )
+    coach_headers = {"Authorization": f"Bearer {coach_login.json()['data']['access_token']}"}
+
+    create_admin = await client.post(
+        f"{settings.API_V1_STR}/fitness/diets",
+        json={"name": "Admin Visible", "content": "Admin", "status": "PUBLISHED", "is_template": True},
+        headers=admin_headers,
+    )
+    assert create_admin.status_code == 200
+    create_coach = await client.post(
+        f"{settings.API_V1_STR}/fitness/diets",
+        json={"name": "Coach Visible", "content": "Coach", "status": "PUBLISHED", "is_template": True},
+        headers=coach_headers,
+    )
+    assert create_coach.status_code == 200
+
+    default_resp = await client.get(f"{settings.API_V1_STR}/fitness/diet-summaries", headers=admin_headers)
+    assert default_resp.status_code == 200
+    default_names = {row["name"] for row in default_resp.json()["data"]}
+    assert "Admin Visible" in default_names
+    assert "Coach Visible" not in default_names
+
+    all_resp = await client.get(
+        f"{settings.API_V1_STR}/fitness/diet-summaries?include_all_creators=true&templates_only=true",
+        headers=admin_headers,
+    )
+    assert all_resp.status_code == 200
+    all_names = {row["name"] for row in all_resp.json()["data"]}
+    assert "Admin Visible" in all_names
+    assert "Coach Visible" in all_names
+
+    filtered_resp = await client.get(
+        f"{settings.API_V1_STR}/fitness/diet-summaries?include_all_creators=true&creator_id={coach.id}",
+        headers=admin_headers,
+    )
+    assert filtered_resp.status_code == 200
+    filtered_names = {row["name"] for row in filtered_resp.json()["data"]}
+    assert "Coach Visible" in filtered_names
+    assert "Admin Visible" not in filtered_names
+
+
+@pytest.mark.asyncio
 async def test_coach_can_delete_plan_that_has_logs(client: AsyncClient, db_session: AsyncSession):
     password = "password123"
     hashed = get_password_hash(password)

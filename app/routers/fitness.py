@@ -1264,12 +1264,26 @@ async def list_diet_plans(
     current_user: Annotated[User, Depends(dependencies.require_active_customer_subscription)],
     db: Annotated[AsyncSession, Depends(get_db)],
     include_archived: bool = Query(False),
+    include_all_creators: bool = Query(False),
+    creator_id: uuid.UUID | None = Query(default=None),
+    templates_only: bool = Query(False),
 ):
     """List diet plans visible to the user."""
     if _is_admin_or_coach(current_user):
-        stmt = select(DietPlan).where(DietPlan.creator_id == current_user.id)
+        if (
+            current_user.role == Role.ADMIN
+            and include_all_creators
+        ):
+            stmt = select(DietPlan)
+            if creator_id:
+                stmt = stmt.where(DietPlan.creator_id == creator_id)
+        else:
+            stmt = select(DietPlan).where(DietPlan.creator_id == current_user.id)
     else:
         stmt = select(DietPlan).where(DietPlan.member_id == current_user.id)
+
+    if templates_only:
+        stmt = stmt.where(DietPlan.member_id.is_(None))
     if not include_archived:
         stmt = stmt.where(DietPlan.status != "ARCHIVED")
     stmt = stmt.order_by(DietPlan.name)
@@ -1290,8 +1304,12 @@ async def get_diet_plan(
     plan = result.scalar_one_or_none()
     if not plan:
         raise HTTPException(status_code=404, detail="Diet plan not found")
+
+    if _is_admin_or_coach(current_user):
+        return StandardResponse(data=DietPlanResponse.model_validate(plan))
+
     # Data isolation: member can only see their own plan
-    if not _is_admin_or_coach(current_user) and plan.member_id != current_user.id:
+    if plan.member_id != current_user.id:
         raise HTTPException(status_code=403, detail="Access denied")
     return StandardResponse(data=DietPlanResponse.model_validate(plan))
 
@@ -1375,12 +1393,17 @@ async def bulk_assign_diet_plan(
             if not member:
                 skipped.append(f"{member_id}: member not found")
                 continue
+            if member.role != Role.CUSTOMER:
+                skipped.append(f"{member_id}: not a customer")
+                continue
 
             if payload.replace_active:
                 active_stmt = select(DietPlan).where(
                     DietPlan.member_id == member_id,
                     DietPlan.status != "ARCHIVED",
                 )
+                if current_user.role == Role.COACH:
+                    active_stmt = active_stmt.where(DietPlan.creator_id == current_user.id)
                 active_res = await db.execute(active_stmt)
                 active_plans = active_res.scalars().all()
                 for active_plan in active_plans:
@@ -1478,12 +1501,26 @@ async def list_diet_summaries(
     current_user: Annotated[User, Depends(dependencies.require_active_customer_subscription)],
     db: Annotated[AsyncSession, Depends(get_db)],
     include_archived: bool = Query(False),
+    include_all_creators: bool = Query(False),
+    creator_id: uuid.UUID | None = Query(default=None),
+    templates_only: bool = Query(False),
 ):
     if not _is_admin_or_coach(current_user):
         raise HTTPException(status_code=403, detail="Only admin/coach can access diet summaries")
-    stmt = select(DietPlan).where(DietPlan.creator_id == current_user.id).order_by(DietPlan.name)
+    if (
+        current_user.role == Role.ADMIN
+        and include_all_creators
+    ):
+        stmt = select(DietPlan).order_by(DietPlan.name)
+        if creator_id:
+            stmt = stmt.where(DietPlan.creator_id == creator_id)
+    else:
+        stmt = select(DietPlan).where(DietPlan.creator_id == current_user.id)
+    if templates_only:
+        stmt = stmt.where(DietPlan.member_id.is_(None))
     if not include_archived:
         stmt = stmt.where(DietPlan.status != "ARCHIVED")
+    stmt = stmt.order_by(DietPlan.name)
     result = await db.execute(stmt)
     plans = result.scalars().all()
     return StandardResponse(data=[_build_diet_summary(plan) for plan in plans])

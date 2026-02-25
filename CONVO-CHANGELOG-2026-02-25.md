@@ -116,3 +116,53 @@
 - `pytest -q tests/test_fitness.py` passed (`16 passed`).
 - `pytest -q tests/test_phase3_4.py` passed (`3 passed`).
 - `pytest -q tests/test_roles_feedback_notifications.py -k "diet or feedback"` passed (`6 passed`).
+
+## 13) Payroll Automation (Hybrid + Hard Paid Lock)
+- Implemented automatic payroll sync with hybrid strategy:
+  - Event-driven recalculation hooks
+  - Daily scheduler run
+  - Hard lock for `PAID` payroll rows
+- New service:
+  - `app/services/payroll_automation_service.py`
+  - Handles:
+    - current + previous period resolution using cutoff + timezone
+    - per-user recalc for selected periods
+    - skipping `PAID` payroll rows
+    - run summaries (`users_scanned`, `periods_scanned`, `created`, `updated`, `skipped_paid`, `errors`)
+    - automation status payload
+- Payroll lock behavior:
+  - `PayrollService.calculate_payroll(..., allow_paid_recalc=False)` now blocks recalculating `PAID` rows.
+  - Manual `POST /hr/payroll/generate` now returns HTTP 400 when payroll is locked.
+  - File: `app/services/payroll_service.py`
+- New admin automation APIs:
+  - `GET /hr/payrolls/automation/status`
+  - `POST /hr/payrolls/automation/run`
+    - Optional payload: `month`, `year`, `user_id`, `dry_run`
+  - File: `app/routers/hr.py`
+- Event-driven auto-recalc hooks (best effort, post-commit):
+  - Contract create/update (`POST /hr/contracts`)
+  - Leave status transitions into/out of `APPROVED` (`PUT /hr/leaves/{leave_id}`)
+  - Attendance correction (`PUT /hr/attendance/{attendance_id}`)
+  - Staff checkout (`POST /access/check-out`)
+  - Files:
+    - `app/routers/hr.py`
+    - `app/routers/access.py`
+- Scheduler integration (no external worker):
+  - Added startup/shutdown managed async scheduler loop in `app/main.py`
+  - Daily local-time execution with:
+    - `PAYROLL_AUTO_HOUR_LOCAL`
+    - `PAYROLL_AUTO_MINUTE_LOCAL`
+    - timezone from `PAYROLL_AUTO_TZ` (fallback `GYM_TIMEZONE`)
+  - Cross-replica guard with Postgres advisory lock:
+    - `pg_try_advisory_lock` / `pg_advisory_unlock`
+- New config flags:
+  - `PAYROLL_AUTO_ENABLED` (default `True`)
+  - `PAYROLL_AUTO_HOUR_LOCAL` (default `2`)
+  - `PAYROLL_AUTO_MINUTE_LOCAL` (default `0`)
+  - `PAYROLL_AUTO_TZ` (optional; fallback to `GYM_TIMEZONE`)
+  - File: `app/config.py`
+
+## 14) Validation Performed (Payroll Automation)
+- `python -m py_compile app/main.py app/routers/hr.py app/routers/access.py app/services/payroll_service.py app/services/payroll_automation_service.py app/config.py` passed.
+- `pytest -q tests/test_hr.py` passed (`14 passed`).
+- `pytest -q tests/test_fitness.py -k "diet"` passed (`6 passed, 10 deselected`).
