@@ -1,5 +1,5 @@
 import uuid
-from datetime import datetime, timezone
+from datetime import datetime
 from sqlalchemy import Integer, ForeignKey, Text, DateTime, Float, String
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from app.database import Base
@@ -19,7 +19,7 @@ class WorkoutLog(Base):
     id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
     member_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id"), nullable=False)
     plan_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("workout_plans.id"), nullable=False)
-    date: Mapped[datetime] = mapped_column(DateTime, default=lambda: datetime.now(timezone.utc))
+    date: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
     completed: Mapped[bool] = mapped_column(default=False)
     difficulty_rating: Mapped[int] = mapped_column(Integer, nullable=True)  # 1-5
     comment: Mapped[str] = mapped_column(Text, nullable=True)
@@ -34,7 +34,7 @@ class WorkoutSession(Base):
     id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
     member_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id"), nullable=False)
     plan_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("workout_plans.id"), nullable=False)
-    performed_at: Mapped[datetime] = mapped_column(DateTime, default=lambda: datetime.now(timezone.utc), nullable=False)
+    performed_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False)
     duration_minutes: Mapped[int | None] = mapped_column(Integer, nullable=True)
     notes: Mapped[str | None] = mapped_column(Text, nullable=True)
 
@@ -71,7 +71,7 @@ class DietFeedback(Base):
     coach_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("users.id"), nullable=True, index=True)
     rating: Mapped[int] = mapped_column(Integer, nullable=False)
     comment: Mapped[str | None] = mapped_column(Text, nullable=True)
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=lambda: datetime.now(timezone.utc), nullable=False, index=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False, index=True)
 
     member = relationship("User", foreign_keys=[member_id])
     coach = relationship("User", foreign_keys=[coach_id])
@@ -86,6 +86,6 @@ class GymFeedback(Base):
     category: Mapped[str] = mapped_column(String, nullable=False, default="GENERAL")
     rating: Mapped[int] = mapped_column(Integer, nullable=False)
     comment: Mapped[str | None] = mapped_column(Text, nullable=True)
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=lambda: datetime.now(timezone.utc), nullable=False, index=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False, index=True)
 
     member = relationship("User", foreign_keys=[member_id])

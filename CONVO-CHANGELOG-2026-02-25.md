@@ -255,3 +255,61 @@
 - `npx eslint src/app/dashboard/page.tsx` passed.
 - `npm run build` (frontend) passed after changes.
 - Note: full-repo `npm run lint` previously showed unrelated pre-existing errors in other files (not introduced by these edits).
+
+## 21) Customer Dashboard Decomposition + IA Cleanup
+- Refactored customer `/dashboard` into overview-only (summary + quick access), removed heavy detailed sections.
+- Added dedicated customer pages:
+  - `/dashboard/member/progress`
+  - `/dashboard/member/plans`
+  - `/dashboard/member/diets`
+- Added shared customer data/types modules:
+  - `frontend/src/app/dashboard/member/_shared/customerData.ts`
+  - `frontend/src/app/dashboard/member/_shared/types.ts`
+- Updated customer sidebar navigation in:
+  - `frontend/src/app/dashboard/layout.tsx`
+
+## 22) Customer Plans/Progress UX Enhancements
+- Moved session logging flow to customer plans page:
+  - `frontend/src/app/dashboard/member/plans/page.tsx`
+- Added immediate progress refresh trigger after session log:
+  - emits local refresh event + storage timestamp from plans page
+  - progress page listens and refetches instantly
+  - files:
+    - `frontend/src/app/dashboard/member/plans/page.tsx`
+    - `frontend/src/app/dashboard/member/progress/page.tsx`
+- Repositioned PR table under `Quick Body Log` on progress page per UX request.
+- Added section/group-aware rendering for assigned workout plans:
+  - plan exercises now shown grouped by `section_name`.
+- Session logger now requires selecting which workout group was completed today before submitting.
+
+## 23) Feedback UX Fixes (Member)
+- Replaced raw `Diet Plan ID` input with member-friendly diet name selector.
+- Diet list is loaded from assigned diets; submit disabled with guidance when none assigned.
+- File:
+  - `frontend/src/app/dashboard/member/feedback/page.tsx`
+
+## 24) Styling/System Cleanup
+- Fixed mono font token override regression:
+  - removed `--font-mono` override to serif in layout/body.
+- Added reusable `section-chip` class and reduced card hover lift for less visual noise.
+- Files:
+  - `frontend/src/app/layout.tsx`
+  - `frontend/src/app/globals.css`
+
+## 25) Backend Fix: Diet/Gym Feedback 500 Errors
+- Root cause identified from backend logs:
+  - timezone-aware datetimes being inserted into `TIMESTAMP WITHOUT TIME ZONE`.
+- Fixed datetime defaults to use naive UTC (`datetime.utcnow`) in:
+  - `WorkoutLog.date`
+  - `WorkoutSession.performed_at`
+  - `DietFeedback.created_at`
+  - `GymFeedback.created_at`
+- File:
+  - `app/models/workout_log.py`
+- Rebuilt backend container:
+  - `docker compose up -d --build backend`
+
+## 26) Validation Performed (This Session)
+- `npm run build` (frontend) passed after each major frontend change set.
+- `docker compose up -d --build backend` completed successfully.
+- Backend startup logs confirmed healthy service after model fix.

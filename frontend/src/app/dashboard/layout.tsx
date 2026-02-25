@@ -21,7 +21,8 @@ import {
     Package,
     ShoppingCart,
     ShieldAlert,
-    LifeBuoy
+    LifeBuoy,
+    Activity
 } from "lucide-react";
 import { MessageCircle } from "lucide-react";
 import { ThemeToggle } from "@/components/ThemeToggle";
@@ -226,6 +227,9 @@ export default function DashboardLayout({
         { href: '/dashboard/qr', label: 'My QR Code', icon: QrCode, roles: ['CUSTOMER', 'COACH', 'ADMIN', 'EMPLOYEE', 'CASHIER', 'RECEPTION', 'FRONT_DESK'], section: 'account' },
         { href: '/dashboard/leaves', label: 'My Leaves', icon: ClipboardList, roles: ['ADMIN', 'COACH', 'EMPLOYEE', 'CASHIER', 'RECEPTION', 'FRONT_DESK'], section: 'account' },
         { href: '/dashboard/profile', label: 'My Profile', icon: UserCheck, roles: ['ADMIN', 'COACH', 'CUSTOMER', 'EMPLOYEE', 'CASHIER', 'RECEPTION', 'FRONT_DESK'], section: 'account' },
+        { href: '/dashboard/member/progress', label: 'My Progress', icon: Activity, roles: ['CUSTOMER'], section: 'account' },
+        { href: '/dashboard/member/plans', label: 'My Workout Plans', icon: Dumbbell, roles: ['CUSTOMER'], section: 'account' },
+        { href: '/dashboard/member/diets', label: 'My Diet Plans', icon: Utensils, roles: ['CUSTOMER'], section: 'account' },
         { href: '/dashboard/member/feedback', label: 'My Feedback', icon: MessageSquare, roles: ['CUSTOMER'], section: 'account' },
         { href: '/dashboard/member/history', label: 'History', icon: ClipboardList, roles: ['CUSTOMER'], section: 'account' },
         { href: '/dashboard/member/achievements', label: 'Achievements', icon: Trophy, roles: ['CUSTOMER'], section: 'account' },

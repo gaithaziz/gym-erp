@@ -1,12 +1,16 @@
 'use client';
 
-import { FormEvent, useState } from 'react';
+import { FormEvent, useEffect, useState } from 'react';
 
 import { api } from '@/lib/api';
 import { useFeedback } from '@/components/FeedbackProvider';
+import { fetchMemberDiets } from '../_shared/customerData';
+import type { MemberDiet } from '../_shared/types';
 
 export default function MemberFeedbackPage() {
     const { showToast } = useFeedback();
+    const [diets, setDiets] = useState<MemberDiet[]>([]);
+    const [loadingDiets, setLoadingDiets] = useState(true);
     const [dietPlanId, setDietPlanId] = useState('');
     const [dietRating, setDietRating] = useState(5);
     const [dietComment, setDietComment] = useState('');
@@ -15,6 +19,17 @@ export default function MemberFeedbackPage() {
     const [gymComment, setGymComment] = useState('');
     const [submittingDiet, setSubmittingDiet] = useState(false);
     const [submittingGym, setSubmittingGym] = useState(false);
+
+    useEffect(() => {
+        const loadDiets = async () => {
+            setLoadingDiets(true);
+            const data = await fetchMemberDiets();
+            setDiets(data);
+            setDietPlanId(data[0]?.id || '');
+            setLoadingDiets(false);
+        };
+        loadDiets();
+    }, []);
 
     const submitDietFeedback = async (e: FormEvent) => {
         e.preventDefault();
@@ -63,8 +78,25 @@ export default function MemberFeedbackPage() {
                 <form className="kpi-card p-5 space-y-3" onSubmit={submitDietFeedback}>
                     <h2 className="text-sm font-bold text-muted-foreground uppercase tracking-wider">Diet Feedback</h2>
                     <div>
-                        <label className="block text-xs font-medium text-muted-foreground mb-1.5">Diet Plan ID</label>
-                        <input value={dietPlanId} onChange={(e) => setDietPlanId(e.target.value)} className="input-dark" required />
+                        <label className="block text-xs font-medium text-muted-foreground mb-1.5">Diet Plan</label>
+                        <select
+                            value={dietPlanId}
+                            onChange={(e) => setDietPlanId(e.target.value)}
+                            className="input-dark"
+                            required
+                            disabled={loadingDiets || diets.length === 0}
+                        >
+                            {loadingDiets && <option value="">Loading assigned diets...</option>}
+                            {!loadingDiets && diets.length === 0 && <option value="">No assigned diet plans</option>}
+                            {diets.map((diet) => (
+                                <option key={diet.id} value={diet.id}>
+                                    {diet.name}
+                                </option>
+                            ))}
+                        </select>
+                        {!loadingDiets && diets.length === 0 && (
+                            <p className="text-xs text-muted-foreground mt-1">No assigned diets found. Ask your coach to assign one first.</p>
+                        )}
                     </div>
                     <div>
                         <label className="block text-xs font-medium text-muted-foreground mb-1.5">Rating (1-5)</label>
@@ -74,7 +106,7 @@ export default function MemberFeedbackPage() {
                         <label className="block text-xs font-medium text-muted-foreground mb-1.5">Comment</label>
                         <textarea value={dietComment} onChange={(e) => setDietComment(e.target.value)} className="input-dark min-h-20" />
                     </div>
-                    <button type="submit" className="btn-primary" disabled={submittingDiet}>{submittingDiet ? 'Submitting...' : 'Submit Diet Feedback'}</button>
+                    <button type="submit" className="btn-primary" disabled={submittingDiet || loadingDiets || diets.length === 0}>{submittingDiet ? 'Submitting...' : 'Submit Diet Feedback'}</button>
                 </form>
 
                 <form className="kpi-card p-5 space-y-3" onSubmit={submitGymFeedback}>

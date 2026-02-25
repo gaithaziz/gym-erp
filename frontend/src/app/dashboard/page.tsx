@@ -3,16 +3,16 @@
 import { useAuth } from '@/context/AuthContext';
 import { api } from '@/lib/api';
 import { useEffect, useState, useCallback, useMemo } from 'react';
-import { Users, DollarSign, Clock, TrendingUp, QrCode, Dumbbell, Utensils, ChevronRight, MessageSquare, UserCheck, ClipboardList, Trophy, Activity, Flame, Medal, Sunrise, MoonStar, Star, Download } from 'lucide-react';
+import { Users, DollarSign, Clock, TrendingUp, QrCode, Dumbbell, Utensils, ChevronRight, MessageSquare, UserCheck, ClipboardList, Trophy, Activity, Download } from 'lucide-react';
 import {
     BarChart, Bar, Cell, LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer
 } from 'recharts';
 import Link from 'next/link';
 import { DateRangePicker } from '@/components/DateRangePicker';
 import { DashboardGrid } from '@/components/DashboardGrid';
-import { useFeedback } from '@/components/FeedbackProvider';
 import MemberSearchSelect from '@/components/MemberSearchSelect';
-import Modal from '@/components/Modal';
+import { fetchMemberOverviewData } from '@/app/dashboard/member/_shared/customerData';
+import type { GamificationStats as MemberGamificationStats } from '@/app/dashboard/member/_shared/types';
 import { DateRange } from 'react-day-picker';
 import { subDays } from 'date-fns';
 import { Move } from 'lucide-react';
@@ -90,29 +90,6 @@ interface BiometricLogResponse {
 
 type CoachBiometricMetricKey = 'weight_kg' | 'body_fat_pct' | 'muscle_mass_kg';
 
-interface WorkoutSessionEntry {
-    id: string;
-    exercise_id?: string | null;
-    exercise_name?: string | null;
-    target_sets?: number | null;
-    target_reps?: number | null;
-    sets_completed: number;
-    reps_completed: number;
-    weight_kg?: number | null;
-    notes?: string | null;
-    order: number;
-}
-
-interface WorkoutSessionLog {
-    id: string;
-    member_id: string;
-    plan_id: string;
-    performed_at: string;
-    duration_minutes?: number | null;
-    notes?: string | null;
-    entries: WorkoutSessionEntry[];
-}
-
 interface AttendanceData {
     hour: string;
     visits: number;
@@ -127,11 +104,6 @@ interface RevenueData {
 interface RevenueChartPoint extends RevenueData {
     label: string;
 }
-
-const getApiErrorMessage = (error: unknown, fallback: string) => {
-    const detail = (error as { response?: { data?: { detail?: string } } })?.response?.data?.detail;
-    return typeof detail === 'string' && detail.trim() ? detail : fallback;
-};
 
 const calculateAge = (dob?: string) => {
     if (!dob) return null;
@@ -872,929 +844,166 @@ function CoachDashboard({ userName }: { userName: string }) {
 
 // ======================== CUSTOMER DASHBOARD ========================
 
-interface GamificationStats {
-    total_visits: number;
-    streak: {
-        current_streak: number;
-        best_streak: number;
-        last_visit_date: string | null;
-    };
-    badges: {
-        id: string;
-        badge_type: string;
-        badge_name: string;
-        badge_description: string;
-        earned_at: string;
-    }[];
-    weekly_progress?: {
-        current: number;
-        goal: number;
-    };
-}
-
-function CustomerDashboard({ userName, dateOfBirth }: { userName: string; dateOfBirth?: string }) {
-    const { showToast } = useFeedback();
-    const [plans, setPlans] = useState<Plan[]>([]);
-    const [diets, setDiets] = useState<Diet[]>([]);
-    const [stats, setStats] = useState<GamificationStats | null>(null);
-    const [workoutStats, setWorkoutStats] = useState<{ date: string, workouts: number }[]>([]);
-    const [sessionLogs, setSessionLogs] = useState<WorkoutSessionLog[]>([]);
+function CustomerDashboard({ userName }: { userName: string; dateOfBirth?: string }) {
+    const [stats, setStats] = useState<MemberGamificationStats | null>(null);
     const [biometrics, setBiometrics] = useState<BiometricLogResponse[]>([]);
-    const [weight, setWeight] = useState('');
-    const [height, setHeight] = useState('');
-    const [bodyFat, setBodyFat] = useState('');
-    const [muscleMass, setMuscleMass] = useState('');
-    const [sessionModalPlan, setSessionModalPlan] = useState<Plan | null>(null);
-    const [sessionDuration, setSessionDuration] = useState('');
-    const [sessionNotes, setSessionNotes] = useState('');
-    const [trendRangeDays, setTrendRangeDays] = useState<7 | 30 | 90>(30);
-    const [sessionEntries, setSessionEntries] = useState<Array<{
-        exercise_id?: string;
-        exercise_name: string;
-        target_sets?: number;
-        target_reps?: number;
-        sets_completed: number;
-        reps_completed: number;
-        weight_kg: string;
-    }>>([]);
-    const [loggingSession, setLoggingSession] = useState(false);
-    const [loggingBiometrics, setLoggingBiometrics] = useState(false);
     const [loading, setLoading] = useState(true);
-
-    const getBadgeSticker = (badgeType: string) => {
-        if (badgeType.startsWith('STREAK')) return <Flame size={20} className="text-orange-400" />;
-        if (badgeType.startsWith('VISITS')) return <Medal size={20} className="text-yellow-400" />;
-        if (badgeType === 'EARLY_BIRD') return <Sunrise size={20} className="text-amber-300" />;
-        if (badgeType === 'NIGHT_OWL') return <MoonStar size={20} className="text-sky-300" />;
-        return <Star size={20} className="text-primary" />;
-    };
-
-    const rangeStart = useMemo(() => {
-        const start = new Date();
-        start.setHours(0, 0, 0, 0);
-        start.setDate(start.getDate() - trendRangeDays + 1);
-        return start;
-    }, [trendRangeDays]);
 
     useEffect(() => {
         const loadData = async () => {
-            try {
-                const [plansRes, dietsRes, statsRes, workoutStatsRes, bioRes, sessionRes] = await Promise.all([
-                    api.get('/fitness/plans').catch(() => ({ data: { data: [] } })),
-                    api.get('/fitness/diets').catch(() => ({ data: { data: [] } })),
-                    api.get('/gamification/stats').catch(() => ({ data: { data: null } })),
-                    api.get('/fitness/stats').catch(() => ({ data: { data: [] } })),
-                    api.get('/fitness/biometrics').catch(() => ({ data: { data: [] } })),
-                    api.get('/fitness/session-logs/me').catch(() => ({ data: { data: [] } })),
-                ]);
-                setPlans(plansRes.data.data || []);
-                setDiets(dietsRes.data.data || []);
-                setStats(statsRes.data.data);
-                setWorkoutStats(workoutStatsRes.data.data || []);
-                const bioData = bioRes.data.data || [];
-                setSessionLogs(sessionRes.data.data || []);
-                setBiometrics(bioData);
-                if (bioData.length > 0) {
-                    const latest = bioData[bioData.length - 1];
-                    setHeight(latest.height_cm?.toString() ?? '');
-                }
-            } catch (err) { console.error(err); }
-            finally { setLoading(false); }
+            setLoading(true);
+            const overview = await fetchMemberOverviewData();
+            setStats(overview.stats);
+            setBiometrics(overview.biometrics);
+            setLoading(false);
         };
         loadData();
     }, []);
 
-    const handleLogBiometrics = async (e: React.FormEvent) => {
-        e.preventDefault();
-        setLoggingBiometrics(true);
-        try {
-            await api.post('/fitness/biometrics', {
-                weight_kg: weight ? parseFloat(weight) : null,
-                height_cm: height ? parseFloat(height) : null,
-                body_fat_pct: bodyFat ? parseFloat(bodyFat) : null,
-                muscle_mass_kg: muscleMass ? parseFloat(muscleMass) : null,
-            });
-            const res = await api.get('/fitness/biometrics');
-            const bioData = res.data.data || [];
-            setBiometrics(bioData);
-            if (bioData.length > 0) {
-                const latest = bioData[bioData.length - 1];
-                setHeight(latest.height_cm?.toString() ?? '');
-            }
-            setWeight('');
-            setBodyFat('');
-            setMuscleMass('');
-        } catch (err) {
-            console.error('Failed to log biometrics', err);
-            showToast('Failed to log biometrics.', 'error');
-        } finally {
-            setLoggingBiometrics(false);
-        }
-    };
-
-    const openSessionLogger = (plan: Plan) => {
-        const baseEntries = (plan.exercises || []).map((exercise, index) => ({
-            exercise_id: exercise.exercise_id,
-            exercise_name: exercise.exercise_name || exercise.exercise?.name || exercise.name || `Exercise ${index + 1}`,
-            target_sets: exercise.sets || 0,
-            target_reps: exercise.reps || 0,
-            sets_completed: exercise.sets || 0,
-            reps_completed: exercise.reps || 0,
-            weight_kg: '',
-        }));
-        setSessionModalPlan(plan);
-        setSessionEntries(baseEntries.length > 0 ? baseEntries : [{
-            exercise_name: 'Exercise 1',
-            sets_completed: 0,
-            reps_completed: 0,
-            weight_kg: '',
-        }]);
-        setSessionDuration('');
-        setSessionNotes('');
-    };
-
-    const updateSessionEntry = (
-        index: number,
-        field: 'sets_completed' | 'reps_completed' | 'weight_kg',
-        value: string
-    ) => {
-        setSessionEntries((prev) => prev.map((entry, idx) => {
-            if (idx !== index) return entry;
-            if (field === 'weight_kg') return { ...entry, weight_kg: value };
-            return { ...entry, [field]: Number(value) || 0 };
-        }));
-    };
-
-    const handleLogSession = async (e: React.FormEvent) => {
-        e.preventDefault();
-        if (!sessionModalPlan) return;
-        setLoggingSession(true);
-        try {
-            await api.post('/fitness/session-logs', {
-                plan_id: sessionModalPlan.id,
-                duration_minutes: sessionDuration ? Number(sessionDuration) : undefined,
-                notes: sessionNotes || undefined,
-                entries: sessionEntries.map((entry, index) => ({
-                    exercise_id: entry.exercise_id || undefined,
-                    exercise_name: entry.exercise_name,
-                    target_sets: entry.target_sets ?? undefined,
-                    target_reps: entry.target_reps ?? undefined,
-                    sets_completed: entry.sets_completed,
-                    reps_completed: entry.reps_completed,
-                    weight_kg: entry.weight_kg ? Number(entry.weight_kg) : undefined,
-                    order: index,
-                })),
-            });
-
-            const [sessionRes, workoutStatsRes] = await Promise.all([
-                api.get('/fitness/session-logs/me').catch(() => ({ data: { data: [] } })),
-                api.get('/fitness/stats').catch(() => ({ data: { data: [] } })),
-            ]);
-            setSessionLogs(sessionRes.data.data || []);
-            setWorkoutStats(workoutStatsRes.data.data || []);
-            setSessionModalPlan(null);
-            showToast('Workout session logged successfully.', 'success');
-        } catch (err) {
-            console.error('Failed to log workout session', err);
-            showToast(getApiErrorMessage(err, 'Failed to log workout session.'), 'error');
-        } finally {
-            setLoggingSession(false);
-        }
-    };
-
-    const filteredBiometrics = useMemo(() => {
-        return biometrics.filter((item) => new Date(item.date) >= rangeStart);
-    }, [biometrics, rangeStart]);
-
-    const filteredSessionLogs = useMemo(() => {
-        return sessionLogs.filter((session) => new Date(session.performed_at) >= rangeStart);
-    }, [sessionLogs, rangeStart]);
-
-    const buildMetricSeries = useCallback(
-        (metric: keyof Pick<BiometricLogResponse, 'weight_kg' | 'body_fat_pct' | 'muscle_mass_kg'>) => {
-            const sorted = [...filteredBiometrics].sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
-            return sorted
-                .filter((point) => typeof point[metric] === 'number')
-                .map((point, index, arr) => {
-                    const value = Number(point[metric] || 0);
-                    const prev = index > 0 ? Number(arr[index - 1][metric] || 0) : null;
-                    return {
-                        date: point.date,
-                        value,
-                        delta: prev === null ? null : value - prev,
-                    };
-                });
-        },
-        [filteredBiometrics]
-    );
-
-    const weightSeries = useMemo(() => buildMetricSeries('weight_kg'), [buildMetricSeries]);
-    const bodyFatSeries = useMemo(() => buildMetricSeries('body_fat_pct'), [buildMetricSeries]);
-    const muscleSeries = useMemo(() => buildMetricSeries('muscle_mass_kg'), [buildMetricSeries]);
-
-    const sessionVolumeSeries = useMemo(() => {
-        const map = new Map<string, { date: string; volume: number; sessions: number }>();
-        filteredSessionLogs.forEach((session) => {
-            const key = new Date(session.performed_at).toISOString().split('T')[0];
-            const volume = (session.entries || []).reduce((sum, entry) => {
-                const weight = entry.weight_kg || 0;
-                return sum + (entry.sets_completed * entry.reps_completed * weight);
-            }, 0);
-            const existing = map.get(key);
-            if (existing) {
-                existing.volume += volume;
-                existing.sessions += 1;
-            } else {
-                map.set(key, { date: key, volume, sessions: 1 });
-            }
-        });
-        return Array.from(map.values()).sort((a, b) => a.date.localeCompare(b.date)).slice(-90);
-    }, [filteredSessionLogs]);
-
-    const exercisePrTable = useMemo(() => {
-        const byExercise = new Map<string, { bestWeight: number; bestWeightReps: number; bestReps: number; bestRepsWeight: number }>();
-        filteredSessionLogs.forEach((session) => {
-            session.entries.forEach((entry) => {
-                const name = (entry.exercise_name || 'Exercise').trim();
-                const weight = Number(entry.weight_kg || 0);
-                const reps = Number(entry.reps_completed || 0);
-                const existing = byExercise.get(name);
-                if (!existing) {
-                    byExercise.set(name, {
-                        bestWeight: weight,
-                        bestWeightReps: reps,
-                        bestReps: reps,
-                        bestRepsWeight: weight,
-                    });
-                    return;
-                }
-                if (weight > existing.bestWeight || (weight === existing.bestWeight && reps > existing.bestWeightReps)) {
-                    existing.bestWeight = weight;
-                    existing.bestWeightReps = reps;
-                }
-                if (reps > existing.bestReps || (reps === existing.bestReps && weight > existing.bestRepsWeight)) {
-                    existing.bestReps = reps;
-                    existing.bestRepsWeight = weight;
-                }
-            });
-        });
-
-        return Array.from(byExercise.entries())
-            .map(([exercise, record]) => ({ exercise, ...record }))
-            .sort((a, b) => b.bestWeight - a.bestWeight)
-            .slice(0, 12);
-    }, [filteredSessionLogs]);
-
-    const recentFilteredSessionLogs = useMemo(() => filteredSessionLogs.slice(0, 3), [filteredSessionLogs]);
-
-    function MetricTooltipContent({
-        active,
-        payload,
-        label,
-        unit,
-        metricLabel,
-    }: {
-        active?: boolean;
-        payload?: ReadonlyArray<{ payload: { value: number; delta: number | null } }>;
-        label?: string | number;
-        unit: string;
-        metricLabel: string;
-    }) {
-        if (!active || !payload || payload.length === 0) return null;
-        const point = payload[0].payload;
-        const delta = point.delta;
-        const deltaText = delta === null ? 'First log in range' : `${delta >= 0 ? '+' : ''}${delta.toFixed(1)} ${unit} vs previous`;
-        const deltaClass = delta === null ? 'text-muted-foreground' : delta >= 0 ? 'text-emerald-400' : 'text-orange-400';
-        const parsedLabel = typeof label === 'string' ? label : String(label ?? '');
-
+    if (loading) {
         return (
-            <div className="border border-border bg-card px-3 py-2 text-xs">
-                <p className="font-semibold text-foreground">{new Date(parsedLabel).toLocaleDateString()}</p>
-                <p className="text-foreground mt-1">{metricLabel}: {point.value.toFixed(1)} {unit}</p>
-                <p className={`mt-1 ${deltaClass}`}>{deltaText}</p>
+            <div className="flex h-64 items-center justify-center">
+                <div className="h-8 w-8 animate-spin rounded-full border-2 border-primary border-t-transparent" />
             </div>
         );
     }
-
-    const sevenDaysAgo = useMemo(() => {
-        const d = new Date();
-        d.setHours(0, 0, 0, 0);
-        d.setDate(d.getDate() - 6);
-        return d;
-    }, []);
-    const sessionsThisWeek = useMemo(
-        () => sessionLogs.filter((session) => new Date(session.performed_at) >= sevenDaysAgo).length,
-        [sessionLogs, sevenDaysAgo]
-    );
-    const lastLoggedSession = useMemo(() => {
-        if (sessionLogs.length === 0) return null;
-        return [...sessionLogs].sort(
-            (a, b) => new Date(b.performed_at).getTime() - new Date(a.performed_at).getTime()
-        )[0];
-    }, [sessionLogs]);
-    const lastLoggedPlanName = useMemo(
-        () => plans.find((plan) => plan.id === lastLoggedSession?.plan_id)?.name || 'Workout Plan',
-        [plans, lastLoggedSession?.plan_id]
-    );
-    const focusPlan = useMemo(() => {
-        if (lastLoggedSession) {
-            const matched = plans.find((plan) => plan.id === lastLoggedSession.plan_id);
-            if (matched) return matched;
-        }
-        return plans[0] || null;
-    }, [plans, lastLoggedSession]);
-
-    if (loading) return (
-        <div className="flex h-64 items-center justify-center">
-            <div className="h-8 w-8 animate-spin rounded-full border-2 border-primary border-t-transparent" />
-        </div>
-    );
 
     const weeklyProgress = stats?.weekly_progress?.current || 0;
     const weeklyGoal = stats?.weekly_progress?.goal || 3;
     const progressPercent = Math.min(100, (weeklyProgress / weeklyGoal) * 100);
     const latestBio = biometrics.length > 0 ? biometrics[biometrics.length - 1] : null;
-    const age = calculateAge(dateOfBirth);
 
     return (
         <div className="space-y-8">
             <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
                 <div>
                     <h1 className="text-2xl font-bold text-foreground font-serif tracking-tight">Welcome, {userName}</h1>
-                    <p className="text-sm text-muted-foreground mt-1">Your Fitness Journey</p>
+                    <p className="text-sm text-muted-foreground mt-1">Your fitness overview.</p>
                 </div>
                 {stats?.streak && stats.streak.current_streak > 0 && (
                     <div className="flex items-center gap-2 px-3 py-1.5 bg-orange-500/10 border border-orange-500/20 rounded-full">
                         <span className="text-orange-500">Streak</span>
-                        <span className="text-sm font-bold text-orange-500">{stats.streak.current_streak} Day Streak!</span>
+                        <span className="text-sm font-bold text-orange-500">{stats.streak.current_streak} day streak</span>
                     </div>
                 )}
             </div>
 
-            {/* Weekly Goal Widget */}
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-                <div className="col-span-1 md:col-span-2 grid grid-cols-1 sm:grid-cols-3 gap-4">
-                    {/* Weekly Progress Card */}
-                    <div className="kpi-card relative overflow-hidden group">
-                        <div className="absolute inset-0 bg-gradient-to-br from-primary/5 to-transparent opacity-0 group-hover:opacity-100 transition-opacity" />
-                        <div className="flex flex-col justify-between h-full relative z-10">
-                            <div>
-                                <h3 className="inline-flex rounded-md border border-orange-500/30 bg-orange-500/10 px-2 py-1 text-sm font-extrabold text-orange-500 uppercase tracking-wider mb-2">Weekly Goal</h3>
-                                <div className="flex items-end gap-2 mb-1">
-                                    <span className="text-3xl font-bold text-foreground">{weeklyProgress}</span>
-                                    <span className="text-sm text-muted-foreground mb-1.5">/ {weeklyGoal} visits</span>
-                                </div>
-                            </div>
-                            <div className="w-full bg-muted/30 h-2 rounded-full overflow-hidden mt-3">
-                                <div
-                                    className="bg-primary h-full transition-all duration-1000 ease-out"
-                                    style={{ width: `${progressPercent}%` }}
-                                />
-                            </div>
-                            <p className="text-[10px] text-muted-foreground mt-2">
-                                {progressPercent >= 100 ? "Goal reached! Amazing work!" : "Keep it up, you're doing great!"}
-                            </p>
-                        </div>
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                <div className="kpi-card p-5">
+                    <p className="section-chip mb-2">Weekly Goal</p>
+                    <div className="flex items-end gap-2">
+                        <span className="text-3xl font-bold text-foreground">{weeklyProgress}</span>
+                        <span className="text-sm text-muted-foreground mb-1">/ {weeklyGoal} visits</span>
                     </div>
-
-                    {/* Stats Summary */}
-                    <div className="kpi-card">
-                        <div className="flex items-start justify-between">
-                            <div>
-                                <p className="inline-flex rounded-md border border-orange-500/30 bg-orange-500/10 px-2 py-1 text-xs font-extrabold text-orange-500 uppercase tracking-wider font-mono">Total Visits</p>
-                                <p className="text-2xl font-bold text-foreground mt-2 font-mono">{stats?.total_visits || 0}</p>
-                            </div>
-                            <div className="p-2 border border-border bg-muted/50 rounded-sm">
-                                <UserCheck size={18} className="text-foreground" />
-                            </div>
-                        </div>
-                    </div>
-
-                    <div className="kpi-card">
-                        <div className="flex items-start justify-between">
-                            <div>
-                                <p className="inline-flex rounded-md border border-orange-500/30 bg-orange-500/10 px-2 py-1 text-xs font-extrabold text-orange-500 uppercase tracking-wider font-mono">Badges Earned</p>
-                                <p className="text-2xl font-bold text-foreground mt-2 font-mono">{stats?.badges.length || 0}</p>
-                            </div>
-                            <div className="p-2 border border-border bg-muted/50 rounded-sm">
-                                <Trophy size={18} className="text-foreground" />
-                            </div>
-                        </div>
+                    <div className="w-full bg-muted/30 h-2 rounded-full overflow-hidden mt-3">
+                        <div
+                            className="bg-primary h-full transition-all duration-700 ease-out"
+                            style={{ width: `${progressPercent}%` }}
+                        />
                     </div>
                 </div>
-
-                {/* Recent Badges / Quick Links */}
-                <div className="col-span-1 space-y-4">
-                    <div className="kpi-card p-4">
-                        <h3 className="inline-flex rounded-md border border-orange-500/30 bg-orange-500/10 px-2 py-1 text-sm font-extrabold text-orange-500 uppercase tracking-wider mb-3">Recent Badges</h3>
-                        {stats?.badges && stats.badges.length > 0 ? (
-                            <div className="space-y-3">
-                                {stats.badges.slice(0, 3).map(badge => (
-                                    <div key={badge.id} className="flex items-center gap-3">
-                                        <div className="w-10 h-10 rounded-full bg-yellow-500/10 border border-yellow-500/20 flex items-center justify-center">
-                                            {getBadgeSticker(badge.badge_type)}
-                                        </div>
-                                        <div>
-                                            <p className="text-sm font-medium text-foreground">{badge.badge_name}</p>
-                                            <p className="text-[10px] text-muted-foreground">{new Date(badge.earned_at).toLocaleDateString()}</p>
-                                        </div>
-                                    </div>
-                                ))}
-                            </div>
-                        ) : (
-                            <p className="text-xs text-muted-foreground italic">No badges yet. Keep training!</p>
-                        )}
-                        <Link href="/dashboard/member/achievements" className="block mt-3 text-xs text-primary hover:underline text-center">View All Achievements →</Link>
-                    </div>
+                <div className="kpi-card p-5">
+                    <p className="section-chip mb-2">Total Visits</p>
+                    <p className="text-3xl font-bold text-foreground font-mono">{stats?.total_visits || 0}</p>
+                </div>
+                <div className="kpi-card p-5">
+                    <p className="section-chip mb-2">Badges Earned</p>
+                    <p className="text-3xl font-bold text-foreground font-mono">{stats?.badges?.length || 0}</p>
                 </div>
             </div>
 
-            {/* Progress & Biometrics */}
-            <div className="grid grid-cols-1 xl:grid-cols-3 gap-6 items-start">
-                <div className="space-y-6 xl:col-span-2">
-                    <div className="kpi-card p-5">
-                        <h3 className="inline-flex rounded-md border border-orange-500/30 bg-orange-500/10 px-2 py-1 text-base font-extrabold text-orange-500 uppercase tracking-wider font-mono mb-3">Workout Consistency (Last 30 Days)</h3>
-                        <div className="h-44">
-                            {workoutStats.length > 0 ? (
-                                <ResponsiveContainer width="100%" height="100%" minHeight={1} minWidth={1}>
-                                    <BarChart data={workoutStats}>
-                                        <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" vertical={false} />
-                                        <XAxis
-                                            dataKey="date"
-                                            tick={{ fontSize: 11, fill: 'var(--muted-foreground)', fontFamily: 'var(--font-mono)' }}
-                                            axisLine={false}
-                                            tickLine={false}
-                                            tickFormatter={(val) => {
-                                                const d = new Date(val);
-                                                return `${d.getMonth() + 1}/${d.getDate()}`;
-                                            }}
-                                        />
-                                        <YAxis
-                                            tick={{ fontSize: 11, fill: 'var(--muted-foreground)', fontFamily: 'var(--font-mono)' }}
-                                            axisLine={false}
-                                            tickLine={false}
-                                            allowDecimals={false}
-                                        />
-                                        <Tooltip
-                                            cursor={{ fill: 'var(--muted)' }}
-                                            contentStyle={{ background: 'var(--card)', border: '1px solid var(--border)', borderRadius: '0px', fontSize: '0.8rem', color: 'var(--foreground)' }}
-                                            labelFormatter={(label) => new Date(label as string).toLocaleDateString()}
-                                        />
-                                        <Bar dataKey="workouts" fill="var(--primary)" barSize={16} name="Workouts Logged" radius={[2, 2, 0, 0]} />
-                                    </BarChart>
-                                </ResponsiveContainer>
-                            ) : (
-                                <div className="flex items-center justify-center h-full text-muted-foreground text-sm font-mono border border-dashed border-border flex-col">
-                                    <Activity size={24} className="mb-2 opacity-50" />
-                                    <span>NO WORKOUT DATA</span>
-                                </div>
-                            )}
-                        </div>
-                    </div>
-                    <div className="kpi-card p-5">
-                        <div className="flex items-center justify-between mb-4">
-                            <h3 className="inline-flex rounded-md border border-orange-500/30 bg-orange-500/10 px-2 py-1 text-base font-extrabold text-orange-500 uppercase tracking-wider font-mono">Body Progress Tracking</h3>
-                            <div className="flex items-center gap-1">
-                                {[7, 30, 90].map((days) => (
-                                    <button
-                                        key={days}
-                                        type="button"
-                                        onClick={() => setTrendRangeDays(days as 7 | 30 | 90)}
-                                        className={`px-2 py-1 text-[10px] font-bold border rounded-sm ${trendRangeDays === days ? 'border-primary text-primary bg-primary/10' : 'border-border text-muted-foreground hover:text-foreground'}`}
-                                    >
-                                        {days}d
-                                    </button>
-                                ))}
-                            </div>
-                        </div>
-                        <div className="space-y-3">
-                            {[
-                                { title: 'Weight', unit: 'kg', series: weightSeries, color: 'var(--primary)' },
-                                { title: 'Body Fat', unit: '%', series: bodyFatSeries, color: '#f97316' },
-                                { title: 'Muscle Mass', unit: 'kg', series: muscleSeries, color: '#22c55e' },
-                            ].map((metric) => (
-                                <div key={metric.title} className="rounded-sm border border-border bg-muted/10 p-2">
-                                    <div className="flex items-center justify-between mb-1">
-                                        <p className="text-[10px] uppercase font-bold text-muted-foreground">{metric.title}</p>
-                                        <p className="text-xs font-mono text-foreground">
-                                            {metric.series.length > 0 ? `${metric.series[metric.series.length - 1].value.toFixed(1)} ${metric.unit}` : 'N/A'}
-                                        </p>
-                                    </div>
-                                    <div className="h-24">
-                                        {metric.series.length > 0 ? (
-                                            <ResponsiveContainer width="100%" height="100%" minHeight={1} minWidth={1}>
-                                                <LineChart data={metric.series}>
-                                                    <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" vertical={false} />
-                                                    <XAxis
-                                                        dataKey="date"
-                                                        tickFormatter={(val) => {
-                                                            const d = new Date(val);
-                                                            return `${d.getMonth() + 1}/${d.getDate()}`;
-                                                        }}
-                                                        tick={{ fontSize: 10, fill: 'var(--muted-foreground)', fontFamily: 'var(--font-mono)' }}
-                                                        axisLine={false}
-                                                        tickLine={false}
-                                                    />
-                                                    <YAxis tick={{ fontSize: 10, fill: 'var(--muted-foreground)', fontFamily: 'var(--font-mono)' }} axisLine={false} tickLine={false} />
-                                                    <Tooltip content={<MetricTooltipContent unit={metric.unit} metricLabel={metric.title} />} />
-                                                    <Line type="monotone" dataKey="value" stroke={metric.color} strokeWidth={2} dot={{ r: 2, fill: metric.color }} />
-                                                </LineChart>
-                                            </ResponsiveContainer>
-                                        ) : (
-                                            <div className="h-full flex items-center justify-center text-[10px] text-muted-foreground font-mono">
-                                                No data in selected range
-                                            </div>
-                                        )}
-                                    </div>
-                                </div>
-                            ))}
-                        </div>
-                    </div>
-                </div>
-
-                <div className="space-y-4">
-                    <div className="grid grid-cols-3 gap-2">
-                        <div className="kpi-card p-4">
-                            <p className="text-[10px] uppercase font-bold text-muted-foreground">Age</p>
-                            <p className="text-xl font-bold text-foreground mt-1">{age !== null ? age : 'N/A'}</p>
-                        </div>
-                        <div className="kpi-card p-4">
-                            <p className="text-[10px] uppercase font-bold text-muted-foreground">Height</p>
-                            <p className="text-xl font-bold text-foreground mt-1">{latestBio?.height_cm ? `${latestBio.height_cm} cm` : 'N/A'}</p>
-                        </div>
-                        <div className="kpi-card p-4">
-                            <p className="text-[10px] uppercase font-bold text-muted-foreground">Weight</p>
-                            <p className="text-xl font-bold text-foreground mt-1">{latestBio?.weight_kg ? `${latestBio.weight_kg} kg` : 'N/A'}</p>
-                        </div>
-                    </div>
-                    <div className="kpi-card p-4">
-                        <div className="flex items-center justify-between mb-3">
-                            <h3 className="inline-flex rounded-md border border-orange-500/30 bg-orange-500/10 px-2 py-1 text-base font-extrabold text-orange-500 uppercase tracking-wider font-mono">Today&apos;s Focus</h3>
-                            <Dumbbell size={16} className="text-primary" />
-                        </div>
-                        <div className="space-y-2 mb-3">
-                            <div className="flex items-center justify-between text-xs">
-                                <span className="text-muted-foreground uppercase tracking-wider">Sessions This Week</span>
-                                <span className="font-mono font-bold text-foreground">{sessionsThisWeek}</span>
-                            </div>
-                            <div className="flex items-center justify-between text-xs">
-                                <span className="text-muted-foreground uppercase tracking-wider">Last Workout</span>
-                                <span className="font-mono text-foreground">
-                                    {lastLoggedSession
-                                        ? `${new Date(lastLoggedSession.performed_at).toLocaleDateString()} • ${lastLoggedPlanName}`
-                                        : 'No logs yet'}
-                                </span>
-                            </div>
-                            <div className="text-[11px] text-muted-foreground font-mono">
-                                Goal progress: {weeklyProgress}/{weeklyGoal} this week
-                            </div>
-                            <div className="h-1.5 bg-muted/30 rounded-full overflow-hidden">
-                                <div
-                                    className="h-full bg-primary transition-all duration-500"
-                                    style={{ width: `${progressPercent}%` }}
-                                />
-                            </div>
-                        </div>
-                        <button
-                            type="button"
-                            className="btn-primary w-full"
-                            disabled={!focusPlan}
-                            onClick={() => {
-                                if (focusPlan) openSessionLogger(focusPlan);
-                            }}
-                        >
-                            Log Session
-                        </button>
-                    </div>
-
-                    <div className="kpi-card p-4">
-                        <h3 className="inline-flex rounded-md border border-orange-500/30 bg-orange-500/10 px-2 py-1 text-base font-extrabold text-orange-500 uppercase tracking-wider font-mono mb-3">Quick Body Log</h3>
-                        <form onSubmit={handleLogBiometrics} className="grid grid-cols-2 gap-2 items-end">
-                            <div>
-                                <label className="block text-[10px] uppercase font-bold text-muted-foreground mb-1">Height (cm)</label>
-                                <input type="number" step="0.1" className="input-dark py-1.5 text-sm" value={height} onChange={e => setHeight(e.target.value)} placeholder="e.g. 175" />
-                            </div>
-                            <div>
-                                <label className="block text-[10px] uppercase font-bold text-muted-foreground mb-1">Weight (kg)</label>
-                                <input type="number" step="0.1" className="input-dark py-1.5 text-sm" value={weight} onChange={e => setWeight(e.target.value)} placeholder="e.g. 75" />
-                            </div>
-                            <div>
-                                <label className="block text-[10px] uppercase font-bold text-muted-foreground mb-1">Body Fat (%)</label>
-                                <input type="number" step="0.1" className="input-dark py-1.5 text-sm" value={bodyFat} onChange={e => setBodyFat(e.target.value)} placeholder="e.g. 15" />
-                            </div>
-                            <div>
-                                <label className="block text-[10px] uppercase font-bold text-muted-foreground mb-1">Muscle (kg)</label>
-                                <input type="number" step="0.1" className="input-dark py-1.5 text-sm" value={muscleMass} onChange={e => setMuscleMass(e.target.value)} placeholder="e.g. 32" />
-                            </div>
-                            <button type="submit" disabled={loggingBiometrics || (!height && !weight && !bodyFat && !muscleMass)} className="btn-primary py-1.5 px-4 text-sm whitespace-nowrap col-span-2">
-                                {loggingBiometrics ? 'Saving...' : 'Log'}
-                            </button>
-                        </form>
-                    </div>
-                </div>
-            </div>
-
-            <div className="kpi-card p-6 space-y-4">
-                <div className="flex items-center justify-between">
-                    <h3 className="inline-flex rounded-md border border-orange-500/30 bg-orange-500/10 px-2 py-1 text-base font-extrabold text-orange-500 uppercase tracking-wider font-mono">Session Load Tracking ({trendRangeDays}d)</h3>
-                    <p className="text-xs text-muted-foreground font-mono">{filteredSessionLogs.length} sessions logged</p>
-                </div>
-                <div className="h-40">
-                    {sessionVolumeSeries.length > 0 ? (
-                        <ResponsiveContainer width="100%" height="100%" minHeight={1} minWidth={1}>
-                            <LineChart data={sessionVolumeSeries}>
-                                <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" vertical={false} />
-                                <XAxis
-                                    dataKey="date"
-                                    tickFormatter={(val) => {
-                                        const d = new Date(val);
-                                        return `${d.getMonth() + 1}/${d.getDate()}`;
-                                    }}
-                                    tick={{ fontSize: 11, fill: 'var(--muted-foreground)', fontFamily: 'var(--font-mono)' }}
-                                    axisLine={false}
-                                    tickLine={false}
-                                />
-                                <YAxis
-                                    tick={{ fontSize: 11, fill: 'var(--muted-foreground)', fontFamily: 'var(--font-mono)' }}
-                                    axisLine={false}
-                                    tickLine={false}
-                                />
-                                <Tooltip
-                                    contentStyle={{ background: 'var(--card)', border: '1px solid var(--border)', borderRadius: '0px', fontSize: '0.8rem', color: 'var(--foreground)' }}
-                                    labelFormatter={(label) => new Date(label as string).toLocaleDateString()}
-                                />
-                                <Line type="monotone" dataKey="volume" stroke="var(--primary)" strokeWidth={2} name="Volume (kg)" dot={{ r: 2, fill: 'var(--primary)' }} />
-                            </LineChart>
-                        </ResponsiveContainer>
-                    ) : (
-                        <div className="h-full flex items-center justify-center text-muted-foreground text-sm font-mono border border-dashed border-border">
-                            No session volume data yet.
-                        </div>
-                    )}
-                </div>
-
-                <div className="space-y-2">
-                    <h4 className="inline-flex rounded-md border border-orange-500/30 bg-orange-500/10 px-2 py-1 text-sm font-extrabold text-orange-500 uppercase tracking-wider">Recent Sessions</h4>
-                    {recentFilteredSessionLogs.length > 0 ? (
-                        recentFilteredSessionLogs.map((session) => {
-                            const planName = plans.find((plan) => plan.id === session.plan_id)?.name || 'Workout Plan';
-                            const totalVolume = (session.entries || []).reduce((sum, entry) => {
-                                const weight = entry.weight_kg || 0;
-                                return sum + (entry.sets_completed * entry.reps_completed * weight);
-                            }, 0);
-                            return (
-                                <div key={session.id} className="rounded-sm border border-border bg-muted/10 p-3 flex items-center justify-between gap-3">
-                                    <div>
-                                        <p className="text-sm font-medium text-foreground">{planName}</p>
-                                        <p className="text-xs text-muted-foreground">{new Date(session.performed_at).toLocaleDateString()} • {session.entries.length} exercises</p>
-                                    </div>
-                                    <p className="text-xs font-mono text-muted-foreground">{Math.round(totalVolume)} kg vol</p>
-                                </div>
-                            );
-                        })
-                    ) : (
-                        <p className="text-sm text-muted-foreground">No session logs in selected range. Use &quot;Log Session&quot; on a workout plan.</p>
-                    )}
-                </div>
-            </div>
-
-                <div className="kpi-card p-6">
-                <div className="flex items-center justify-between mb-4">
-                    <h3 className="inline-flex rounded-md border border-orange-500/30 bg-orange-500/10 px-2 py-1 text-base font-extrabold text-orange-500 uppercase tracking-wider font-mono">Exercise PR Table ({trendRangeDays}d)</h3>
-                    <p className="text-xs text-muted-foreground font-mono">{exercisePrTable.length} exercises</p>
-                </div>
-                {exercisePrTable.length > 0 ? (
-                    <div className="overflow-x-auto">
-                        <table className="w-full text-left table-dark min-w-[520px]">
-                            <thead>
-                                <tr>
-                                    <th>Exercise</th>
-                                    <th>Best Weight</th>
-                                    <th>Best Reps</th>
-                                </tr>
-                            </thead>
-                            <tbody>
-                                {exercisePrTable.map((row) => (
-                                    <tr key={row.exercise}>
-                                        <td className="font-medium text-foreground">{row.exercise}</td>
-                                        <td className="text-muted-foreground font-mono">
-                                            {row.bestWeight > 0 ? `${row.bestWeight.toFixed(1)} kg x ${row.bestWeightReps}` : '-'}
-                                        </td>
-                                        <td className="text-muted-foreground font-mono">
-                                            {row.bestReps} reps @ {row.bestRepsWeight.toFixed(1)} kg
-                                        </td>
-                                    </tr>
-                                ))}
-                            </tbody>
-                        </table>
-                    </div>
-                ) : (
-                    <div className="h-24 flex items-center justify-center text-sm text-muted-foreground border border-dashed border-border">
-                        No PR data in selected range yet.
-                    </div>
-                )}
-            </div>
-
-            {/* Quick Access Cards */}
-            <h3 className="inline-flex rounded-md border border-orange-500/30 bg-orange-500/10 px-2 py-1 text-base font-extrabold text-orange-500 uppercase tracking-wider font-mono mt-8">Quick Access</h3>
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-                <Link href="/dashboard/qr" className="kpi-card group cursor-pointer hover:border-primary transition-colors">
-                    <div className="flex items-start justify-between">
-                        <div>
-                            <p className="text-lg font-bold text-foreground font-mono">My QR Code</p>
-                            <p className="text-xs text-muted-foreground mt-1">Tap to view</p>
-                        </div>
-                        <QrCode size={20} className="text-foreground" />
-                    </div>
-                </Link>
-                <Link href="/dashboard/profile" className="kpi-card group cursor-pointer hover:border-primary transition-colors">
-                    <div className="flex items-start justify-between">
-                        <div>
-                            <p className="text-lg font-bold text-foreground font-mono">My Profile</p>
-                            <p className="text-xs text-muted-foreground mt-1">Manage Account</p>
-                        </div>
-                        <UserCheck size={20} className="text-foreground" />
-                    </div>
-                </Link>
-                <Link href="/dashboard/member/history" className="kpi-card group cursor-pointer hover:border-primary transition-colors">
-                    <div className="flex items-start justify-between">
-                        <div>
-                            <p className="text-lg font-bold text-foreground font-mono">History</p>
-                            <p className="text-xs text-muted-foreground mt-1">Logs & Payments</p>
-                        </div>
-                        <ClipboardList size={20} className="text-foreground" />
-                    </div>
-                </Link>
+                <div className="kpi-card p-5">
+                    <p className="text-xs uppercase tracking-wider text-muted-foreground">Latest Height</p>
+                    <p className="text-xl font-bold text-foreground mt-1">{latestBio?.height_cm ? `${latestBio.height_cm} cm` : 'N/A'}</p>
+                </div>
+                <div className="kpi-card p-5">
+                    <p className="text-xs uppercase tracking-wider text-muted-foreground">Latest Weight</p>
+                    <p className="text-xl font-bold text-foreground mt-1">{latestBio?.weight_kg ? `${latestBio.weight_kg} kg` : 'N/A'}</p>
+                </div>
+                <div className="kpi-card p-5">
+                    <p className="text-xs uppercase tracking-wider text-muted-foreground">Body Fat</p>
+                    <p className="text-xl font-bold text-foreground mt-1">{latestBio?.body_fat_pct ? `${latestBio.body_fat_pct}%` : 'N/A'}</p>
+                </div>
             </div>
 
-            {/* Workout Plans */}
-            <div className="kpi-card p-6">
-                <h3 className="inline-flex rounded-md border border-orange-500/30 bg-orange-500/10 px-2 py-1 text-base font-extrabold text-orange-500 uppercase tracking-wider font-mono mb-4">My Workout Plans</h3>
-                {plans.length > 0 ? (
-                    <div className="space-y-3">
-                        {plans.map((plan: Plan) => (
-                            <div key={plan.id} className="p-4 border border-border bg-muted/10 hover:border-primary transition-colors">
-                                <div className="flex items-start justify-between mb-3">
-                                    <div className="flex items-center gap-3">
-                                        <div className="p-2 bg-muted/30 border border-border text-primary">
-                                            <Dumbbell size={16} />
-                                        </div>
-                                        <div>
-                                            <h4 className="text-foreground font-bold text-sm uppercase">{plan.name}</h4>
-                                            <p className="text-muted-foreground text-xs">{plan.description || 'No description'}</p>
-                                        </div>
-                                    </div>
-                                    <span className="text-xs text-muted-foreground px-2 py-1 bg-muted/30 font-mono">
-                                        {plan.exercises?.length || 0} exercises
-                                    </span>
-                                </div>
-                                <div className="ml-11 mb-2">
-                                    <button
-                                        type="button"
-                                        className="btn-primary !py-1 !px-3 text-xs"
-                                        onClick={() => openSessionLogger(plan)}
-                                    >
-                                        Log Session
-                                    </button>
-                                </div>
-                                {plan.exercises && plan.exercises.length > 0 && (
-                                    <div className="ml-11 space-y-1 mt-2 border-l border-border pl-3">
-                                        {plan.exercises.slice(0, 4).map((ex, i: number) => (
-                                            <div key={i} className="flex justify-between text-xs py-0.5">
-                                                <span className="text-muted-foreground">{ex.exercise?.name || ex.name || `Exercise ${i + 1}`}</span>
-                                                <span className="text-muted-foreground font-mono">{ex.sets}x{ex.reps}</span>
-                                            </div>
-                                        ))}
-                                        {plan.exercises.length > 4 && (
-                                            <p className="text-xs text-primary font-mono pt-1">+{plan.exercises.length - 4} MORE</p>
-                                        )}
-                                    </div>
-                                )}
-                            </div>
-                        ))}
-                    </div>
-                ) : (
-                    <div className="text-center py-10 border border-dashed border-border">
-                        <Dumbbell size={32} className="mx-auto text-muted-foreground mb-3 opacity-50" />
-                        <p className="text-muted-foreground text-sm">No workout plans assigned yet.</p>
-                        <p className="text-muted-foreground/60 text-xs mt-1">Your coach will assign plans to you</p>
-                    </div>
-                )}
-            </div>
-
-            {/* Diet Plans */}
-            <div className="kpi-card p-6">
-                <h3 className="inline-flex rounded-md border border-orange-500/30 bg-orange-500/10 px-2 py-1 text-base font-extrabold text-orange-500 uppercase tracking-wider font-mono mb-4">My Diet Plans</h3>
-                {diets.length > 0 ? (
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                        {diets.map((diet: Diet) => (
-                            <div key={diet.id} className="p-4 border border-border bg-muted/10 hover:border-primary transition-colors">
-                                <div className="flex items-center gap-3 mb-3">
-                                    <div className="p-2 bg-muted/30 border border-border text-primary">
-                                        <Utensils size={16} />
-                                    </div>
-                                    <div>
-                                        <h4 className="text-foreground font-bold text-sm uppercase">{diet.name}</h4>
-                                        <p className="text-muted-foreground text-xs">{diet.description || 'No description'}</p>
-                                    </div>
-                                </div>
-                                <div className="bg-muted/20 p-3 text-xs text-muted-foreground max-h-24 overflow-y-auto whitespace-pre-wrap font-mono">
-                                    {diet.content}
-                                </div>
-                            </div>
-                        ))}
-                    </div>
-                ) : (
-                    <div className="text-center py-10 border border-dashed border-border">
-                        <Utensils size={32} className="mx-auto text-muted-foreground mb-3 opacity-50" />
-                        <p className="text-muted-foreground text-sm">No diet plans assigned yet.</p>
-                        <p className="text-muted-foreground/60 text-xs mt-1">Your coach will create a nutrition program for you</p>
-                    </div>
-                )}
-            </div>
-
-            <Modal
-                isOpen={!!sessionModalPlan}
-                onClose={() => setSessionModalPlan(null)}
-                title={sessionModalPlan ? `Log Session: ${sessionModalPlan.name}` : 'Log Session'}
-            >
-                {sessionModalPlan && (
-                    <form onSubmit={handleLogSession} className="space-y-4">
-                        <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+            <div>
+                <p className="section-chip mb-4">Quick Access</p>
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+                    <Link href="/dashboard/member/progress" className="kpi-card group cursor-pointer hover:border-primary transition-colors">
+                        <div className="flex items-start justify-between">
                             <div>
-                                <label className="block text-xs font-medium text-muted-foreground mb-1">Duration (minutes)</label>
-                                <input
-                                    type="number"
-                                    min={1}
-                                    className="input-dark"
-                                    value={sessionDuration}
-                                    onChange={(e) => setSessionDuration(e.target.value)}
-                                    placeholder="e.g. 60"
-                                />
+                                <p className="text-lg font-bold text-foreground font-mono">My Progress</p>
+                                <p className="text-xs text-muted-foreground mt-1">Body metrics and trends</p>
                             </div>
+                            <Activity size={20} className="text-foreground" />
+                        </div>
+                    </Link>
+                    <Link href="/dashboard/member/plans" className="kpi-card group cursor-pointer hover:border-primary transition-colors">
+                        <div className="flex items-start justify-between">
                             <div>
-                                <label className="block text-xs font-medium text-muted-foreground mb-1">Session Notes</label>
-                                <input
-                                    type="text"
-                                    className="input-dark"
-                                    value={sessionNotes}
-                                    onChange={(e) => setSessionNotes(e.target.value)}
-                                    placeholder="How did it go?"
-                                />
+                                <p className="text-lg font-bold text-foreground font-mono">Workout Plans</p>
+                                <p className="text-xs text-muted-foreground mt-1">View plans and log sessions</p>
                             </div>
+                            <Dumbbell size={20} className="text-foreground" />
                         </div>
-
-                        <div className="space-y-2 max-h-[360px] overflow-y-auto pr-1">
-                            {sessionEntries.map((entry, idx) => (
-                                <div key={`${entry.exercise_name}-${idx}`} className="rounded-sm border border-border bg-muted/10 p-3 space-y-2">
-                                    <p className="text-sm font-semibold text-foreground">{entry.exercise_name}</p>
-                                    <div className="grid grid-cols-1 md:grid-cols-3 gap-2">
-                                        <div>
-                                            <label className="block text-[10px] uppercase font-bold text-muted-foreground mb-1">Sets</label>
-                                            <input
-                                                type="number"
-                                                min={0}
-                                                className="input-dark py-1.5 text-sm"
-                                                value={entry.sets_completed}
-                                                onChange={(e) => updateSessionEntry(idx, 'sets_completed', e.target.value)}
-                                            />
-                                        </div>
-                                        <div>
-                                            <label className="block text-[10px] uppercase font-bold text-muted-foreground mb-1">Reps</label>
-                                            <input
-                                                type="number"
-                                                min={0}
-                                                className="input-dark py-1.5 text-sm"
-                                                value={entry.reps_completed}
-                                                onChange={(e) => updateSessionEntry(idx, 'reps_completed', e.target.value)}
-                                            />
-                                        </div>
-                                        <div>
-                                            <label className="block text-[10px] uppercase font-bold text-muted-foreground mb-1">Weight (kg)</label>
-                                            <input
-                                                type="number"
-                                                min={0}
-                                                step="0.5"
-                                                className="input-dark py-1.5 text-sm"
-                                                value={entry.weight_kg}
-                                                onChange={(e) => updateSessionEntry(idx, 'weight_kg', e.target.value)}
-                                                placeholder="Optional"
-                                            />
-                                        </div>
-                                    </div>
-                                </div>
-                            ))}
+                    </Link>
+                    <Link href="/dashboard/member/diets" className="kpi-card group cursor-pointer hover:border-primary transition-colors">
+                        <div className="flex items-start justify-between">
+                            <div>
+                                <p className="text-lg font-bold text-foreground font-mono">Diet Plans</p>
+                                <p className="text-xs text-muted-foreground mt-1">Assigned nutrition plans</p>
+                            </div>
+                            <Utensils size={20} className="text-foreground" />
                         </div>
-
-                        <div className="flex justify-end gap-3 pt-2 border-t border-border">
-                            <button type="button" className="btn-ghost" onClick={() => setSessionModalPlan(null)} disabled={loggingSession}>Cancel</button>
-                            <button type="submit" className="btn-primary" disabled={loggingSession}>
-                                {loggingSession ? 'Saving...' : 'Save Session'}
-                            </button>
+                    </Link>
+                    <Link href="/dashboard/member/history" className="kpi-card group cursor-pointer hover:border-primary transition-colors">
+                        <div className="flex items-start justify-between">
+                            <div>
+                                <p className="text-lg font-bold text-foreground font-mono">History</p>
+                                <p className="text-xs text-muted-foreground mt-1">Attendance and payments</p>
+                            </div>
+                            <ClipboardList size={20} className="text-foreground" />
                         </div>
-                    </form>
-                )}
-            </Modal>
+                    </Link>
+                    <Link href="/dashboard/member/achievements" className="kpi-card group cursor-pointer hover:border-primary transition-colors">
+                        <div className="flex items-start justify-between">
+                            <div>
+                                <p className="text-lg font-bold text-foreground font-mono">Achievements</p>
+                                <p className="text-xs text-muted-foreground mt-1">Badges and milestones</p>
+                            </div>
+                            <Trophy size={20} className="text-foreground" />
+                        </div>
+                    </Link>
+                    <Link href="/dashboard/member/feedback" className="kpi-card group cursor-pointer hover:border-primary transition-colors">
+                        <div className="flex items-start justify-between">
+                            <div>
+                                <p className="text-lg font-bold text-foreground font-mono">My Feedback</p>
+                                <p className="text-xs text-muted-foreground mt-1">Share plan and gym feedback</p>
+                            </div>
+                            <MessageSquare size={20} className="text-foreground" />
+                        </div>
+                    </Link>
+                    <Link href="/dashboard/qr" className="kpi-card group cursor-pointer hover:border-primary transition-colors">
+                        <div className="flex items-start justify-between">
+                            <div>
+                                <p className="text-lg font-bold text-foreground font-mono">My QR Code</p>
+                                <p className="text-xs text-muted-foreground mt-1">Check-in access</p>
+                            </div>
+                            <QrCode size={20} className="text-foreground" />
+                        </div>
+                    </Link>
+                    <Link href="/dashboard/profile" className="kpi-card group cursor-pointer hover:border-primary transition-colors">
+                        <div className="flex items-start justify-between">
+                            <div>
+                                <p className="text-lg font-bold text-foreground font-mono">My Profile</p>
+                                <p className="text-xs text-muted-foreground mt-1">Manage account details</p>
+                            </div>
+                            <UserCheck size={20} className="text-foreground" />
+                        </div>
+                    </Link>
+                </div>
+            </div>
         </div>
     );
 }
@@ -1920,4 +1129,5 @@ export default function DashboardPage() {
             return <CustomerDashboard userName={user.full_name} dateOfBirth={user.date_of_birth} />;
     }
 }
+
 
