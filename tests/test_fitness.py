@@ -8,7 +8,7 @@ from app.models.access import Subscription, SubscriptionStatus
 from app.models.user import User
 from app.models.enums import Role
 from app.auth.security import get_password_hash
-from app.models.fitness import WorkoutPlan
+from app.models.fitness import DietPlan, WorkoutPlan
 from sqlalchemy import select
 
 
@@ -346,6 +346,176 @@ async def test_coach_can_delete_diet_plan(client: AsyncClient, db_session: Async
 
     delete_resp = await client.delete(f"{settings.API_V1_STR}/fitness/diets/{diet_id}", headers=headers)
     assert delete_resp.status_code == 200
+
+
+@pytest.mark.asyncio
+async def test_diet_draft_publish_fork_archive_flow(client: AsyncClient, db_session: AsyncSession):
+    password = "password123"
+    hashed = get_password_hash(password)
+    coach = User(email="coach_diet_lifecycle@gym.com", hashed_password=hashed, role=Role.COACH, full_name="Coach Diet Lifecycle")
+    db_session.add(coach)
+    await db_session.flush()
+    await db_session.commit()
+
+    login_resp = await client.post(
+        f"{settings.API_V1_STR}/auth/login",
+        json={"email": "coach_diet_lifecycle@gym.com", "password": password},
+    )
+    headers = {"Authorization": f"Bearer {login_resp.json()['data']['access_token']}"}
+
+    create_resp = await client.post(
+        f"{settings.API_V1_STR}/fitness/diets",
+        json={
+            "name": "Diet Lifecycle",
+            "description": "Lifecycle testing",
+            "content": "Meal A\\nMeal B",
+            "content_structured": {"days": [{"name": "Monday", "meals": []}]},
+            "status": "DRAFT",
+            "is_template": True,
+        },
+        headers=headers,
+    )
+    assert create_resp.status_code == 200
+    draft_id = create_resp.json()["data"]["id"]
+
+    publish_resp = await client.post(f"{settings.API_V1_STR}/fitness/diets/{draft_id}/publish", headers=headers)
+    assert publish_resp.status_code == 200
+
+    blocked_update = await client.put(
+        f"{settings.API_V1_STR}/fitness/diets/{draft_id}",
+        json={"name": "blocked", "description": "x", "content": "x", "is_template": True},
+        headers=headers,
+    )
+    assert blocked_update.status_code == 400
+
+    fork_resp = await client.post(f"{settings.API_V1_STR}/fitness/diets/{draft_id}/fork-draft", headers=headers)
+    assert fork_resp.status_code == 200
+    fork_id = fork_resp.json()["data"]["id"]
+
+    edit_draft = await client.put(
+        f"{settings.API_V1_STR}/fitness/diets/{fork_id}",
+        json={"name": "Diet Lifecycle v2", "description": "ok", "content": "Updated", "is_template": True},
+        headers=headers,
+    )
+    assert edit_draft.status_code == 200
+
+    archive_resp = await client.post(f"{settings.API_V1_STR}/fitness/diets/{draft_id}/archive", headers=headers)
+    assert archive_resp.status_code == 200
+
+    default_list = await client.get(f"{settings.API_V1_STR}/fitness/diets", headers=headers)
+    assert default_list.status_code == 200
+    default_ids = {row["id"] for row in default_list.json()["data"]}
+    assert draft_id not in default_ids
+    assert fork_id in default_ids
+
+    archived_list = await client.get(f"{settings.API_V1_STR}/fitness/diets?include_archived=true", headers=headers)
+    assert archived_list.status_code == 200
+    by_id = {row["id"]: row for row in archived_list.json()["data"]}
+    assert by_id[draft_id]["status"] == "ARCHIVED"
+    assert by_id[fork_id]["status"] == "DRAFT"
+    assert by_id[fork_id]["parent_plan_id"] == draft_id
+
+    stmt = select(DietPlan).where(DietPlan.id.in_([uuid.UUID(draft_id), uuid.UUID(fork_id)]))
+    rows = (await db_session.execute(stmt)).scalars().all()
+    db_by_id = {str(row.id): row for row in rows}
+    assert db_by_id[fork_id].version == db_by_id[draft_id].version + 1
+
+
+@pytest.mark.asyncio
+async def test_bulk_assign_diet_replaces_active(client: AsyncClient, db_session: AsyncSession):
+    password = "password123"
+    hashed = get_password_hash(password)
+    coach = User(email="coach_bulk_diet@gym.com", hashed_password=hashed, role=Role.COACH, full_name="Coach Bulk Diet")
+    member1 = User(email="bulk_diet_m1@gym.com", hashed_password=hashed, role=Role.CUSTOMER, full_name="Bulk Diet M1")
+    member2 = User(email="bulk_diet_m2@gym.com", hashed_password=hashed, role=Role.CUSTOMER, full_name="Bulk Diet M2")
+    db_session.add_all([coach, member1, member2])
+    await db_session.flush()
+    db_session.add_all([_active_subscription(member1.id), _active_subscription(member2.id)])
+    await db_session.commit()
+
+    login_resp = await client.post(
+        f"{settings.API_V1_STR}/auth/login",
+        json={"email": "coach_bulk_diet@gym.com", "password": password},
+    )
+    headers = {"Authorization": f"Bearer {login_resp.json()['data']['access_token']}"}
+
+    old1 = await client.post(
+        f"{settings.API_V1_STR}/fitness/diets",
+        json={"name": "Old Diet 1", "content": "A", "status": "PUBLISHED", "member_id": str(member1.id)},
+        headers=headers,
+    )
+    assert old1.status_code == 200
+    old2 = await client.post(
+        f"{settings.API_V1_STR}/fitness/diets",
+        json={"name": "Old Diet 2", "content": "B", "status": "PUBLISHED", "member_id": str(member2.id)},
+        headers=headers,
+    )
+    assert old2.status_code == 200
+
+    source = await client.post(
+        f"{settings.API_V1_STR}/fitness/diets",
+        json={"name": "Bulk Diet Source", "content": "Template", "status": "PUBLISHED", "is_template": True},
+        headers=headers,
+    )
+    assert source.status_code == 200
+    source_id = source.json()["data"]["id"]
+
+    bulk_resp = await client.post(
+        f"{settings.API_V1_STR}/fitness/diets/{source_id}/bulk-assign",
+        json={"member_ids": [str(member1.id), str(member2.id)], "replace_active": True},
+        headers=headers,
+    )
+    assert bulk_resp.status_code == 200
+    bulk_data = bulk_resp.json()["data"]
+    assert bulk_data["assigned_count"] == 2
+    assert bulk_data["replaced_count"] >= 2
+
+    plans_with_archived = await client.get(f"{settings.API_V1_STR}/fitness/diets?include_archived=true", headers=headers)
+    assert plans_with_archived.status_code == 200
+    all_plans = plans_with_archived.json()["data"]
+    archived_old = [p for p in all_plans if p["id"] in {old1.json()["data"]["id"], old2.json()["data"]["id"]}]
+    assert all(p["status"] == "ARCHIVED" for p in archived_old)
+    assigned_new = [p for p in all_plans if p.get("parent_plan_id") == source_id and p.get("member_id") in {str(member1.id), str(member2.id)}]
+    assert len(assigned_new) == 2
+
+
+@pytest.mark.asyncio
+async def test_non_owner_coach_cannot_manage_other_coach_diet_lifecycle(client: AsyncClient, db_session: AsyncSession):
+    password = "password123"
+    hashed = get_password_hash(password)
+    owner = User(email="coach_owner_diet@gym.com", hashed_password=hashed, role=Role.COACH, full_name="Diet Owner")
+    other = User(email="coach_other_diet@gym.com", hashed_password=hashed, role=Role.COACH, full_name="Diet Other")
+    db_session.add_all([owner, other])
+    await db_session.flush()
+    await db_session.commit()
+
+    owner_login = await client.post(
+        f"{settings.API_V1_STR}/auth/login",
+        json={"email": "coach_owner_diet@gym.com", "password": password},
+    )
+    owner_headers = {"Authorization": f"Bearer {owner_login.json()['data']['access_token']}"}
+    other_login = await client.post(
+        f"{settings.API_V1_STR}/auth/login",
+        json={"email": "coach_other_diet@gym.com", "password": password},
+    )
+    other_headers = {"Authorization": f"Bearer {other_login.json()['data']['access_token']}"}
+
+    create_resp = await client.post(
+        f"{settings.API_V1_STR}/fitness/diets",
+        json={"name": "Protected Diet", "content": "X", "status": "DRAFT"},
+        headers=owner_headers,
+    )
+    assert create_resp.status_code == 200
+    diet_id = create_resp.json()["data"]["id"]
+
+    blocked_publish = await client.post(f"{settings.API_V1_STR}/fitness/diets/{diet_id}/publish", headers=other_headers)
+    assert blocked_publish.status_code == 403
+
+    blocked_archive = await client.post(f"{settings.API_V1_STR}/fitness/diets/{diet_id}/archive", headers=other_headers)
+    assert blocked_archive.status_code == 403
+
+    blocked_fork = await client.post(f"{settings.API_V1_STR}/fitness/diets/{diet_id}/fork-draft", headers=other_headers)
+    assert blocked_fork.status_code == 403
 
 
 @pytest.mark.asyncio

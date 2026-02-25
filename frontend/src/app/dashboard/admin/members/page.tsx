@@ -45,6 +45,11 @@ interface DietPlan {
     name: string;
     description?: string | null;
     member_id?: string | null;
+    status?: 'DRAFT' | 'PUBLISHED' | 'ARCHIVED';
+    version?: number;
+    content_length?: number;
+    has_structured_content?: boolean;
+    description_excerpt?: string | null;
 }
 
 interface BiometricLog {
@@ -84,6 +89,7 @@ type RenewalMode = 'fixed' | 'custom';
 type AssignableType = 'WORKOUT' | 'DIET';
 type MemberStatusFilter = 'ALL' | 'ACTIVE' | 'FROZEN' | 'EXPIRED' | 'NONE';
 type WorkoutPlanStatusFilter = 'ALL' | 'PUBLISHED' | 'DRAFT' | 'ARCHIVED';
+type DietPlanStatusFilter = 'ALL' | 'PUBLISHED' | 'DRAFT' | 'ARCHIVED';
 
 export default function MembersPage() {
     const router = useRouter();
@@ -127,6 +133,7 @@ export default function MembersPage() {
     const [assignPlanId, setAssignPlanId] = useState('');
     const [assignType, setAssignType] = useState<AssignableType>('WORKOUT');
     const [assignWorkoutStatusFilter, setAssignWorkoutStatusFilter] = useState<WorkoutPlanStatusFilter>('PUBLISHED');
+    const [assignDietStatusFilter, setAssignDietStatusFilter] = useState<DietPlanStatusFilter>('PUBLISHED');
 
     const openView = (member: Member) => {
         setViewMember(member);
@@ -183,7 +190,9 @@ export default function MembersPage() {
 
     const fetchDietPlans = async () => {
         try {
-            const res = await api.get('/fitness/diets');
+            const res = await api.get('/fitness/diet-summaries', { params: { include_archived: true } }).catch(
+                () => api.get('/fitness/diets', { params: { include_archived: true } }),
+            );
             const allPlans = res.data?.data ?? [];
             setDietPlans(allPlans.filter((plan: DietPlan) => !plan.member_id));
         } catch (err) {
@@ -320,6 +329,7 @@ export default function MembersPage() {
         if (dietPlans.length === 0) await fetchDietPlans();
         setAssignType('WORKOUT');
         setAssignWorkoutStatusFilter('PUBLISHED');
+        setAssignDietStatusFilter('PUBLISHED');
         setAssignPlanId('');
         setIsAssignPlanOpen(true);
     };
@@ -343,9 +353,13 @@ export default function MembersPage() {
                 });
             } else {
                 const selectedPlan = dietPlans.find(plan => plan.id === assignPlanId);
-                await api.post(`/fitness/diets/${assignPlanId}/clone`, {
-                    name: selectedPlan?.name ? `${selectedPlan.name} - ${assignMember.full_name}` : undefined,
-                    member_id: assignMember.id,
+                if (selectedPlan?.status === 'ARCHIVED') {
+                    showToast('Cannot assign archived plan.', 'error');
+                    return;
+                }
+                await api.post(`/fitness/diets/${assignPlanId}/bulk-assign`, {
+                    member_ids: [assignMember.id],
+                    replace_active: true,
                 });
             }
             setIsAssignPlanOpen(false);
@@ -389,6 +403,11 @@ export default function MembersPage() {
         if (assignWorkoutStatusFilter === 'ALL') return plans;
         return plans.filter(plan => plan.status === assignWorkoutStatusFilter);
     }, [plans, assignWorkoutStatusFilter]);
+
+    const filteredAssignableDietPlans = useMemo(() => {
+        if (assignDietStatusFilter === 'ALL') return dietPlans;
+        return dietPlans.filter(plan => plan.status === assignDietStatusFilter);
+    }, [dietPlans, assignDietStatusFilter]);
 
     if (loading) return (
         <div className="flex h-64 items-center justify-center">
@@ -874,6 +893,33 @@ export default function MembersPage() {
                                 </div>
                             </div>
                         )}
+                        {assignType === 'DIET' && (
+                            <div className="mb-3">
+                                <label className="block text-xs font-medium text-muted-foreground mb-1.5">Diet Status Filter</label>
+                                <div className="flex flex-wrap gap-2">
+                                    {(['ALL', 'PUBLISHED', 'DRAFT', 'ARCHIVED'] as DietPlanStatusFilter[]).map(status => {
+                                        const count = status === 'ALL' ? dietPlans.length : dietPlans.filter(plan => plan.status === status).length;
+                                        return (
+                                            <button
+                                                key={status}
+                                                type="button"
+                                                onClick={() => {
+                                                    setAssignDietStatusFilter(status);
+                                                    setAssignPlanId('');
+                                                }}
+                                                className={`px-3 py-2 min-h-11 text-xs rounded-sm border transition-colors ${
+                                                    assignDietStatusFilter === status
+                                                        ? 'border-primary text-primary bg-primary/10'
+                                                        : 'border-border text-muted-foreground hover:text-foreground hover:bg-white/5'
+                                                }`}
+                                            >
+                                                {status === 'ALL' ? 'All' : status} ({count})
+                                            </button>
+                                        );
+                                    })}
+                                </div>
+                            </div>
+                        )}
                         <label className="block text-xs font-medium text-muted-foreground mb-1.5">
                             {assignType === 'WORKOUT' ? 'Workout Plan' : 'Diet Plan'}
                         </label>
@@ -890,9 +936,9 @@ export default function MembersPage() {
                                         {plan.name} [{plan.status || 'DRAFT'}]
                                     </option>
                                 ))
-                                : dietPlans.map(plan => (
+                                : filteredAssignableDietPlans.map(plan => (
                                     <option key={plan.id} value={plan.id}>
-                                        {plan.name}
+                                        {plan.name} [{plan.status || 'DRAFT'}]
                                     </option>
                                 ))}
                         </select>
@@ -925,11 +971,31 @@ export default function MembersPage() {
                             </div>
                         );
                     })()}
-                    {(assignType === 'WORKOUT' ? filteredAssignableWorkoutPlans.length === 0 : dietPlans.length === 0) && (
+                    {assignType === 'DIET' && assignPlanId && (() => {
+                        const plan = dietPlans.find(p => p.id === assignPlanId);
+                        if (!plan) return null;
+                        return (
+                            <div className="rounded-sm border border-border bg-muted/20 p-3 space-y-2">
+                                <div className="flex items-center justify-between">
+                                    <p className="text-sm font-semibold text-foreground">{plan.name}</p>
+                                    {plan.status && <span className={`badge ${plan.status === 'PUBLISHED' ? 'badge-green' : plan.status === 'ARCHIVED' ? 'badge-gray' : 'badge-orange'}`}>{plan.status}</span>}
+                                </div>
+                                {plan.description_excerpt && <p className="text-xs text-muted-foreground">{plan.description_excerpt}</p>}
+                                {plan.content_length !== undefined && (
+                                    <p className="text-xs text-muted-foreground">
+                                        Content length: {plan.content_length} chars{plan.has_structured_content ? ' | Structured JSON' : ''}
+                                    </p>
+                                )}
+                                {plan.status === 'DRAFT' && <p className="text-xs text-yellow-400">Warning: assigning a draft plan.</p>}
+                                {plan.status === 'ARCHIVED' && <p className="text-xs text-destructive">Archived plan cannot be assigned.</p>}
+                            </div>
+                        );
+                    })()}
+                    {(assignType === 'WORKOUT' ? filteredAssignableWorkoutPlans.length === 0 : filteredAssignableDietPlans.length === 0) && (
                         <p className="text-xs text-muted-foreground">
                             {assignType === 'WORKOUT'
                                 ? 'No workout templates match this status filter.'
-                                : 'No unassigned diet plans found. Create one in Diet Plans first.'}
+                                : 'No diet templates match this status filter.'}
                         </p>
                     )}
                     <div className="flex justify-end gap-3 pt-4 border-t border-border">
@@ -940,7 +1006,7 @@ export default function MembersPage() {
                             disabled={
                                 assignType === 'WORKOUT'
                                     ? filteredAssignableWorkoutPlans.length === 0 || plans.find(p => p.id === assignPlanId)?.status === 'ARCHIVED'
-                                    : dietPlans.length === 0
+                                    : filteredAssignableDietPlans.length === 0 || dietPlans.find(p => p.id === assignPlanId)?.status === 'ARCHIVED'
                             }
                         >
                             {assignType === 'WORKOUT' ? <Dumbbell size={16} /> : <Utensils size={16} />}

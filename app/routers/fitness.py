@@ -1,5 +1,5 @@
 import os
-from typing import Annotated, List, Literal
+from typing import Any, Annotated, List, Literal
 from datetime import datetime, timedelta
 import uuid
 import re
@@ -1162,18 +1162,73 @@ class DietPlanCreate(BaseModel):
     name: str
     description: str | None = None
     content: str  # JSON or markdown
+    content_structured: dict[str, Any] | list[Any] | None = None
     member_id: uuid.UUID | None = None
+    is_template: bool = False
+    status: Literal["DRAFT", "PUBLISHED", "ARCHIVED"] | None = None
+
+
+class DietPlanUpdate(BaseModel):
+    name: str
+    description: str | None = None
+    content: str
+    content_structured: dict[str, Any] | list[Any] | None = None
+    member_id: uuid.UUID | None = None
+    is_template: bool = False
 
 class DietPlanResponse(BaseModel):
     id: uuid.UUID
     name: str
     description: str | None = None
     content: str
+    content_structured: dict[str, Any] | list[Any] | None = None
     creator_id: uuid.UUID
     member_id: uuid.UUID | None
+    is_template: bool
+    status: str
+    version: int
+    parent_plan_id: uuid.UUID | None = None
+    published_at: datetime | None = None
+    archived_at: datetime | None = None
 
     class Config:
         from_attributes = True
+
+
+class DietPlanSummaryResponse(BaseModel):
+    id: uuid.UUID
+    name: str
+    status: str
+    version: int
+    member_id: uuid.UUID | None = None
+    description_excerpt: str | None = None
+    content_length: int
+    has_structured_content: bool
+
+    class Config:
+        from_attributes = True
+
+
+class DietBulkAssignRequest(BaseModel):
+    member_ids: List[uuid.UUID] = Field(default_factory=list)
+    replace_active: bool = True
+
+
+def _build_diet_summary(plan: DietPlan) -> DietPlanSummaryResponse:
+    excerpt = (plan.description or "").strip()
+    if excerpt:
+        excerpt = excerpt[:120]
+    return DietPlanSummaryResponse(
+        id=plan.id,
+        name=plan.name,
+        status=plan.status,
+        version=plan.version,
+        member_id=plan.member_id,
+        description_excerpt=excerpt or None,
+        content_length=len((plan.content or "").strip()),
+        has_structured_content=plan.content_structured is not None,
+    )
+
 
 
 @router.post("/diets", response_model=StandardResponse)
@@ -1183,12 +1238,21 @@ async def create_diet_plan(
     db: Annotated[AsyncSession, Depends(get_db)]
 ):
     """Create a new diet plan."""
+    status = data.status or "DRAFT"
+    if status not in PLAN_STATUSES:
+        raise HTTPException(status_code=400, detail="Invalid plan status")
     plan = DietPlan(
         name=data.name,
         description=data.description,
         content=data.content,
+        content_structured=data.content_structured,
         creator_id=current_user.id,
-        member_id=data.member_id
+        member_id=data.member_id,
+        is_template=data.is_template,
+        status=status,
+        version=1,
+        published_at=datetime.utcnow() if status == "PUBLISHED" else None,
+        archived_at=datetime.utcnow() if status == "ARCHIVED" else None,
     )
     db.add(plan)
     await db.commit()
@@ -1198,13 +1262,17 @@ async def create_diet_plan(
 @router.get("/diets", response_model=StandardResponse[List[DietPlanResponse]])
 async def list_diet_plans(
     current_user: Annotated[User, Depends(dependencies.require_active_customer_subscription)],
-    db: Annotated[AsyncSession, Depends(get_db)]
+    db: Annotated[AsyncSession, Depends(get_db)],
+    include_archived: bool = Query(False),
 ):
     """List diet plans visible to the user."""
     if _is_admin_or_coach(current_user):
         stmt = select(DietPlan).where(DietPlan.creator_id == current_user.id)
     else:
         stmt = select(DietPlan).where(DietPlan.member_id == current_user.id)
+    if not include_archived:
+        stmt = stmt.where(DietPlan.status != "ARCHIVED")
+    stmt = stmt.order_by(DietPlan.name)
     result = await db.execute(stmt)
     plans = result.scalars().all()
     return StandardResponse(data=[DietPlanResponse.model_validate(p) for p in plans])
@@ -1228,6 +1296,30 @@ async def get_diet_plan(
     return StandardResponse(data=DietPlanResponse.model_validate(plan))
 
 
+@router.put("/diets/{diet_id}", response_model=StandardResponse)
+async def update_diet_plan(
+    diet_id: uuid.UUID,
+    data: DietPlanUpdate,
+    current_user: Annotated[User, Depends(dependencies.RoleChecker([Role.ADMIN, Role.COACH]))],
+    db: Annotated[AsyncSession, Depends(get_db)],
+):
+    plan = await _get_diet_plan_or_404(db, diet_id)
+    _ensure_diet_owned_by_requester_or_admin(plan, current_user, action="edit")
+    if plan.status == "PUBLISHED":
+        raise HTTPException(status_code=400, detail="Published plans are read-only. Fork a draft first.")
+    if plan.status == "ARCHIVED":
+        raise HTTPException(status_code=400, detail="Archived plans cannot be edited.")
+
+    plan.name = data.name
+    plan.description = data.description
+    plan.content = data.content
+    plan.content_structured = data.content_structured
+    plan.member_id = data.member_id
+    plan.is_template = data.is_template
+    await db.commit()
+    return StandardResponse(message="Diet plan updated")
+
+
 @router.post("/diets/{diet_id}/clone", response_model=StandardResponse)
 async def clone_diet_plan(
     diet_id: uuid.UUID,
@@ -1243,12 +1335,158 @@ async def clone_diet_plan(
         name=clone_data.name or f"{source_plan.name} (Copy)",
         description=source_plan.description,
         content=source_plan.content,
+        content_structured=source_plan.content_structured,
         creator_id=current_user.id,
         member_id=clone_data.member_id,
+        is_template=False,
+        status="PUBLISHED",
+        version=1,
+        parent_plan_id=source_plan.id,
+        published_at=datetime.utcnow(),
     )
     db.add(cloned_plan)
     await db.commit()
     return StandardResponse(message="Diet plan cloned successfully", data={"id": str(cloned_plan.id)})
+
+
+@router.post("/diets/{diet_id}/bulk-assign", response_model=StandardResponse)
+async def bulk_assign_diet_plan(
+    diet_id: uuid.UUID,
+    payload: DietBulkAssignRequest,
+    current_user: Annotated[User, Depends(dependencies.RoleChecker([Role.ADMIN, Role.COACH]))],
+    db: Annotated[AsyncSession, Depends(get_db)],
+):
+    source_plan = await _get_diet_plan_or_404(db, diet_id)
+    _ensure_diet_owned_by_requester_or_admin(source_plan, current_user, action="assign")
+    if source_plan.status == "ARCHIVED":
+        raise HTTPException(status_code=400, detail="Cannot assign archived plan")
+    if not payload.member_ids:
+        raise HTTPException(status_code=400, detail="member_ids cannot be empty")
+
+    assigned_count = 0
+    replaced_count = 0
+    skipped: list[str] = []
+    errors: list[str] = []
+    unique_member_ids = list(dict.fromkeys(payload.member_ids))
+
+    for member_id in unique_member_ids:
+        try:
+            member = await db.get(User, member_id)
+            if not member:
+                skipped.append(f"{member_id}: member not found")
+                continue
+
+            if payload.replace_active:
+                active_stmt = select(DietPlan).where(
+                    DietPlan.member_id == member_id,
+                    DietPlan.status != "ARCHIVED",
+                )
+                active_res = await db.execute(active_stmt)
+                active_plans = active_res.scalars().all()
+                for active_plan in active_plans:
+                    active_plan.status = "ARCHIVED"
+                    active_plan.archived_at = datetime.utcnow()
+                    replaced_count += 1
+
+            cloned_plan = DietPlan(
+                name=f"{source_plan.name} - {member.full_name}",
+                description=source_plan.description,
+                content=source_plan.content,
+                content_structured=source_plan.content_structured,
+                creator_id=current_user.id,
+                member_id=member.id,
+                is_template=False,
+                status="PUBLISHED",
+                version=1,
+                parent_plan_id=source_plan.id,
+                published_at=datetime.utcnow(),
+            )
+            db.add(cloned_plan)
+            assigned_count += 1
+        except Exception as exc:
+            errors.append(f"{member_id}: {exc}")
+
+    await db.commit()
+    return StandardResponse(
+        message="Bulk assignment completed",
+        data={
+            "assigned_count": assigned_count,
+            "replaced_count": replaced_count,
+            "skipped": skipped,
+            "errors": errors,
+        },
+    )
+
+
+@router.post("/diets/{diet_id}/publish", response_model=StandardResponse)
+async def publish_diet_plan(
+    diet_id: uuid.UUID,
+    current_user: Annotated[User, Depends(dependencies.RoleChecker([Role.ADMIN, Role.COACH]))],
+    db: Annotated[AsyncSession, Depends(get_db)],
+):
+    plan = await _get_diet_plan_or_404(db, diet_id)
+    _ensure_diet_owned_by_requester_or_admin(plan, current_user, action="publish")
+    if plan.status == "ARCHIVED":
+        raise HTTPException(status_code=400, detail="Archived plans cannot be published")
+    plan.status = "PUBLISHED"
+    plan.published_at = datetime.utcnow()
+    await db.commit()
+    return StandardResponse(message="Diet plan published", data={"id": str(plan.id)})
+
+
+@router.post("/diets/{diet_id}/archive", response_model=StandardResponse)
+async def archive_diet_plan(
+    diet_id: uuid.UUID,
+    current_user: Annotated[User, Depends(dependencies.RoleChecker([Role.ADMIN, Role.COACH]))],
+    db: Annotated[AsyncSession, Depends(get_db)],
+):
+    plan = await _get_diet_plan_or_404(db, diet_id)
+    _ensure_diet_owned_by_requester_or_admin(plan, current_user, action="archive")
+    plan.status = "ARCHIVED"
+    plan.archived_at = datetime.utcnow()
+    await db.commit()
+    return StandardResponse(message="Diet plan archived", data={"id": str(plan.id)})
+
+
+@router.post("/diets/{diet_id}/fork-draft", response_model=StandardResponse)
+async def fork_diet_plan_as_draft(
+    diet_id: uuid.UUID,
+    current_user: Annotated[User, Depends(dependencies.RoleChecker([Role.ADMIN, Role.COACH]))],
+    db: Annotated[AsyncSession, Depends(get_db)],
+):
+    source_plan = await _get_diet_plan_or_404(db, diet_id)
+    _ensure_diet_owned_by_requester_or_admin(source_plan, current_user, action="fork")
+    draft = DietPlan(
+        name=f"{source_plan.name} (Draft)",
+        description=source_plan.description,
+        content=source_plan.content,
+        content_structured=source_plan.content_structured,
+        creator_id=current_user.id,
+        member_id=source_plan.member_id,
+        is_template=source_plan.is_template,
+        status="DRAFT",
+        version=(source_plan.version or 1) + 1,
+        parent_plan_id=source_plan.id,
+    )
+    db.add(draft)
+    await db.commit()
+    return StandardResponse(message="Diet draft fork created", data={"id": str(draft.id)})
+
+
+@router.get("/diet-summaries", response_model=StandardResponse[List[DietPlanSummaryResponse]])
+async def list_diet_summaries(
+    current_user: Annotated[User, Depends(dependencies.require_active_customer_subscription)],
+    db: Annotated[AsyncSession, Depends(get_db)],
+    include_archived: bool = Query(False),
+):
+    if not _is_admin_or_coach(current_user):
+        raise HTTPException(status_code=403, detail="Only admin/coach can access diet summaries")
+    stmt = select(DietPlan).where(DietPlan.creator_id == current_user.id).order_by(DietPlan.name)
+    if not include_archived:
+        stmt = stmt.where(DietPlan.status != "ARCHIVED")
+    result = await db.execute(stmt)
+    plans = result.scalars().all()
+    return StandardResponse(data=[_build_diet_summary(plan) for plan in plans])
 
 
 @router.delete("/diets/{diet_id}", response_model=StandardResponse)
@@ -1376,8 +1614,12 @@ async def diet_library_item_to_plan(
         name=item.name,
         description=item.description,
         content=item.content,
+        content_structured=None,
         creator_id=current_user.id,
         member_id=None,
+        status="DRAFT",
+        version=1,
+        is_template=False,
     )
     db.add(plan)
     await db.commit()

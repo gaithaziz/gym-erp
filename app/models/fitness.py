@@ -1,5 +1,5 @@
 import uuid
-from sqlalchemy import String, Integer, ForeignKey, Text, Float, DateTime, Boolean
+from sqlalchemy import String, Integer, ForeignKey, Text, Float, DateTime, Boolean, JSON
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from datetime import datetime, timezone
 from app.database import Base
@@ -66,12 +66,20 @@ class DietPlan(Base):
     name: Mapped[str] = mapped_column(String, nullable=False)
     description: Mapped[str] = mapped_column(Text, nullable=True)
     content: Mapped[str] = mapped_column(Text, nullable=False) # JSON or markdown content
+    is_template: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    status: Mapped[str] = mapped_column(String, nullable=False, default="DRAFT")
+    version: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
+    parent_plan_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("diet_plans.id"), nullable=True)
+    published_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    archived_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    content_structured: Mapped[dict | list | None] = mapped_column(JSON, nullable=True)
     
     creator_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id"), nullable=False)
     member_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id"), nullable=True)
 
     creator = relationship("User", foreign_keys=[creator_id])
     member = relationship("User", foreign_keys=[member_id])
+    parent_plan = relationship("DietPlan", remote_side=[id], backref="versions")
 
 
 class DietLibraryItem(Base):
