@@ -71,8 +71,29 @@ class DietPlan(Base):
     member_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id"), nullable=True)
 
     creator = relationship("User", foreign_keys=[creator_id])
-    creator = relationship("User", foreign_keys=[creator_id])
     member = relationship("User", foreign_keys=[member_id])
+
+
+class DietLibraryItem(Base):
+    __tablename__ = "diet_library_items"
+
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
+    name: Mapped[str] = mapped_column(String, nullable=False)
+    description: Mapped[str | None] = mapped_column(Text, nullable=True)
+    content: Mapped[str] = mapped_column(Text, nullable=False)
+    is_global: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    owner_coach_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("users.id"), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), nullable=False
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        default=lambda: datetime.now(timezone.utc),
+        onupdate=lambda: datetime.now(timezone.utc),
+        nullable=False,
+    )
+
+    owner_coach = relationship("User", foreign_keys=[owner_coach_id])
 
 class BiometricLog(Base):
     __tablename__ = "biometric_logs"

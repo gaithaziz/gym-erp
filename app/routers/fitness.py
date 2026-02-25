@@ -17,6 +17,7 @@ from app.database import get_db
 from app.models.enums import Role
 from app.models.fitness import (
     BiometricLog,
+    DietLibraryItem,
     DietPlan,
     Exercise,
     ExerciseLibraryItem,
@@ -176,6 +177,12 @@ def _ensure_plan_owned_by_requester_or_admin(plan: WorkoutPlan, current_user: Us
 def _ensure_diet_owned_by_requester_or_admin(plan: DietPlan, current_user: User, *, action: str) -> None:
     if current_user.role != Role.ADMIN and plan.creator_id != current_user.id:
         raise HTTPException(status_code=403, detail=f"Cannot {action} diet plan created by another user")
+
+
+def _can_manage_shared_library_item(*, current_user: User, is_global: bool, owner_coach_id: uuid.UUID | None) -> bool:
+    if current_user.role == Role.ADMIN:
+        return is_global or owner_coach_id == current_user.id
+    return (not is_global) and owner_coach_id == current_user.id
 
 
 def _apply_date_filters(stmt, model_date_field, from_date: datetime | None, to_date: datetime | None):
@@ -372,6 +379,16 @@ class ExerciseLibraryItemCreate(BaseModel):
     is_global: bool = False
 
 
+class ExerciseLibraryItemUpdate(BaseModel):
+    name: str
+    category: str | None = None
+    muscle_group: str | None = None
+    equipment: str | None = None
+    tags: List[str] = Field(default_factory=list)
+    default_video_url: AnyHttpUrl | None = None
+    is_global: bool = False
+
+
 class ExerciseLibraryItemResponse(BaseModel):
     id: uuid.UUID
     name: str
@@ -398,6 +415,34 @@ class PlanAdherenceRow(BaseModel):
 class DietPlanCloneRequest(BaseModel):
     name: str | None = None
     member_id: uuid.UUID | None = None
+
+
+class DietLibraryItemCreate(BaseModel):
+    name: str
+    description: str | None = None
+    content: str
+    is_global: bool = False
+
+
+class DietLibraryItemUpdate(BaseModel):
+    name: str
+    description: str | None = None
+    content: str
+    is_global: bool = False
+
+
+class DietLibraryItemResponse(BaseModel):
+    id: uuid.UUID
+    name: str
+    description: str | None = None
+    content: str
+    is_global: bool
+    owner_coach_id: uuid.UUID | None = None
+    created_at: datetime
+    updated_at: datetime
+
+    class Config:
+        from_attributes = True
 
 # --- Endpoints ---
 
@@ -992,6 +1037,62 @@ async def create_exercise_library_item(
     return StandardResponse(message="Library item created", data={"id": str(item.id)})
 
 
+@router.put("/exercise-library/{item_id}", response_model=StandardResponse)
+async def update_exercise_library_item(
+    item_id: uuid.UUID,
+    payload: ExerciseLibraryItemUpdate,
+    current_user: Annotated[User, Depends(dependencies.RoleChecker([Role.ADMIN, Role.COACH]))],
+    db: Annotated[AsyncSession, Depends(get_db)],
+):
+    item = await db.get(ExerciseLibraryItem, item_id)
+    if not item:
+        raise HTTPException(status_code=404, detail="Library item not found")
+    if not _can_manage_shared_library_item(
+        current_user=current_user,
+        is_global=item.is_global,
+        owner_coach_id=item.owner_coach_id,
+    ):
+        raise HTTPException(status_code=403, detail="Not allowed to update this library item")
+
+    item.name = payload.name.strip()
+    item.category = payload.category.strip() if payload.category else None
+    item.muscle_group = payload.muscle_group.strip() if payload.muscle_group else None
+    item.equipment = payload.equipment.strip() if payload.equipment else None
+    item.tags = ",".join(t.strip() for t in payload.tags if t.strip()) or None
+    item.default_video_url = str(payload.default_video_url) if payload.default_video_url else None
+    item.is_global = bool(payload.is_global and current_user.role == Role.ADMIN)
+    item.owner_coach_id = None if item.is_global else current_user.id
+
+    await db.commit()
+    return StandardResponse(message="Library item updated")
+
+
+@router.delete("/exercise-library/{item_id}", response_model=StandardResponse)
+async def delete_exercise_library_item(
+    item_id: uuid.UUID,
+    current_user: Annotated[User, Depends(dependencies.RoleChecker([Role.ADMIN, Role.COACH]))],
+    db: Annotated[AsyncSession, Depends(get_db)],
+):
+    item = await db.get(ExerciseLibraryItem, item_id)
+    if not item:
+        raise HTTPException(status_code=404, detail="Library item not found")
+    if not _can_manage_shared_library_item(
+        current_user=current_user,
+        is_global=item.is_global,
+        owner_coach_id=item.owner_coach_id,
+    ):
+        raise HTTPException(status_code=403, detail="Not allowed to delete this library item")
+
+    recent_stmt = select(ExerciseLibraryRecent).where(ExerciseLibraryRecent.exercise_library_item_id == item_id)
+    recent_rows = (await db.execute(recent_stmt)).scalars().all()
+    for row in recent_rows:
+        await db.delete(row)
+
+    await db.delete(item)
+    await db.commit()
+    return StandardResponse(message="Library item deleted")
+
+
 @router.post("/exercise-library/{item_id}/quick-add", response_model=StandardResponse)
 async def mark_exercise_library_recent(
     item_id: uuid.UUID,
@@ -1163,6 +1264,124 @@ async def delete_diet_plan(
     await db.delete(plan)
     await db.commit()
     return StandardResponse(message="Diet plan deleted")
+
+
+@router.get("/diet-library", response_model=StandardResponse[List[DietLibraryItemResponse]])
+async def list_diet_library(
+    current_user: Annotated[User, Depends(dependencies.RoleChecker([Role.ADMIN, Role.COACH]))],
+    db: Annotated[AsyncSession, Depends(get_db)],
+    scope: Literal["global", "mine", "all"] = Query("all"),
+    query: str | None = Query(default=None),
+):
+    stmt = select(DietLibraryItem).order_by(DietLibraryItem.name)
+    if scope == "global":
+        stmt = stmt.where(DietLibraryItem.is_global.is_(True))
+    elif scope == "mine":
+        stmt = stmt.where(DietLibraryItem.owner_coach_id == current_user.id)
+    else:
+        stmt = stmt.where(
+            (DietLibraryItem.is_global.is_(True)) | (DietLibraryItem.owner_coach_id == current_user.id)
+        )
+    if query:
+        like = f"%{query.strip()}%"
+        stmt = stmt.where(
+            (DietLibraryItem.name.ilike(like))
+            | (DietLibraryItem.description.ilike(like))
+            | (DietLibraryItem.content.ilike(like))
+        )
+    rows = (await db.execute(stmt)).scalars().all()
+    return StandardResponse(data=[DietLibraryItemResponse.model_validate(row) for row in rows])
+
+
+@router.post("/diet-library", response_model=StandardResponse)
+async def create_diet_library_item(
+    payload: DietLibraryItemCreate,
+    current_user: Annotated[User, Depends(dependencies.RoleChecker([Role.ADMIN, Role.COACH]))],
+    db: Annotated[AsyncSession, Depends(get_db)],
+):
+    item = DietLibraryItem(
+        name=payload.name.strip(),
+        description=payload.description.strip() if payload.description else None,
+        content=payload.content.strip(),
+        is_global=bool(payload.is_global and current_user.role == Role.ADMIN),
+        owner_coach_id=None if payload.is_global and current_user.role == Role.ADMIN else current_user.id,
+        created_at=datetime.utcnow(),
+        updated_at=datetime.utcnow(),
+    )
+    db.add(item)
+    await db.commit()
+    return StandardResponse(message="Diet library item created", data={"id": str(item.id)})
+
+
+@router.put("/diet-library/{item_id}", response_model=StandardResponse)
+async def update_diet_library_item(
+    item_id: uuid.UUID,
+    payload: DietLibraryItemUpdate,
+    current_user: Annotated[User, Depends(dependencies.RoleChecker([Role.ADMIN, Role.COACH]))],
+    db: Annotated[AsyncSession, Depends(get_db)],
+):
+    item = await db.get(DietLibraryItem, item_id)
+    if not item:
+        raise HTTPException(status_code=404, detail="Diet library item not found")
+    if not _can_manage_shared_library_item(
+        current_user=current_user,
+        is_global=item.is_global,
+        owner_coach_id=item.owner_coach_id,
+    ):
+        raise HTTPException(status_code=403, detail="Not allowed to update this diet library item")
+
+    item.name = payload.name.strip()
+    item.description = payload.description.strip() if payload.description else None
+    item.content = payload.content.strip()
+    item.is_global = bool(payload.is_global and current_user.role == Role.ADMIN)
+    item.owner_coach_id = None if item.is_global else current_user.id
+    item.updated_at = datetime.utcnow()
+    await db.commit()
+    return StandardResponse(message="Diet library item updated")
+
+
+@router.delete("/diet-library/{item_id}", response_model=StandardResponse)
+async def delete_diet_library_item(
+    item_id: uuid.UUID,
+    current_user: Annotated[User, Depends(dependencies.RoleChecker([Role.ADMIN, Role.COACH]))],
+    db: Annotated[AsyncSession, Depends(get_db)],
+):
+    item = await db.get(DietLibraryItem, item_id)
+    if not item:
+        raise HTTPException(status_code=404, detail="Diet library item not found")
+    if not _can_manage_shared_library_item(
+        current_user=current_user,
+        is_global=item.is_global,
+        owner_coach_id=item.owner_coach_id,
+    ):
+        raise HTTPException(status_code=403, detail="Not allowed to delete this diet library item")
+    await db.delete(item)
+    await db.commit()
+    return StandardResponse(message="Diet library item deleted")
+
+
+@router.post("/diet-library/{item_id}/to-plan", response_model=StandardResponse)
+async def diet_library_item_to_plan(
+    item_id: uuid.UUID,
+    current_user: Annotated[User, Depends(dependencies.RoleChecker([Role.ADMIN, Role.COACH]))],
+    db: Annotated[AsyncSession, Depends(get_db)],
+):
+    item = await db.get(DietLibraryItem, item_id)
+    if not item:
+        raise HTTPException(status_code=404, detail="Diet library item not found")
+    if not (item.is_global or item.owner_coach_id == current_user.id):
+        raise HTTPException(status_code=403, detail="Not allowed to use this diet library item")
+
+    plan = DietPlan(
+        name=item.name,
+        description=item.description,
+        content=item.content,
+        creator_id=current_user.id,
+        member_id=None,
+    )
+    db.add(plan)
+    await db.commit()
+    return StandardResponse(message="Diet plan created from library item", data={"id": str(plan.id)})
 
 
 # ===== WORKOUT FEEDBACK SCHEMAS =====

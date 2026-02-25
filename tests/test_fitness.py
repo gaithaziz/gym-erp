@@ -621,3 +621,140 @@ async def test_draft_publish_fork_publish_version_flow(client: AsyncClient, db_s
     assert by_id[fork_id].status == "PUBLISHED"
     assert by_id[fork_id].parent_plan_id == by_id[draft_id].id
     assert by_id[fork_id].version == by_id[draft_id].version + 1
+
+
+@pytest.mark.asyncio
+async def test_workout_library_update_delete_authorization(client: AsyncClient, db_session: AsyncSession):
+    password = "password123"
+    hashed = get_password_hash(password)
+    admin = User(email="admin_lib@gym.com", hashed_password=hashed, role=Role.ADMIN, full_name="Admin Lib")
+    coach1 = User(email="coach1_lib@gym.com", hashed_password=hashed, role=Role.COACH, full_name="Coach One")
+    coach2 = User(email="coach2_lib@gym.com", hashed_password=hashed, role=Role.COACH, full_name="Coach Two")
+    db_session.add_all([admin, coach1, coach2])
+    await db_session.flush()
+    await db_session.commit()
+
+    admin_login = await client.post(
+        f"{settings.API_V1_STR}/auth/login",
+        json={"email": "admin_lib@gym.com", "password": password},
+    )
+    admin_headers = {"Authorization": f"Bearer {admin_login.json()['data']['access_token']}"}
+    coach1_login = await client.post(
+        f"{settings.API_V1_STR}/auth/login",
+        json={"email": "coach1_lib@gym.com", "password": password},
+    )
+    coach1_headers = {"Authorization": f"Bearer {coach1_login.json()['data']['access_token']}"}
+    coach2_login = await client.post(
+        f"{settings.API_V1_STR}/auth/login",
+        json={"email": "coach2_lib@gym.com", "password": password},
+    )
+    coach2_headers = {"Authorization": f"Bearer {coach2_login.json()['data']['access_token']}"}
+
+    global_create = await client.post(
+        f"{settings.API_V1_STR}/fitness/exercise-library",
+        json={"name": "Admin Global Bench", "category": "PUSH", "is_global": True},
+        headers=admin_headers,
+    )
+    assert global_create.status_code == 200
+    global_id = global_create.json()["data"]["id"]
+
+    forbidden_update = await client.put(
+        f"{settings.API_V1_STR}/fitness/exercise-library/{global_id}",
+        json={"name": "Coach Edit Attempt", "category": "PUSH", "tags": [], "is_global": False},
+        headers=coach1_headers,
+    )
+    assert forbidden_update.status_code == 403
+
+    mine_create = await client.post(
+        f"{settings.API_V1_STR}/fitness/exercise-library",
+        json={"name": "Coach One Row", "category": "PULL", "is_global": False},
+        headers=coach1_headers,
+    )
+    assert mine_create.status_code == 200
+    mine_id = mine_create.json()["data"]["id"]
+
+    other_forbidden = await client.delete(
+        f"{settings.API_V1_STR}/fitness/exercise-library/{mine_id}",
+        headers=coach2_headers,
+    )
+    assert other_forbidden.status_code == 403
+
+    owner_update = await client.put(
+        f"{settings.API_V1_STR}/fitness/exercise-library/{mine_id}",
+        json={
+            "name": "Coach One Row Updated",
+            "category": "PULL",
+            "muscle_group": "Back",
+            "equipment": "Cable",
+            "tags": ["back", "pull"],
+            "is_global": False,
+        },
+        headers=coach1_headers,
+    )
+    assert owner_update.status_code == 200
+
+    owner_delete = await client.delete(
+        f"{settings.API_V1_STR}/fitness/exercise-library/{mine_id}",
+        headers=coach1_headers,
+    )
+    assert owner_delete.status_code == 200
+
+
+@pytest.mark.asyncio
+async def test_diet_library_crud_and_to_plan(client: AsyncClient, db_session: AsyncSession):
+    password = "password123"
+    hashed = get_password_hash(password)
+    admin = User(email="admin_diet_lib@gym.com", hashed_password=hashed, role=Role.ADMIN, full_name="Admin Diet")
+    coach = User(email="coach_diet_lib@gym.com", hashed_password=hashed, role=Role.COACH, full_name="Coach Diet")
+    db_session.add_all([admin, coach])
+    await db_session.flush()
+    await db_session.commit()
+
+    admin_login = await client.post(
+        f"{settings.API_V1_STR}/auth/login",
+        json={"email": "admin_diet_lib@gym.com", "password": password},
+    )
+    admin_headers = {"Authorization": f"Bearer {admin_login.json()['data']['access_token']}"}
+    coach_login = await client.post(
+        f"{settings.API_V1_STR}/auth/login",
+        json={"email": "coach_diet_lib@gym.com", "password": password},
+    )
+    coach_headers = {"Authorization": f"Bearer {coach_login.json()['data']['access_token']}"}
+
+    create_resp = await client.post(
+        f"{settings.API_V1_STR}/fitness/diet-library",
+        json={
+            "name": "Global Cut Template",
+            "description": "Global diet template",
+            "content": "Meal 1\nMeal 2",
+            "is_global": True,
+        },
+        headers=admin_headers,
+    )
+    assert create_resp.status_code == 200
+    item_id = create_resp.json()["data"]["id"]
+
+    list_resp = await client.get(
+        f"{settings.API_V1_STR}/fitness/diet-library?scope=global&query=Cut",
+        headers=coach_headers,
+    )
+    assert list_resp.status_code == 200
+    assert any(row["id"] == item_id for row in list_resp.json()["data"])
+
+    to_plan_resp = await client.post(
+        f"{settings.API_V1_STR}/fitness/diet-library/{item_id}/to-plan",
+        headers=coach_headers,
+    )
+    assert to_plan_resp.status_code == 200
+    plan_id = to_plan_resp.json()["data"]["id"]
+
+    diets_resp = await client.get(f"{settings.API_V1_STR}/fitness/diets", headers=coach_headers)
+    assert diets_resp.status_code == 200
+    assert any(d["id"] == plan_id for d in diets_resp.json()["data"])
+
+    coach_update_global = await client.put(
+        f"{settings.API_V1_STR}/fitness/diet-library/{item_id}",
+        json={"name": "Coach Forbidden", "description": "x", "content": "x", "is_global": False},
+        headers=coach_headers,
+    )
+    assert coach_update_global.status_code == 403

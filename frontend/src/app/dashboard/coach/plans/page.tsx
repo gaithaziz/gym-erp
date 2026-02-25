@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { api } from '@/lib/api';
+import Link from 'next/link';
 import { Plus, Dumbbell, Trash2, ChevronDown, ChevronUp, UserPlus, Pencil, Save, X, Video, PlayCircle, RefreshCw, Send } from 'lucide-react';
 import Modal from '@/components/Modal';
 import { useFeedback } from '@/components/FeedbackProvider';
@@ -841,6 +842,9 @@ export default function WorkoutPlansPage() {
                                         <Dumbbell size={14} /> {libraryOpen ? 'Hide Library' : 'Add from Library'}
                                     </button>
                                 </div>
+                                <p className="text-[11px] text-muted-foreground">
+                                    Need full library management? <Link href="/dashboard/coach/library" className="text-primary hover:underline">Open Workout & Diet Library</Link>.
+                                </p>
                                 {libraryOpen && (
                                     <div className="rounded-sm border border-border bg-card/50 p-3 space-y-2">
                                         <div className="flex gap-2">

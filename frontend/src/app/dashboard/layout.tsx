@@ -221,6 +221,7 @@ export default function DashboardLayout({
         { href: '/dashboard/admin/finance', label: 'Financials', icon: Wallet, roles: ['ADMIN'], section: 'finance' },
         { href: '/dashboard/coach/plans', label: 'Workout Plans', icon: Dumbbell, roles: ['ADMIN', 'COACH'], section: 'coaching' },
         { href: '/dashboard/coach/diets', label: 'Diet Plans', icon: Utensils, roles: ['ADMIN', 'COACH'], section: 'coaching' },
+        { href: '/dashboard/coach/library', label: 'Workout & Diet Library', icon: Users, roles: ['ADMIN', 'COACH'], section: 'coaching' },
         { href: '/dashboard/coach/feedback', label: 'Feedback', icon: MessageSquare, roles: ['ADMIN', 'COACH'], section: 'coaching' },
         { href: '/dashboard/qr', label: 'My QR Code', icon: QrCode, roles: ['CUSTOMER', 'COACH', 'ADMIN', 'EMPLOYEE', 'CASHIER', 'RECEPTION', 'FRONT_DESK'], section: 'account' },
         { href: '/dashboard/leaves', label: 'My Leaves', icon: ClipboardList, roles: ['ADMIN', 'COACH', 'EMPLOYEE', 'CASHIER', 'RECEPTION', 'FRONT_DESK'], section: 'account' },

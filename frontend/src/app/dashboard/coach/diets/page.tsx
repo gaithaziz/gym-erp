@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useState } from 'react';
 import { api } from '@/lib/api';
+import Link from 'next/link';
 import { Plus, Utensils, Trash2 } from 'lucide-react';
 import { useFeedback } from '@/components/FeedbackProvider';
 
@@ -86,14 +87,19 @@ export default function DietPlansPage() {
 
     return (
         <div className="space-y-8">
-            <div className="flex justify-between items-center">
+            <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3">
                 <div>
                     <h1 className="text-2xl font-bold text-white">Diet Plans</h1>
                     <p className="text-sm text-[#6B6B6B] mt-1">Create and manage nutrition programs</p>
                 </div>
-                <button onClick={() => setShowModal(true)} className="btn-primary">
-                    <Plus size={18} /> Create Plan
-                </button>
+                <div className="flex items-center gap-2">
+                    <Link href="/dashboard/coach/library" className="btn-ghost min-h-11">
+                        Open Library
+                    </Link>
+                    <button onClick={() => setShowModal(true)} className="btn-primary">
+                        <Plus size={18} /> Create Plan
+                    </button>
+                </div>
             </div>
 
             <div className="columns-1 md:columns-2 xl:columns-3 gap-5 space-y-5">
