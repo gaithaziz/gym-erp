@@ -844,7 +844,18 @@ function CoachDashboard({ userName }: { userName: string }) {
 
 // ======================== CUSTOMER DASHBOARD ========================
 
-function CustomerDashboard({ userName }: { userName: string; dateOfBirth?: string }) {
+function CustomerDashboard({
+    userName,
+    subscriptionEndDate,
+    subscriptionStatus,
+    subscriptionPlanName,
+}: {
+    userName: string;
+    dateOfBirth?: string;
+    subscriptionEndDate?: string | null;
+    subscriptionStatus?: 'ACTIVE' | 'FROZEN' | 'EXPIRED' | 'NONE';
+    subscriptionPlanName?: string | null;
+}) {
     const [stats, setStats] = useState<MemberGamificationStats | null>(null);
     const [biometrics, setBiometrics] = useState<BiometricLogResponse[]>([]);
     const [loading, setLoading] = useState(true);
@@ -872,6 +883,36 @@ function CustomerDashboard({ userName }: { userName: string; dateOfBirth?: strin
     const weeklyGoal = stats?.weekly_progress?.goal || 3;
     const progressPercent = Math.min(100, (weeklyProgress / weeklyGoal) * 100);
     const latestBio = biometrics.length > 0 ? biometrics[biometrics.length - 1] : null;
+    const parsedExpiryDate = subscriptionEndDate ? new Date(subscriptionEndDate) : null;
+    const hasValidExpiry = Boolean(parsedExpiryDate && !Number.isNaN(parsedExpiryDate.getTime()));
+    const formattedExpiryDate = hasValidExpiry
+        ? parsedExpiryDate!.toLocaleDateString(undefined, {
+            weekday: 'short',
+            year: 'numeric',
+            month: 'long',
+            day: 'numeric',
+        })
+        : 'No expiry date set';
+    const planLabel = subscriptionPlanName || 'Membership Plan';
+    const statusLabel = subscriptionStatus || 'NONE';
+    const subscriptionCardTheme = {
+        ACTIVE: {
+            cardClass: 'border-emerald-500/30 bg-emerald-500/5',
+            statusClass: 'text-emerald-400',
+        },
+        FROZEN: {
+            cardClass: 'border-blue-500/30 bg-blue-500/5',
+            statusClass: 'text-blue-400',
+        },
+        EXPIRED: {
+            cardClass: 'border-red-500/30 bg-red-500/5',
+            statusClass: 'text-red-400',
+        },
+        NONE: {
+            cardClass: 'border-border bg-muted/20',
+            statusClass: 'text-muted-foreground',
+        },
+    }[statusLabel];
 
     return (
         <div className="space-y-8">
@@ -886,6 +927,20 @@ function CustomerDashboard({ userName }: { userName: string; dateOfBirth?: strin
                         <span className="text-sm font-bold text-orange-500">{stats.streak.current_streak} day streak</span>
                     </div>
                 )}
+            </div>
+
+            <div className={`kpi-card p-5 ${subscriptionCardTheme.cardClass}`}>
+                <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-3">
+                    <div>
+                        <p className="section-chip mb-2">Subscription</p>
+                        <p className="text-lg font-bold text-foreground font-mono">
+                            Expires: {formattedExpiryDate}
+                        </p>
+                        <p className="text-xs text-muted-foreground mt-1">
+                            {planLabel} | Status: <span className={subscriptionCardTheme.statusClass}>{statusLabel}</span>
+                        </p>
+                    </div>
+                </div>
             </div>
 
             <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
@@ -1126,7 +1181,15 @@ export default function DashboardPage() {
             return <ReceptionDashboard userName={user.full_name} />;
         case 'CUSTOMER':
         default:
-            return <CustomerDashboard userName={user.full_name} dateOfBirth={user.date_of_birth} />;
+            return (
+                <CustomerDashboard
+                    userName={user.full_name}
+                    dateOfBirth={user.date_of_birth}
+                    subscriptionEndDate={user.subscription_end_date}
+                    subscriptionStatus={user.subscription_status}
+                    subscriptionPlanName={user.subscription_plan_name}
+                />
+            );
     }
 }
 

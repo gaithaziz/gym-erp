@@ -118,8 +118,8 @@ api.interceptors.response.use(
         }
 
         if (status === 403 && errorCode === 'SUBSCRIPTION_BLOCKED' && isBrowser) {
-            if (window.location.pathname !== '/dashboard/blocked') {
-                window.location.href = '/dashboard/blocked';
+            if (window.location.pathname !== '/dashboard/subscription') {
+                window.location.href = '/dashboard/subscription';
             }
             return Promise.reject(error);
         }

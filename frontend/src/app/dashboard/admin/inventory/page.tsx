@@ -154,7 +154,7 @@ export default function InventoryPage() {
 
             {/* Filters */}
             <div className="flex flex-col sm:flex-row gap-3">
-                <div className="field-with-icon w-full sm:flex-[2]">
+                <div className="field-with-icon w-full sm:flex-[3] lg:flex-[4] sm:min-w-[420px]">
                     <Search size={16} className="field-icon" />
                     <input
                         type="text"

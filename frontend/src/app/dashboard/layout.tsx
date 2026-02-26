@@ -31,7 +31,7 @@ import { resolveProfileImageUrl } from '@/lib/profileImage';
 import ChatDrawer from '@/components/chat/ChatDrawer';
 import { api } from '@/lib/api';
 
-const BLOCKED_ALLOWED_ROUTES = ['/dashboard/blocked', '/dashboard/support', '/dashboard/lost-found'];
+const BLOCKED_ALLOWED_ROUTES = ['/dashboard/subscription', '/dashboard/blocked', '/dashboard/support', '/dashboard/lost-found'];
 const BLOCKED_SUBSCRIPTION_STATUSES = new Set(['EXPIRED', 'FROZEN', 'NONE']);
 
 export default function DashboardLayout({
@@ -69,7 +69,7 @@ export default function DashboardLayout({
 
         if (isBlockedCustomer) {
             if (!isBlockedRouteAllowed) {
-                router.replace('/dashboard/blocked');
+                router.replace('/dashboard/subscription');
             }
             return;
         }
@@ -226,7 +226,7 @@ export default function DashboardLayout({
         { href: '/dashboard/member/feedback', label: 'My Feedback', icon: MessageSquare, roles: ['CUSTOMER'], section: 'account' },
         { href: '/dashboard/member/history', label: 'History', icon: ClipboardList, roles: ['CUSTOMER'], section: 'account' },
         { href: '/dashboard/member/achievements', label: 'Achievements', icon: Trophy, roles: ['CUSTOMER'], section: 'account' },
-        { href: '/dashboard/blocked', label: 'Subscription', icon: ShieldAlert, roles: ['CUSTOMER'], section: 'account' },
+        { href: '/dashboard/subscription', label: 'Subscription', icon: ShieldAlert, roles: ['CUSTOMER'], section: 'account' },
         { href: '/dashboard/support', label: 'Support', icon: MessageSquare, roles: ['CUSTOMER'], section: 'account' },
     ];
 

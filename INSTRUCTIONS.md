@@ -60,3 +60,9 @@ Then try running `npm run dev` again.
 docker compose up -d --build backend frontend
 docker exec gym_erp_backend alembic upgrade head
 docker compose stop
+
+# removing lock
+Object.keys(localStorage)
+  .filter(k => k.startsWith('blocked_request_lock_'))
+  .forEach(k => localStorage.removeItem(k));
+

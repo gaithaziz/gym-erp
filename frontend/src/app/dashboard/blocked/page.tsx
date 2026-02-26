@@ -1,6 +1,6 @@
 'use client';
 
-import { useMemo } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { ShieldAlert, Lock, Snowflake, CalendarX } from 'lucide-react';
 import { useAuth } from '@/context/AuthContext';
 import { useRouter } from 'next/navigation';
@@ -41,13 +41,23 @@ export default function SubscriptionBlockedPage() {
         if (typeof window === 'undefined') return 0;
         return Number(localStorage.getItem(lockKey) || 0);
     }, [lockKey]);
-    const isRequestLocked = Date.now() < lockUntilTs;
-    const lockHoursRemaining = isRequestLocked ? Math.ceil((lockUntilTs - Date.now()) / (1000 * 60 * 60)) : 0;
+    const [nowTs, setNowTs] = useState(0);
+
+    useEffect(() => {
+        const tick = () => setNowTs(Date.now());
+        const timeoutId = window.setTimeout(tick, 0);
+        const intervalId = window.setInterval(tick, 60_000);
+        return () => {
+            window.clearTimeout(timeoutId);
+            window.clearInterval(intervalId);
+        };
+    }, []);
+
+    const isRequestLocked = nowTs < lockUntilTs;
+    const lockHoursRemaining = isRequestLocked ? Math.ceil((lockUntilTs - nowTs) / (1000 * 60 * 60)) : 0;
 
     const openRequest = (type: 'renewal' | 'unfreeze') => {
         if (isRequestLocked) return;
-        const for48h = Date.now() + 48 * 60 * 60 * 1000;
-        localStorage.setItem(lockKey, String(for48h));
         router.push(`/dashboard/support?type=${type}`);
     };
 

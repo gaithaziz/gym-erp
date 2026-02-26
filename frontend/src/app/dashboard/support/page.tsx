@@ -47,6 +47,13 @@ export default function CustomerSupportPage() {
     const { showToast, confirm: confirmAction } = useFeedback();
     const searchParams = useSearchParams();
     const defaultType = searchParams?.get('type');
+    const isSubscriptionType = ['renewal', 'unfreeze', 'freeze', 'extend'].includes(defaultType || '');
+    const defaultSubjectByType: Record<string, string> = {
+        renewal: 'Subscription renewal request',
+        extend: 'Subscription extension request',
+        freeze: 'Subscription freeze request',
+        unfreeze: 'Subscription unfreeze request',
+    };
 
     const [tickets, setTickets] = useState<SupportTicket[]>([]);
     const [loading, setLoading] = useState(true);
@@ -56,7 +63,7 @@ export default function CustomerSupportPage() {
     const [isNewTicketModalOpen, setIsNewTicketModalOpen] = useState(false);
     const [newSubject, setNewSubject] = useState('');
     const [newCategory, setNewCategory] = useState<TicketCategory>(
-        defaultType === 'renewal' || defaultType === 'unfreeze' ? 'SUBSCRIPTION' : 'GENERAL'
+        isSubscriptionType ? 'SUBSCRIPTION' : 'GENERAL'
     );
     const [newMessage, setNewMessage] = useState('');
     const [isSubmitting, setIsSubmitting] = useState(false);
@@ -87,10 +94,17 @@ export default function CustomerSupportPage() {
     useEffect(() => {
         if (defaultType) {
             setIsNewTicketModalOpen(true);
+            if (isSubscriptionType) {
+                setNewCategory('SUBSCRIPTION');
+                const suggested = defaultSubjectByType[defaultType || ''];
+                if (suggested) {
+                    setNewSubject(suggested);
+                }
+            }
         }
         fetchTickets();
         // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [defaultType]);
+    }, [defaultType, isSubscriptionType]);
 
     const fetchTicketDetails = async (id: string) => {
         try {
@@ -123,6 +137,11 @@ export default function CustomerSupportPage() {
                 category: newCategory,
                 message: newMessage,
             });
+            if (isSubscriptionType && user?.id) {
+                const lockKey = `blocked_request_lock_${user.id}`;
+                const for48h = Date.now() + 48 * 60 * 60 * 1000;
+                localStorage.setItem(lockKey, String(for48h));
+            }
             setIsNewTicketModalOpen(false);
             setNewSubject('');
             setNewMessage('');

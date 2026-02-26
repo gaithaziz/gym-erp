@@ -83,7 +83,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
             userData.role === 'CUSTOMER' &&
             (Boolean(userData.is_subscription_blocked) ||
                 BLOCKED_SUBSCRIPTION_STATUSES.has(userData.subscription_status || 'NONE'));
-        router.replace(isBlockedCustomer ? '/dashboard/blocked' : '/dashboard');
+        router.replace(isBlockedCustomer ? '/dashboard/subscription' : '/dashboard');
     };
 
     const logout = () => {

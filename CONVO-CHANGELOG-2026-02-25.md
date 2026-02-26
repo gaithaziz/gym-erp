@@ -335,3 +335,17 @@
   - `frontend/src/app/dashboard/chat/page.tsx`
 - Validation note:
   - Targeted lint still shows a pre-existing `react-hooks/set-state-in-effect` warning in `layout.tsx` (support/lost-found effect), unrelated to the chat indicator logic.
+
+## 28) Member Payments Clarification + Reception Assign UI Restriction
+- Clarified how client payment history is tracked:
+  - Member history page reads from `GET /finance/my-transactions`.
+  - Backend returns transactions where `Transaction.user_id == current_user.id`, ordered by latest date.
+  - Subscription renewals and member-linked POS sales appear only when transaction `user_id` is set to that member.
+- Enforced UI restriction for receptionist/front-desk on plan assignment:
+  - Removed visible `Assign` action for these roles in members list (desktop and mobile).
+  - Kept `Assign` available for `ADMIN`/`COACH` only via `canAssignPlans`.
+  - Guarded assign modal visibility and `openAssignPlan` execution by role.
+- File changed:
+  - `frontend/src/app/dashboard/admin/members/page.tsx`
+- Validation:
+  - `npm run lint -- src/app/dashboard/admin/members/page.tsx` passed.
