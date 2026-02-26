@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useMemo, useState } from 'react';
-import { Dumbbell } from 'lucide-react';
+import { Dumbbell, PlayCircle, X } from 'lucide-react';
 
 import Modal from '@/components/Modal';
 import { useFeedback } from '@/components/FeedbackProvider';
@@ -37,6 +37,83 @@ export default function MemberPlansPage() {
     const [selectedSessionGroup, setSelectedSessionGroup] = useState('');
     const [loggingSession, setLoggingSession] = useState(false);
     const [sessionsThisWeek, setSessionsThisWeek] = useState(0);
+    const [videoPopup, setVideoPopup] = useState<{
+        title: string;
+        youtubeEmbedUrl?: string;
+        videoUrl?: string;
+        externalUrl?: string;
+    } | null>(null);
+    const configuredApiUrl = (process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000').replace(/\/+$/, '');
+    const apiOrigin = configuredApiUrl.endsWith('/api/v1')
+        ? configuredApiUrl.slice(0, -'/api/v1'.length)
+        : configuredApiUrl;
+
+    const toAbsoluteUrl = (url: string) => (url.startsWith('http') ? url : `${apiOrigin}${url}`);
+
+    const resolveExerciseVideoUrl = (exercise: NonNullable<MemberPlan['exercises']>[number]) => {
+        if (exercise.embed_url) return toAbsoluteUrl(exercise.embed_url);
+        if (exercise.video_type === 'UPLOAD' && exercise.uploaded_video_url) return toAbsoluteUrl(exercise.uploaded_video_url);
+        if (exercise.video_url) return toAbsoluteUrl(exercise.video_url);
+        return null;
+    };
+
+    const isYoutubeEmbed = (url: string) => {
+        try {
+            const parsed = new URL(url);
+            const host = parsed.hostname.replace(/^www\./, '').toLowerCase();
+            return host === 'youtube.com'
+                || host === 'm.youtube.com'
+                || host === 'youtu.be'
+                || host === 'youtube-nocookie.com';
+        } catch {
+            return false;
+        }
+    };
+
+    const getYouTubeEmbedUrl = (url: string) => {
+        try {
+            const parsed = new URL(url);
+            const host = parsed.hostname.replace(/^www\./, '').toLowerCase();
+            const isValidYouTubeId = (value: string) => /^[a-zA-Z0-9_-]{11}$/.test(value);
+            const toEmbed = (id: string) => `https://www.youtube-nocookie.com/embed/${id}`;
+
+            if (host === 'youtube.com' || host === 'm.youtube.com') {
+                const id = parsed.searchParams.get('v');
+                if (id && isValidYouTubeId(id)) return toEmbed(id);
+                const shorts = parsed.pathname.match(/^\/shorts\/([^/?]+)/);
+                if (shorts?.[1] && isValidYouTubeId(shorts[1])) return toEmbed(shorts[1]);
+                const live = parsed.pathname.match(/^\/live\/([^/?]+)/);
+                if (live?.[1] && isValidYouTubeId(live[1])) return toEmbed(live[1]);
+                const embed = parsed.pathname.match(/^\/embed\/([^/?]+)/);
+                if (embed?.[1] && isValidYouTubeId(embed[1])) return toEmbed(embed[1]);
+                return null;
+            }
+
+            if (host === 'youtu.be') {
+                const id = parsed.pathname.replace(/^\/+/, '').split('/')[0];
+                return id && isValidYouTubeId(id) ? toEmbed(id) : null;
+            }
+
+            if (host === 'youtube-nocookie.com') {
+                const match = parsed.pathname.match(/\/embed\/([^/?]+)/);
+                return match?.[1] && isValidYouTubeId(match[1]) ? toEmbed(match[1]) : null;
+            }
+
+            return null;
+        } catch {
+            return null;
+        }
+    };
+
+    const openVideoPopup = (exerciseName: string, videoUrl: string) => {
+        const youtubeEmbedUrl = isYoutubeEmbed(videoUrl) ? (getYouTubeEmbedUrl(videoUrl) || videoUrl) : undefined;
+        setVideoPopup({
+            title: exerciseName,
+            youtubeEmbedUrl,
+            videoUrl: youtubeEmbedUrl ? undefined : videoUrl,
+            externalUrl: videoUrl,
+        });
+    };
 
     const loadPlans = async () => {
         try {
@@ -251,16 +328,44 @@ export default function MemberPlansPage() {
                                         ).map(([groupName, exercises]) => (
                                             <div key={`${plan.id}-${groupName}`} className="border border-border bg-muted/20 p-2">
                                                 <p className="text-[10px] uppercase tracking-wider text-primary font-mono mb-1">{groupName}</p>
-                                                <div className="space-y-1">
-                                                    {exercises.slice(0, 4).map((exercise, index) => (
-                                                        <div key={`${plan.id}-${groupName}-${index}`} className="flex justify-between text-xs py-0.5">
-                                                            <span className="text-muted-foreground">{exercise.exercise?.name || exercise.name || `Exercise ${index + 1}`}</span>
-                                                            <span className="text-muted-foreground font-mono">{exercise.sets}x{exercise.reps}</span>
+                                                <div className="space-y-2">
+                                                    {exercises
+                                                        .slice()
+                                                        .sort((a, b) => (a.order ?? 0) - (b.order ?? 0))
+                                                        .map((exercise, index) => {
+                                                            const videoUrl = resolveExerciseVideoUrl(exercise);
+                                                            const exerciseName = exercise.exercise_name || exercise.exercise?.name || exercise.name || `Exercise ${index + 1}`;
+                                                            return (
+                                                                <div key={`${plan.id}-${groupName}-${index}`} className="border border-border bg-background/60 p-2 space-y-2">
+                                                                    <div className="flex items-center justify-between gap-2">
+                                                                        <p className="text-xs font-semibold text-foreground">{exerciseName}</p>
+                                                                        <span className="text-[11px] text-muted-foreground font-mono">{exercise.sets}x{exercise.reps}</span>
+                                                                    </div>
+                                                                    <div className="flex flex-wrap gap-2 text-[10px] font-mono">
+                                                                        <span className="px-1.5 py-0.5 border border-border text-muted-foreground">Sets: {exercise.sets}</span>
+                                                                        <span className="px-1.5 py-0.5 border border-border text-muted-foreground">Reps: {exercise.reps}</span>
+                                                                        {exercise.duration_minutes ? (
+                                                                            <span className="px-1.5 py-0.5 border border-border text-muted-foreground">Duration: {exercise.duration_minutes} min</span>
+                                                                        ) : null}
+                                                                        {exercise.video_provider ? (
+                                                                            <span className="px-1.5 py-0.5 border border-border text-primary">Video: {exercise.video_provider}</span>
+                                                                        ) : null}
+                                                                    </div>
+                                                                    {videoUrl && (
+                                                                        <div className="space-y-2">
+                                                                            <button
+                                                                                type="button"
+                                                                                className="inline-flex items-center gap-1.5 rounded-sm border border-primary/40 bg-primary/10 px-2 py-1 text-[11px] text-primary hover:bg-primary/20"
+                                                                                onClick={() => openVideoPopup(exerciseName, videoUrl)}
+                                                                            >
+                                                                                <PlayCircle size={12} />
+                                                                                Watch Video
+                                                                            </button>
+                                                                        </div>
+                                                                    )}
                                                         </div>
-                                                    ))}
-                                                    {exercises.length > 4 && (
-                                                        <p className="text-xs text-primary font-mono pt-1">+{exercises.length - 4} more</p>
-                                                    )}
+                                                            );
+                                                        })}
                                                 </div>
                                             </div>
                                         ))}
@@ -380,6 +485,57 @@ export default function MemberPlansPage() {
                     </form>
                 )}
             </Modal>
+
+            {videoPopup && (
+                <div className="fixed inset-0 z-[100] bg-background/85 backdrop-blur-sm flex items-center justify-center p-3 sm:p-4">
+                    <div className="w-full max-w-4xl rounded-sm border border-border bg-card shadow-lg overflow-hidden">
+                        <div className="flex items-center justify-between border-b border-border px-3 py-2 sm:px-4 sm:py-3">
+                            <h3 className="text-sm sm:text-base font-semibold text-foreground truncate pr-3">{videoPopup.title}</h3>
+                            <button
+                                type="button"
+                                onClick={() => setVideoPopup(null)}
+                                className="inline-flex items-center justify-center rounded-sm p-1.5 text-muted-foreground hover:text-foreground hover:bg-muted"
+                                aria-label="Close video"
+                            >
+                                <X size={18} />
+                            </button>
+                        </div>
+                        <div className="p-3 sm:p-4">
+                            {videoPopup.youtubeEmbedUrl ? (
+                                <div className="aspect-video w-full rounded-sm overflow-hidden border border-border bg-black">
+                                    <iframe
+                                        src={`${videoPopup.youtubeEmbedUrl}?rel=0&playsinline=1&autoplay=1`}
+                                        title={`${videoPopup.title} video`}
+                                        className="h-full w-full"
+                                        loading="lazy"
+                                        referrerPolicy="strict-origin-when-cross-origin"
+                                        allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
+                                        allowFullScreen
+                                    />
+                                </div>
+                            ) : videoPopup.videoUrl ? (
+                                <video controls playsInline src={videoPopup.videoUrl} className="w-full max-h-[70vh] rounded-sm border border-border bg-black" />
+                            ) : (
+                                <div className="rounded-sm border border-border bg-muted/20 p-3 text-sm text-muted-foreground">
+                                    Unable to preview this source in popup.
+                                </div>
+                            )}
+                            {videoPopup.externalUrl && (
+                                <div className="mt-3">
+                                    <a
+                                        href={videoPopup.externalUrl}
+                                        target="_blank"
+                                        rel="noreferrer"
+                                        className="inline-flex items-center gap-1 rounded-sm border border-primary/40 bg-primary/10 px-2 py-1 text-xs text-primary hover:bg-primary/20"
+                                    >
+                                        Open Source
+                                    </a>
+                                </div>
+                            )}
+                        </div>
+                    </div>
+                </div>
+            )}
         </div>
     );
 }

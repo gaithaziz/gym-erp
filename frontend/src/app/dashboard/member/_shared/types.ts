@@ -3,9 +3,18 @@ export interface MemberPlanExercise {
     exercise_id?: string;
     exercise_name?: string;
     section_name?: string;
-    name: string;
+    name?: string;
     sets: number;
     reps: number;
+    duration_minutes?: number | null;
+    order?: number;
+    video_type?: string | null;
+    video_url?: string | null;
+    uploaded_video_url?: string | null;
+    video_provider?: string | null;
+    video_id?: string | null;
+    embed_url?: string | null;
+    playback_type?: string | null;
     exercise?: { name: string };
 }
 
