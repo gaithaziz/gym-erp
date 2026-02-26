@@ -349,3 +349,23 @@
   - `frontend/src/app/dashboard/admin/members/page.tsx`
 - Validation:
   - `npm run lint -- src/app/dashboard/admin/members/page.tsx` passed.
+
+## 29) Member Workout Details + Video Popup Modal (Mobile Friendly)
+- Enhanced member workout plans view to show fuller exercise details in assigned plans:
+  - sets/reps chips
+  - optional duration
+  - video provider metadata
+  - per-exercise rendering under section groups without truncating to a short preview list
+- Added exercise video playback via popup modal for both:
+  - URL/embed sources (YouTube variants normalized to embed URL)
+  - uploaded/direct video files (`<video controls playsInline>`)
+- Modal UX/mobile responsiveness improvements:
+  - full-screen dimmed overlay with close action
+  - responsive container sizing (`max-w-4xl`, compact mobile padding)
+  - aspect-ratio video frame for embeds
+  - `Open Source` link fallback
+- Files changed:
+  - `frontend/src/app/dashboard/member/plans/page.tsx`
+  - `frontend/src/app/dashboard/member/_shared/types.ts`
+- Validation:
+  - `npx eslint src/app/dashboard/member/plans/page.tsx src/app/dashboard/member/_shared/types.ts` (no errors; one pre-existing hook dependency warning)

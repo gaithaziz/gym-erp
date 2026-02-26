@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Dumbbell, PlayCircle, X } from 'lucide-react';
 
 import Modal from '@/components/Modal';
@@ -115,7 +115,7 @@ export default function MemberPlansPage() {
         });
     };
 
-    const loadPlans = async () => {
+    const loadPlans = useCallback(async () => {
         try {
             const data = await fetchMemberPlans();
             setPlans(data);
@@ -126,15 +126,15 @@ export default function MemberPlansPage() {
             setLoadError(message);
             showToast(message, 'error');
         }
-    };
+    }, [showToast]);
 
-    const loadSessionSummary = async () => {
+    const loadSessionSummary = useCallback(async () => {
         const logs = await fetchMemberSessionLogs();
         const sevenDaysAgo = new Date();
         sevenDaysAgo.setHours(0, 0, 0, 0);
         sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 6);
         setSessionsThisWeek(logs.filter((session) => new Date(session.performed_at) >= sevenDaysAgo).length);
-    };
+    }, []);
 
     useEffect(() => {
         const load = async () => {
@@ -143,7 +143,7 @@ export default function MemberPlansPage() {
             setLoading(false);
         };
         load();
-    }, []);
+    }, [loadPlans, loadSessionSummary]);
 
     const totalExercises = useMemo(
         () => plans.reduce((sum, plan) => sum + (plan.exercises?.length || 0), 0),
