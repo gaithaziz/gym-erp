@@ -2,8 +2,8 @@ from datetime import date, datetime, timedelta, timezone
 from typing import Annotated, Literal, Optional
 from decimal import Decimal
 import logging
-from fastapi import APIRouter, Depends, HTTPException, Query
-from fastapi.responses import HTMLResponse
+from fastapi import APIRouter, Depends, HTTPException, Query, Response
+from fastapi.responses import HTMLResponse, Response
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import func, select, or_
 from sqlalchemy.orm import selectinload
@@ -32,9 +32,37 @@ from app.services.audit_service import AuditService
 from app.services.whatsapp_service import WhatsAppNotificationService
 from app.core.responses import StandardResponse
 import uuid
+import io
+from reportlab.lib.pagesizes import A4
+from reportlab.pdfgen import canvas
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
+
+
+def _pdf_bytes(title: str, lines: list[str]) -> bytes:
+    buffer = io.BytesIO()
+    pdf = canvas.Canvas(buffer, pagesize=A4)
+    width, height = A4
+    y = height - 50
+
+    pdf.setFont("Helvetica-Bold", 14)
+    pdf.drawString(40, y, title)
+    y -= 28
+
+    pdf.setFont("Helvetica", 10)
+    for line in lines:
+        if y < 50:
+            pdf.showPage()
+            y = height - 50
+            pdf.setFont("Helvetica", 10)
+        pdf.drawString(40, y, line)
+        y -= 16
+
+    pdf.save()
+    content = buffer.getvalue()
+    buffer.close()
+    return content
 
 
 def _enum_value(value):
@@ -339,6 +367,7 @@ async def run_payroll_automation(
 async def list_pending_payrolls(
     current_user: Annotated[User, Depends(dependencies.RoleChecker([Role.ADMIN]))],
     db: Annotated[AsyncSession, Depends(get_db)],
+    response: Response,
     month: Optional[int] = Query(None, ge=1, le=12),
     year: Optional[int] = Query(None, ge=2000, le=2100),
     status: Optional[PayrollStatus] = Query(None),
@@ -347,6 +376,7 @@ async def list_pending_payrolls(
     limit: int = Query(100, ge=1, le=500),
     offset: int = Query(0, ge=0),
 ):
+    count_stmt = select(func.count(Payroll.id)).join(User, User.id == Payroll.user_id)
     stmt = (
         select(Payroll, User)
         .join(User, User.id == Payroll.user_id)
@@ -355,22 +385,28 @@ async def list_pending_payrolls(
 
     if month:
         stmt = stmt.where(Payroll.month == month)
+        count_stmt = count_stmt.where(Payroll.month == month)
     if year:
         stmt = stmt.where(Payroll.year == year)
+        count_stmt = count_stmt.where(Payroll.year == year)
     if status:
         stmt = stmt.where(Payroll.status == status)
+        count_stmt = count_stmt.where(Payroll.status == status)
     if user_id:
         stmt = stmt.where(Payroll.user_id == user_id)
+        count_stmt = count_stmt.where(Payroll.user_id == user_id)
     if search:
         q = f"%{search.strip().lower()}%"
-        stmt = stmt.where(
-            or_(
-                func.lower(User.full_name).like(q),
-                func.lower(User.email).like(q),
-            )
+        search_filter = or_(
+            func.lower(User.full_name).like(q),
+            func.lower(User.email).like(q),
         )
+        stmt = stmt.where(search_filter)
+        count_stmt = count_stmt.where(search_filter)
 
     stmt = stmt.order_by(Payroll.year.desc(), Payroll.month.desc(), User.full_name.asc()).offset(offset).limit(limit)
+    total_result = await db.execute(count_stmt)
+    response.headers["X-Total-Count"] = str(int(total_result.scalar() or 0))
     result = await db.execute(stmt)
     rows = result.all()
 
@@ -615,6 +651,88 @@ async def generate_payslip_printable(
     """
     return HTMLResponse(content=html)
 
+
+@router.get("/payroll/{payroll_id}/payslip/export")
+async def export_payslip(
+    payroll_id: uuid.UUID,
+    current_user: Annotated[User, Depends(dependencies.get_current_active_user)],
+    db: Annotated[AsyncSession, Depends(get_db)]
+):
+    stmt = select(Payroll).where(Payroll.id == payroll_id)
+    result = await db.execute(stmt)
+    payroll = result.scalar_one_or_none()
+
+    if not payroll:
+        raise HTTPException(status_code=404, detail="Payroll record not found")
+
+    if current_user.role != Role.ADMIN and current_user.id != payroll.user_id:
+        raise HTTPException(status_code=403, detail="Cannot access this payslip")
+
+    user_stmt = select(User).where(User.id == payroll.user_id)
+    user_result = await db.execute(user_stmt)
+    user = user_result.scalar_one_or_none()
+
+    html = f"""
+    <html>
+      <head><title>Payslip {str(payroll.id)[:8].upper()}</title></head>
+      <body style="font-family: Arial, sans-serif; padding: 24px;">
+        <h2>Gym ERP Payslip</h2>
+        <p><strong>Payslip ID:</strong> {str(payroll.id)[:8].upper()}</p>
+        <p><strong>Employee:</strong> {user.full_name if user else "Unknown"}</p>
+        <p><strong>Period:</strong> {payroll.month:02d}/{payroll.year}</p>
+        <p><strong>Base Pay:</strong> {payroll.base_pay:.2f}</p>
+        <p><strong>Overtime:</strong> {payroll.overtime_pay:.2f}</p>
+        <p><strong>Commission:</strong> {payroll.commission_pay:.2f}</p>
+        <p><strong>Deductions:</strong> {payroll.deductions:.2f}</p>
+        <h3>Total Pay: {payroll.total_pay:.2f}</h3>
+      </body>
+    </html>
+    """
+    return Response(
+        content=html,
+        media_type="text/html; charset=utf-8",
+        headers={"Content-Disposition": f'attachment; filename="payslip_{str(payroll.id)[:8].upper()}.html"'},
+    )
+
+
+@router.get("/payroll/{payroll_id}/payslip/export-pdf")
+async def export_payslip_pdf(
+    payroll_id: uuid.UUID,
+    current_user: Annotated[User, Depends(dependencies.get_current_active_user)],
+    db: Annotated[AsyncSession, Depends(get_db)]
+):
+    stmt = select(Payroll).where(Payroll.id == payroll_id)
+    result = await db.execute(stmt)
+    payroll = result.scalar_one_or_none()
+
+    if not payroll:
+        raise HTTPException(status_code=404, detail="Payroll record not found")
+
+    if current_user.role != Role.ADMIN and current_user.id != payroll.user_id:
+        raise HTTPException(status_code=403, detail="Cannot access this payslip")
+
+    user_stmt = select(User).where(User.id == payroll.user_id)
+    user_result = await db.execute(user_stmt)
+    user = user_result.scalar_one_or_none()
+
+    lines = [
+        f"Payslip ID: {str(payroll.id)[:8].upper()}",
+        f"Employee: {user.full_name if user else 'Unknown'}",
+        f"Period: {payroll.month:02d}/{payroll.year}",
+        f"Base Pay: {payroll.base_pay:.2f}",
+        f"Overtime Pay: {payroll.overtime_pay:.2f}",
+        f"Commission: {payroll.commission_pay:.2f}",
+        f"Bonus: {payroll.bonus_pay:.2f}",
+        f"Deductions: {payroll.deductions:.2f}",
+        f"Total Pay: {payroll.total_pay:.2f}",
+    ]
+    content = _pdf_bytes("Gym ERP Payslip", lines)
+    return Response(
+        content=content,
+        media_type="application/pdf",
+        headers={"Content-Disposition": f'attachment; filename="payslip_{str(payroll.id)[:8].upper()}.pdf"'},
+    )
+
 @router.get("/staff", response_model=StandardResponse)
 async def get_staff(
     current_user: Annotated[User, Depends(dependencies.RoleChecker([Role.ADMIN]))],
@@ -664,10 +782,12 @@ class AttendanceCorrection(BaseModel):
 async def list_attendance(
     current_user: Annotated[User, Depends(dependencies.RoleChecker([Role.ADMIN]))],
     db: Annotated[AsyncSession, Depends(get_db)],
+    response: Response,
     user_id: Optional[uuid.UUID] = Query(None),
     start_date: Optional[date] = Query(None),
     end_date: Optional[date] = Query(None),
-    limit: int = 100
+    limit: int = Query(100, ge=1, le=500),
+    offset: int = Query(0, ge=0),
 ):
     """List attendance logs (timesheet). Optionally filter by user/date range."""
     stmt = (
@@ -675,13 +795,19 @@ async def list_attendance(
         .join(User, User.id == AttendanceLog.user_id)
         .order_by(AttendanceLog.check_in_time.desc())
     )
+    count_stmt = select(func.count(AttendanceLog.id)).join(User, User.id == AttendanceLog.user_id)
     if user_id:
         stmt = stmt.where(AttendanceLog.user_id == user_id)
+        count_stmt = count_stmt.where(AttendanceLog.user_id == user_id)
     if start_date:
         stmt = stmt.where(func.date(AttendanceLog.check_in_time) >= start_date.isoformat())
+        count_stmt = count_stmt.where(func.date(AttendanceLog.check_in_time) >= start_date.isoformat())
     if end_date:
         stmt = stmt.where(func.date(AttendanceLog.check_in_time) <= end_date.isoformat())
-    stmt = stmt.limit(limit)
+        count_stmt = count_stmt.where(func.date(AttendanceLog.check_in_time) <= end_date.isoformat())
+    total_result = await db.execute(count_stmt)
+    response.headers["X-Total-Count"] = str(int(total_result.scalar() or 0))
+    stmt = stmt.offset(offset).limit(limit)
     result = await db.execute(stmt)
     logs = result.all()
 

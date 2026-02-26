@@ -30,6 +30,7 @@ import { useEffect, useState } from 'react';
 import { resolveProfileImageUrl } from '@/lib/profileImage';
 import ChatDrawer from '@/components/chat/ChatDrawer';
 import { api } from '@/lib/api';
+import { useChatThreads } from '@/hooks/useChatThreads';
 
 const BLOCKED_ALLOWED_ROUTES = ['/dashboard/subscription', '/dashboard/blocked', '/dashboard/support', '/dashboard/lost-found'];
 const BLOCKED_SUBSCRIPTION_STATUSES = new Set(['EXPIRED', 'FROZEN', 'NONE']);
@@ -44,7 +45,6 @@ export default function DashboardLayout({
     const pathname = usePathname();
     const [sidebarOpen, setSidebarOpen] = useState(false);
     const [chatOpen, setChatOpen] = useState(false);
-    const [chatNewConversations, setChatNewConversations] = useState(0);
     const [supportHasNew, setSupportHasNew] = useState(false);
     const [lostFoundHasNew, setLostFoundHasNew] = useState(false);
     const [failedProfileImageUrl, setFailedProfileImageUrl] = useState<string | null>(null);
@@ -57,6 +57,10 @@ export default function DashboardLayout({
     const isBlockedRouteAllowed = BLOCKED_ALLOWED_ROUTES.some((route) => pathname.startsWith(route));
     const isSupportPage = pathname.startsWith('/dashboard/admin/support') || pathname.startsWith('/dashboard/support');
     const isLostFoundPage = pathname.startsWith('/dashboard/lost-found');
+    const { threads: chatThreads, mutate: mutateChatThreads } = useChatThreads({ enabled: !!user && canUseChat, limit: 100 });
+    const chatNewConversations = canUseChat
+        ? chatThreads.filter((t) => (t.unread_count || 0) > 0).length
+        : 0;
 
     useEffect(() => {
         if (!isLoading && !user) {
@@ -100,7 +104,6 @@ export default function DashboardLayout({
                 const tasks: Array<Promise<unknown>> = [];
                 let supportLatest: string | null = null;
                 let lostFoundLatest: string | null = null;
-                let chatThreads: Array<{ unread_count?: number | null }> = [];
 
                 tasks.push(
                     api.get('/support/tickets', { params: { is_active: true, limit: 1 } }).then((resp) => {
@@ -120,16 +123,6 @@ export default function DashboardLayout({
                     })
                 );
 
-                if (canUseChat) {
-                    tasks.push(
-                        api.get('/chat/threads', { params: { limit: 100, sort_by: 'last_message_at', sort_order: 'desc' } }).then((resp) => {
-                            chatThreads = (resp.data?.data || []) as Array<{ unread_count?: number | null }>;
-                        }).catch(() => {
-                            chatThreads = [];
-                        })
-                    );
-                }
-
                 await Promise.all(tasks);
 
                 const seenSupport = getSeenTs(seenKeySupport);
@@ -140,21 +133,15 @@ export default function DashboardLayout({
                 setSupportHasNew(supportTs > seenSupport && supportTs > 0);
                 setLostFoundHasNew(lostFoundTs > seenLostFound && lostFoundTs > 0);
 
-                if (canUseChat) {
-                    const newConvoCount = chatThreads.filter((t) => (t.unread_count || 0) > 0).length;
-                    setChatNewConversations(newConvoCount);
-                } else {
-                    setChatNewConversations(0);
-                }
             } catch {
                 setSupportHasNew(false);
                 setLostFoundHasNew(false);
-                setChatNewConversations(0);
             }
         };
 
         refreshIndicators();
         const handleChatIndicatorSync = () => {
+            void mutateChatThreads();
             void refreshIndicators();
         };
         window.addEventListener('chat:sync-indicators', handleChatIndicatorSync);
@@ -163,17 +150,15 @@ export default function DashboardLayout({
             window.clearInterval(intervalId);
             window.removeEventListener('chat:sync-indicators', handleChatIndicatorSync);
         };
-    }, [user, canUseChat]);
+    }, [user, mutateChatThreads]);
 
     useEffect(() => {
         if (!user) return;
         if (isSupportPage) {
             localStorage.setItem(`last_seen_support_${user.id}`, String(Date.now()));
-            setSupportHasNew(false);
         }
         if (isLostFoundPage) {
             localStorage.setItem(`last_seen_lost_found_${user.id}`, String(Date.now()));
-            setLostFoundHasNew(false);
         }
     }, [pathname, isSupportPage, isLostFoundPage, user]);
 

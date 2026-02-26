@@ -5,6 +5,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { MessageCircle, PlusCircle, Search, X } from 'lucide-react';
 import { api } from '@/lib/api';
 import { useAuth } from '@/context/AuthContext';
+import { useChatThreads } from '@/hooks/useChatThreads';
 
 interface ChatUser {
     id: string;
@@ -51,29 +52,17 @@ function getCounterpart(thread: ChatThread, meRole?: string) {
 
 export default function ChatDrawer({ isOpen, onClose }: ChatDrawerProps) {
     const { user } = useAuth();
-    const [threads, setThreads] = useState<ChatThread[]>([]);
     const [contacts, setContacts] = useState<ChatUser[]>([]);
-    const [loading, setLoading] = useState(false);
     const [newChatOpen, setNewChatOpen] = useState(false);
     const [contactSearch, setContactSearch] = useState('');
     const [creatingThread, setCreatingThread] = useState(false);
 
     const isReadOnly = user?.role === 'ADMIN';
-
-    const fetchThreads = async () => {
-        if (!user) return;
-        setLoading(true);
-        try {
-            const response = await api.get('/chat/threads', {
-                params: { limit: 30, sort_by: 'last_message_at', sort_order: 'desc' },
-            });
-            setThreads(response.data?.data || []);
-        } catch {
-            setThreads([]);
-        } finally {
-            setLoading(false);
-        }
-    };
+    const { threads: threadRows, isLoading: loading, mutate: mutateThreads } = useChatThreads({
+        enabled: isOpen && !!user,
+        limit: 30,
+    });
+    const threads = threadRows as ChatThread[];
 
     const fetchContacts = async () => {
         if (!user || isReadOnly) return;
@@ -92,7 +81,7 @@ export default function ChatDrawer({ isOpen, onClose }: ChatDrawerProps) {
             const payload = user?.role === 'CUSTOMER' ? { coach_id: contactId } : { customer_id: contactId };
             const response = await api.post('/chat/threads', payload);
             const threadId = response.data?.data?.id as string | undefined;
-            await fetchThreads();
+            await mutateThreads();
             setNewChatOpen(false);
             setContactSearch('');
             if (threadId) {
@@ -108,15 +97,9 @@ export default function ChatDrawer({ isOpen, onClose }: ChatDrawerProps) {
 
     useEffect(() => {
         if (!isOpen) return;
-        fetchThreads();
+        void mutateThreads();
         fetchContacts();
-    }, [isOpen]); // eslint-disable-line react-hooks/exhaustive-deps
-
-    useEffect(() => {
-        if (!isOpen) return;
-        const interval = window.setInterval(fetchThreads, 12000);
-        return () => window.clearInterval(interval);
-    }, [isOpen]); // eslint-disable-line react-hooks/exhaustive-deps
+    }, [isOpen, mutateThreads]); // eslint-disable-line react-hooks/exhaustive-deps
 
     const title = useMemo(() => (isReadOnly ? 'Chats (Read-only)' : 'Recent Chats'), [isReadOnly]);
     const availableContacts = user?.role === 'CUSTOMER'

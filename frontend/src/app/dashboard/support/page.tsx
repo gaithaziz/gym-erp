@@ -4,7 +4,8 @@ import { useAuth } from '@/context/AuthContext';
 import { api } from '@/lib/api';
 import { resolveProfileImageUrl } from '@/lib/profileImage';
 import { useFeedback } from '@/components/FeedbackProvider';
-import { ChangeEvent, useEffect, useState, useRef } from 'react';
+import { ChangeEvent, useCallback, useEffect, useRef, useState } from 'react';
+import Image from 'next/image';
 import {
     LifeBuoy,
     PlusCircle,
@@ -19,28 +20,8 @@ import {
 } from 'lucide-react';
 import { format } from 'date-fns';
 import { useSearchParams } from 'next/navigation';
-
-type TicketCategory = 'GENERAL' | 'TECHNICAL' | 'BILLING' | 'SUBSCRIPTION';
-type TicketStatus = 'OPEN' | 'IN_PROGRESS' | 'RESOLVED' | 'CLOSED';
-
-interface SupportMessage {
-    id: string;
-    sender_id: string;
-    message: string;
-    media_url?: string | null;
-    media_mime?: string | null;
-    media_size_bytes?: number | null;
-    created_at: string;
-}
-
-interface SupportTicket {
-    id: string;
-    subject: string;
-    category: TicketCategory;
-    status: TicketStatus;
-    created_at: string;
-    updated_at: string;
-}
+import { SupportTicket, SupportTicketWithMessages, TicketCategory, TicketStatus } from '@/features/support/types';
+import { useSupportTickets } from '@/features/support/useSupportTickets';
 
 export default function CustomerSupportPage() {
     const { user } = useAuth();
@@ -55,9 +36,9 @@ export default function CustomerSupportPage() {
         unfreeze: 'Subscription unfreeze request',
     };
 
-    const [tickets, setTickets] = useState<SupportTicket[]>([]);
-    const [loading, setLoading] = useState(true);
-    const [error, setError] = useState<string | null>(null);
+    const { tickets, total: ticketsTotal, loading, error, fetchTickets } = useSupportTickets<SupportTicket>();
+    const [ticketsPage, setTicketsPage] = useState(1);
+    const TICKETS_PAGE_SIZE = 20;
 
     // Modal state
     const [isNewTicketModalOpen, setIsNewTicketModalOpen] = useState(false);
@@ -70,26 +51,12 @@ export default function CustomerSupportPage() {
 
     // Detail view state
     const [selectedTicketId, setSelectedTicketId] = useState<string | null>(null);
-    const [ticketDetails, setTicketDetails] = useState<SupportTicket & { messages: SupportMessage[] } | null>(null);
+    const [ticketDetails, setTicketDetails] = useState<SupportTicketWithMessages | null>(null);
     const [replyText, setReplyText] = useState('');
     const [isReplying, setIsReplying] = useState(false);
     const [isUploadingPhoto, setIsUploadingPhoto] = useState(false);
     const photoInputRef = useRef<HTMLInputElement>(null);
     const messageListRef = useRef<HTMLDivElement>(null);
-
-    const fetchTickets = async () => {
-        try {
-            setLoading(true);
-            const response = await api.get('/support/tickets', { params: { is_active: true } });
-            setTickets(response.data?.data || []);
-            setError(null);
-        } catch (err) {
-            const error = err as { response?: { data?: { detail?: string } } };
-            setError(error.response?.data?.detail || 'Failed to load tickets');
-        } finally {
-            setLoading(false);
-        }
-    };
 
     useEffect(() => {
         if (defaultType) {
@@ -102,11 +69,11 @@ export default function CustomerSupportPage() {
                 }
             }
         }
-        fetchTickets();
+        fetchTickets({ isActive: true, page: ticketsPage, pageSize: TICKETS_PAGE_SIZE });
         // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [defaultType, isSubscriptionType]);
+    }, [defaultType, isSubscriptionType, ticketsPage]);
 
-    const fetchTicketDetails = async (id: string) => {
+    const fetchTicketDetails = useCallback(async (id: string) => {
         try {
             const response = await api.get(`/support/tickets/${id}`);
             setTicketDetails(response.data?.data);
@@ -115,10 +82,10 @@ export default function CustomerSupportPage() {
                     messageListRef.current.scrollTop = 0;
                 }
             }, 50);
-        } catch (err) {
+        } catch {
             showToast('Failed to fetch ticket details.', 'error');
         }
-    };
+    }, [showToast]);
 
     useEffect(() => {
         if (selectedTicketId) {
@@ -126,7 +93,7 @@ export default function CustomerSupportPage() {
         } else {
             setTicketDetails(null);
         }
-    }, [selectedTicketId]);
+    }, [selectedTicketId, fetchTicketDetails]);
 
     const handleCreateTicket = async (e: React.FormEvent) => {
         e.preventDefault();
@@ -171,6 +138,8 @@ export default function CustomerSupportPage() {
             setIsReplying(false);
         }
     };
+
+    const totalTicketPages = Math.max(1, Math.ceil(ticketsTotal / TICKETS_PAGE_SIZE));
 
     const handleCloseTicket = async () => {
         if (!selectedTicketId) return;
@@ -288,10 +257,13 @@ export default function CustomerSupportPage() {
                                                 rel="noreferrer"
                                                 className="block mt-2"
                                             >
-                                                <img
+                                                <Image
                                                     src={resolveProfileImageUrl(msg.media_url)}
                                                     alt="Support attachment"
+                                                    width={640}
+                                                    height={480}
                                                     className="max-h-64 rounded-lg border border-border/50"
+                                                    unoptimized
                                                 />
                                             </a>
                                         )}
@@ -402,6 +374,25 @@ export default function CustomerSupportPage() {
                         </div>
                     ))
                 )}
+            </div>
+            <div className="flex items-center justify-between">
+                <span className="text-xs text-muted-foreground">Page {ticketsPage} of {totalTicketPages}</span>
+                <div className="flex gap-2">
+                    <button
+                        className="btn-ghost !px-2 !py-1 text-xs"
+                        disabled={ticketsPage <= 1}
+                        onClick={() => setTicketsPage((prev) => Math.max(1, prev - 1))}
+                    >
+                        Previous
+                    </button>
+                    <button
+                        className="btn-ghost !px-2 !py-1 text-xs"
+                        disabled={ticketsPage >= totalTicketPages}
+                        onClick={() => setTicketsPage((prev) => Math.min(totalTicketPages, prev + 1))}
+                    >
+                        Next
+                    </button>
+                </div>
             </div>
 
             {isNewTicketModalOpen && (

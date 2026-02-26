@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
+import { useMemo, useState } from 'react';
 import { Copy, QrCode, Save } from 'lucide-react';
 import { QRCodeSVG } from 'qrcode.react';
 import { useFeedback } from '@/components/FeedbackProvider';
@@ -25,19 +25,18 @@ const createPayload = (type: PayloadType, kioskId: string) => JSON.stringify({ t
 
 export default function AdminEntranceQrPage() {
     const { showToast } = useFeedback();
-    const [clientId, setClientId] = useState<string>(DEFAULT_IDS.client);
-    const [staffStartId, setStaffStartId] = useState<string>(DEFAULT_IDS.staffStart);
-    const [staffEndId, setStaffEndId] = useState<string>(DEFAULT_IDS.staffEnd);
-
-    useEffect(() => {
-        if (typeof window === 'undefined') return;
-        const nextClient = localStorage.getItem(STORAGE_KEYS.client) || DEFAULT_IDS.client;
-        const nextStaffStart = localStorage.getItem(STORAGE_KEYS.staffStart) || DEFAULT_IDS.staffStart;
-        const nextStaffEnd = localStorage.getItem(STORAGE_KEYS.staffEnd) || DEFAULT_IDS.staffEnd;
-        setClientId(nextClient);
-        setStaffStartId(nextStaffStart);
-        setStaffEndId(nextStaffEnd);
-    }, []);
+    const [clientId, setClientId] = useState<string>(() => {
+        if (typeof window === 'undefined') return DEFAULT_IDS.client;
+        return localStorage.getItem(STORAGE_KEYS.client) || DEFAULT_IDS.client;
+    });
+    const [staffStartId, setStaffStartId] = useState<string>(() => {
+        if (typeof window === 'undefined') return DEFAULT_IDS.staffStart;
+        return localStorage.getItem(STORAGE_KEYS.staffStart) || DEFAULT_IDS.staffStart;
+    });
+    const [staffEndId, setStaffEndId] = useState<string>(() => {
+        if (typeof window === 'undefined') return DEFAULT_IDS.staffEnd;
+        return localStorage.getItem(STORAGE_KEYS.staffEnd) || DEFAULT_IDS.staffEnd;
+    });
 
     const payloads = useMemo(() => {
         const client = createPayload('client_entry', clientId);

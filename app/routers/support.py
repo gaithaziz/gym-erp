@@ -3,9 +3,9 @@ import os
 from datetime import datetime, timezone
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, UploadFile, status
+from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, Response, UploadFile, status
 from pydantic import BaseModel
-from sqlalchemy import select, and_, or_
+from sqlalchemy import select, and_, or_, func
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -159,6 +159,7 @@ async def create_ticket(
 async def list_tickets(
     current_user: Annotated[User, Depends(get_current_active_user)],
     db: Annotated[AsyncSession, Depends(get_db)],
+    response: Response,
     status_filter: TicketStatus | None = Query(None, description="Filter by exact status"),
     is_active: bool | None = Query(None, description="If true, filters OPEN and IN_PROGRESS. If false, filters RESOLVED and CLOSED."),
     category: TicketCategory | None = Query(None),
@@ -169,25 +170,33 @@ async def list_tickets(
         selectinload(SupportTicket.messages),
         selectinload(SupportTicket.customer)
     )
+    count_stmt = select(func.count(SupportTicket.id))
 
     if current_user.role == Role.CUSTOMER:
         stmt = stmt.where(SupportTicket.customer_id == current_user.id)
+        count_stmt = count_stmt.where(SupportTicket.customer_id == current_user.id)
     elif not _is_staff_role(current_user.role):
         raise HTTPException(status_code=403, detail="Not authorized to view tickets")
 
     if status_filter:
         stmt = stmt.where(SupportTicket.status == status_filter)
+        count_stmt = count_stmt.where(SupportTicket.status == status_filter)
     
     if is_active is not None:
         if is_active:
-            stmt = stmt.where(SupportTicket.status.in_([TicketStatus.OPEN, TicketStatus.IN_PROGRESS]))
+            status_filter_expr = SupportTicket.status.in_([TicketStatus.OPEN, TicketStatus.IN_PROGRESS])
         else:
-            stmt = stmt.where(SupportTicket.status.in_([TicketStatus.RESOLVED, TicketStatus.CLOSED]))
+            status_filter_expr = SupportTicket.status.in_([TicketStatus.RESOLVED, TicketStatus.CLOSED])
+        stmt = stmt.where(status_filter_expr)
+        count_stmt = count_stmt.where(status_filter_expr)
 
     if category:
         stmt = stmt.where(SupportTicket.category == category)
+        count_stmt = count_stmt.where(SupportTicket.category == category)
 
     stmt = stmt.order_by(SupportTicket.updated_at.desc()).offset(offset).limit(limit)
+    total_result = await db.execute(count_stmt)
+    response.headers["X-Total-Count"] = str(int(total_result.scalar() or 0))
     result = await db.execute(stmt)
     tickets = result.scalars().all()
 

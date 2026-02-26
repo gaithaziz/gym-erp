@@ -8,6 +8,7 @@ import { Pencil, Calculator, Save, Plus, Download, Eye } from 'lucide-react';
 import Modal from '@/components/Modal';
 import { useFeedback } from '@/components/FeedbackProvider';
 import { resolveProfileImageUrl } from '@/lib/profileImage';
+import { downloadBlob } from '@/lib/download';
 
 interface StaffMember {
     id: string;
@@ -223,59 +224,10 @@ export default function StaffPage() {
 
     const handlePrintPayslip = async (payrollId: string) => {
         try {
-            const res = await api.get(`/hr/payroll/${payrollId}/payslip`);
-            const data = res.data.data;
-
-            const printWindow = window.open('', '_blank');
-            if (!printWindow) return;
-
-            const html = `
-                <html>
-                    <head>
-                        <title>Payslip - ${data.payslip_id}</title>
-                        <style>
-                            body { font-family: sans-serif; padding: 40px; max-width: 600px; margin: 0 auto; color: #000; }
-                            h2 { text-align: center; border-bottom: 2px solid #000; padding-bottom: 10px; margin-bottom: 30px; }
-                            .header-row { display: flex; justify-content: space-between; margin-bottom: 10px; font-size: 0.9rem; }
-                            table { width: 100%; border-collapse: collapse; margin-top: 30px; }
-                            th, td { border: 1px solid #ccc; padding: 10px; text-align: left; }
-                            th { background-color: #f5f5f5; }
-                            .total-row { font-weight: bold; font-size: 1.1rem; }
-                            .footer { text-align: center; margin-top: 50px; font-size: 0.8rem; color: #666; }
-                        </style>
-                    </head>
-                    <body>
-                        <h2>SALARY PAYSLIP</h2>
-                        <div class="header-row">
-                            <div><strong>Employee:</strong> ${data.employee_name}</div>
-                            <div><strong>Period:</strong> ${data.period}</div>
-                        </div>
-                        <div class="header-row">
-                            <div><strong>Role/Contract:</strong> ${data.contract_type}</div>
-                            <div><strong>Payslip ID:</strong> ${data.payslip_id}</div>
-                        </div>
-                        
-                        <table>
-                            <tr><th>Description</th><th style="text-align: right;">Amount (JOD)</th></tr>
-                            <tr><td>Base Pay</td><td style="text-align: right;">${data.base_pay.toFixed(2)}</td></tr>
-                            <tr><td>Overtime Pay</td><td style="text-align: right;">${data.overtime_pay.toFixed(2)}</td></tr>
-                            <tr><td>Bonus / Commission</td><td style="text-align: right;">${data.bonus_pay.toFixed(2)}</td></tr>
-                            <tr><td>Deductions</td><td style="text-align: right; color: red;">-${data.deductions.toFixed(2)}</td></tr>
-                            <tr class="total-row"><td>NET PAY</td><td style="text-align: right;">${data.total_pay.toFixed(2)}</td></tr>
-                        </table>
-                        
-                        <div class="footer">
-                            <p>Generated on ${new Date(data.generated_on).toLocaleString()}</p>
-                            <p>Gym ERP Management System</p>
-                        </div>
-                        <script>window.onload = function() { window.print(); window.close(); }</script>
-                    </body>
-                </html>
-            `;
-            printWindow.document.write(html);
-            printWindow.document.close();
+            const res = await api.get(`/hr/payroll/${payrollId}/payslip/export-pdf`, { responseType: 'blob' });
+            downloadBlob(res.data as Blob, `payslip_${payrollId.slice(0, 8).toUpperCase()}.pdf`);
         } catch {
-            showToast('Failed to generate payslip', 'error');
+            showToast('Failed to download payslip', 'error');
         }
     };
 

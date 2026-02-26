@@ -4,7 +4,7 @@ import { useAuth } from '@/context/AuthContext';
 import { api } from '@/lib/api';
 import { resolveProfileImageUrl } from '@/lib/profileImage';
 import { useFeedback } from '@/components/FeedbackProvider';
-import { ChangeEvent, useEffect, useState, useRef } from 'react';
+import { ChangeEvent, useCallback, useEffect, useRef, useState } from 'react';
 import Image from 'next/image';
 import {
     LifeBuoy,
@@ -19,43 +19,16 @@ import {
     ImagePlus
 } from 'lucide-react';
 import { format } from 'date-fns';
-
-type TicketCategory = 'GENERAL' | 'TECHNICAL' | 'BILLING' | 'SUBSCRIPTION';
-type TicketStatus = 'OPEN' | 'IN_PROGRESS' | 'RESOLVED' | 'CLOSED';
-
-interface SupportMessage {
-    id: string;
-    sender_id: string;
-    message: string;
-    media_url?: string | null;
-    media_mime?: string | null;
-    media_size_bytes?: number | null;
-    created_at: string;
-}
-
-interface SupportTicket {
-    id: string;
-    customer_id: string;
-    subject: string;
-    category: TicketCategory;
-    status: TicketStatus;
-    created_at: string;
-    updated_at: string;
-    customer?: {
-        id: string;
-        full_name: string;
-        email: string;
-        profile_picture_url: string | null;
-    };
-}
+import { SupportTicketWithCustomer, SupportTicketWithMessages, TicketCategory, TicketStatus } from '@/features/support/types';
+import { useSupportTickets } from '@/features/support/useSupportTickets';
 
 export default function AdminSupportPage() {
     const { } = useAuth();
     const { showToast, confirm: confirmAction } = useFeedback();
     const [activeTab, setActiveTab] = useState<'ACTIVE' | 'COMPLETED'>('ACTIVE');
-    const [tickets, setTickets] = useState<SupportTicket[]>([]);
-    const [loading, setLoading] = useState(true);
-    const [error, setError] = useState<string | null>(null);
+    const { tickets, total: ticketsTotal, loading, error, fetchTickets } = useSupportTickets<SupportTicketWithCustomer>();
+    const [ticketsPage, setTicketsPage] = useState(1);
+    const TICKETS_PAGE_SIZE = 20;
 
     // Filters
     const [categoryFilter, setCategoryFilter] = useState<TicketCategory | ''>('');
@@ -63,41 +36,24 @@ export default function AdminSupportPage() {
 
     // Detail view state
     const [selectedTicketId, setSelectedTicketId] = useState<string | null>(null);
-    const [ticketDetails, setTicketDetails] = useState<SupportTicket & { messages: SupportMessage[] } | null>(null);
+    const [ticketDetails, setTicketDetails] = useState<(SupportTicketWithCustomer & SupportTicketWithMessages) | null>(null);
     const [replyText, setReplyText] = useState('');
     const [isReplying, setIsReplying] = useState(false);
     const [isUploadingPhoto, setIsUploadingPhoto] = useState(false);
     const photoInputRef = useRef<HTMLInputElement>(null);
     const messageListRef = useRef<HTMLDivElement>(null);
 
-    const fetchTickets = async () => {
-        try {
-            setLoading(true);
-            const params: any = {
-                is_active: activeTab === 'ACTIVE',
-                limit: 100
-            };
-            if (categoryFilter) {
-                params.category = categoryFilter;
-            }
-
-            const response = await api.get('/support/tickets', { params });
-            setTickets(response.data?.data || []);
-            setError(null);
-        } catch (err) {
-            const error = err as { response?: { data?: { detail?: string } } };
-            setError(error.response?.data?.detail || 'Failed to load tickets');
-        } finally {
-            setLoading(false);
-        }
-    };
-
     useEffect(() => {
-        fetchTickets();
+        fetchTickets({
+            isActive: activeTab === 'ACTIVE',
+            category: categoryFilter,
+            page: ticketsPage,
+            pageSize: TICKETS_PAGE_SIZE,
+        });
         // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [activeTab, categoryFilter]);
+    }, [activeTab, categoryFilter, ticketsPage]);
 
-    const fetchTicketDetails = async (id: string) => {
+    const fetchTicketDetails = useCallback(async (id: string) => {
         try {
             const response = await api.get(`/support/tickets/${id}`);
             setTicketDetails(response.data?.data);
@@ -106,10 +62,10 @@ export default function AdminSupportPage() {
                     messageListRef.current.scrollTop = 0;
                 }
             }, 50);
-        } catch (err) {
+        } catch {
             showToast('Failed to fetch ticket details.', 'error');
         }
-    };
+    }, [showToast]);
 
     useEffect(() => {
         if (selectedTicketId) {
@@ -118,8 +74,7 @@ export default function AdminSupportPage() {
             setTicketDetails(null);
             fetchTickets(); // Refresh list on modal close to catch status changes
         }
-        // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [selectedTicketId]);
+    }, [selectedTicketId, fetchTicketDetails, fetchTickets]);
 
     const handleReply = async (e: React.FormEvent) => {
         e.preventDefault();
@@ -210,6 +165,7 @@ export default function AdminSupportPage() {
             t.customer?.full_name.toLowerCase().includes(q) ||
             t.customer?.email.toLowerCase().includes(q);
     });
+    const totalTicketPages = Math.max(1, Math.ceil(ticketsTotal / TICKETS_PAGE_SIZE));
 
     if (selectedTicketId && ticketDetails) {
         const isClosed = ticketDetails.status === 'RESOLVED' || ticketDetails.status === 'CLOSED';
@@ -298,10 +254,13 @@ export default function AdminSupportPage() {
                                                 rel="noreferrer"
                                                 className="block mt-2"
                                             >
-                                                <img
+                                                <Image
                                                     src={resolveProfileImageUrl(msg.media_url)}
                                                     alt="Support attachment"
+                                                    width={640}
+                                                    height={480}
                                                     className="max-h-64 rounded-lg border border-border/50"
+                                                    unoptimized
                                                 />
                                             </a>
                                         )}
@@ -374,7 +333,10 @@ export default function AdminSupportPage() {
                 {/* Tabs */}
                 <div className="flex bg-muted p-1 rounded-lg">
                     <button
-                        onClick={() => setActiveTab('ACTIVE')}
+                        onClick={() => {
+                            setTicketsPage(1);
+                            setActiveTab('ACTIVE');
+                        }}
                         className={`px-4 py-2 text-sm font-semibold rounded-md transition-all ${activeTab === 'ACTIVE'
                             ? 'bg-background text-foreground shadow-sm'
                             : 'text-muted-foreground hover:text-foreground'
@@ -383,7 +345,10 @@ export default function AdminSupportPage() {
                         Active Queue
                     </button>
                     <button
-                        onClick={() => setActiveTab('COMPLETED')}
+                        onClick={() => {
+                            setTicketsPage(1);
+                            setActiveTab('COMPLETED');
+                        }}
                         className={`px-4 py-2 text-sm font-semibold rounded-md transition-all ${activeTab === 'COMPLETED'
                             ? 'bg-background text-foreground shadow-sm'
                             : 'text-muted-foreground hover:text-foreground'
@@ -415,7 +380,10 @@ export default function AdminSupportPage() {
                     <Filter className="field-icon" size={18} />
                     <select
                         value={categoryFilter}
-                        onChange={(e) => setCategoryFilter(e.target.value as TicketCategory | '')}
+                        onChange={(e) => {
+                            setTicketsPage(1);
+                            setCategoryFilter(e.target.value as TicketCategory | '');
+                        }}
                         className="input-dark select-with-icon w-full"
                     >
                         <option value="">All Categories</option>
@@ -471,6 +439,25 @@ export default function AdminSupportPage() {
                         </div>
                     ))
                 )}
+            </div>
+            <div className="flex items-center justify-between">
+                <span className="text-xs text-muted-foreground">Page {ticketsPage} of {totalTicketPages}</span>
+                <div className="flex gap-2">
+                    <button
+                        className="btn-ghost !px-2 !py-1 text-xs"
+                        disabled={ticketsPage <= 1}
+                        onClick={() => setTicketsPage((prev) => Math.max(1, prev - 1))}
+                    >
+                        Previous
+                    </button>
+                    <button
+                        className="btn-ghost !px-2 !py-1 text-xs"
+                        disabled={ticketsPage >= totalTicketPages}
+                        onClick={() => setTicketsPage((prev) => Math.min(totalTicketPages, prev + 1))}
+                    >
+                        Next
+                    </button>
+                </div>
             </div>
         </div>
     );

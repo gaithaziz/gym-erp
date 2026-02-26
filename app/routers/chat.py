@@ -7,7 +7,7 @@ from typing import Annotated, Literal
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, UploadFile, WebSocket, WebSocketDisconnect
 from jose import JWTError, jwt
 from pydantic import BaseModel
-from sqlalchemy import and_, or_, select
+from sqlalchemy import and_, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -218,6 +218,84 @@ async def _serialize_thread_for_user(db: AsyncSession, thread: ChatThread, user:
     )
 
 
+async def _serialize_threads_for_user(db: AsyncSession, threads: list[ChatThread], user: User) -> list[ThreadResponse]:
+    if not threads:
+        return []
+
+    thread_ids = [thread.id for thread in threads]
+
+    latest_ranked_subq = (
+        select(
+            ChatMessage.id.label("message_id"),
+            ChatMessage.thread_id.label("thread_id"),
+            func.row_number().over(
+                partition_by=ChatMessage.thread_id,
+                order_by=ChatMessage.created_at.desc(),
+            ).label("rn"),
+        )
+        .where(
+            ChatMessage.thread_id.in_(thread_ids),
+            ChatMessage.is_deleted.is_(False),
+        )
+        .subquery()
+    )
+    latest_ids_stmt = select(latest_ranked_subq.c.thread_id, latest_ranked_subq.c.message_id).where(latest_ranked_subq.c.rn == 1)
+    latest_ids_result = await db.execute(latest_ids_stmt)
+    latest_ids_rows = latest_ids_result.all()
+    latest_message_id_by_thread = {thread_id: message_id for thread_id, message_id in latest_ids_rows}
+
+    latest_messages_by_id: dict[uuid.UUID, ChatMessage] = {}
+    if latest_message_id_by_thread:
+        latest_messages_stmt = select(ChatMessage).where(ChatMessage.id.in_(list(latest_message_id_by_thread.values())))
+        latest_messages_result = await db.execute(latest_messages_stmt)
+        latest_messages = latest_messages_result.scalars().all()
+        latest_messages_by_id = {message.id: message for message in latest_messages}
+
+    unread_by_thread: dict[uuid.UUID, int] = {}
+    if user.role != Role.ADMIN:
+        unread_stmt = (
+            select(ChatMessage.thread_id, func.count(ChatMessage.id))
+            .select_from(ChatMessage)
+            .outerjoin(
+                ChatReadReceipt,
+                and_(
+                    ChatReadReceipt.thread_id == ChatMessage.thread_id,
+                    ChatReadReceipt.user_id == user.id,
+                ),
+            )
+            .where(
+                ChatMessage.thread_id.in_(thread_ids),
+                ChatMessage.sender_id != user.id,
+                ChatMessage.is_deleted.is_(False),
+                ChatMessage.created_at > func.coalesce(
+                    ChatReadReceipt.last_read_at,
+                    datetime(1970, 1, 1, tzinfo=timezone.utc),
+                ),
+            )
+            .group_by(ChatMessage.thread_id)
+        )
+        unread_result = await db.execute(unread_stmt)
+        unread_by_thread = {thread_id: int(count) for thread_id, count in unread_result.all()}
+
+    data: list[ThreadResponse] = []
+    for thread in threads:
+        last_message_id = latest_message_id_by_thread.get(thread.id)
+        last_message = latest_messages_by_id.get(last_message_id) if last_message_id else None
+        data.append(
+            ThreadResponse(
+                id=thread.id,
+                customer=_to_contact(thread.customer),
+                coach=_to_contact(thread.coach),
+                last_message=MessageResponse.model_validate(last_message) if last_message else None,
+                unread_count=unread_by_thread.get(thread.id, 0),
+                created_at=thread.created_at,
+                updated_at=thread.updated_at,
+                last_message_at=thread.last_message_at,
+            )
+        )
+    return data
+
+
 async def _build_message_payload(db: AsyncSession, thread: ChatThread, message: ChatMessage, event_type: str) -> dict:
     payload = {
         "event": event_type,
@@ -339,7 +417,7 @@ async def list_threads(
     result = await db.execute(stmt)
     threads = result.scalars().all()
 
-    data = [await _serialize_thread_for_user(db, thread, current_user) for thread in threads]
+    data = await _serialize_threads_for_user(db, threads, current_user)
     return StandardResponse(data=data)
 
 

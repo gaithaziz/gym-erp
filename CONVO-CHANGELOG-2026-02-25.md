@@ -369,3 +369,103 @@
   - `frontend/src/app/dashboard/member/_shared/types.ts`
 - Validation:
   - `npx eslint src/app/dashboard/member/plans/page.tsx src/app/dashboard/member/_shared/types.ts` (no errors; one pre-existing hook dependency warning)
+
+## 30) Performance Refactor: Polling Reduction + Shared Chat Cache
+- Reduced duplicate polling and moved chat thread state to shared cache:
+  - Added shared SWR hook for chat thread list/unread data.
+  - Dashboard floating chat badge now reads shared unread counts instead of separate polling fetch.
+  - Chat drawer now consumes same shared cache and removed its own polling loop.
+- Removed frequent members auto-refresh polling loop.
+- Files changed:
+  - `frontend/src/hooks/useChatThreads.ts`
+  - `frontend/src/app/dashboard/layout.tsx`
+  - `frontend/src/components/chat/ChatDrawer.tsx`
+  - `frontend/src/app/dashboard/admin/members/page.tsx`
+
+## 31) Backend Query/Pagination Improvements (Scalability)
+- Fixed chat threads N+1 pattern in backend:
+  - Batched latest-message lookup per thread.
+  - Batched unread-count computation per thread/user.
+  - Replaced per-thread unread/message queries in list API.
+- Added server-side pagination metadata (`X-Total-Count`) and offset support:
+  - `GET /finance/transactions` now supports `offset` and returns total count header.
+  - `GET /hr/payrolls/pending` now returns total count header.
+  - `GET /hr/attendance` now supports `offset` and returns total count header.
+  - `GET /support/tickets` now returns total count header.
+- Files changed:
+  - `app/routers/chat.py`
+  - `app/routers/finance.py`
+  - `app/routers/hr.py`
+  - `app/routers/support.py`
+
+## 32) Frontend Pagination on Heavy Screens
+- Wired server pagination (`limit/offset` + total header) into:
+  - Admin finance transactions table
+  - Admin finance payroll table
+  - Staff attendance table
+  - Customer support queue
+  - Admin support queue
+- Added page controls and total counts in-page for each list.
+- Files changed:
+  - `frontend/src/app/dashboard/admin/finance/page.tsx`
+  - `frontend/src/app/dashboard/admin/staff/attendance/page.tsx`
+  - `frontend/src/app/dashboard/support/page.tsx`
+  - `frontend/src/app/dashboard/admin/support/page.tsx`
+
+## 33) Exports Upgrade: Popup Print -> Download Exports + True PDFs
+- Replaced popup-print patterns with backend export/download flows.
+- Added download helper:
+  - `frontend/src/lib/download.ts`
+- Added/kept HTML export endpoints and added true PDF endpoints:
+  - `GET /finance/transactions/{transaction_id}/receipt/export-pdf`
+  - `GET /finance/transactions/report.pdf`
+  - `GET /hr/payroll/{payroll_id}/payslip/export-pdf`
+- Frontend buttons now download files directly:
+  - Finance receipt/report buttons download PDFs.
+  - Staff payslip action downloads PDF.
+- Added PDF dependency:
+  - `reportlab` in `requirements.txt`
+- Files changed:
+  - `app/routers/finance.py`
+  - `app/routers/hr.py`
+  - `frontend/src/app/dashboard/admin/finance/page.tsx`
+  - `frontend/src/app/dashboard/admin/staff/page.tsx`
+  - `frontend/src/lib/download.ts`
+  - `requirements.txt`
+
+## 34) Support Module Consolidation + Lint Cleanup
+- Began support-module decomposition:
+  - Shared support domain types module.
+  - Shared support ticket-list fetching hook reused by both customer and admin support pages.
+- Resolved remaining frontend lint blockers/warnings:
+  - Fixed `setState` in effect warning on entrance QR page via lazy `useState` initializers.
+  - Converted support attachment previews from `<img>` to `next/image`.
+  - Fixed hook dependency warning by memoizing ticket-details fetch callbacks.
+- Files added:
+  - `frontend/src/features/support/types.ts`
+  - `frontend/src/features/support/useSupportTickets.ts`
+- Files changed:
+  - `frontend/src/app/dashboard/admin/entrance-qr/page.tsx`
+  - `frontend/src/app/dashboard/support/page.tsx`
+  - `frontend/src/app/dashboard/admin/support/page.tsx`
+
+## 35) E2E Baseline Added (Playwright Smoke)
+- Added Playwright configuration and smoke test scaffold:
+  - login flow
+  - member create API smoke
+  - support ticket create/reply API smoke
+  - payroll payment API smoke (conditional skip if no payable row)
+- Added npm scripts:
+  - `test:e2e`
+  - `test:e2e:ui`
+- Files changed:
+  - `frontend/playwright.config.ts`
+  - `frontend/e2e/smoke.spec.ts`
+  - `frontend/package.json`
+  - `frontend/package-lock.json`
+
+## 36) Validation Performed (This Session)
+- Backend:
+  - `python -m compileall app/routers` passed after backend edits.
+- Frontend:
+  - `npm run lint` now passes with no errors/warnings after cleanup.

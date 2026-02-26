@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { api } from '@/lib/api';
 import { Plus, ArrowUpCircle, ArrowDownCircle, Wallet, Printer, FileText, CircleDollarSign, RotateCcw, CheckCircle2, Search, Settings2 } from 'lucide-react';
 import { useFeedback } from '@/components/FeedbackProvider';
+import { downloadBlob } from '@/lib/download';
 
 interface Transaction {
     id: string;
@@ -50,8 +51,13 @@ interface PayrollItem {
 
 export default function FinancePage() {
     const { showToast } = useFeedback();
+    const PAGE_SIZE = 50;
     const [transactions, setTransactions] = useState<Transaction[]>([]);
     const [payrolls, setPayrolls] = useState<PayrollItem[]>([]);
+    const [transactionsTotal, setTransactionsTotal] = useState(0);
+    const [payrollsTotal, setPayrollsTotal] = useState(0);
+    const [transactionsPage, setTransactionsPage] = useState(1);
+    const [payrollsPage, setPayrollsPage] = useState(1);
     const [loading, setLoading] = useState(true);
     const [showModal, setShowModal] = useState(false);
     const [activeSection, setActiveSection] = useState<'transactions' | 'salaries'>('transactions');
@@ -91,20 +97,32 @@ export default function FinancePage() {
     const [endDate, setEndDate] = useState(toDateInput(today));
 
     const fetchTransactions = useCallback(async () => {
-        const params: Record<string, string | number> = { limit: 500 };
+        const params: Record<string, string | number> = {
+            limit: PAGE_SIZE,
+            offset: (transactionsPage - 1) * PAGE_SIZE,
+        };
         if (typeFilter !== 'ALL') params.tx_type = typeFilter;
         if (categoryFilter !== 'ALL') params.category = categoryFilter;
+        if (datePreset !== 'all') {
+            params.start_date = startDate;
+            params.end_date = endDate;
+        }
         const listRes = await api.get('/finance/transactions', { params });
         setTransactions(listRes.data.data || []);
-    }, [categoryFilter, typeFilter]);
+        setTransactionsTotal(Number(listRes.headers['x-total-count'] || 0));
+    }, [PAGE_SIZE, categoryFilter, datePreset, endDate, startDate, transactionsPage, typeFilter]);
 
     const fetchPayrolls = useCallback(async () => {
-        const params: Record<string, string | number> = { limit: 500 };
+        const params: Record<string, string | number> = {
+            limit: PAGE_SIZE,
+            offset: (payrollsPage - 1) * PAGE_SIZE,
+        };
         if (salaryStatusFilter !== 'ALL') params.status = salaryStatusFilter;
         if (salarySearch.trim()) params.search = salarySearch.trim();
         const payrollRes = await api.get('/hr/payrolls/pending', { params });
         setPayrolls(payrollRes.data.data || []);
-    }, [salaryStatusFilter, salarySearch]);
+        setPayrollsTotal(Number(payrollRes.headers['x-total-count'] || 0));
+    }, [PAGE_SIZE, payrollsPage, salarySearch, salaryStatusFilter]);
 
     const fetchPayrollSettings = useCallback(async () => {
         const settingsRes = await api.get('/hr/payrolls/settings');
@@ -142,19 +160,9 @@ export default function FinancePage() {
         setEndDate(toDateInput(now));
     };
 
-    const filteredTransactions = useMemo(() => {
-        if (datePreset === 'all') return transactions;
-        return transactions.filter((tx) => {
-            const d = new Date(tx.date);
-            const y = d.getFullYear();
-            const m = String(d.getMonth() + 1).padStart(2, '0');
-            const day = String(d.getDate()).padStart(2, '0');
-            const txDate = `${y}-${m}-${day}`;
-            return txDate >= startDate && txDate <= endDate;
-        });
-    }, [transactions, startDate, endDate, datePreset]);
+    const filteredTransactions = transactions;
 
-    const filteredSummary = useMemo(() => {
+    const pageSummary = useMemo(() => {
         const total_income = filteredTransactions.filter(tx => tx.type === 'INCOME').reduce((sum, tx) => sum + tx.amount, 0);
         const total_expenses = filteredTransactions.filter(tx => tx.type === 'EXPENSE').reduce((sum, tx) => sum + tx.amount, 0);
         return {
@@ -164,36 +172,40 @@ export default function FinancePage() {
         };
     }, [filteredTransactions]);
 
-    const handlePrintReceipt = (tx: Transaction) => {
-        try {
-            const printWindow = window.open('', '_blank');
-            if (!printWindow) {
-                showToast('Popup blocked. Allow popups to print receipt.', 'error');
-                return;
-            }
+    const totalTransactionPages = Math.max(1, Math.ceil(transactionsTotal / PAGE_SIZE));
+    const totalPayrollPages = Math.max(1, Math.ceil(payrollsTotal / PAGE_SIZE));
 
-            const html = `<html><head><title>Receipt - ${tx.id.slice(0, 8).toUpperCase()}</title><style>body{font-family:monospace;padding:20px;max-width:400px;margin:0 auto;color:#000;}h2{text-align:center;border-bottom:1px dashed #000;padding-bottom:10px}.row{display:flex;justify-content:space-between;margin-bottom:8px}.total{font-weight:bold;border-top:1px dashed #000;padding-top:10px;margin-top:10px}.footer{text-align:center;margin-top:30px;font-size:.8rem;border-top:1px dashed #000;padding-top:10px}</style></head><body><h2>Gym ERP Management</h2><div class="row"><span>Receipt No:</span> <span>${tx.id.slice(0, 8).toUpperCase()}</span></div><div class="row"><span>Date:</span> <span>${new Date(tx.date).toLocaleString()}</span></div><div class="row"><span>Billed To:</span> <span>Guest/System</span></div><br/><div class="row"><span>Item:</span> <span>${tx.description || 'Gym Service/Item'}</span></div><div class="row"><span>Type:</span> <span>${tx.type} / ${tx.category.replace(/_/g, ' ')}</span></div><div class="row"><span>Method:</span> <span>${tx.payment_method}</span></div><div class="row total"><span>TOTAL:</span> <span>${tx.amount.toFixed(2)} JOD</span></div><div class="footer">Thank you for your business!</div><script>window.onload=function(){window.print();window.close();}</script></body></html>`;
-            printWindow.document.write(html);
-            printWindow.document.close();
+    useEffect(() => {
+        setTransactionsPage(1);
+    }, [typeFilter, categoryFilter, datePreset, startDate, endDate]);
+
+    useEffect(() => {
+        setPayrollsPage(1);
+    }, [salaryStatusFilter, salarySearch]);
+
+    const handlePrintReceipt = async (tx: Transaction) => {
+        try {
+            const response = await api.get(`/finance/transactions/${tx.id}/receipt/export-pdf`, { responseType: 'blob' });
+            downloadBlob(response.data as Blob, `receipt_${tx.id.slice(0, 8).toUpperCase()}.pdf`);
         } catch {
-            showToast('Failed to generate receipt', 'error');
+            showToast('Failed to download receipt', 'error');
         }
     };
 
-    const handlePrintReport = () => {
-        const printWindow = window.open('', '_blank');
-        if (!printWindow) {
-            showToast('Popup blocked. Allow popups to print report.', 'error');
-            return;
+    const handlePrintReport = async () => {
+        try {
+            const params = new URLSearchParams();
+            if (typeFilter !== 'ALL') params.set('tx_type', typeFilter);
+            if (categoryFilter !== 'ALL') params.set('category', categoryFilter);
+            if (datePreset !== 'all') {
+                params.set('start_date', startDate);
+                params.set('end_date', endDate);
+            }
+            const response = await api.get(`/finance/transactions/report.pdf?${params.toString()}`, { responseType: 'blob' });
+            downloadBlob(response.data as Blob, 'financial_report.pdf');
+        } catch {
+            showToast('Failed to download report', 'error');
         }
-
-        const rowsHtml = filteredTransactions.length > 0
-            ? filteredTransactions.map((tx) => `<tr><td>${new Date(tx.date).toLocaleDateString()}</td><td>${tx.description || '-'}</td><td>${tx.category.replace(/_/g, ' ')}</td><td>${tx.type}</td><td style="text-align:right;">${tx.type === 'INCOME' ? '+' : '-'}${tx.amount.toFixed(2)}</td></tr>`).join('')
-            : '<tr><td colspan="5" style="text-align:center; padding:16px;">No transactions in selected date range</td></tr>';
-
-        const html = `<html><head><title>Financial Report (${startDate} to ${endDate})</title><style>body{font-family:Arial,sans-serif;padding:24px;color:#111}h2{margin:0 0 8px}.meta{color:#555;margin-bottom:14px}.summary{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin:14px 0 18px}.card{border:1px solid #ddd;padding:10px;border-radius:4px}table{width:100%;border-collapse:collapse;font-size:12px}th,td{border:1px solid #ddd;padding:8px;text-align:left}th{background:#f5f5f5}</style></head><body><h2>Financial Report</h2><div class="meta">Date range: ${datePreset === 'all' ? 'All Dates' : `${startDate} to ${endDate}`} - Type: ${typeFilter}</div><div class="summary"><div class="card"><strong>Total Income</strong><br/>${filteredSummary.total_income.toFixed(2)} JOD</div><div class="card"><strong>Total Expenses</strong><br/>${filteredSummary.total_expenses.toFixed(2)} JOD</div><div class="card"><strong>Net Profit</strong><br/>${filteredSummary.net_profit.toFixed(2)} JOD</div></div><table><thead><tr><th>Date</th><th>Description</th><th>Category</th><th>Type</th><th style="text-align:right;">Amount (JOD)</th></tr></thead><tbody>${rowsHtml}</tbody></table><script>window.onload=function(){window.print();window.close();}</script></body></html>`;
-        printWindow.document.write(html);
-        printWindow.document.close();
     };
 
     const handleSubmit = async (e: React.FormEvent) => {
@@ -338,13 +350,16 @@ export default function FinancePage() {
                     </div>
 
                     <div className="grid grid-cols-1 md:grid-cols-3 gap-5">
-                        <div className="kpi-card flex items-center gap-4 border border-border"><div className="h-12 w-12 rounded-xl flex items-center justify-center bg-emerald-500/10 border border-emerald-500/20"><ArrowUpCircle size={22} className="text-emerald-500" /></div><div><p className="text-[0.65rem] font-semibold text-muted-foreground uppercase tracking-wider">Total Income</p><p className="text-2xl font-bold text-foreground">{filteredSummary.total_income.toFixed(2)} JOD</p></div></div>
-                        <div className="kpi-card flex items-center gap-4 border border-border"><div className="h-12 w-12 rounded-xl flex items-center justify-center bg-red-500/10 border border-red-500/20"><ArrowDownCircle size={22} className="text-red-500" /></div><div><p className="text-[0.65rem] font-semibold text-muted-foreground uppercase tracking-wider">Total Expenses</p><p className="text-2xl font-bold text-foreground">{filteredSummary.total_expenses.toFixed(2)} JOD</p></div></div>
-                        <div className="kpi-card flex items-center gap-4 border border-border"><div className="h-12 w-12 rounded-xl flex items-center justify-center bg-blue-500/10 border border-blue-500/20"><Wallet size={22} className="text-blue-500" /></div><div><p className="text-[0.65rem] font-semibold text-muted-foreground uppercase tracking-wider">Net Profit</p><p className={`text-2xl font-bold ${(filteredSummary.net_profit ?? 0) >= 0 ? 'text-emerald-500' : 'text-red-500'}`}>{filteredSummary.net_profit.toFixed(2)} JOD</p></div></div>
+                        <div className="kpi-card flex items-center gap-4 border border-border"><div className="h-12 w-12 rounded-xl flex items-center justify-center bg-emerald-500/10 border border-emerald-500/20"><ArrowUpCircle size={22} className="text-emerald-500" /></div><div><p className="text-[0.65rem] font-semibold text-muted-foreground uppercase tracking-wider">Total Income</p><p className="text-2xl font-bold text-foreground">{pageSummary.total_income.toFixed(2)} JOD</p></div></div>
+                        <div className="kpi-card flex items-center gap-4 border border-border"><div className="h-12 w-12 rounded-xl flex items-center justify-center bg-red-500/10 border border-red-500/20"><ArrowDownCircle size={22} className="text-red-500" /></div><div><p className="text-[0.65rem] font-semibold text-muted-foreground uppercase tracking-wider">Total Expenses</p><p className="text-2xl font-bold text-foreground">{pageSummary.total_expenses.toFixed(2)} JOD</p></div></div>
+                        <div className="kpi-card flex items-center gap-4 border border-border"><div className="h-12 w-12 rounded-xl flex items-center justify-center bg-blue-500/10 border border-blue-500/20"><Wallet size={22} className="text-blue-500" /></div><div><p className="text-[0.65rem] font-semibold text-muted-foreground uppercase tracking-wider">Net Profit</p><p className={`text-2xl font-bold ${(pageSummary.net_profit ?? 0) >= 0 ? 'text-emerald-500' : 'text-red-500'}`}>{pageSummary.net_profit.toFixed(2)} JOD</p></div></div>
                     </div>
 
                     <div className="chart-card overflow-hidden !p-0 border border-border">
-                        <div className="px-6 py-4 border-b border-border"><h3 className="text-sm font-semibold text-muted-foreground">Transactions</h3></div>
+                        <div className="px-6 py-4 border-b border-border flex items-center justify-between gap-4">
+                            <h3 className="text-sm font-semibold text-muted-foreground">Transactions</h3>
+                            <span className="text-xs text-muted-foreground">Total: {transactionsTotal}</span>
+                        </div>
                         <div className="hidden md:block overflow-x-auto">
                             <table className="w-full text-left table-dark min-w-[550px]"><thead><tr><th>Date</th><th>Description</th><th>Category</th><th>Type</th><th className="text-right">Amount</th><th className="text-right">Action</th></tr></thead>
                                 <tbody>
@@ -352,6 +367,25 @@ export default function FinancePage() {
                                     {filteredTransactions.map((tx) => (<tr key={tx.id}><td>{new Date(tx.date).toLocaleDateString()}</td><td className="!text-foreground font-medium">{tx.description || '-'}</td><td className="text-xs">{tx.category.replace(/_/g, ' ')}</td><td><span className={`badge ${tx.type === 'INCOME' ? 'badge-green' : 'badge-red'}`}>{tx.type}</span></td><td className={`text-right font-mono text-sm font-semibold ${tx.type === 'INCOME' ? 'text-emerald-500' : 'text-red-500'}`}>{tx.type === 'INCOME' ? '+' : '-'}{tx.amount.toFixed(2)}</td><td className="text-right"><button onClick={() => handlePrintReceipt(tx)} className="text-muted-foreground hover:text-primary transition-colors p-1" title="Print Receipt"><Printer size={16} /></button></td></tr>))}
                                 </tbody>
                             </table>
+                        </div>
+                        <div className="px-6 py-3 border-t border-border flex items-center justify-between">
+                            <span className="text-xs text-muted-foreground">Page {transactionsPage} of {totalTransactionPages}</span>
+                            <div className="flex items-center gap-2">
+                                <button
+                                    className="btn-ghost !px-2 !py-1 text-xs"
+                                    disabled={transactionsPage <= 1}
+                                    onClick={() => setTransactionsPage((prev) => Math.max(1, prev - 1))}
+                                >
+                                    Previous
+                                </button>
+                                <button
+                                    className="btn-ghost !px-2 !py-1 text-xs"
+                                    disabled={transactionsPage >= totalTransactionPages}
+                                    onClick={() => setTransactionsPage((prev) => Math.min(totalTransactionPages, prev + 1))}
+                                >
+                                    Next
+                                </button>
+                            </div>
                         </div>
                     </div>
                 </>
@@ -379,7 +413,10 @@ export default function FinancePage() {
                     </div>
 
                     <div className="chart-card overflow-hidden !p-0 border border-border">
-                        <div className="px-6 py-4 border-b border-border"><h3 className="text-sm font-semibold text-muted-foreground">Pending Salaries Management</h3></div>
+                        <div className="px-6 py-4 border-b border-border flex items-center justify-between gap-4">
+                            <h3 className="text-sm font-semibold text-muted-foreground">Pending Salaries Management</h3>
+                            <span className="text-xs text-muted-foreground">Total: {payrollsTotal}</span>
+                        </div>
                         <div className="hidden md:block overflow-x-auto">
                             <table className="w-full text-left table-dark min-w-[900px]"><thead><tr><th>Employee</th><th>Period</th><th>Status</th><th className="text-right">Total</th><th className="text-right">Paid</th><th className="text-right">Pending</th><th>Paid At</th><th className="text-right">Actions</th></tr></thead>
                                 <tbody>
@@ -398,6 +435,25 @@ export default function FinancePage() {
                                     ))}
                                 </tbody>
                             </table>
+                        </div>
+                        <div className="px-6 py-3 border-t border-border flex items-center justify-between">
+                            <span className="text-xs text-muted-foreground">Page {payrollsPage} of {totalPayrollPages}</span>
+                            <div className="flex items-center gap-2">
+                                <button
+                                    className="btn-ghost !px-2 !py-1 text-xs"
+                                    disabled={payrollsPage <= 1}
+                                    onClick={() => setPayrollsPage((prev) => Math.max(1, prev - 1))}
+                                >
+                                    Previous
+                                </button>
+                                <button
+                                    className="btn-ghost !px-2 !py-1 text-xs"
+                                    disabled={payrollsPage >= totalPayrollPages}
+                                    onClick={() => setPayrollsPage((prev) => Math.min(totalPayrollPages, prev + 1))}
+                                >
+                                    Next
+                                </button>
+                            </div>
                         </div>
                     </div>
                 </div>

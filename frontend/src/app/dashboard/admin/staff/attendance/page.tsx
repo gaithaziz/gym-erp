@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { api } from '@/lib/api';
 import { Check, X, Edit2, Printer } from 'lucide-react';
 import { useFeedback } from '@/components/FeedbackProvider';
@@ -16,7 +16,10 @@ interface AttendanceLog {
 
 export default function AttendancePage() {
     const { showToast } = useFeedback();
+    const PAGE_SIZE = 50;
     const [logs, setLogs] = useState<AttendanceLog[]>([]);
+    const [totalLogs, setTotalLogs] = useState(0);
+    const [page, setPage] = useState(1);
     const [loading, setLoading] = useState(true);
     const [editingId, setEditingId] = useState<string | null>(null);
     const [editIn, setEditIn] = useState('');
@@ -42,34 +45,32 @@ export default function AttendancePage() {
         }
         setLoading(true);
         try {
+            const params: Record<string, string | number> = {
+                limit: PAGE_SIZE,
+                offset: (page - 1) * PAGE_SIZE,
+            };
+            if (datePreset !== 'all') {
+                params.start_date = startDate;
+                params.end_date = endDate;
+            }
             const res = await api.get('/hr/attendance', {
-                params: {
-                    limit: 500,
-                },
+                params,
             });
             setLogs(res.data.data);
+            setTotalLogs(Number(res.headers['x-total-count'] || 0));
         } catch {
             showToast('Failed to load attendance logs', 'error');
         }
         setLoading(false);
-    }, [startDate, endDate, showToast]);
+    }, [PAGE_SIZE, datePreset, endDate, page, showToast, startDate]);
 
     useEffect(() => { setTimeout(() => fetchLogs(), 0); }, [fetchLogs]);
 
-    const filteredLogs = useMemo(() => {
-        if (datePreset === 'all') return logs;
-        return logs.filter((log) => {
-            if (!log.check_in_time) return false;
-            const d = new Date(log.check_in_time);
-            const y = d.getFullYear();
-            const m = String(d.getMonth() + 1).padStart(2, '0');
-            const day = String(d.getDate()).padStart(2, '0');
-            const checkInDate = `${y}-${m}-${day}`;
-            return checkInDate >= startDate && checkInDate <= endDate;
-        });
-    }, [logs, startDate, endDate, datePreset]);
+    const filteredLogs = logs;
+    const totalPages = Math.max(1, Math.ceil(totalLogs / PAGE_SIZE));
 
     const applyPreset = (preset: 'all' | 'today' | '7d' | '30d' | 'custom') => {
+        setPage(1);
         setDatePreset(preset);
         if (preset === 'custom' || preset === 'all') return;
 
@@ -161,6 +162,7 @@ export default function AttendancePage() {
                             className="input-dark"
                             value={startDate}
                             onChange={(e) => {
+                                setPage(1);
                                 setDatePreset('custom');
                                 setStartDate(e.target.value);
                                 if (e.target.value > endDate) setEndDate(e.target.value);
@@ -175,6 +177,7 @@ export default function AttendancePage() {
                             value={endDate}
                             min={startDate}
                             onChange={(e) => {
+                                setPage(1);
                                 setDatePreset('custom');
                                 setEndDate(e.target.value);
                             }}
@@ -184,6 +187,10 @@ export default function AttendancePage() {
             </div>
 
             <div className="chart-card overflow-hidden !p-0">
+                <div className="px-4 py-3 border-b border-border flex items-center justify-between">
+                    <span className="text-xs text-muted-foreground">Total records: {totalLogs}</span>
+                    <span className="text-xs text-muted-foreground">Page {page} of {totalPages}</span>
+                </div>
                 <div className="overflow-x-auto">
                     <table className="w-full text-left table-dark min-w-[600px]">
                         <thead>
@@ -231,6 +238,22 @@ export default function AttendancePage() {
                             ))}
                         </tbody>
                     </table>
+                </div>
+                <div className="px-4 py-3 border-t border-border flex justify-end gap-2">
+                    <button
+                        className="btn-ghost !px-2 !py-1 text-xs"
+                        disabled={page <= 1}
+                        onClick={() => setPage((prev) => Math.max(1, prev - 1))}
+                    >
+                        Previous
+                    </button>
+                    <button
+                        className="btn-ghost !px-2 !py-1 text-xs"
+                        disabled={page >= totalPages}
+                        onClick={() => setPage((prev) => Math.min(totalPages, prev + 1))}
+                    >
+                        Next
+                    </button>
                 </div>
             </div>
         </div>

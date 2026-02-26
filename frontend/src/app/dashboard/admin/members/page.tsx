@@ -217,8 +217,6 @@ export default function MembersPage() {
 
     useEffect(() => {
         setTimeout(() => fetchMembers(), 0);
-        const intervalId = window.setInterval(() => { fetchMembers(); }, 15000);
-        return () => window.clearInterval(intervalId);
     }, []);
 
     useEffect(() => {
