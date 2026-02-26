@@ -800,11 +800,11 @@ async def list_attendance(
         stmt = stmt.where(AttendanceLog.user_id == user_id)
         count_stmt = count_stmt.where(AttendanceLog.user_id == user_id)
     if start_date:
-        stmt = stmt.where(func.date(AttendanceLog.check_in_time) >= start_date.isoformat())
-        count_stmt = count_stmt.where(func.date(AttendanceLog.check_in_time) >= start_date.isoformat())
+        stmt = stmt.where(func.date(AttendanceLog.check_in_time) >= start_date)
+        count_stmt = count_stmt.where(func.date(AttendanceLog.check_in_time) >= start_date)
     if end_date:
-        stmt = stmt.where(func.date(AttendanceLog.check_in_time) <= end_date.isoformat())
-        count_stmt = count_stmt.where(func.date(AttendanceLog.check_in_time) <= end_date.isoformat())
+        stmt = stmt.where(func.date(AttendanceLog.check_in_time) <= end_date)
+        count_stmt = count_stmt.where(func.date(AttendanceLog.check_in_time) <= end_date)
     total_result = await db.execute(count_stmt)
     response.headers["X-Total-Count"] = str(int(total_result.scalar() or 0))
     stmt = stmt.offset(offset).limit(limit)

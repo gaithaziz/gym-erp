@@ -9,6 +9,11 @@ interface Plan {
     name: string;
 }
 
+interface DietPlanSummary {
+    id: string;
+    name: string;
+}
+
 interface WorkoutLog {
     id: string;
     member_id: string;
@@ -23,6 +28,7 @@ interface DietFeedbackRow {
     id: string;
     member_id: string;
     diet_plan_id: string;
+    diet_plan_name?: string | null;
     rating: number;
     comment: string | null;
     created_at: string;
@@ -39,6 +45,7 @@ interface GymFeedbackRow {
 
 export default function FeedbackPage() {
     const [plans, setPlans] = useState<Plan[]>([]);
+    const [dietPlans, setDietPlans] = useState<DietPlanSummary[]>([]);
     const [selectedPlan, setSelectedPlan] = useState('');
     const [logs, setLogs] = useState<WorkoutLog[]>([]);
     const [dietFeedback, setDietFeedback] = useState<DietFeedbackRow[]>([]);
@@ -50,8 +57,12 @@ export default function FeedbackPage() {
     useEffect(() => {
         const fetchPlans = async () => {
             try {
-                const res = await api.get('/fitness/plans');
-                setPlans(res.data.data);
+                const [workoutRes, dietRes] = await Promise.all([
+                    api.get('/fitness/plans'),
+                    api.get('/fitness/diet-summaries').catch(() => api.get('/fitness/diets')),
+                ]);
+                setPlans(workoutRes.data.data || []);
+                setDietPlans(dietRes.data.data || []);
             } catch (err) { console.error(err); }
             setLoading(false);
         };
@@ -82,6 +93,11 @@ export default function FeedbackPage() {
     };
 
     const workoutRows = useMemo(() => logs.filter((row) => !minRating || (row.difficulty_rating || 0) >= minRating), [logs, minRating]);
+    const dietPlanNameById = useMemo(() => {
+        const map = new Map<string, string>();
+        dietPlans.forEach((plan) => map.set(plan.id, plan.name));
+        return map;
+    }, [dietPlans]);
 
     const renderStars = (rating: number | null) => {
         if (!rating) return <span className="text-[#333] text-xs">No rating</span>;
@@ -188,7 +204,9 @@ export default function FeedbackPage() {
                         dietFeedback.map((row) => (
                             <div key={row.id} className="kpi-card">
                                 <div className="flex justify-between items-start mb-3">
-                                    <span className="text-xs text-muted-foreground font-mono">Plan: {row.diet_plan_id}</span>
+                                    <span className="text-xs text-muted-foreground font-mono">
+                                        Plan: {row.diet_plan_name || dietPlanNameById.get(row.diet_plan_id) || row.diet_plan_id}
+                                    </span>
                                     <span className="text-xs text-muted-foreground">
                                         {new Date(row.created_at).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' })}
                                     </span>

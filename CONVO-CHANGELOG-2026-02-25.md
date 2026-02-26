@@ -469,3 +469,15 @@
   - `python -m compileall app/routers` passed after backend edits.
 - Frontend:
   - `npm run lint` now passes with no errors/warnings after cleanup.
+
+## 37) Coach Feedback UX Fix: Diet Plan Name Instead of UUID
+- Reported issue:
+  - Diet feedback cards on coach feedback page displayed raw `diet_plan_id` UUIDs in the `Plan:` label.
+- Implemented fix:
+  - Coach feedback page now loads diet plans (`/fitness/diet-summaries` with fallback to `/fitness/diets`).
+  - Added an `id -> name` lookup map for diet plans.
+  - Diet feedback cards now display `Plan: <diet name>` and only fall back to UUID when name cannot be resolved.
+- File changed:
+  - `frontend/src/app/dashboard/coach/feedback/page.tsx`
+- Validation:
+  - `npx eslint src/app/dashboard/coach/feedback/page.tsx` passed.

@@ -1708,6 +1708,7 @@ class DietFeedbackResponse(BaseModel):
     id: uuid.UUID
     member_id: uuid.UUID
     diet_plan_id: uuid.UUID
+    diet_plan_name: str | None = None
     coach_id: uuid.UUID | None
     rating: int
     comment: str | None
@@ -1937,7 +1938,7 @@ async def list_diet_feedback(
     limit: int = Query(100, ge=1, le=500),
     offset: int = Query(0, ge=0),
 ):
-    stmt = select(DietFeedback).join(DietPlan, DietFeedback.diet_plan_id == DietPlan.id)
+    stmt = select(DietFeedback, DietPlan.name).join(DietPlan, DietFeedback.diet_plan_id == DietPlan.id)
     if current_user.role == Role.COACH:
         stmt = stmt.where(DietPlan.creator_id == current_user.id)
     if diet_plan_id:
@@ -1950,8 +1951,13 @@ async def list_diet_feedback(
     stmt = stmt.order_by(DietFeedback.created_at.desc()).offset(offset).limit(limit)
 
     result = await db.execute(stmt)
-    rows = result.scalars().all()
-    return StandardResponse(data=[DietFeedbackResponse.model_validate(row) for row in rows])
+    rows = result.all()
+    data: list[DietFeedbackResponse] = []
+    for feedback, diet_name in rows:
+        payload = DietFeedbackResponse.model_validate(feedback).model_dump()
+        payload["diet_plan_name"] = diet_name
+        data.append(DietFeedbackResponse(**payload))
+    return StandardResponse(data=data)
 
 
 @router.post("/gym-feedback", response_model=StandardResponse)
