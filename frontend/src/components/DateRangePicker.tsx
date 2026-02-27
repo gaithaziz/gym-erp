@@ -1,10 +1,10 @@
 'use client';
 
 import * as React from 'react';
-import { format } from 'date-fns';
 import { Calendar as CalendarIcon } from 'lucide-react';
 import { DayPicker, DateRange } from 'react-day-picker';
 import 'react-day-picker/dist/style.css';
+import { useLocale } from '@/context/LocaleContext';
 
 interface DateRangePickerProps {
     date: DateRange | undefined;
@@ -17,6 +17,7 @@ export function DateRangePicker({
     setDate,
     className,
 }: DateRangePickerProps) {
+    const { direction, locale, formatDate } = useLocale();
     const [isOpen, setIsOpen] = React.useState(false);
     const pickerId = React.useId();
     const buttonId = `${pickerId}-button`;
@@ -35,8 +36,11 @@ export function DateRangePicker({
         return () => document.removeEventListener('keydown', handleEscape);
     }, [isOpen]);
 
+    const fromLabel = date?.from ? formatDate(date.from, { month: 'short', day: '2-digit', year: 'numeric' }) : '';
+    const toLabel = date?.to ? formatDate(date.to, { month: 'short', day: '2-digit', year: 'numeric' }) : '';
+
     return (
-        <div className={`relative inline-block text-left ${className || ''}`}>
+        <div className={`relative inline-block ${direction === 'rtl' ? 'text-right' : 'text-left'} ${className || ''}`}>
             <div>
                 <button
                     onClick={() => setIsOpen(!isOpen)}
@@ -51,14 +55,13 @@ export function DateRangePicker({
                         {date?.from ? (
                             date.to ? (
                                 <>
-                                    {format(date.from, 'LLL dd, y')} -{' '}
-                                    {format(date.to, 'LLL dd, y')}
+                                    {fromLabel} - {toLabel}
                                 </>
                             ) : (
-                                format(date.from, 'LLL dd, y')
+                                fromLabel
                             )
                         ) : (
-                            <span>Pick a date range</span>
+                            <span>{locale === 'ar' ? 'اختر نطاق التاريخ' : 'Pick a date range'}</span>
                         )}
                     </span>
                 </button>
@@ -67,7 +70,7 @@ export function DateRangePicker({
             {isOpen && (
                 <div
                     id={popupId}
-                    className="origin-top-right absolute z-50 mt-2 w-auto rounded-none shadow-lg bg-card ring-1 ring-black ring-opacity-5 focus:outline-none border border-border p-2"
+                    className={`absolute z-50 mt-2 w-auto rounded-none shadow-lg bg-card ring-1 ring-black ring-opacity-5 focus:outline-none border border-border p-2 ${direction === 'rtl' ? 'origin-top-left left-0' : 'origin-top-right right-0'}`}
                     role="dialog"
                     aria-modal="false"
                     aria-labelledby={buttonId}
@@ -78,6 +81,7 @@ export function DateRangePicker({
                         selected={date}
                         onSelect={setDate}
                         numberOfMonths={2}
+                        dir={direction}
                         styles={{
                             caption: { color: 'var(--foreground)', fontFamily: 'var(--font-serif)' },
                             head_cell: { color: 'var(--muted-foreground)', fontFamily: 'var(--font-mono)' },

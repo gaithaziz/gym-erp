@@ -9,6 +9,7 @@ import Modal from '@/components/Modal';
 import { useFeedback } from '@/components/FeedbackProvider';
 import { resolveProfileImageUrl } from '@/lib/profileImage';
 import { downloadBlob } from '@/lib/download';
+import { useLocale } from '@/context/LocaleContext';
 
 interface StaffMember {
     id: string;
@@ -35,14 +36,6 @@ type StaffRoleFilter = 'ALL' | StaffRole;
 
 const STAFF_ROLES: StaffRole[] = ['COACH', 'EMPLOYEE', 'CASHIER', 'RECEPTION', 'FRONT_DESK'];
 
-const ROLE_LABELS: Record<StaffRole, string> = {
-    COACH: 'Coach',
-    EMPLOYEE: 'Employee',
-    CASHIER: 'Cashier',
-    RECEPTION: 'Reception',
-    FRONT_DESK: 'Front Desk',
-};
-
 const todayDateInput = () => new Date().toISOString().split('T')[0];
 
 const defaultAddForm = {
@@ -63,6 +56,7 @@ const defaultEditForm = {
 };
 
 export default function StaffPage() {
+    const { locale, formatDate, formatNumber } = useLocale();
     const { showToast } = useFeedback();
     const router = useRouter();
     const [staff, setStaff] = useState<StaffMember[]>([]);
@@ -79,6 +73,143 @@ export default function StaffPage() {
     const [payrollResult, setPayrollResult] = useState<any>(null); // eslint-disable-line @typescript-eslint/no-explicit-any
 
     const [failedImageUrls, setFailedImageUrls] = useState<Record<string, true>>({});
+    const txt = locale === 'ar'
+        ? {
+            coach: 'مدرب',
+            employee: 'موظف',
+            cashier: 'كاشير',
+            reception: 'استقبال',
+            frontDesk: 'مكتب أمامي',
+            failedCreate: 'فشل في إنشاء موظف.',
+            failedUpdate: 'فشل في تحديث العقد.',
+            failedGeneratePayroll: 'فشل في إنشاء مسير الرواتب.',
+            failedPayslip: 'فشل في تنزيل قسيمة الراتب',
+            title: 'إدارة الموظفين',
+            subtitle: 'موظفون',
+            of: 'من',
+            allRoles: 'كل الأدوار',
+            addNew: 'إضافة موظف جديد',
+            name: 'الاسم',
+            role: 'الدور',
+            contract: 'العقد',
+            salary: 'الراتب',
+            actions: 'الإجراءات',
+            noStaff: 'لا يوجد موظفون بعد',
+            noContract: 'بدون عقد',
+            viewProfile: 'عرض الملف',
+            view: 'عرض',
+            edit: 'تعديل',
+            payroll: 'الرواتب',
+            addModal: 'إضافة موظف جديد',
+            fullName: 'الاسم الكامل',
+            email: 'البريد الإلكتروني',
+            contractType: 'نوع العقد',
+            fullTime: 'دوام كامل',
+            partTime: 'دوام جزئي',
+            hybrid: 'هجين',
+            contractor: 'متعاقد',
+            baseSalary: 'الراتب الأساسي (JOD)',
+            commission: 'العمولة (0-1)',
+            cancel: 'إلغاء',
+            saveStaff: 'حفظ الموظف',
+            editContract: 'تعديل العقد - ',
+            fullTimeInfo: 'دوام كامل',
+            fullTimeInfoDesc: 'قم بضبط تفاصيل عقد الدوام الكامل باستخدام التاريخ والأجر بالساعة.',
+            startDate: 'تاريخ البدء',
+            endDateOptional: 'تاريخ الانتهاء (اختياري)',
+            moneyPerHour: 'الأجر لكل ساعة (JOD)',
+            standardHours: 'الساعات القياسية / شهر',
+            updateContract: 'تحديث العقد',
+            generatePayroll: 'إنشاء مسير الرواتب - ',
+            month: 'الشهر',
+            year: 'السنة',
+            salesVolume: 'حجم المبيعات (JOD)',
+            salesPlaceholder: 'أدخل المبيعات لحساب العمولة...',
+            generate: 'إنشاء',
+            payrollGenerated: 'تم إنشاء مسير الرواتب بنجاح',
+            basePay: 'الأجر الأساسي',
+            overtimePay: 'أجر العمل الإضافي',
+            close: 'إغلاق',
+            downloadSlip: 'تنزيل القسيمة',
+            currency: 'دينار',
+            commissionShort: 'عمولة',
+            fullTimeContract: 'دوام كامل',
+            partTimeContract: 'دوام جزئي',
+            hybridContract: 'هجين',
+            contractorContract: 'متعاقد',
+        }
+        : {
+            coach: 'Coach',
+            employee: 'Employee',
+            cashier: 'Cashier',
+            reception: 'Reception',
+            frontDesk: 'Front Desk',
+            failedCreate: 'Failed to create staff member.',
+            failedUpdate: 'Failed to update contract.',
+            failedGeneratePayroll: 'Failed to generate payroll.',
+            failedPayslip: 'Failed to download payslip',
+            title: 'Staff Management',
+            subtitle: 'staff members',
+            of: 'of',
+            allRoles: 'All Roles',
+            addNew: 'Add New Staff',
+            name: 'Name',
+            role: 'Role',
+            contract: 'Contract',
+            salary: 'Salary',
+            actions: 'Actions',
+            noStaff: 'No staff members yet',
+            noContract: 'No Contract',
+            viewProfile: 'View Profile',
+            view: 'View',
+            edit: 'Edit',
+            payroll: 'Payroll',
+            addModal: 'Add New Staff Member',
+            fullName: 'Full Name',
+            email: 'Email',
+            contractType: 'Contract',
+            fullTime: 'Full Time',
+            partTime: 'Part Time',
+            hybrid: 'Hybrid',
+            contractor: 'Contractor',
+            baseSalary: 'Base Salary (JOD)',
+            commission: 'Commission (0-1)',
+            cancel: 'Cancel',
+            saveStaff: 'Save Staff',
+            editContract: 'Edit Contract - ',
+            fullTimeInfo: 'Full Time',
+            fullTimeInfoDesc: 'Configure full-time contract details using date and hourly pay.',
+            startDate: 'Start Date',
+            endDateOptional: 'End Date (Optional)',
+            moneyPerHour: 'Money Per Hour (JOD)',
+            standardHours: 'Standard Hours / Month',
+            updateContract: 'Update Contract',
+            generatePayroll: 'Generate Payroll — ',
+            month: 'Month',
+            year: 'Year',
+            salesVolume: 'Sales Volume (JOD)',
+            salesPlaceholder: 'Enter sales for commission...',
+            generate: 'Generate',
+            payrollGenerated: 'Payroll Generated Successfully',
+            basePay: 'Base Pay',
+            overtimePay: 'Overtime Pay',
+            close: 'Close',
+            downloadSlip: 'Download Slip',
+            currency: 'JOD',
+            commissionShort: 'Comm.',
+            fullTimeContract: 'FULL_TIME',
+            partTimeContract: 'PART_TIME',
+            hybridContract: 'HYBRID',
+            contractorContract: 'CONTRACTOR',
+        };
+
+    const roleLabelsLocalized: Record<StaffRole, string> = {
+        COACH: txt.coach,
+        EMPLOYEE: txt.employee,
+        CASHIER: txt.cashier,
+        RECEPTION: txt.reception,
+        FRONT_DESK: txt.frontDesk,
+    };
     const filteredStaff = useMemo(() => {
         if (roleFilter === 'ALL') return staff;
         return staff.filter((member) => member.role === roleFilter);
@@ -113,6 +244,20 @@ export default function StaffPage() {
                 return 'badge-gray';
             default:
                 return 'badge-amber';
+        }
+    };
+    const contractTypeLabel = (contractType?: string | null) => {
+        switch (contractType) {
+            case 'FULL_TIME':
+                return txt.fullTimeContract;
+            case 'PART_TIME':
+                return txt.partTimeContract;
+            case 'HYBRID':
+                return txt.hybridContract;
+            case 'CONTRACTOR':
+                return txt.contractorContract;
+            default:
+                return txt.noContract;
         }
     };
 
@@ -155,7 +300,7 @@ export default function StaffPage() {
             fetchStaff();
         } catch (err) {
             console.error(err);
-            showToast('Failed to create staff member.', 'error');
+            showToast(txt.failedCreate, 'error');
         }
     };
 
@@ -196,7 +341,7 @@ export default function StaffPage() {
             fetchStaff();
         } catch (err) {
             console.error(err);
-            showToast('Failed to update contract.', 'error');
+            showToast(txt.failedUpdate, 'error');
         }
     };
 
@@ -218,7 +363,7 @@ export default function StaffPage() {
             setPayrollResult(res.data.data);
         } catch (err) {
             console.error(err);
-            showToast('Failed to generate payroll.', 'error');
+            showToast(txt.failedGeneratePayroll, 'error');
         }
     };
 
@@ -227,7 +372,7 @@ export default function StaffPage() {
             const res = await api.get(`/hr/payroll/${payrollId}/payslip/export-pdf`, { responseType: 'blob' });
             downloadBlob(res.data as Blob, `payslip_${payrollId.slice(0, 8).toUpperCase()}.pdf`);
         } catch {
-            showToast('Failed to download payslip', 'error');
+            showToast(txt.failedPayslip, 'error');
         }
     };
 
@@ -241,18 +386,18 @@ export default function StaffPage() {
         <div className="space-y-8">
             <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
                 <div>
-                    <h1 className="text-2xl font-bold text-foreground">Staff Management</h1>
-                    <p className="text-sm text-muted-foreground mt-1">{filteredStaff.length} of {staff.length} staff members</p>
+                    <h1 className="text-2xl font-bold text-foreground">{txt.title}</h1>
+                    <p className="text-sm text-muted-foreground mt-1">{filteredStaff.length} {txt.of} {staff.length} {txt.subtitle}</p>
                 </div>
                 <div className="flex items-center gap-3 w-full sm:w-auto">
                     <select className="input-dark min-w-[180px]" value={roleFilter} onChange={(e) => setRoleFilter(e.target.value as StaffRoleFilter)}>
-                        <option value="ALL">All Roles</option>
+                        <option value="ALL">{txt.allRoles}</option>
                         {STAFF_ROLES.map((role) => (
-                            <option key={role} value={role}>{ROLE_LABELS[role]}</option>
+                            <option key={role} value={role}>{roleLabelsLocalized[role]}</option>
                         ))}
                     </select>
                     <button onClick={() => setIsAddOpen(true)} className="btn-primary whitespace-nowrap">
-                        <Plus size={18} /> Add New Staff
+                        <Plus size={18} /> {txt.addNew}
                     </button>
                 </div>
             </div>
@@ -263,16 +408,16 @@ export default function StaffPage() {
                     <table className="w-full text-left table-dark min-w-[600px]">
                         <thead>
                             <tr>
-                                <th>Name</th>
-                                <th>Role</th>
-                                <th>Contract</th>
-                                <th>Salary</th>
-                                <th className="text-center">Actions</th>
+                                <th>{txt.name}</th>
+                                <th>{txt.role}</th>
+                                <th>{txt.contract}</th>
+                                <th>{txt.salary}</th>
+                                <th className="text-center">{txt.actions}</th>
                             </tr>
                         </thead>
                         <tbody>
                             {filteredStaff.length === 0 && (
-                                <tr><td colSpan={5} className="text-center py-8 text-muted-foreground text-sm">No staff members yet</td></tr>
+                                <tr><td colSpan={5} className="text-center py-8 text-muted-foreground text-sm">{txt.noStaff}</td></tr>
                             )}
                             {filteredStaff.map((member) => (
                                 <tr key={member.id}>
@@ -298,34 +443,34 @@ export default function StaffPage() {
                                     </td>
                                     <td>
                                         <span className={`badge ${getRoleBadgeClass(member.role)}`}>
-                                            {ROLE_LABELS[member.role as StaffRole] || member.role}
+                                            {roleLabelsLocalized[member.role as StaffRole] || member.role}
                                         </span>
                                     </td>
                                     <td>
                                         <span className={`badge ${getContractBadgeClass(member.contract?.type)}`}>
-                                            {member.contract ? member.contract.type : 'No Contract'}
+                                            {contractTypeLabel(member.contract?.type)}
                                         </span>
                                     </td>
                                     <td className="font-mono text-sm text-foreground">
                                         {member.contract ? (
                                             <div>
-                                                <div>{member.contract.base_salary.toLocaleString()} JOD</div>
+                                                <div>{formatNumber(member.contract.base_salary)} {txt.currency}</div>
                                                 {member.contract.commission_rate > 0 && (
-                                                    <div className="text-emerald-500 text-xs">+{(member.contract.commission_rate * 100).toFixed(0)}% Comm.</div>
+                                                    <div className="text-emerald-500 text-xs">+{(member.contract.commission_rate * 100).toFixed(0)}% {txt.commissionShort}</div>
                                                 )}
                                             </div>
                                         ) : '-'}
                                     </td>
                                     <td>
                                         <div className="flex items-center justify-center gap-2">
-                                            <button onClick={() => openView(member)} className="flex items-center gap-1 text-emerald-400 hover:text-emerald-300 text-xs font-medium px-2 py-1 rounded-lg hover:bg-emerald-400/10 transition-colors" title="View Profile">
-                                                <Eye size={13} /> View
+                                            <button onClick={() => openView(member)} className="flex items-center gap-1 text-emerald-400 hover:text-emerald-300 text-xs font-medium px-2 py-1 rounded-lg hover:bg-emerald-400/10 transition-colors" title={txt.viewProfile}>
+                                                <Eye size={13} /> {txt.view}
                                             </button>
                                             <button onClick={() => openEdit(member)} className="flex items-center gap-1 text-primary hover:text-primary/80 text-xs font-medium px-2 py-1 rounded-lg hover:bg-primary/10 transition-colors">
-                                                <Pencil size={13} /> Edit
+                                                <Pencil size={13} /> {txt.edit}
                                             </button>
                                             <button onClick={() => openPayroll(member)} className="flex items-center gap-1 text-emerald-500 hover:text-emerald-400 text-xs font-medium px-2 py-1 rounded-lg hover:bg-emerald-500/10 transition-colors">
-                                                <Calculator size={13} /> Payroll
+                                                <Calculator size={13} /> {txt.payroll}
                                             </button>
                                         </div>
                                     </td>
@@ -337,7 +482,7 @@ export default function StaffPage() {
 
                 <div className="md:hidden divide-y divide-border">
                     {filteredStaff.length === 0 && (
-                        <div className="px-4 py-8 text-center text-sm text-muted-foreground">No staff members yet</div>
+                        <div className="px-4 py-8 text-center text-sm text-muted-foreground">{txt.noStaff}</div>
                     )}
                     {filteredStaff.map((member) => (
                         <div key={member.id} className="p-4">
@@ -361,36 +506,36 @@ export default function StaffPage() {
                                     </div>
                                 </div>
                                 <span className={`badge ${getRoleBadgeClass(member.role)}`}>
-                                    {ROLE_LABELS[member.role as StaffRole] || member.role}
+                                    {roleLabelsLocalized[member.role as StaffRole] || member.role}
                                 </span>
                             </div>
 
                             <div className="mt-3 grid grid-cols-2 gap-2 text-xs">
                                 <div className="rounded-sm border border-border bg-muted/20 p-2">
-                                    <p className="text-muted-foreground">Contract</p>
+                                    <p className="text-muted-foreground">{txt.contract}</p>
                                     <div className="mt-1">
                                         <span className={`badge ${getContractBadgeClass(member.contract?.type)}`}>
-                                            {member.contract ? member.contract.type : 'No Contract'}
+                                            {contractTypeLabel(member.contract?.type)}
                                         </span>
                                     </div>
                                 </div>
                                 <div className="rounded-sm border border-border bg-muted/20 p-2">
-                                    <p className="text-muted-foreground">Salary</p>
+                                    <p className="text-muted-foreground">{txt.salary}</p>
                                     <p className="mt-0.5 font-medium text-foreground">
-                                        {member.contract ? `${member.contract.base_salary.toLocaleString()} JOD` : '--'}
+                                        {member.contract ? `${formatNumber(member.contract.base_salary)} ${txt.currency}` : '--'}
                                     </p>
                                 </div>
                             </div>
 
                             <div className="mt-3 grid grid-cols-3 gap-2">
-                                <button onClick={() => openView(member)} className="btn-ghost !px-2 !py-2 h-auto text-xs text-emerald-400 hover:text-emerald-300 justify-center" title="View Profile">
-                                    <Eye size={13} /> View
+                                <button onClick={() => openView(member)} className="btn-ghost !px-2 !py-2 h-auto text-xs text-emerald-400 hover:text-emerald-300 justify-center" title={txt.viewProfile}>
+                                    <Eye size={13} /> {txt.view}
                                 </button>
                                 <button onClick={() => openEdit(member)} className="btn-ghost !px-2 !py-2 h-auto text-xs text-primary hover:text-primary/80 justify-center">
-                                    <Pencil size={13} /> Edit
+                                    <Pencil size={13} /> {txt.edit}
                                 </button>
                                 <button onClick={() => openPayroll(member)} className="btn-ghost !px-2 !py-2 h-auto text-xs text-emerald-500 hover:text-emerald-400 justify-center">
-                                    <Calculator size={13} /> Payroll
+                                    <Calculator size={13} /> {txt.payroll}
                                 </button>
                             </div>
                         </div>
@@ -399,62 +544,62 @@ export default function StaffPage() {
             </div>
 
             {/* ADD MODAL */}
-            <Modal isOpen={isAddOpen} onClose={() => setIsAddOpen(false)} title="Add New Staff Member">
+            <Modal isOpen={isAddOpen} onClose={() => setIsAddOpen(false)} title={txt.addModal}>
                 <form onSubmit={handleAdd} className="space-y-4">
                     <div>
-                        <label className="block text-xs font-medium text-muted-foreground mb-1.5">Full Name</label>
+                        <label className="block text-xs font-medium text-muted-foreground mb-1.5">{txt.fullName}</label>
                         <input type="text" required className="input-dark" value={addForm.full_name} onChange={e => setAddForm({ ...addForm, full_name: e.target.value })} />
                     </div>
                     <div>
-                        <label className="block text-xs font-medium text-muted-foreground mb-1.5">Email</label>
+                        <label className="block text-xs font-medium text-muted-foreground mb-1.5">{txt.email}</label>
                         <input type="email" required className="input-dark" value={addForm.email} onChange={e => setAddForm({ ...addForm, email: e.target.value })} />
                     </div>
                     <div className="grid grid-cols-2 gap-4">
                         <div>
-                            <label className="block text-xs font-medium text-muted-foreground mb-1.5">Role</label>
+                            <label className="block text-xs font-medium text-muted-foreground mb-1.5">{txt.role}</label>
                             <select className="input-dark" value={addForm.role} onChange={e => setAddForm({ ...addForm, role: e.target.value })}>
                                 {STAFF_ROLES.map((role) => (
-                                    <option key={role} value={role}>{ROLE_LABELS[role]}</option>
+                                    <option key={role} value={role}>{roleLabelsLocalized[role]}</option>
                                 ))}
                             </select>
                         </div>
                         <div>
-                            <label className="block text-xs font-medium text-muted-foreground mb-1.5">Contract</label>
+                            <label className="block text-xs font-medium text-muted-foreground mb-1.5">{txt.contractType}</label>
                             <select className="input-dark" value={addForm.contract_type} onChange={e => setAddForm({ ...addForm, contract_type: e.target.value })}>
-                                <option value="FULL_TIME">Full Time</option>
-                                <option value="PART_TIME">Part Time</option>
-                                <option value="HYBRID">Hybrid</option>
-                                <option value="CONTRACTOR">Contractor</option>
+                                <option value="FULL_TIME">{txt.fullTime}</option>
+                                <option value="PART_TIME">{txt.partTime}</option>
+                                <option value="HYBRID">{txt.hybrid}</option>
+                                <option value="CONTRACTOR">{txt.contractor}</option>
                             </select>
                         </div>
                     </div>
                     <div className="grid grid-cols-2 gap-4">
                         <div>
-                            <label className="block text-xs font-medium text-muted-foreground mb-1.5">Base Salary (JOD)</label>
+                            <label className="block text-xs font-medium text-muted-foreground mb-1.5">{txt.baseSalary}</label>
                             <input type="number" className="input-dark" value={addForm.base_salary} onChange={e => setAddForm({ ...addForm, base_salary: Number(e.target.value) })} />
                         </div>
                         <div>
-                            <label className="block text-xs font-medium text-muted-foreground mb-1.5">Commission (0-1)</label>
+                            <label className="block text-xs font-medium text-muted-foreground mb-1.5">{txt.commission}</label>
                             <input type="number" step="0.01" max="1" className="input-dark" value={addForm.commission_rate} onChange={e => setAddForm({ ...addForm, commission_rate: Number(e.target.value) })} />
                         </div>
                     </div>
                     <div className="flex justify-end gap-3 pt-4 border-t border-border">
-                        <button type="button" onClick={() => setIsAddOpen(false)} className="btn-ghost">Cancel</button>
-                        <button type="submit" className="btn-primary"><Save size={16} /> Save Staff</button>
+                        <button type="button" onClick={() => setIsAddOpen(false)} className="btn-ghost">{txt.cancel}</button>
+                        <button type="submit" className="btn-primary"><Save size={16} /> {txt.saveStaff}</button>
                     </div>
                 </form>
             </Modal>
 
             {/* EDIT MODAL */}
-            <Modal isOpen={isEditOpen} onClose={() => setIsEditOpen(false)} title={`Edit Contract - ${editTarget?.full_name}`}>
+            <Modal isOpen={isEditOpen} onClose={() => setIsEditOpen(false)} title={`${txt.editContract}${editTarget?.full_name || ''}`}>
                 <form onSubmit={handleEdit} className="space-y-4">
                     <div className="rounded-sm border border-primary/30 bg-primary/10 p-3">
-                        <p className="text-xs font-semibold text-primary uppercase tracking-wide">Full Time</p>
-                        <p className="text-sm text-foreground mt-1">Configure full-time contract details using date and hourly pay.</p>
+                        <p className="text-xs font-semibold text-primary uppercase tracking-wide">{txt.fullTimeInfo}</p>
+                        <p className="text-sm text-foreground mt-1">{txt.fullTimeInfoDesc}</p>
                     </div>
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                         <div>
-                            <label className="block text-xs font-medium text-muted-foreground mb-1.5">Start Date</label>
+                            <label className="block text-xs font-medium text-muted-foreground mb-1.5">{txt.startDate}</label>
                             <input
                                 type="date"
                                 className="input-dark"
@@ -464,7 +609,7 @@ export default function StaffPage() {
                             />
                         </div>
                         <div>
-                            <label className="block text-xs font-medium text-muted-foreground mb-1.5">End Date (Optional)</label>
+                            <label className="block text-xs font-medium text-muted-foreground mb-1.5">{txt.endDateOptional}</label>
                             <input
                                 type="date"
                                 className="input-dark"
@@ -476,7 +621,7 @@ export default function StaffPage() {
                     </div>
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                         <div>
-                            <label className="block text-xs font-medium text-muted-foreground mb-1.5">Money Per Hour (JOD)</label>
+                            <label className="block text-xs font-medium text-muted-foreground mb-1.5">{txt.moneyPerHour}</label>
                             <input
                                 type="number"
                                 step="0.01"
@@ -488,7 +633,7 @@ export default function StaffPage() {
                             />
                         </div>
                         <div>
-                            <label className="block text-xs font-medium text-muted-foreground mb-1.5">Standard Hours / Month</label>
+                            <label className="block text-xs font-medium text-muted-foreground mb-1.5">{txt.standardHours}</label>
                             <input
                                 type="number"
                                 min="1"
@@ -499,60 +644,60 @@ export default function StaffPage() {
                         </div>
                     </div>
                     <div className="flex justify-end gap-3 pt-4 border-t border-border">
-                        <button type="button" onClick={() => setIsEditOpen(false)} className="btn-ghost">Cancel</button>
-                        <button type="submit" className="btn-primary"><Save size={16} /> Update Contract</button>
+                        <button type="button" onClick={() => setIsEditOpen(false)} className="btn-ghost">{txt.cancel}</button>
+                        <button type="submit" className="btn-primary"><Save size={16} /> {txt.updateContract}</button>
                     </div>
                 </form>
             </Modal>
             {/* PAYROLL MODAL */}
-            <Modal isOpen={isPayrollOpen} onClose={() => { setIsPayrollOpen(false); setPayrollResult(null); }} title={`Generate Payroll — ${payrollTarget?.full_name}`}>
+            <Modal isOpen={isPayrollOpen} onClose={() => { setIsPayrollOpen(false); setPayrollResult(null); }} title={`${txt.generatePayroll}${payrollTarget?.full_name || ''}`}>
                 {!payrollResult ? (
                     <form onSubmit={handlePayroll} className="space-y-4">
                         <div className="grid grid-cols-2 gap-4">
                             <div>
-                                <label className="block text-xs font-medium text-muted-foreground mb-1.5">Month</label>
+                                <label className="block text-xs font-medium text-muted-foreground mb-1.5">{txt.month}</label>
                                 <select className="input-dark" value={payrollForm.month} onChange={e => setPayrollForm({ ...payrollForm, month: Number(e.target.value) })}>
                                     {[...Array(12)].map((_, i) => (
-                                        <option key={i + 1} value={i + 1}>{new Date(2024, i).toLocaleString('default', { month: 'long' })}</option>
+                                        <option key={i + 1} value={i + 1}>{formatDate(new Date(2024, i, 1), { month: 'long' })}</option>
                                     ))}
                                 </select>
                             </div>
                             <div>
-                                <label className="block text-xs font-medium text-muted-foreground mb-1.5">Year</label>
+                                <label className="block text-xs font-medium text-muted-foreground mb-1.5">{txt.year}</label>
                                 <input type="number" className="input-dark" value={payrollForm.year} onChange={e => setPayrollForm({ ...payrollForm, year: Number(e.target.value) })} />
                             </div>
                         </div>
                         {payrollTarget?.contract?.type === 'HYBRID' && (
                             <div>
-                                <label className="block text-xs font-medium text-muted-foreground mb-1.5">Sales Volume (JOD)</label>
-                                <input type="number" step="0.01" className="input-dark" value={payrollForm.sales_volume} onChange={e => setPayrollForm({ ...payrollForm, sales_volume: Number(e.target.value) })} placeholder="Enter sales for commission..." />
+                                <label className="block text-xs font-medium text-muted-foreground mb-1.5">{txt.salesVolume}</label>
+                                <input type="number" step="0.01" className="input-dark" value={payrollForm.sales_volume} onChange={e => setPayrollForm({ ...payrollForm, sales_volume: Number(e.target.value) })} placeholder={txt.salesPlaceholder} />
                             </div>
                         )}
                         <div className="flex justify-end gap-3 pt-4 border-t border-border">
-                            <button type="button" onClick={() => setIsPayrollOpen(false)} className="btn-ghost">Cancel</button>
-                            <button type="submit" className="btn-primary"><Calculator size={16} /> Generate</button>
+                            <button type="button" onClick={() => setIsPayrollOpen(false)} className="btn-ghost">{txt.cancel}</button>
+                            <button type="submit" className="btn-primary"><Calculator size={16} /> {txt.generate}</button>
                         </div>
                     </form>
                 ) : (
                     <div className="space-y-4">
                         <div className="rounded-xl p-4 text-center bg-emerald-500/10 border border-emerald-500/20">
-                            <p className="text-sm text-emerald-500 font-medium mb-1">Payroll Generated Successfully</p>
-                            <p className="text-3xl font-bold text-emerald-500">{payrollResult.total_pay?.toFixed(2)} JOD</p>
+                            <p className="text-sm text-emerald-500 font-medium mb-1">{txt.payrollGenerated}</p>
+                            <p className="text-3xl font-bold text-emerald-500">{payrollResult.total_pay?.toFixed(2)} {txt.currency}</p>
                         </div>
                         <div className="grid grid-cols-2 gap-3 text-sm">
                             <div className="rounded-lg p-3 bg-card border border-border">
-                                <p className="text-xs text-muted-foreground">Base Pay</p>
-                                <p className="font-mono font-semibold text-foreground">{payrollResult.base_pay?.toFixed(2)} JOD</p>
+                                <p className="text-xs text-muted-foreground">{txt.basePay}</p>
+                                <p className="font-mono font-semibold text-foreground">{payrollResult.base_pay?.toFixed(2)} {txt.currency}</p>
                             </div>
                             <div className="rounded-lg p-3 bg-card border border-border">
-                                <p className="text-xs text-muted-foreground">Overtime Pay</p>
-                                <p className="font-mono font-semibold text-foreground">{payrollResult.overtime_pay?.toFixed(2)} JOD</p>
+                                <p className="text-xs text-muted-foreground">{txt.overtimePay}</p>
+                                <p className="font-mono font-semibold text-foreground">{payrollResult.overtime_pay?.toFixed(2)} {txt.currency}</p>
                             </div>
                         </div>
                         <div className="grid grid-cols-2 gap-3 mt-4">
-                            <button onClick={() => { setIsPayrollOpen(false); setPayrollResult(null); }} className="btn-ghost w-full">Close</button>
+                            <button onClick={() => { setIsPayrollOpen(false); setPayrollResult(null); }} className="btn-ghost w-full">{txt.close}</button>
                             <button onClick={() => handlePrintPayslip(payrollResult.id)} className="btn-primary w-full flex items-center justify-center gap-2">
-                                <Download size={16} /> Download Slip
+                                <Download size={16} /> {txt.downloadSlip}
                             </button>
                         </div>
                     </div>

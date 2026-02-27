@@ -4,6 +4,7 @@
   --font-sans: var(--font-sans);
   --font-serif: var(--font-serif);
   --font-mono: var(--font-mono);
+  --font-arabic: var(--font-arabic);
 
   --color-background: var(--background);
   --color-foreground: var(--foreground);
@@ -130,6 +131,10 @@ body {
   color: var(--foreground);
   font-family: var(--font-serif);
   -webkit-font-smoothing: antialiased;
+}
+
+html[lang="ar"] body {
+  font-family: var(--font-arabic);
 }
 
 /* Utilities */
@@ -284,7 +289,9 @@ body {
 
 .field-icon {
   position: absolute;
-  left: 0.75rem;
+  inset-inline-start: 0.75rem;
+  left: auto;
+  right: auto;
   top: 50%;
   transform: translateY(-50%);
   color: var(--muted-foreground);
@@ -292,12 +299,12 @@ body {
 }
 
 .input-with-icon {
-  padding-left: 2.4rem !important;
+  padding-inline-start: 2.4rem !important;
 }
 
 .select-with-icon {
-  padding-left: 2.4rem !important;
-  padding-right: 2.25rem !important;
+  padding-inline-start: 2.4rem !important;
+  padding-inline-end: 2.25rem !important;
   appearance: none;
   -webkit-appearance: none;
   -moz-appearance: none;
@@ -325,8 +332,8 @@ body {
   background: var(--secondary);
   color: var(--primary);
   font-weight: 600;
-  border-left: 2px solid var(--primary);
-  /* Left border indicator instead of glow */
+  border-inline-start: 2px solid var(--primary);
+  /* Inline-start border indicator instead of glow */
 }
 
 /* Tables */

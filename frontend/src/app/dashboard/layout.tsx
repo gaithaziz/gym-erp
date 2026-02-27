@@ -22,15 +22,19 @@ import {
     ShoppingCart,
     ShieldAlert,
     LifeBuoy,
-    Activity
+    Activity,
+    type LucideIcon
 } from "lucide-react";
 import { MessageCircle } from "lucide-react";
 import { ThemeToggle } from "@/components/ThemeToggle";
+import { LanguageToggle } from "@/components/LanguageToggle";
 import { useEffect, useState } from 'react';
 import { resolveProfileImageUrl } from '@/lib/profileImage';
 import ChatDrawer from '@/components/chat/ChatDrawer';
 import { api } from '@/lib/api';
 import { useChatThreads } from '@/hooks/useChatThreads';
+import { useLocale } from '@/context/LocaleContext';
+import type { TranslationKey } from '@/lib/i18n/types';
 
 const BLOCKED_ALLOWED_ROUTES = ['/dashboard/subscription', '/dashboard/blocked', '/dashboard/support', '/dashboard/lost-found'];
 const BLOCKED_SUBSCRIPTION_STATUSES = new Set(['EXPIRED', 'FROZEN', 'NONE']);
@@ -40,6 +44,7 @@ export default function DashboardLayout({
 }: {
     children: React.ReactNode;
 }) {
+    const { t, direction } = useLocale();
     const { user, logout, isLoading } = useAuth();
     const router = useRouter();
     const pathname = usePathname();
@@ -167,7 +172,7 @@ export default function DashboardLayout({
             <div className="flex min-h-dvh items-center justify-center bg-background">
                 <div className="flex flex-col items-center gap-3">
                     <div className="h-10 w-10 animate-spin rounded-full border-4 border-primary border-t-transparent" />
-                    <p className="text-sm text-muted-foreground">Loading...</p>
+                    <p className="text-sm text-muted-foreground">{t('common.loading')}</p>
                 </div>
             </div>
         );
@@ -178,50 +183,56 @@ export default function DashboardLayout({
             <div className="flex min-h-dvh items-center justify-center bg-background">
                 <div className="flex flex-col items-center gap-3">
                     <div className="h-10 w-10 animate-spin rounded-full border-4 border-primary border-t-transparent" />
-                    <p className="text-sm text-muted-foreground">Redirecting...</p>
+                    <p className="text-sm text-muted-foreground">{t('common.redirecting')}</p>
                 </div>
             </div>
         );
     }
 
-    const navItems = [
-        { href: '/dashboard', label: 'Dashboard', icon: LayoutDashboard, roles: ['ADMIN', 'COACH', 'CUSTOMER', 'EMPLOYEE', 'CASHIER', 'RECEPTION', 'FRONT_DESK'], section: 'operations' },
-        { href: '/dashboard/admin/inventory', label: 'Inventory', icon: Package, roles: ['ADMIN'], section: 'operations' },
-        { href: '/dashboard/admin/pos', label: 'Cashier POS', icon: ShoppingCart, roles: ['ADMIN', 'CASHIER', 'EMPLOYEE'], section: 'operations' },
-        { href: '/dashboard/admin/notifications', label: 'WhatsApp Automation', icon: MessageSquare, roles: ['ADMIN', 'RECEPTION', 'FRONT_DESK'], section: 'operations' },
-        { href: '/dashboard/admin/entrance-qr', label: 'Entrance QR', icon: QrCode, roles: ['ADMIN'], section: 'operations' },
-        { href: '/dashboard/admin/support', label: 'Support Desk', icon: LifeBuoy, roles: ['ADMIN', 'RECEPTION'], section: 'operations' },
-        { href: '/dashboard/lost-found', label: 'Lost & Found', icon: MessageSquare, roles: ['ADMIN', 'MANAGER', 'FRONT_DESK', 'RECEPTION', 'COACH', 'EMPLOYEE', 'CASHIER', 'CUSTOMER'], section: 'operations' },
-        { href: '/dashboard/admin/audit', label: 'Audit Logs', icon: ShieldAlert, roles: ['ADMIN'], section: 'operations' },
-        { href: '/dashboard/admin/members', label: 'Reception/Registration', icon: UserCheck, roles: ['ADMIN', 'COACH', 'RECEPTION', 'FRONT_DESK'], section: 'people' },
-        { href: '/dashboard/admin/staff', label: 'Staff', icon: Users, roles: ['ADMIN'], section: 'people' },
-        { href: '/dashboard/admin/staff/attendance', label: 'Attendance', icon: ClipboardList, roles: ['ADMIN'], section: 'people' },
-        { href: '/dashboard/admin/leaves', label: 'HR Leaves', icon: ClipboardList, roles: ['ADMIN'], section: 'people' },
-        { href: '/dashboard/admin/finance', label: 'Financials', icon: Wallet, roles: ['ADMIN'], section: 'finance' },
-        { href: '/dashboard/coach/plans', label: 'Workout Plans', icon: Dumbbell, roles: ['ADMIN', 'COACH'], section: 'coaching' },
-        { href: '/dashboard/coach/diets', label: 'Diet Plans', icon: Utensils, roles: ['ADMIN', 'COACH'], section: 'coaching' },
-        { href: '/dashboard/coach/library', label: 'Workout & Diet Library', icon: Users, roles: ['ADMIN', 'COACH'], section: 'coaching' },
-        { href: '/dashboard/coach/feedback', label: 'Feedback', icon: MessageSquare, roles: ['ADMIN', 'COACH'], section: 'coaching' },
-        { href: '/dashboard/qr', label: 'My QR Code', icon: QrCode, roles: ['CUSTOMER', 'COACH', 'ADMIN', 'EMPLOYEE', 'CASHIER', 'RECEPTION', 'FRONT_DESK'], section: 'account' },
-        { href: '/dashboard/leaves', label: 'My Leaves', icon: ClipboardList, roles: ['ADMIN', 'COACH', 'EMPLOYEE', 'CASHIER', 'RECEPTION', 'FRONT_DESK'], section: 'account' },
-        { href: '/dashboard/profile', label: 'My Profile', icon: UserCheck, roles: ['ADMIN', 'COACH', 'CUSTOMER', 'EMPLOYEE', 'CASHIER', 'RECEPTION', 'FRONT_DESK'], section: 'account' },
-        { href: '/dashboard/member/progress', label: 'My Progress', icon: Activity, roles: ['CUSTOMER'], section: 'account' },
-        { href: '/dashboard/member/plans', label: 'My Workout Plans', icon: Dumbbell, roles: ['CUSTOMER'], section: 'account' },
-        { href: '/dashboard/member/diets', label: 'My Diet Plans', icon: Utensils, roles: ['CUSTOMER'], section: 'account' },
-        { href: '/dashboard/member/feedback', label: 'My Feedback', icon: MessageSquare, roles: ['CUSTOMER'], section: 'account' },
-        { href: '/dashboard/member/history', label: 'History', icon: ClipboardList, roles: ['CUSTOMER'], section: 'account' },
-        { href: '/dashboard/member/achievements', label: 'Achievements', icon: Trophy, roles: ['CUSTOMER'], section: 'account' },
-        { href: '/dashboard/subscription', label: 'Subscription', icon: ShieldAlert, roles: ['CUSTOMER'], section: 'account' },
-        { href: '/dashboard/support', label: 'Support', icon: MessageSquare, roles: ['CUSTOMER'], section: 'account' },
-    ];
+    const navItems: Array<{
+        href: string;
+        labelKey: TranslationKey;
+        icon: LucideIcon;
+        roles: string[];
+        section: string;
+    }> = [
+        { href: '/dashboard', labelKey: 'dashboard.nav.dashboard', icon: LayoutDashboard, roles: ['ADMIN', 'COACH', 'CUSTOMER', 'EMPLOYEE', 'CASHIER', 'RECEPTION', 'FRONT_DESK'], section: 'operations' },
+        { href: '/dashboard/admin/inventory', labelKey: 'dashboard.nav.inventory', icon: Package, roles: ['ADMIN'], section: 'operations' },
+        { href: '/dashboard/admin/pos', labelKey: 'dashboard.nav.cashierPos', icon: ShoppingCart, roles: ['ADMIN', 'CASHIER', 'EMPLOYEE'], section: 'operations' },
+        { href: '/dashboard/admin/notifications', labelKey: 'dashboard.nav.whatsappAutomation', icon: MessageSquare, roles: ['ADMIN', 'RECEPTION', 'FRONT_DESK'], section: 'operations' },
+        { href: '/dashboard/admin/entrance-qr', labelKey: 'dashboard.nav.entranceQr', icon: QrCode, roles: ['ADMIN'], section: 'operations' },
+        { href: '/dashboard/admin/support', labelKey: 'dashboard.nav.supportDesk', icon: LifeBuoy, roles: ['ADMIN', 'RECEPTION'], section: 'operations' },
+        { href: '/dashboard/lost-found', labelKey: 'dashboard.nav.lostFound', icon: MessageSquare, roles: ['ADMIN', 'MANAGER', 'FRONT_DESK', 'RECEPTION', 'COACH', 'EMPLOYEE', 'CASHIER', 'CUSTOMER'], section: 'operations' },
+        { href: '/dashboard/admin/audit', labelKey: 'dashboard.nav.auditLogs', icon: ShieldAlert, roles: ['ADMIN'], section: 'operations' },
+        { href: '/dashboard/admin/members', labelKey: 'dashboard.nav.receptionRegistration', icon: UserCheck, roles: ['ADMIN', 'COACH', 'RECEPTION', 'FRONT_DESK'], section: 'people' },
+        { href: '/dashboard/admin/staff', labelKey: 'dashboard.nav.staff', icon: Users, roles: ['ADMIN'], section: 'people' },
+        { href: '/dashboard/admin/staff/attendance', labelKey: 'dashboard.nav.attendance', icon: ClipboardList, roles: ['ADMIN'], section: 'people' },
+        { href: '/dashboard/admin/leaves', labelKey: 'dashboard.nav.hrLeaves', icon: ClipboardList, roles: ['ADMIN'], section: 'people' },
+        { href: '/dashboard/admin/finance', labelKey: 'dashboard.nav.financials', icon: Wallet, roles: ['ADMIN'], section: 'finance' },
+        { href: '/dashboard/coach/plans', labelKey: 'dashboard.nav.workoutPlans', icon: Dumbbell, roles: ['ADMIN', 'COACH'], section: 'coaching' },
+        { href: '/dashboard/coach/diets', labelKey: 'dashboard.nav.dietPlans', icon: Utensils, roles: ['ADMIN', 'COACH'], section: 'coaching' },
+        { href: '/dashboard/coach/library', labelKey: 'dashboard.nav.workoutDietLibrary', icon: Users, roles: ['ADMIN', 'COACH'], section: 'coaching' },
+        { href: '/dashboard/coach/feedback', labelKey: 'dashboard.nav.feedback', icon: MessageSquare, roles: ['ADMIN', 'COACH'], section: 'coaching' },
+        { href: '/dashboard/qr', labelKey: 'dashboard.nav.myQrCode', icon: QrCode, roles: ['CUSTOMER', 'COACH', 'ADMIN', 'EMPLOYEE', 'CASHIER', 'RECEPTION', 'FRONT_DESK'], section: 'account' },
+        { href: '/dashboard/leaves', labelKey: 'dashboard.nav.myLeaves', icon: ClipboardList, roles: ['ADMIN', 'COACH', 'EMPLOYEE', 'CASHIER', 'RECEPTION', 'FRONT_DESK'], section: 'account' },
+        { href: '/dashboard/profile', labelKey: 'dashboard.nav.myProfile', icon: UserCheck, roles: ['ADMIN', 'COACH', 'CUSTOMER', 'EMPLOYEE', 'CASHIER', 'RECEPTION', 'FRONT_DESK'], section: 'account' },
+        { href: '/dashboard/member/progress', labelKey: 'dashboard.nav.myProgress', icon: Activity, roles: ['CUSTOMER'], section: 'account' },
+        { href: '/dashboard/member/plans', labelKey: 'dashboard.nav.myWorkoutPlans', icon: Dumbbell, roles: ['CUSTOMER'], section: 'account' },
+        { href: '/dashboard/member/diets', labelKey: 'dashboard.nav.myDietPlans', icon: Utensils, roles: ['CUSTOMER'], section: 'account' },
+        { href: '/dashboard/member/feedback', labelKey: 'dashboard.nav.myFeedback', icon: MessageSquare, roles: ['CUSTOMER'], section: 'account' },
+        { href: '/dashboard/member/history', labelKey: 'dashboard.nav.history', icon: ClipboardList, roles: ['CUSTOMER'], section: 'account' },
+        { href: '/dashboard/member/achievements', labelKey: 'dashboard.nav.achievements', icon: Trophy, roles: ['CUSTOMER'], section: 'account' },
+        { href: '/dashboard/subscription', labelKey: 'dashboard.nav.subscription', icon: ShieldAlert, roles: ['CUSTOMER'], section: 'account' },
+        { href: '/dashboard/support', labelKey: 'dashboard.nav.support', icon: MessageSquare, roles: ['CUSTOMER'], section: 'account' },
+    ] as const;
 
-    const navSections = [
-        { key: 'operations', label: 'Operations' },
-        { key: 'people', label: 'People' },
-        { key: 'finance', label: 'Finance' },
-        { key: 'coaching', label: 'Coaching' },
-        { key: 'account', label: 'Account' },
-    ];
+    const navSections: Array<{ key: string; labelKey: TranslationKey }> = [
+        { key: 'operations', labelKey: 'dashboard.sections.operations' },
+        { key: 'people', labelKey: 'dashboard.sections.people' },
+        { key: 'finance', labelKey: 'dashboard.sections.finance' },
+        { key: 'coaching', labelKey: 'dashboard.sections.coaching' },
+        { key: 'account', labelKey: 'dashboard.sections.account' },
+    ] as const;
 
     const filteredNav = navItems.filter(item => item.roles.includes(user.role)).filter((item) => {
         if (!isBlockedCustomer) return true;
@@ -238,14 +249,14 @@ export default function DashboardLayout({
                     <button
                         onClick={() => setSidebarOpen(!sidebarOpen)}
                         className="p-2 rounded-lg text-muted-foreground hover:text-foreground hover:bg-muted transition-colors"
-                        aria-label={sidebarOpen ? 'Close menu' : 'Open menu'}
+                        aria-label={sidebarOpen ? t('common.closeMenu') : t('common.openMenu')}
                     >
                         {sidebarOpen ? <X size={22} /> : <Menu size={22} />}
                     </button>
                     <div className="h-8 w-8 rounded-lg bg-primary/10 flex items-center justify-center">
                         <Dumbbell size={16} className="text-primary" />
                     </div>
-                    <span className="text-sm font-bold text-foreground">GymERP</span>
+                    <span className="text-sm font-bold text-foreground">{t('common.appName')}</span>
                 </div>
                 <div className="flex items-center gap-2">
                     {/* Mobile top-bar actions if any */}
@@ -263,15 +274,16 @@ export default function DashboardLayout({
             {/* Sidebar */}
             <aside
                 className={`
-                    fixed md:static z-50 top-0 left-0 h-dvh md:h-auto w-64 flex flex-col
+                    fixed md:static z-50 top-0 ${direction === 'rtl' ? 'right-0' : 'left-0'} h-dvh md:h-auto w-64 flex flex-col
                     transform transition-transform duration-300 ease-in-out
-                    bg-card border-r border-border
-                    ${sidebarOpen ? 'translate-x-0' : '-translate-x-full'}
+                    bg-card ${direction === 'rtl' ? 'border-l' : 'border-r'} border-border
+                    ${sidebarOpen ? 'translate-x-0' : direction === 'rtl' ? 'translate-x-full' : '-translate-x-full'}
                     md:translate-x-0
                 `}
             >
                 <div className="p-5 pb-4 border-b border-border relative">
-                    <div className="absolute top-3 right-3">
+                    <div className={`absolute top-3 ${direction === 'rtl' ? 'left-3' : 'right-3'} flex items-center gap-2`}>
+                        <LanguageToggle />
                         <ThemeToggle />
                     </div>
                     <div className="flex flex-col items-center justify-center mt-1 group">
@@ -305,7 +317,7 @@ export default function DashboardLayout({
                         return (
                             <div key={section.key} className="mb-4 last:mb-0">
                                 <p className="px-3 pb-1 text-[10px] font-bold uppercase tracking-[0.14em] text-muted-foreground/70">
-                                    {section.label}
+                                    {t(section.labelKey)}
                                 </p>
                                 <div className="space-y-0.5">
                                     {sectionItems.map((item) => {
@@ -321,8 +333,8 @@ export default function DashboardLayout({
                                             >
                                                 <item.icon size={18} />
                                                 <span className="inline-flex items-center gap-2">
-                                                    {item.label}
-                                                    {showDot && <span className="h-2 w-2 rounded-full bg-red-500" aria-label="new activity" />}
+                                                    {t(item.labelKey)}
+                                                    {showDot && <span className="h-2 w-2 rounded-full bg-red-500" aria-label={t('common.newActivity')} />}
                                                 </span>
                                             </Link>
                                         );
@@ -339,7 +351,7 @@ export default function DashboardLayout({
                         className="nav-link w-full text-destructive hover:!text-destructive hover:!bg-destructive/10"
                     >
                         <LogOut size={18} />
-                        <span>Logout</span>
+                        <span>{t('common.logout')}</span>
                     </button>
                 </div>
             </aside>
@@ -350,12 +362,12 @@ export default function DashboardLayout({
                     <button
                         type="button"
                         onClick={() => setChatOpen(true)}
-                        className="fixed bottom-6 right-6 z-50 flex h-14 w-14 items-center justify-center rounded-full bg-primary text-primary-foreground shadow-lg hover:bg-primary/90 hover:scale-105 active:scale-95 transition-all duration-200"
-                        aria-label="Open chat"
+                        className={`fixed bottom-6 ${direction === 'rtl' ? 'left-6' : 'right-6'} z-50 flex h-14 w-14 items-center justify-center rounded-full bg-primary text-primary-foreground shadow-lg hover:bg-primary/90 hover:scale-105 active:scale-95 transition-all duration-200`}
+                        aria-label={t('dashboard.openChat')}
                     >
                         <MessageCircle size={24} />
                         {chatNewConversations > 0 && (
-                            <span className="absolute -top-1 -right-1 flex min-w-[20px] h-[20px] px-1.5 items-center justify-center rounded-full bg-black text-white text-xs font-bold border-2 border-background shadow-sm">
+                            <span className={`absolute -top-1 ${direction === 'rtl' ? '-left-1' : '-right-1'} flex min-w-[20px] h-[20px] px-1.5 items-center justify-center rounded-full bg-black text-white text-xs font-bold border-2 border-background shadow-sm`}>
                                 {chatNewConversations > 99 ? '99+' : chatNewConversations}
                             </span>
                         )}

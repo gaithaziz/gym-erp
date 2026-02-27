@@ -66,3 +66,27 @@ Object.keys(localStorage)
   .filter(k => k.startsWith('blocked_request_lock_'))
   .forEach(k => localStorage.removeItem(k));
 
+## 5. EN/AR Localization Verification (Fast)
+From `frontend/`:
+```bash
+npm run i18n:check
+```
+- Validates EN/AR key parity, empty values, placeholder token consistency, and suspicious Arabic values with no Arabic letters.
+
+```bash
+npm run i18n:hardcoded
+```
+- Scans JSX for hardcoded user-facing literals and writes:
+  - `frontend/reports/i18n-hardcoded-report.json`
+
+```bash
+npm run i18n:rtl
+```
+- Scans for RTL-risky Tailwind/class tokens (`ml-*`, `mr-*`, `left-*`, `text-left`, `rounded-tr`, etc.) and writes:
+  - `frontend/reports/rtl-risk-report.json`
+
+Strict gate (for CI):
+```bash
+npm run i18n:verify:strict
+```
+

@@ -1,10 +1,11 @@
 'use client';
 
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { MessageSquare, RefreshCw, Save, Trash2 } from 'lucide-react';
 
 import { api } from '@/lib/api';
 import { useFeedback } from '@/components/FeedbackProvider';
+import { useLocale } from '@/context/LocaleContext';
 
 interface AutomationRule {
     id: string;
@@ -27,21 +28,27 @@ interface DeliveryLog {
 const RULE_PRESETS = [
     {
         event_type: 'INACTIVE_7_DAYS',
-        trigger_name: 'No Check-In For 7 Days',
+        trigger_name_en: 'No Check-In For 7 Days',
+        trigger_name_ar: 'لا يوجد دخول خلال 7 أيام',
         template_key: 'inactive_7_days',
-        message_template: 'Hi {{member_name}}, we missed you this week. Come back and continue your progress.',
+        message_template_en: 'Hi {{member_name}}, we missed you this week. Come back and continue your progress.',
+        message_template_ar: 'مرحباً {{member_name}}، اشتقنا لك هذا الأسبوع. عُد لمتابعة تقدمك.',
     },
     {
         event_type: 'EXPIRED_30_DAYS_NO_RENEWAL',
-        trigger_name: '30 Days After Expiry Without Renewal',
+        trigger_name_en: '30 Days After Expiry Without Renewal',
+        trigger_name_ar: 'بعد 30 يوماً من الانتهاء بدون تجديد',
         template_key: 'expired_30_days_no_renewal',
-        message_template: 'Hi {{member_name}}, your subscription expired one month ago. Renew now to regain full access.',
+        message_template_en: 'Hi {{member_name}}, your subscription expired one month ago. Renew now to regain full access.',
+        message_template_ar: 'مرحباً {{member_name}}، اشتراكك انتهى منذ شهر. جدده الآن لاستعادة الوصول الكامل.',
     },
     {
         event_type: 'EXPIRES_IN_3_DAYS',
-        trigger_name: '3 Days Before Subscription Expiry',
+        trigger_name_en: '3 Days Before Subscription Expiry',
+        trigger_name_ar: 'قبل انتهاء الاشتراك بـ 3 أيام',
         template_key: 'expires_in_3_days',
-        message_template: 'Hi {{member_name}}, your subscription expires in 3 days. Renew early to avoid interruption.',
+        message_template_en: 'Hi {{member_name}}, your subscription expires in 3 days. Renew early to avoid interruption.',
+        message_template_ar: 'مرحباً {{member_name}}، ينتهي اشتراكك خلال 3 أيام. جدد مبكراً لتجنب الانقطاع.',
     },
 ] as const;
 
@@ -49,6 +56,7 @@ const MESSAGE_PLACEHOLDERS = ['{{member_name}}', '{{plan_name}}', '{{status}}', 
 
 export default function WhatsAppAutomationPage() {
     const { showToast } = useFeedback();
+    const { locale, formatDate } = useLocale();
     const [rules, setRules] = useState<AutomationRule[]>([]);
     const [logs, setLogs] = useState<DeliveryLog[]>([]);
     const [loading, setLoading] = useState(true);
@@ -63,6 +71,92 @@ export default function WhatsAppAutomationPage() {
         is_enabled: true,
     });
 
+    const txt = useMemo(
+        () =>
+            locale === 'ar'
+                ? {
+                    loadFailed: 'فشل في تحميل إعدادات أتمتة واتساب.',
+                    saveDone: 'تم حفظ القاعدة',
+                    saveFailed: 'فشل في حفظ القاعدة',
+                    requiredFields: 'نوع الحدث واسم المشغل ومفتاح القالب حقول مطلوبة.',
+                    createDone: 'تم إنشاء قاعدة الأتمتة',
+                    createFailed: 'فشل في إنشاء قاعدة الأتمتة',
+                    deleteDone: 'تم حذف القاعدة',
+                    deleteFailed: 'فشل في حذف القاعدة',
+                    deleteSystemConfirmPrefix: 'حذف قاعدة النظام',
+                    deleteSystemConfirmSuffix: 'يتطلب هذا حذفاً إجبارياً وقد يعطل إشعارات أساسية.',
+                    deleteRuleConfirmPrefix: 'حذف القاعدة',
+                    title: 'أتمتة واتساب',
+                    subtitle: 'خصص كل نوع رسالة تلقائية وسلوك تشغيلها.',
+                    refresh: 'تحديث',
+                    createNewRule: 'إنشاء قاعدة جديدة',
+                    createHelp: 'عرّف المشغل والرسالة. مثال استخدام اسم العميل:',
+                    quickPresets: 'نماذج سريعة',
+                    eventType: 'نوع الحدث',
+                    triggerName: 'اسم المشغل',
+                    templateKey: 'مفتاح القالب',
+                    messageTemplate: 'قالب الرسالة',
+                    enabledOnCreate: 'مفعل عند الإنشاء',
+                    creating: 'جارٍ الإنشاء...',
+                    createRule: 'إنشاء القاعدة',
+                    triggerPrefix: 'المشغل',
+                    enabled: 'مفعل',
+                    example: 'مثال',
+                    saving: 'جارٍ الحفظ...',
+                    saveRule: 'حفظ القاعدة',
+                    deleting: 'جارٍ الحذف...',
+                    deleteRule: 'حذف القاعدة',
+                    recentLogs: 'آخر سجلات تسليم واتساب',
+                    status: 'الحالة',
+                    error: 'الخطأ',
+                    createdAt: 'وقت الإنشاء',
+                    noLogs: 'لا توجد سجلات تسليم بعد.',
+                    humanReadableTrigger: 'اسم واضح للمشغل',
+                    ruleNamePlaceholder: 'EVENT_TYPE_EXAMPLE',
+                }
+                : {
+                    loadFailed: 'Failed to load WhatsApp automation settings.',
+                    saveDone: 'Saved rule',
+                    saveFailed: 'Failed to save rule',
+                    requiredFields: 'Event type, trigger name, and template key are required.',
+                    createDone: 'Automation rule created',
+                    createFailed: 'Failed to create automation rule',
+                    deleteDone: 'Deleted rule',
+                    deleteFailed: 'Failed to delete rule',
+                    deleteSystemConfirmPrefix: 'Delete system rule',
+                    deleteSystemConfirmSuffix: 'This requires force deletion and can disable core notifications.',
+                    deleteRuleConfirmPrefix: 'Delete rule',
+                    title: 'WhatsApp Automation',
+                    subtitle: 'Customize every automated message type and its trigger behavior.',
+                    refresh: 'Refresh',
+                    createNewRule: 'Create New Rule',
+                    createHelp: 'Define a trigger and message. Example client-name usage:',
+                    quickPresets: 'Quick Presets',
+                    eventType: 'Event Type',
+                    triggerName: 'Trigger Name',
+                    templateKey: 'Template Key',
+                    messageTemplate: 'Message Template',
+                    enabledOnCreate: 'Enabled on creation',
+                    creating: 'Creating...',
+                    createRule: 'Create Rule',
+                    triggerPrefix: 'Trigger',
+                    enabled: 'Enabled',
+                    example: 'Example',
+                    saving: 'Saving...',
+                    saveRule: 'Save Rule',
+                    deleting: 'Deleting...',
+                    deleteRule: 'Delete Rule',
+                    recentLogs: 'Recent WhatsApp Delivery Logs',
+                    status: 'Status',
+                    error: 'Error',
+                    createdAt: 'Created At',
+                    noLogs: 'No delivery logs yet.',
+                    humanReadableTrigger: 'Human readable trigger',
+                    ruleNamePlaceholder: 'EVENT_TYPE_EXAMPLE',
+                },
+        [locale]
+    );
+
     const loadAll = useCallback(async () => {
         setLoading(true);
         try {
@@ -73,11 +167,11 @@ export default function WhatsAppAutomationPage() {
             setRules(rulesRes.data.data || []);
             setLogs(logsRes.data.data || []);
         } catch {
-            showToast('Failed to load WhatsApp automation settings.', 'error');
+            showToast(txt.loadFailed, 'error');
         } finally {
             setLoading(false);
         }
-    }, [showToast]);
+    }, [showToast, txt.loadFailed]);
 
     useEffect(() => {
         loadAll();
@@ -96,10 +190,10 @@ export default function WhatsAppAutomationPage() {
                 message_template: rule.message_template,
                 is_enabled: rule.is_enabled,
             });
-            showToast(`Saved ${rule.event_type}`, 'success');
+            showToast(`${txt.saveDone}: ${rule.event_type}`, 'success');
             await loadAll();
         } catch {
-            showToast(`Failed to save ${rule.event_type}`, 'error');
+            showToast(`${txt.saveFailed}: ${rule.event_type}`, 'error');
         } finally {
             setSavingEventType(null);
         }
@@ -107,7 +201,7 @@ export default function WhatsAppAutomationPage() {
 
     const createRule = async () => {
         if (!newRule.event_type.trim() || !newRule.trigger_name.trim() || !newRule.template_key.trim()) {
-            showToast('Event type, trigger name, and template key are required.', 'error');
+            showToast(txt.requiredFields, 'error');
             return;
         }
 
@@ -120,7 +214,7 @@ export default function WhatsAppAutomationPage() {
                 message_template: newRule.message_template.trim() || null,
                 is_enabled: newRule.is_enabled,
             });
-            showToast('Automation rule created', 'success');
+            showToast(txt.createDone, 'success');
             setNewRule({
                 event_type: '',
                 trigger_name: '',
@@ -131,18 +225,18 @@ export default function WhatsAppAutomationPage() {
             await loadAll();
         } catch (err) {
             const detail = (err as { response?: { data?: { detail?: string } } })?.response?.data?.detail;
-            showToast(detail || 'Failed to create automation rule', 'error');
+            showToast(detail || txt.createFailed, 'error');
         } finally {
             setCreating(false);
         }
     };
 
-    const applyPresetToNewRule = (preset: typeof RULE_PRESETS[number]) => {
+    const applyPresetToNewRule = (preset: (typeof RULE_PRESETS)[number]) => {
         setNewRule({
             event_type: preset.event_type,
-            trigger_name: preset.trigger_name,
+            trigger_name: locale === 'ar' ? preset.trigger_name_ar : preset.trigger_name_en,
             template_key: preset.template_key,
-            message_template: preset.message_template,
+            message_template: locale === 'ar' ? preset.message_template_ar : preset.message_template_en,
             is_enabled: true,
         });
     };
@@ -165,8 +259,8 @@ export default function WhatsAppAutomationPage() {
         const isSystemRule = ['ACCESS_GRANTED', 'SUBSCRIPTION_CREATED', 'SUBSCRIPTION_RENEWED', 'SUBSCRIPTION_STATUS_CHANGED'].includes(rule.event_type);
         const confirmation = window.confirm(
             isSystemRule
-                ? `Delete system rule "${rule.event_type}"? This requires force deletion and can disable core notifications.`
-                : `Delete rule "${rule.event_type}"?`
+                ? `${txt.deleteSystemConfirmPrefix} "${rule.event_type}"? ${txt.deleteSystemConfirmSuffix}`
+                : `${txt.deleteRuleConfirmPrefix} "${rule.event_type}"?`
         );
         if (!confirmation) return;
 
@@ -175,11 +269,11 @@ export default function WhatsAppAutomationPage() {
             await api.delete(`/admin/notifications/automation-rules/${rule.event_type}`, {
                 params: { force: isSystemRule ? true : undefined },
             });
-            showToast(`Deleted ${rule.event_type}`, 'success');
+            showToast(`${txt.deleteDone}: ${rule.event_type}`, 'success');
             await loadAll();
         } catch (err) {
             const detail = (err as { response?: { data?: { detail?: string } } })?.response?.data?.detail;
-            showToast(detail || `Failed to delete ${rule.event_type}`, 'error');
+            showToast(detail || `${txt.deleteFailed}: ${rule.event_type}`, 'error');
         } finally {
             setDeletingEventType(null);
         }
@@ -197,25 +291,25 @@ export default function WhatsAppAutomationPage() {
         <div className="space-y-6">
             <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
                 <div>
-                    <h1 className="text-2xl font-bold text-foreground">WhatsApp Automation</h1>
-                    <p className="text-sm text-muted-foreground mt-1">Customize every automated message type and its trigger behavior.</p>
+                    <h1 className="text-2xl font-bold text-foreground">{txt.title}</h1>
+                    <p className="text-sm text-muted-foreground mt-1">{txt.subtitle}</p>
                 </div>
                 <button className="btn-ghost !py-2 !px-3 text-xs flex items-center gap-1.5" onClick={loadAll}>
                     <RefreshCw size={14} />
-                    Refresh
+                    {txt.refresh}
                 </button>
             </div>
 
             <div className="space-y-4">
                 <div className="kpi-card p-5 space-y-4">
                     <div>
-                        <p className="text-sm font-bold text-foreground">Create New Rule</p>
+                        <p className="text-sm font-bold text-foreground">{txt.createNewRule}</p>
                         <p className="text-xs text-muted-foreground mt-1">
-                            Define a trigger and message. Example client-name usage: <code>Hi {'{{member_name}}'}, ...</code>
+                            {txt.createHelp} <code>Hi {'{{member_name}}'}, ...</code>
                         </p>
                     </div>
                     <div className="space-y-2">
-                        <p className="text-xs font-medium text-muted-foreground">Quick Presets (your requested patterns)</p>
+                        <p className="text-xs font-medium text-muted-foreground">{txt.quickPresets}</p>
                         <div className="flex flex-wrap gap-2">
                             {RULE_PRESETS.map((preset) => (
                                 <button
@@ -224,32 +318,32 @@ export default function WhatsAppAutomationPage() {
                                     className="btn-ghost !py-1.5 !px-2.5 text-[11px]"
                                     onClick={() => applyPresetToNewRule(preset)}
                                 >
-                                    {preset.trigger_name}
+                                    {locale === 'ar' ? preset.trigger_name_ar : preset.trigger_name_en}
                                 </button>
                             ))}
                         </div>
                     </div>
                     <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
                         <div>
-                            <label className="block text-xs font-medium text-muted-foreground mb-1.5">Event Type</label>
+                            <label className="block text-xs font-medium text-muted-foreground mb-1.5">{txt.eventType}</label>
                             <input
                                 value={newRule.event_type}
                                 className="input-dark"
-                                placeholder="EXAMPLE_EVENT_TYPE"
+                                placeholder={txt.ruleNamePlaceholder}
                                 onChange={(e) => setNewRule((prev) => ({ ...prev, event_type: e.target.value }))}
                             />
                         </div>
                         <div>
-                            <label className="block text-xs font-medium text-muted-foreground mb-1.5">Trigger Name</label>
+                            <label className="block text-xs font-medium text-muted-foreground mb-1.5">{txt.triggerName}</label>
                             <input
                                 value={newRule.trigger_name}
                                 className="input-dark"
-                                placeholder="Human readable trigger"
+                                placeholder={txt.humanReadableTrigger}
                                 onChange={(e) => setNewRule((prev) => ({ ...prev, trigger_name: e.target.value }))}
                             />
                         </div>
                         <div>
-                            <label className="block text-xs font-medium text-muted-foreground mb-1.5">Template Key</label>
+                            <label className="block text-xs font-medium text-muted-foreground mb-1.5">{txt.templateKey}</label>
                             <input
                                 value={newRule.template_key}
                                 className="input-dark"
@@ -259,7 +353,7 @@ export default function WhatsAppAutomationPage() {
                         </div>
                     </div>
                     <div>
-                        <label className="block text-xs font-medium text-muted-foreground mb-1.5">Message Template</label>
+                        <label className="block text-xs font-medium text-muted-foreground mb-1.5">{txt.messageTemplate}</label>
                         <textarea
                             value={newRule.message_template}
                             className="input-dark min-h-20"
@@ -285,11 +379,11 @@ export default function WhatsAppAutomationPage() {
                                 checked={newRule.is_enabled}
                                 onChange={(e) => setNewRule((prev) => ({ ...prev, is_enabled: e.target.checked }))}
                             />
-                            Enabled on creation
+                            {txt.enabledOnCreate}
                         </label>
                         <button className="btn-primary !py-2 !px-3 text-xs flex items-center gap-1.5" onClick={createRule} disabled={creating}>
                             <Save size={14} />
-                            {creating ? 'Creating...' : 'Create Rule'}
+                            {creating ? txt.creating : txt.createRule}
                         </button>
                     </div>
                 </div>
@@ -299,7 +393,7 @@ export default function WhatsAppAutomationPage() {
                         <div className="flex flex-col sm:flex-row justify-between gap-3">
                             <div>
                                 <p className="text-sm font-bold text-foreground">{rule.event_type}</p>
-                                <p className="text-xs text-muted-foreground mt-1">Trigger: {rule.trigger_name}</p>
+                                <p className="text-xs text-muted-foreground mt-1">{txt.triggerPrefix}: {rule.trigger_name}</p>
                             </div>
                             <label className="inline-flex items-center gap-2 text-xs text-muted-foreground">
                                 <input
@@ -307,12 +401,12 @@ export default function WhatsAppAutomationPage() {
                                     checked={rule.is_enabled}
                                     onChange={(e) => updateRule(rule.event_type, { is_enabled: e.target.checked })}
                                 />
-                                Enabled
+                                {txt.enabled}
                             </label>
                         </div>
                         <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                             <div>
-                                <label className="block text-xs font-medium text-muted-foreground mb-1.5">Trigger Name</label>
+                                <label className="block text-xs font-medium text-muted-foreground mb-1.5">{txt.triggerName}</label>
                                 <input
                                     value={rule.trigger_name}
                                     className="input-dark"
@@ -320,7 +414,7 @@ export default function WhatsAppAutomationPage() {
                                 />
                             </div>
                             <div>
-                                <label className="block text-xs font-medium text-muted-foreground mb-1.5">Template Key</label>
+                                <label className="block text-xs font-medium text-muted-foreground mb-1.5">{txt.templateKey}</label>
                                 <input
                                     value={rule.template_key}
                                     className="input-dark"
@@ -329,7 +423,7 @@ export default function WhatsAppAutomationPage() {
                             </div>
                         </div>
                         <div>
-                            <label className="block text-xs font-medium text-muted-foreground mb-1.5">Message Template</label>
+                            <label className="block text-xs font-medium text-muted-foreground mb-1.5">{txt.messageTemplate}</label>
                             <textarea
                                 value={rule.message_template || ''}
                                 className="input-dark min-h-24"
@@ -348,7 +442,7 @@ export default function WhatsAppAutomationPage() {
                                 ))}
                             </div>
                             <p className="text-[11px] text-muted-foreground mt-1">
-                                Example: <code>Hi {'{{member_name}}'}, your subscription expires in 3 days.</code>
+                                {txt.example}: <code>Hi {'{{member_name}}'}, your subscription expires in 3 days.</code>
                             </p>
                         </div>
                         <div className="flex justify-end">
@@ -359,7 +453,7 @@ export default function WhatsAppAutomationPage() {
                                     disabled={savingEventType === rule.event_type || deletingEventType === rule.event_type}
                                 >
                                     <Save size={14} />
-                                    {savingEventType === rule.event_type ? 'Saving...' : 'Save Rule'}
+                                    {savingEventType === rule.event_type ? txt.saving : txt.saveRule}
                                 </button>
                                 <button
                                     className="btn-ghost !py-2 !px-3 text-xs flex items-center gap-1.5 text-destructive"
@@ -367,7 +461,7 @@ export default function WhatsAppAutomationPage() {
                                     disabled={savingEventType === rule.event_type || deletingEventType === rule.event_type}
                                 >
                                     <Trash2 size={14} />
-                                    {deletingEventType === rule.event_type ? 'Deleting...' : 'Delete Rule'}
+                                    {deletingEventType === rule.event_type ? txt.deleting : txt.deleteRule}
                                 </button>
                             </div>
                         </div>
@@ -378,22 +472,22 @@ export default function WhatsAppAutomationPage() {
             <div className="kpi-card p-5">
                 <div className="flex items-center gap-2 mb-3">
                     <MessageSquare size={16} className="text-primary" />
-                    <p className="text-sm font-bold text-foreground">Recent WhatsApp Delivery Logs</p>
+                    <p className="text-sm font-bold text-foreground">{txt.recentLogs}</p>
                 </div>
                 <div className="overflow-x-auto">
                     <table className="w-full text-left table-dark min-w-[640px]">
                         <thead>
                             <tr>
-                                <th>Event Type</th>
-                                <th>Status</th>
-                                <th>Error</th>
-                                <th>Created At</th>
+                                <th>{txt.eventType}</th>
+                                <th>{txt.status}</th>
+                                <th>{txt.error}</th>
+                                <th>{txt.createdAt}</th>
                             </tr>
                         </thead>
                         <tbody>
                             {logs.length === 0 && (
                                 <tr>
-                                    <td colSpan={4} className="text-center py-6 text-sm text-muted-foreground">No delivery logs yet.</td>
+                                    <td colSpan={4} className="text-center py-6 text-sm text-muted-foreground">{txt.noLogs}</td>
                                 </tr>
                             )}
                             {logs.map((log) => (
@@ -401,7 +495,9 @@ export default function WhatsAppAutomationPage() {
                                     <td className="font-mono text-xs text-foreground">{log.event_type}</td>
                                     <td className="font-mono text-xs text-muted-foreground">{log.status}</td>
                                     <td className="text-xs text-muted-foreground">{log.error_message || '-'}</td>
-                                    <td className="text-xs text-muted-foreground">{log.created_at ? new Date(log.created_at).toLocaleString() : '-'}</td>
+                                    <td className="text-xs text-muted-foreground">
+                                        {log.created_at ? formatDate(log.created_at, { year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' }) : '-'}
+                                    </td>
                                 </tr>
                             ))}
                         </tbody>

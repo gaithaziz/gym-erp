@@ -5,6 +5,7 @@ import { useParams, useRouter } from 'next/navigation';
 import { api } from '@/lib/api';
 import { ArrowLeft, Calendar, Printer } from 'lucide-react';
 import { useFeedback } from '@/components/FeedbackProvider';
+import { useLocale } from '@/context/LocaleContext';
 
 interface AttendanceRecord {
     id: string;
@@ -50,7 +51,89 @@ interface StaffSummaryResponse {
 }
 
 export default function StaffSummaryPage() {
+    const { locale, formatDate } = useLocale();
     const { showToast } = useFeedback();
+    const txt = locale === 'ar'
+        ? {
+            missingId: 'معرّف الموظف غير موجود في الرابط.',
+            startAfterEnd: 'لا يمكن أن يكون تاريخ البداية بعد تاريخ النهاية.',
+            failedSummary: 'فشل تحميل ملخص الموظف',
+            notFound: 'لم يتم العثور على الموظف',
+            adminOnly: 'مطلوب صلاحية المدير لعرض هذا الملخص',
+            attendanceSummary: 'ملخص الحضور',
+            leaveSummary: 'ملخص الإجازات',
+            daysPresent: 'أيام الحضور',
+            totalHours: 'إجمالي الساعات',
+            avgDay: 'متوسط/اليوم',
+            totalRequests: 'إجمالي الطلبات',
+            approvedDays: 'الأيام المعتمدة',
+            pending: 'قيد الانتظار',
+            checkIn: 'تسجيل الدخول',
+            checkOut: 'تسجيل الخروج',
+            hours: 'الساعات',
+            start: 'البداية',
+            end: 'النهاية',
+            type: 'النوع',
+            status: 'الحالة',
+            noRecords: 'لا توجد سجلات',
+            popupBlocked: 'تم حظر النافذة المنبثقة. اسمح بالنوافذ للطباعة.',
+            backToStaff: 'العودة للموظفين',
+            couldNotLoad: 'تعذر تحميل ملخص الموظف',
+            unknownError: 'خطأ غير معروف',
+            retry: 'إعادة المحاولة',
+            dateRange: 'نطاق التاريخ',
+            last7Days: 'آخر 7 أيام',
+            last30Days: 'آخر 30 يومًا',
+            custom: 'مخصص',
+            apply: 'تطبيق',
+            attendanceRecords: 'سجلات الحضور',
+            printAttendance: 'طباعة ملخص الحضور',
+            noAttendance: 'لا توجد سجلات حضور',
+            pendingRequests: 'الطلبات المعلقة',
+            leaveRecords: 'سجلات الإجازات',
+            printLeaves: 'طباعة ملخص الإجازات',
+            noLeaves: 'لا توجد سجلات إجازات',
+        }
+        : {
+            missingId: 'Missing staff id in route.',
+            startAfterEnd: 'Start date cannot be after end date.',
+            failedSummary: 'Failed to load staff summary',
+            notFound: 'Staff user not found',
+            adminOnly: 'Admin access is required to view this summary',
+            attendanceSummary: 'Attendance Summary',
+            leaveSummary: 'Leave Summary',
+            daysPresent: 'Days Present',
+            totalHours: 'Total Hours',
+            avgDay: 'Avg/Day',
+            totalRequests: 'Total Requests',
+            approvedDays: 'Approved Days',
+            pending: 'Pending',
+            checkIn: 'Check In',
+            checkOut: 'Check Out',
+            hours: 'Hours',
+            start: 'Start',
+            end: 'End',
+            type: 'Type',
+            status: 'Status',
+            noRecords: 'No records',
+            popupBlocked: 'Popup blocked. Allow popups to print.',
+            backToStaff: 'Back to Staff',
+            couldNotLoad: 'Could not load staff summary',
+            unknownError: 'Unknown error',
+            retry: 'Retry',
+            dateRange: 'Date Range',
+            last7Days: 'Last 7 Days',
+            last30Days: 'Last 30 Days',
+            custom: 'Custom',
+            apply: 'Apply',
+            attendanceRecords: 'Attendance Records',
+            printAttendance: 'Print Attendance Summary',
+            noAttendance: 'No attendance records',
+            pendingRequests: 'Pending Requests',
+            leaveRecords: 'Leave Records',
+            printLeaves: 'Print Leaves Summary',
+            noLeaves: 'No leave records',
+        };
     const params = useParams();
     const router = useRouter();
     const idParam = params?.id;
@@ -84,12 +167,12 @@ export default function StaffSummaryPage() {
 
     const fetchSummary = useCallback(async () => {
         if (!id) {
-            setLoadError('Missing staff id in route.');
+            setLoadError(txt.missingId);
             setLoading(false);
             return;
         }
         if (startDate > endDate) {
-            showToast('Start date cannot be after end date.', 'error');
+            showToast(txt.startAfterEnd, 'error');
             return;
         }
         setLoading(true);
@@ -101,11 +184,11 @@ export default function StaffSummaryPage() {
             const error = err as { response?: { status?: number, data?: { detail?: string } } };
             const status = error.response?.status;
             const apiDetail = error.response?.data?.detail;
-            let detail = 'Failed to load staff summary';
+            let detail = txt.failedSummary;
             if (status === 404) {
-                detail = 'Staff user not found';
+                detail = txt.notFound;
             } else if (status === 403) {
-                detail = 'Admin access is required to view this summary';
+                detail = txt.adminOnly;
             } else if (apiDetail) {
                 detail = apiDetail;
             }
@@ -124,26 +207,26 @@ export default function StaffSummaryPage() {
     const printSection = (type: 'attendance' | 'leaves') => {
         if (!summary) return;
         const employee = summary.employee;
-        const title = type === 'attendance' ? 'Attendance Summary' : 'Leave Summary';
+        const title = type === 'attendance' ? txt.attendanceSummary : txt.leaveSummary;
         const metrics = type === 'attendance'
-            ? `<div class="metric"><b>Days Present</b><br/>${summary.attendance_summary.days_present}</div>
-               <div class="metric"><b>Total Hours</b><br/>${summary.attendance_summary.total_hours.toFixed(2)}</div>
-               <div class="metric"><b>Avg/Day</b><br/>${summary.attendance_summary.avg_hours_per_day.toFixed(2)}</div>`
-            : `<div class="metric"><b>Total Requests</b><br/>${summary.leave_summary.total_requests}</div>
-               <div class="metric"><b>Approved Days</b><br/>${summary.leave_summary.approved_days}</div>
-               <div class="metric"><b>Pending</b><br/>${summary.leave_summary.pending_count}</div>`;
+            ? `<div class="metric"><b>${txt.daysPresent}</b><br/>${summary.attendance_summary.days_present}</div>
+               <div class="metric"><b>${txt.totalHours}</b><br/>${summary.attendance_summary.total_hours.toFixed(2)}</div>
+               <div class="metric"><b>${txt.avgDay}</b><br/>${summary.attendance_summary.avg_hours_per_day.toFixed(2)}</div>`
+            : `<div class="metric"><b>${txt.totalRequests}</b><br/>${summary.leave_summary.total_requests}</div>
+               <div class="metric"><b>${txt.approvedDays}</b><br/>${summary.leave_summary.approved_days}</div>
+               <div class="metric"><b>${txt.pending}</b><br/>${summary.leave_summary.pending_count}</div>`;
 
         const rows = type === 'attendance'
-            ? attendanceRows.map((r) => `<tr><td>${r.check_in_time ? new Date(r.check_in_time).toLocaleString() : '-'}</td><td>${r.check_out_time ? new Date(r.check_out_time).toLocaleString() : '-'}</td><td style="text-align:right;">${r.hours_worked.toFixed(2)}</td></tr>`).join('')
-            : leaveRows.map((r) => `<tr><td>${new Date(r.start_date).toLocaleDateString()}</td><td>${new Date(r.end_date).toLocaleDateString()}</td><td>${r.leave_type}</td><td>${r.status}</td></tr>`).join('');
+            ? attendanceRows.map((r) => `<tr><td>${r.check_in_time ? formatDate(r.check_in_time, { dateStyle: 'medium', timeStyle: 'short' }) : '-'}</td><td>${r.check_out_time ? formatDate(r.check_out_time, { dateStyle: 'medium', timeStyle: 'short' }) : '-'}</td><td style="text-align:right;">${r.hours_worked.toFixed(2)}</td></tr>`).join('')
+            : leaveRows.map((r) => `<tr><td>${formatDate(r.start_date, { dateStyle: 'medium' })}</td><td>${formatDate(r.end_date, { dateStyle: 'medium' })}</td><td>${r.leave_type}</td><td>${r.status}</td></tr>`).join('');
         const tableHead = type === 'attendance'
-            ? '<tr><th>Check In</th><th>Check Out</th><th style="text-align:right;">Hours</th></tr>'
-            : '<tr><th>Start</th><th>End</th><th>Type</th><th>Status</th></tr>';
-        const tableRows = rows || `<tr><td colspan="${type === 'attendance' ? 3 : 4}" style="text-align:center;">No records</td></tr>`;
+            ? `<tr><th>${txt.checkIn}</th><th>${txt.checkOut}</th><th style="text-align:right;">${txt.hours}</th></tr>`
+            : `<tr><th>${txt.start}</th><th>${txt.end}</th><th>${txt.type}</th><th>${txt.status}</th></tr>`;
+        const tableRows = rows || `<tr><td colspan="${type === 'attendance' ? 3 : 4}" style="text-align:center;">${txt.noRecords}</td></tr>`;
 
         const w = window.open('', '_blank');
         if (!w) {
-            showToast('Popup blocked. Allow popups to print.', 'error');
+            showToast(txt.popupBlocked, 'error');
             return;
         }
         w.document.write(`
@@ -177,12 +260,12 @@ export default function StaffSummaryPage() {
         return (
             <div className="space-y-4">
                 <button className="btn-ghost !px-0" onClick={() => router.push('/dashboard/admin/staff')}>
-                    <ArrowLeft size={16} /> Back to Staff
+                    <ArrowLeft size={16} /> {txt.backToStaff}
                 </button>
                 <div className="chart-card border border-border p-6 space-y-3">
-                    <h2 className="text-lg font-semibold text-foreground">Could not load staff summary</h2>
-                    <p className="text-sm text-muted-foreground">{loadError || 'Unknown error'}</p>
-                    <button className="btn-primary" onClick={fetchSummary}><Calendar size={14} /> Retry</button>
+                    <h2 className="text-lg font-semibold text-foreground">{txt.couldNotLoad}</h2>
+                    <p className="text-sm text-muted-foreground">{loadError || txt.unknownError}</p>
+                    <button className="btn-primary" onClick={fetchSummary}><Calendar size={14} /> {txt.retry}</button>
                 </div>
             </div>
         );
@@ -191,7 +274,7 @@ export default function StaffSummaryPage() {
     return (
         <div className="space-y-6">
             <button className="btn-ghost !px-0" onClick={() => router.push('/dashboard/admin/staff')}>
-                <ArrowLeft size={16} /> Back to Staff
+                <ArrowLeft size={16} /> {txt.backToStaff}
             </button>
 
             <div>
@@ -200,35 +283,35 @@ export default function StaffSummaryPage() {
             </div>
 
             <div className="chart-card p-4 border border-border space-y-3">
-                <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">Date Range</p>
+                <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">{txt.dateRange}</p>
                 <div className="flex flex-wrap gap-2">
-                    <button onClick={() => applyPreset('7d')} className={`px-3 py-1.5 text-xs border rounded-sm transition-colors ${preset === '7d' ? 'bg-primary text-primary-foreground border-primary' : 'border-border text-muted-foreground hover:text-foreground'}`}>Last 7 Days</button>
-                    <button onClick={() => applyPreset('30d')} className={`px-3 py-1.5 text-xs border rounded-sm transition-colors ${preset === '30d' ? 'bg-primary text-primary-foreground border-primary' : 'border-border text-muted-foreground hover:text-foreground'}`}>Last 30 Days</button>
-                    <button onClick={() => applyPreset('custom')} className={`px-3 py-1.5 text-xs border rounded-sm transition-colors ${preset === 'custom' ? 'bg-primary text-primary-foreground border-primary' : 'border-border text-muted-foreground hover:text-foreground'}`}>Custom</button>
+                    <button onClick={() => applyPreset('7d')} className={`px-3 py-1.5 text-xs border rounded-sm transition-colors ${preset === '7d' ? 'bg-primary text-primary-foreground border-primary' : 'border-border text-muted-foreground hover:text-foreground'}`}>{txt.last7Days}</button>
+                    <button onClick={() => applyPreset('30d')} className={`px-3 py-1.5 text-xs border rounded-sm transition-colors ${preset === '30d' ? 'bg-primary text-primary-foreground border-primary' : 'border-border text-muted-foreground hover:text-foreground'}`}>{txt.last30Days}</button>
+                    <button onClick={() => applyPreset('custom')} className={`px-3 py-1.5 text-xs border rounded-sm transition-colors ${preset === 'custom' ? 'bg-primary text-primary-foreground border-primary' : 'border-border text-muted-foreground hover:text-foreground'}`}>{txt.custom}</button>
                 </div>
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                     <input type="date" className="input-dark" value={startDate} onChange={(e) => { setPreset('custom'); setStartDate(e.target.value); }} />
                     <input type="date" className="input-dark" value={endDate} min={startDate} onChange={(e) => { setPreset('custom'); setEndDate(e.target.value); }} />
                 </div>
-                <button className="btn-primary" onClick={fetchSummary}><Calendar size={14} /> Apply</button>
+                <button className="btn-primary" onClick={fetchSummary}><Calendar size={14} /> {txt.apply}</button>
             </div>
 
             <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                <div className="kpi-card border border-border"><p className="text-xs text-muted-foreground">Days Present</p><p className="text-xl font-bold text-foreground">{summary.attendance_summary.days_present}</p></div>
-                <div className="kpi-card border border-border"><p className="text-xs text-muted-foreground">Total Hours</p><p className="text-xl font-bold text-foreground">{summary.attendance_summary.total_hours.toFixed(2)}</p></div>
-                <div className="kpi-card border border-border"><p className="text-xs text-muted-foreground">Avg Hours / Day</p><p className="text-xl font-bold text-foreground">{summary.attendance_summary.avg_hours_per_day.toFixed(2)}</p></div>
+                <div className="kpi-card border border-border"><p className="text-xs text-muted-foreground">{txt.daysPresent}</p><p className="text-xl font-bold text-foreground">{summary.attendance_summary.days_present}</p></div>
+                <div className="kpi-card border border-border"><p className="text-xs text-muted-foreground">{txt.totalHours}</p><p className="text-xl font-bold text-foreground">{summary.attendance_summary.total_hours.toFixed(2)}</p></div>
+                <div className="kpi-card border border-border"><p className="text-xs text-muted-foreground">{locale === 'ar' ? 'متوسط الساعات / اليوم' : 'Avg Hours / Day'}</p><p className="text-xl font-bold text-foreground">{summary.attendance_summary.avg_hours_per_day.toFixed(2)}</p></div>
             </div>
 
             <div className="chart-card overflow-hidden !p-0 border border-border">
                 <div className="px-6 py-4 border-b border-border flex items-center justify-between">
-                    <h3 className="text-sm font-semibold text-muted-foreground">Attendance Records</h3>
-                    <button className="btn-ghost" onClick={() => printSection('attendance')}><Printer size={14} /> Print Attendance Summary</button>
+                    <h3 className="text-sm font-semibold text-muted-foreground">{txt.attendanceRecords}</h3>
+                    <button className="btn-ghost" onClick={() => printSection('attendance')}><Printer size={14} /> {txt.printAttendance}</button>
                 </div>
                 <div className="overflow-x-auto">
                     <table className="w-full text-left table-dark min-w-[620px]">
-                        <thead><tr><th>Check In</th><th>Check Out</th><th className="text-right">Hours</th></tr></thead>
+                        <thead><tr><th>{txt.checkIn}</th><th>{txt.checkOut}</th><th className="text-right">{txt.hours}</th></tr></thead>
                         <tbody>
-                            {attendanceRows.length === 0 && <tr><td colSpan={3} className="text-center py-8 text-muted-foreground text-sm">No attendance records</td></tr>}
+                            {attendanceRows.length === 0 && <tr><td colSpan={3} className="text-center py-8 text-muted-foreground text-sm">{txt.noAttendance}</td></tr>}
                             {attendanceRows.map((r) => (
                                 <tr key={r.id}>
                                     <td>{r.check_in_time ? new Date(r.check_in_time).toLocaleString() : '-'}</td>
@@ -242,21 +325,21 @@ export default function StaffSummaryPage() {
             </div>
 
             <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                <div className="kpi-card border border-border"><p className="text-xs text-muted-foreground">Total Requests</p><p className="text-xl font-bold text-foreground">{summary.leave_summary.total_requests}</p></div>
-                <div className="kpi-card border border-border"><p className="text-xs text-muted-foreground">Approved Days</p><p className="text-xl font-bold text-foreground">{summary.leave_summary.approved_days}</p></div>
-                <div className="kpi-card border border-border"><p className="text-xs text-muted-foreground">Pending Requests</p><p className="text-xl font-bold text-foreground">{summary.leave_summary.pending_count}</p></div>
+                <div className="kpi-card border border-border"><p className="text-xs text-muted-foreground">{txt.totalRequests}</p><p className="text-xl font-bold text-foreground">{summary.leave_summary.total_requests}</p></div>
+                <div className="kpi-card border border-border"><p className="text-xs text-muted-foreground">{txt.approvedDays}</p><p className="text-xl font-bold text-foreground">{summary.leave_summary.approved_days}</p></div>
+                <div className="kpi-card border border-border"><p className="text-xs text-muted-foreground">{txt.pendingRequests}</p><p className="text-xl font-bold text-foreground">{summary.leave_summary.pending_count}</p></div>
             </div>
 
             <div className="chart-card overflow-hidden !p-0 border border-border">
                 <div className="px-6 py-4 border-b border-border flex items-center justify-between">
-                    <h3 className="text-sm font-semibold text-muted-foreground">Leave Records</h3>
-                    <button className="btn-ghost" onClick={() => printSection('leaves')}><Printer size={14} /> Print Leaves Summary</button>
+                    <h3 className="text-sm font-semibold text-muted-foreground">{txt.leaveRecords}</h3>
+                    <button className="btn-ghost" onClick={() => printSection('leaves')}><Printer size={14} /> {txt.printLeaves}</button>
                 </div>
                 <div className="overflow-x-auto">
                     <table className="w-full text-left table-dark min-w-[620px]">
-                        <thead><tr><th>Start</th><th>End</th><th>Type</th><th>Status</th></tr></thead>
+                        <thead><tr><th>{txt.start}</th><th>{txt.end}</th><th>{txt.type}</th><th>{txt.status}</th></tr></thead>
                         <tbody>
-                            {leaveRows.length === 0 && <tr><td colSpan={4} className="text-center py-8 text-muted-foreground text-sm">No leave records</td></tr>}
+                            {leaveRows.length === 0 && <tr><td colSpan={4} className="text-center py-8 text-muted-foreground text-sm">{txt.noLeaves}</td></tr>}
                             {leaveRows.map((r) => (
                                 <tr key={r.id}>
                                     <td>{new Date(r.start_date).toLocaleDateString()}</td>

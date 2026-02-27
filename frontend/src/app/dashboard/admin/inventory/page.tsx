@@ -4,6 +4,7 @@ import { useEffect, useState, useCallback } from 'react';
 import { api } from '@/lib/api';
 import { Package, Plus, Search, Edit, Trash2, AlertTriangle, X } from 'lucide-react';
 import { useFeedback } from '@/components/FeedbackProvider';
+import { useLocale } from '@/context/LocaleContext';
 
 interface Product {
     id: string;
@@ -22,6 +23,7 @@ interface Product {
 const CATEGORIES = ['SUPPLEMENT', 'DRINK', 'MERCHANDISE', 'SNACK', 'OTHER'];
 
 export default function InventoryPage() {
+    const { t, formatNumber } = useLocale();
     const { showToast, confirm: confirmAction } = useFeedback();
     const [products, setProducts] = useState<Product[]>([]);
     const [loading, setLoading] = useState(true);
@@ -102,7 +104,7 @@ export default function InventoryPage() {
             fetchProducts();
         } catch {
             console.error('Failed to save product');
-            showToast('Failed to save product', 'error');
+            showToast(t('inventory.saveError'), 'error');
         } finally {
             setSaving(false);
         }
@@ -110,9 +112,9 @@ export default function InventoryPage() {
 
     const handleDelete = async (id: string) => {
         const confirmed = await confirmAction({
-            title: 'Deactivate Product',
-            description: 'Deactivate this product?',
-            confirmText: 'Deactivate',
+            title: t('inventory.deactivateTitle'),
+            description: t('inventory.deactivateDescription'),
+            confirmText: t('inventory.deactivateConfirm'),
             destructive: true,
         });
         if (!confirmed) return;
@@ -121,7 +123,7 @@ export default function InventoryPage() {
             fetchProducts();
         } catch {
             console.error('Failed to delete product');
-            showToast('Failed to delete product', 'error');
+            showToast(t('inventory.deleteError'), 'error');
         }
     };
 
@@ -131,11 +133,11 @@ export default function InventoryPage() {
         <div className="max-w-6xl mx-auto space-y-6">
             <div className="flex items-center justify-between">
                 <div>
-                    <h1 className="text-2xl font-bold text-foreground font-serif tracking-tight">Inventory</h1>
-                    <p className="text-sm text-muted-foreground mt-1">Manage products and stock levels</p>
+                    <h1 className="text-2xl font-bold text-foreground font-serif tracking-tight">{t('inventory.title')}</h1>
+                    <p className="text-sm text-muted-foreground mt-1">{t('inventory.subtitle')}</p>
                 </div>
                 <button onClick={openCreate} className="btn-primary px-4 py-2 flex items-center gap-2 text-sm">
-                    <Plus size={16} /> Add Product
+                    <Plus size={16} /> {t('inventory.addProduct')}
                 </button>
             </div>
 
@@ -144,9 +146,9 @@ export default function InventoryPage() {
                 <div className="border border-amber-500/30 bg-amber-500/5 p-4 flex items-start gap-3">
                     <AlertTriangle size={18} className="text-amber-500 mt-0.5 shrink-0" />
                     <div>
-                        <p className="text-sm font-bold text-foreground">Low Stock Alert</p>
+                        <p className="text-sm font-bold text-foreground">{t('inventory.lowStockAlert')}</p>
                         <p className="text-xs text-muted-foreground mt-1">
-                            {lowStockProducts.map(p => `${p.name} (${p.stock_quantity} left)`).join(', ')}
+                            {lowStockProducts.map(p => `${p.name} (${formatNumber(p.stock_quantity)} ${t('inventory.lowStockSuffix')})`).join(', ')}
                         </p>
                     </div>
                 </div>
@@ -158,7 +160,7 @@ export default function InventoryPage() {
                     <Search size={16} className="field-icon" />
                     <input
                         type="text"
-                        placeholder="Search products..."
+                        placeholder={t('inventory.searchProducts')}
                         value={search}
                         onChange={(e) => setSearch(e.target.value)}
                         className="input-dark input-with-icon text-sm"
@@ -169,7 +171,7 @@ export default function InventoryPage() {
                     onChange={(e) => setCategoryFilter(e.target.value)}
                     className="input-dark text-sm w-full sm:w-44"
                 >
-                    <option value="">All Categories</option>
+                    <option value="">{t('inventory.allCategories')}</option>
                     {CATEGORIES.map(c => <option key={c} value={c}>{c}</option>)}
                 </select>
             </div>
@@ -184,11 +186,11 @@ export default function InventoryPage() {
                     <table className="w-full text-sm">
                         <thead>
                             <tr className="border-b border-border bg-muted/30">
-                                <th className="text-left px-4 py-3 font-mono text-xs text-muted-foreground uppercase">Product</th>
-                                <th className="text-left px-4 py-3 font-mono text-xs text-muted-foreground uppercase">Category</th>
-                                <th className="text-right px-4 py-3 font-mono text-xs text-muted-foreground uppercase">Price</th>
-                                <th className="text-right px-4 py-3 font-mono text-xs text-muted-foreground uppercase">Stock</th>
-                                <th className="text-right px-4 py-3 font-mono text-xs text-muted-foreground uppercase">Actions</th>
+                                <th className="text-left px-4 py-3 font-mono text-xs text-muted-foreground uppercase">{t('inventory.product')}</th>
+                                <th className="text-left px-4 py-3 font-mono text-xs text-muted-foreground uppercase">{t('inventory.category')}</th>
+                                <th className="text-right px-4 py-3 font-mono text-xs text-muted-foreground uppercase">{t('inventory.price')}</th>
+                                <th className="text-right px-4 py-3 font-mono text-xs text-muted-foreground uppercase">{t('inventory.stock')}</th>
+                                <th className="text-right px-4 py-3 font-mono text-xs text-muted-foreground uppercase">{t('inventory.actions')}</th>
                             </tr>
                         </thead>
                         <tbody>
@@ -196,7 +198,7 @@ export default function InventoryPage() {
                                 <tr>
                                     <td colSpan={5} className="text-center py-12 text-muted-foreground">
                                         <Package size={32} className="mx-auto mb-3 opacity-50" />
-                                        <p>No products found</p>
+                                        <p>{t('inventory.noProducts')}</p>
                                     </td>
                                 </tr>
                             ) : products.map(p => (
@@ -211,7 +213,7 @@ export default function InventoryPage() {
                                         </span>
                                     </td>
                                     <td className="px-4 py-3 text-right font-mono text-foreground">
-                                        ${p.price.toFixed(2)}
+                                        {formatNumber(p.price, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                                     </td>
                                     <td className="px-4 py-3 text-right">
                                         <span className={`font-mono font-bold ${p.stock_quantity <= p.low_stock_threshold
@@ -244,7 +246,7 @@ export default function InventoryPage() {
                     <div className="w-full max-w-lg p-6 bg-card border border-border shadow-xl">
                         <div className="flex items-center justify-between mb-6">
                             <h2 className="text-lg font-bold text-foreground font-serif">
-                                {editingProduct ? 'Edit Product' : 'Add Product'}
+                                {editingProduct ? t('inventory.editProduct') : t('inventory.createProduct')}
                             </h2>
                             <button onClick={() => setShowModal(false)} className="text-muted-foreground hover:text-foreground">
                                 <X size={18} />
@@ -252,16 +254,16 @@ export default function InventoryPage() {
                         </div>
                         <div className="space-y-4">
                             <div>
-                                <label className="block text-xs font-bold text-muted-foreground uppercase mb-1 font-mono">Name *</label>
+                                <label className="block text-xs font-bold text-muted-foreground uppercase mb-1 font-mono">{t('inventory.nameRequired')}</label>
                                 <input value={form.name} onChange={e => setForm({ ...form, name: e.target.value })} className="input-dark text-sm" />
                             </div>
                             <div className="grid grid-cols-2 gap-4">
                                 <div>
-                                    <label className="block text-xs font-bold text-muted-foreground uppercase mb-1 font-mono">SKU</label>
+                                    <label className="block text-xs font-bold text-muted-foreground uppercase mb-1 font-mono">{t('inventory.sku')}</label>
                                     <input value={form.sku} onChange={e => setForm({ ...form, sku: e.target.value })} className="input-dark text-sm" />
                                 </div>
                                 <div>
-                                    <label className="block text-xs font-bold text-muted-foreground uppercase mb-1 font-mono">Category</label>
+                                    <label className="block text-xs font-bold text-muted-foreground uppercase mb-1 font-mono">{t('inventory.category')}</label>
                                     <select value={form.category} onChange={e => setForm({ ...form, category: e.target.value })} className="input-dark text-sm">
                                         {CATEGORIES.map(c => <option key={c} value={c}>{c}</option>)}
                                     </select>
@@ -269,21 +271,21 @@ export default function InventoryPage() {
                             </div>
                             <div className="grid grid-cols-2 gap-4">
                                 <div>
-                                    <label className="block text-xs font-bold text-muted-foreground uppercase mb-1 font-mono">Price *</label>
+                                    <label className="block text-xs font-bold text-muted-foreground uppercase mb-1 font-mono">{t('inventory.price')} *</label>
                                     <input type="number" step="0.01" value={form.price} onChange={e => setForm({ ...form, price: e.target.value })} className="input-dark text-sm" />
                                 </div>
                                 <div>
-                                    <label className="block text-xs font-bold text-muted-foreground uppercase mb-1 font-mono">Cost Price</label>
+                                    <label className="block text-xs font-bold text-muted-foreground uppercase mb-1 font-mono">{t('inventory.costPrice')}</label>
                                     <input type="number" step="0.01" value={form.cost_price} onChange={e => setForm({ ...form, cost_price: e.target.value })} className="input-dark text-sm" />
                                 </div>
                             </div>
                             <div className="grid grid-cols-2 gap-4">
                                 <div>
-                                    <label className="block text-xs font-bold text-muted-foreground uppercase mb-1 font-mono">Stock Qty</label>
+                                    <label className="block text-xs font-bold text-muted-foreground uppercase mb-1 font-mono">{t('inventory.stockQty')}</label>
                                     <input type="number" value={form.stock_quantity} onChange={e => setForm({ ...form, stock_quantity: e.target.value })} className="input-dark text-sm" />
                                 </div>
                                 <div>
-                                    <label className="block text-xs font-bold text-muted-foreground uppercase mb-1 font-mono">Low Stock Alert</label>
+                                    <label className="block text-xs font-bold text-muted-foreground uppercase mb-1 font-mono">{t('inventory.lowStockThreshold')}</label>
                                     <input type="number" value={form.low_stock_threshold} onChange={e => setForm({ ...form, low_stock_threshold: e.target.value })} className="input-dark text-sm" />
                                 </div>
                             </div>
@@ -292,7 +294,7 @@ export default function InventoryPage() {
                                 disabled={saving || !form.name || !form.price}
                                 className="btn-primary w-full py-2.5 text-sm mt-2"
                             >
-                                {saving ? 'Saving...' : editingProduct ? 'Update Product' : 'Create Product'}
+                                {saving ? t('inventory.saving') : editingProduct ? t('inventory.updateProduct') : t('inventory.createProductAction')}
                             </button>
                         </div>
                     </div>

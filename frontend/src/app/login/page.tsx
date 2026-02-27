@@ -4,8 +4,11 @@ import { useState } from 'react';
 import { useAuth } from '@/context/AuthContext';
 import { api } from '@/lib/api';
 import { Dumbbell, Eye, EyeOff, ShieldCheck, Zap, Users } from 'lucide-react';
+import { useLocale } from '@/context/LocaleContext';
+import { LanguageToggle } from '@/components/LanguageToggle';
 
 export default function LoginPage() {
+    const { t, direction } = useLocale();
     const [email, setEmail] = useState('');
     const [password, setPassword] = useState('');
     const [error, setError] = useState('');
@@ -29,7 +32,7 @@ export default function LoginPage() {
         } catch (err: unknown) {
             const axiosErr = err as { response?: { data?: { detail?: string } } };
             console.error(err);
-            setError(axiosErr.response?.data?.detail || 'Invalid email or password');
+            setError(axiosErr.response?.data?.detail || t('login.invalidCredentials'));
         } finally {
             setLoading(false);
         }
@@ -47,38 +50,41 @@ export default function LoginPage() {
 
             <div className="mx-auto grid w-full max-w-5xl grid-cols-1 gap-6 lg:grid-cols-2 relative z-10">
                 <div className="hidden lg:flex flex-col justify-between rounded-md border border-border bg-card p-8">
+                    <div className={`absolute top-4 z-20 ${direction === 'rtl' ? 'left-4' : 'right-4'}`}>
+                        <LanguageToggle />
+                    </div>
                     <div>
                         <div className="flex items-center gap-3 mb-8">
                             <div className="h-12 w-12 flex items-center justify-center bg-primary rounded-md">
                                 <Dumbbell size={24} className="text-primary-foreground" />
                             </div>
                             <div>
-                                <h1 className="text-2xl font-bold text-foreground tracking-tight font-serif">GymERP</h1>
-                                <p className="text-xs text-muted-foreground font-mono uppercase tracking-wider">Management System</p>
+                                <h1 className="text-2xl font-bold text-foreground tracking-tight font-serif">{t('common.appName')}</h1>
+                                <p className="text-xs text-muted-foreground font-mono uppercase tracking-wider">{t('common.managementSystem')}</p>
                             </div>
                         </div>
 
                         <h2 className="text-3xl font-bold text-foreground font-serif leading-tight">
-                            One dashboard
+                            {t('login.heroTitleLine1')}
                             <br />
-                            for your whole gym
+                            {t('login.heroTitleLine2')}
                         </h2>
                         <p className="mt-4 text-sm text-muted-foreground max-w-sm">
-                            Manage members, staff, attendance, and payroll with a single clean workflow.
+                            {t('login.heroDescription')}
                         </p>
 
                         <div className="mt-6 grid grid-cols-3 gap-3">
                             <div className="rounded-md border border-border bg-background/70 p-3 text-center">
-                                <p className="text-[10px] font-mono uppercase text-muted-foreground">Modules</p>
-                                <p className="mt-1 text-lg font-bold text-primary">12+</p>
+                                <p className="text-[10px] font-mono uppercase text-muted-foreground">{t('login.modules')}</p>
+                                <p className="mt-1 text-lg font-bold text-primary">{t('login.modulesValue')}</p>
                             </div>
                             <div className="rounded-md border border-border bg-background/70 p-3 text-center">
-                                <p className="text-[10px] font-mono uppercase text-muted-foreground">Automation</p>
-                                <p className="mt-1 text-lg font-bold text-primary">Live</p>
+                                <p className="text-[10px] font-mono uppercase text-muted-foreground">{t('login.automation')}</p>
+                                <p className="mt-1 text-lg font-bold text-primary">{t('login.automationValue')}</p>
                             </div>
                             <div className="rounded-md border border-border bg-background/70 p-3 text-center">
-                                <p className="text-[10px] font-mono uppercase text-muted-foreground">Access</p>
-                                <p className="mt-1 text-lg font-bold text-primary">Secure</p>
+                                <p className="text-[10px] font-mono uppercase text-muted-foreground">{t('login.access')}</p>
+                                <p className="mt-1 text-lg font-bold text-primary">{t('login.accessValue')}</p>
                             </div>
                         </div>
                     </div>
@@ -86,15 +92,15 @@ export default function LoginPage() {
                     <div className="space-y-3">
                         <div className="rounded-md border border-border bg-muted/20 p-3 flex items-center gap-3">
                             <Users size={16} className="text-primary" />
-                            <p className="text-sm text-foreground">Membership and staff lifecycle in one place</p>
+                            <p className="text-sm text-foreground">{t('login.featureOne')}</p>
                         </div>
                         <div className="rounded-md border border-border bg-muted/20 p-3 flex items-center gap-3">
                             <ShieldCheck size={16} className="text-primary" />
-                            <p className="text-sm text-foreground">Secure access with role-based control</p>
+                            <p className="text-sm text-foreground">{t('login.featureTwo')}</p>
                         </div>
                         <div className="rounded-md border border-border bg-muted/20 p-3 flex items-center gap-3">
                             <Zap size={16} className="text-primary" />
-                            <p className="text-sm text-foreground">Fast operations for front-desk and management</p>
+                            <p className="text-sm text-foreground">{t('login.featureThree')}</p>
                         </div>
                     </div>
                 </div>
@@ -103,17 +109,20 @@ export default function LoginPage() {
                     <div className="pointer-events-none absolute -right-12 -top-12 h-36 w-36 rounded-full bg-primary/10 blur-2xl" />
                     <div className="pointer-events-none absolute -left-10 -bottom-10 h-28 w-28 rounded-full bg-emerald-500/10 blur-2xl" />
                     <div className="flex items-center gap-3 mb-8 lg:hidden">
+                        <div className={`absolute top-4 z-20 ${direction === 'rtl' ? 'left-4' : 'right-4'}`}>
+                            <LanguageToggle />
+                        </div>
                         <div className="h-10 w-10 flex items-center justify-center bg-primary rounded-md">
                             <Dumbbell size={20} className="text-primary-foreground" />
                         </div>
                         <div>
-                            <h1 className="text-xl font-bold text-foreground tracking-tight font-serif">GymERP</h1>
-                            <p className="text-[11px] text-muted-foreground font-mono uppercase tracking-wider">Management System</p>
+                            <h1 className="text-xl font-bold text-foreground tracking-tight font-serif">{t('common.appName')}</h1>
+                            <p className="text-[11px] text-muted-foreground font-mono uppercase tracking-wider">{t('common.managementSystem')}</p>
                         </div>
                     </div>
 
-                    <h2 className="text-xl font-bold text-foreground mb-1 font-serif">Welcome back</h2>
-                    <p className="text-sm text-muted-foreground mb-8">Sign in to your account</p>
+                    <h2 className="text-xl font-bold text-foreground mb-1 font-serif">{t('login.title')}</h2>
+                    <p className="text-sm text-muted-foreground mb-8">{t('login.subtitle')}</p>
 
                     <form className="space-y-5" onSubmit={handleSubmit}>
                         {error && (
@@ -123,7 +132,7 @@ export default function LoginPage() {
                         )}
 
                         <div>
-                            <label className="block text-xs font-bold text-muted-foreground mb-1.5 uppercase tracking-wider">Email</label>
+                            <label className="block text-xs font-bold text-muted-foreground mb-1.5 uppercase tracking-wider">{t('login.email')}</label>
                             <input
                                 id="email-address"
                                 type="email"
@@ -137,7 +146,7 @@ export default function LoginPage() {
                         </div>
 
                         <div>
-                            <label className="block text-xs font-bold text-muted-foreground mb-1.5 uppercase tracking-wider">Password</label>
+                            <label className="block text-xs font-bold text-muted-foreground mb-1.5 uppercase tracking-wider">{t('login.password')}</label>
                             <div className="relative">
                                 <input
                                     id="password"
@@ -146,13 +155,13 @@ export default function LoginPage() {
                                     required
                                     value={password}
                                     onChange={(e) => setPassword(e.target.value)}
-                                    className="input-dark pr-11 rounded-md"
+                                    className={`input-dark ${direction === 'rtl' ? 'pl-11' : 'pr-11'} rounded-md`}
                                     placeholder="********"
                                 />
                                 <button
                                     type="button"
                                     onClick={() => setShowPassword(!showPassword)}
-                                    className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground transition-colors"
+                                    className={`absolute ${direction === 'rtl' ? 'left-3' : 'right-3'} top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground transition-colors`}
                                 >
                                     {showPassword ? <EyeOff size={18} /> : <Eye size={18} />}
                                 </button>
@@ -163,18 +172,19 @@ export default function LoginPage() {
                             type="submit"
                             disabled={loading}
                             className="btn-primary w-full py-2.5 rounded-md"
+                            data-testid="login-submit"
                         >
                             {loading ? (
                                 <span className="flex items-center justify-center gap-2">
                                     <span className="h-4 w-4 animate-spin rounded-full border-2 border-primary-foreground border-t-transparent" />
-                                    AUTHENTICATING...
+                                    {t('login.authenticating')}
                                 </span>
-                            ) : 'SIGN IN'}
+                            ) : t('login.signIn')}
                         </button>
                     </form>
 
                     <p className="text-center text-xs text-muted-foreground mt-5 font-mono">
-                        Gym ERP v1.0 - Industrial Strength Software
+                        {t('login.footer')}
                     </p>
                 </div>
             </div>

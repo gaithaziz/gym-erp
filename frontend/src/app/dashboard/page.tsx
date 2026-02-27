@@ -16,6 +16,7 @@ import type { GamificationStats as MemberGamificationStats } from '@/app/dashboa
 import { DateRange } from 'react-day-picker';
 import { subDays } from 'date-fns';
 import { Move } from 'lucide-react';
+import { useLocale } from '@/context/LocaleContext';
 
 // ======================== ADMIN DASHBOARD ========================
 
@@ -117,6 +118,7 @@ const calculateAge = (dob?: string) => {
 };
 
 function AdminDashboard({ userName }: { userName: string }) {
+    const { t, direction, formatCurrency, formatDate } = useLocale();
     const [stats, setStats] = useState<DashboardStats | null>(null);
     const [attendanceData, setAttendanceData] = useState<AttendanceData[]>([]);
     const [revenueData, setRevenueData] = useState<RevenueData[]>([]);
@@ -191,7 +193,7 @@ function AdminDashboard({ userName }: { userName: string }) {
             if (diffMin < 60) return `${diffMin}m ago`;
             const diffHr = Math.floor(diffMin / 60);
             if (diffHr < 24) return `${diffHr}h ago`;
-            return d.toLocaleDateString();
+            return formatDate(d, { month: 'short', day: '2-digit', year: 'numeric' });
         } catch { return ''; }
     };
 
@@ -201,7 +203,7 @@ function AdminDashboard({ userName }: { userName: string }) {
                 const date = new Date(point.date);
                 const label = Number.isNaN(date.getTime())
                     ? point.date
-                    : date.toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
+                    : formatDate(date, { month: 'short', day: 'numeric' });
                 return { ...point, label };
             });
         }
@@ -227,20 +229,20 @@ function AdminDashboard({ userName }: { userName: string }) {
 
             weeklyBuckets.set(key, {
                 date: key,
-                label: weekStart.toLocaleDateString(undefined, { month: 'short', day: 'numeric' }),
+                label: formatDate(weekStart, { month: 'short', day: 'numeric' }),
                 revenue: point.revenue,
                 expenses: point.expenses,
             });
         });
 
         return Array.from(weeklyBuckets.values()).sort((a, b) => a.date.localeCompare(b.date));
-    }, [revenueData, revenueViewMode]);
+    }, [formatDate, revenueData, revenueViewMode]);
 
     const kpiCards = [
-        { title: "Today's Visitors (Non-Live)", value: stats?.today_visitors ?? '--', subtitle: 'Unique granted entries today', icon: Activity, badge: 'badge-blue' },
-        { title: "Today's Revenue", value: stats ? `${stats.todays_revenue.toFixed(2)} JOD` : '--', subtitle: 'Collected today', icon: DollarSign, badge: 'badge-green' },
-        { title: 'Pending Salaries', value: stats ? `${stats.pending_salaries.toFixed(2)} JOD` : '--', subtitle: 'Owed this month', icon: Clock, badge: 'badge-amber' },
-        { title: 'Low Stock Alerts', value: lowStockItems.length, subtitle: 'Products need order', icon: TrendingUp, badge: 'badge-destructive', isAlert: lowStockItems.length > 0 },
+        { title: t('dashboard.home.todayVisitors'), value: stats?.today_visitors ?? '--', subtitle: t('dashboard.home.todayVisitorsSubtitle'), icon: Activity, badge: 'badge-blue' },
+        { title: t('dashboard.home.todaysRevenue'), value: stats ? formatCurrency(stats.todays_revenue, 'JOD', { currencyDisplay: 'code' }) : '--', subtitle: t('dashboard.home.todaysRevenueSubtitle'), icon: DollarSign, badge: 'badge-green' },
+        { title: t('dashboard.home.pendingSalaries'), value: stats ? formatCurrency(stats.pending_salaries, 'JOD', { currencyDisplay: 'code' }) : '--', subtitle: t('dashboard.home.pendingSalariesSubtitle'), icon: Clock, badge: 'badge-amber' },
+        { title: t('dashboard.home.lowStockAlerts'), value: lowStockItems.length, subtitle: t('dashboard.home.lowStockAlertsSubtitle'), icon: TrendingUp, badge: 'badge-destructive', isAlert: lowStockItems.length > 0 },
     ];
 
     const exportDailyVisitorsCsv = async () => {
@@ -271,10 +273,10 @@ function AdminDashboard({ userName }: { userName: string }) {
 
     return (
         <div className="space-y-4">
-            <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 mb-6 md:pr-28">
+            <div className={`flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 mb-6 ${direction === 'rtl' ? 'md:pl-28' : 'md:pr-28'}`}>
                 <div>
-                    <h1 className="text-2xl font-bold text-foreground font-serif tracking-tight">Dashboard</h1>
-                    <p className="text-sm text-muted-foreground mt-1">Gym Operations Center • {userName}</p>
+                    <h1 className="text-2xl font-bold text-foreground font-serif tracking-tight">{t('dashboard.home.title')}</h1>
+                    <p className="text-sm text-muted-foreground mt-1">{t('dashboard.home.operationsCenter')} • {userName}</p>
                 </div>
                 <div className="flex items-center gap-2 mt-1 md:mt-2">
                     <DateRangePicker date={dateRange} setDate={setDateRange} className="z-10" />
@@ -285,7 +287,7 @@ function AdminDashboard({ userName }: { userName: string }) {
                 {/* KPI Cards */}
                 {kpiCards.map((card, i) => (
                     <div key={`stats-${i}`} className="kpi-card group h-full relative" data-grid={{ w: 3, h: 4, x: (i % 4) * 3, y: Math.floor(i / 4) * 4 }}>
-                        <div className="absolute top-2 right-2 text-muted-foreground/30 cursor-move drag-handle opacity-0 group-hover:opacity-100 transition-opacity z-10">
+                        <div className={`absolute top-2 ${direction === 'rtl' ? 'left-2' : 'right-2'} text-muted-foreground/30 cursor-move drag-handle opacity-0 group-hover:opacity-100 transition-opacity z-10`}>
                             <Move size={14} />
                         </div>
                         <div className="flex items-start justify-between h-full flex-col">
@@ -303,7 +305,7 @@ function AdminDashboard({ userName }: { userName: string }) {
                                 {card.isAlert && (
                                     <div className="flex items-center gap-2 mt-1.5 pt-1.5 border-t border-destructive/20 w-full">
                                         <span className="h-2 w-2 bg-destructive animate-ping" />
-                                        <span className="text-xs text-destructive font-bold uppercase tracking-wider">Attention</span>
+                                        <span className="text-xs text-destructive font-bold uppercase tracking-wider">{t('dashboard.home.attention')}</span>
                                     </div>
                                 )}
                             </div>
@@ -313,10 +315,10 @@ function AdminDashboard({ userName }: { userName: string }) {
 
                 {/* Charts */}
                 <div key="chart-visits" className="kpi-card p-6 h-full relative group">
-                    <div className="absolute top-2 right-2 text-muted-foreground/30 cursor-move drag-handle opacity-0 group-hover:opacity-100 transition-opacity z-10">
+                    <div className={`absolute top-2 ${direction === 'rtl' ? 'left-2' : 'right-2'} text-muted-foreground/30 cursor-move drag-handle opacity-0 group-hover:opacity-100 transition-opacity z-10`}>
                         <Move size={14} />
                     </div>
-                    <h3 className="inline-flex rounded-md border border-orange-500/30 bg-orange-500/10 px-2 py-1 text-base font-extrabold text-orange-500 uppercase tracking-wider font-mono mb-6">Visits by Hour (Last {selectedDays} Days)</h3>
+                    <h3 className="inline-flex rounded-md border border-orange-500/30 bg-orange-500/10 px-2 py-1 text-base font-extrabold text-orange-500 uppercase tracking-wider font-mono mb-6">{t('dashboard.home.visitsByHour')} ({t('dashboard.home.lastDays').replace('{{days}}', String(selectedDays))})</h3>
                     <div className="h-[calc(100%-2rem)]">
                         {attendanceData.length > 0 ? (
                             <ResponsiveContainer width="100%" height="100%" minHeight={1} minWidth={1}>
@@ -332,42 +334,42 @@ function AdminDashboard({ userName }: { userName: string }) {
                                 </BarChart>
                             </ResponsiveContainer>
                         ) : (
-                            <div className="flex items-center justify-center h-full text-muted-foreground text-sm font-mono">NO DATA AVAILABLE</div>
+                            <div className="flex items-center justify-center h-full text-muted-foreground text-sm font-mono">{t('dashboard.home.noData')}</div>
                         )}
                     </div>
                 </div>
 
                 <div key="chart-revenue" className="kpi-card p-6 h-full relative group flex flex-col">
-                    <div className="absolute top-2 right-2 text-muted-foreground/30 cursor-move drag-handle opacity-0 group-hover:opacity-100 transition-opacity z-10">
+                    <div className={`absolute top-2 ${direction === 'rtl' ? 'left-2' : 'right-2'} text-muted-foreground/30 cursor-move drag-handle opacity-0 group-hover:opacity-100 transition-opacity z-10`}>
                         <Move size={14} />
                     </div>
                     <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
-                        <h3 className="inline-flex rounded-md border border-orange-500/30 bg-orange-500/10 px-2 py-1 text-base font-extrabold text-orange-500 uppercase tracking-wider font-mono">Revenue vs. Expenses (Last {selectedDays} Days)</h3>
+                        <h3 className="inline-flex rounded-md border border-orange-500/30 bg-orange-500/10 px-2 py-1 text-base font-extrabold text-orange-500 uppercase tracking-wider font-mono">{t('dashboard.home.revenueVsExpenses')} ({t('dashboard.home.lastDays').replace('{{days}}', String(selectedDays))})</h3>
                         <div className="flex items-center gap-1 border border-border bg-muted/20 p-1">
                             <button
                                 type="button"
                                 onClick={() => setRevenueViewMode('daily')}
                                 className={`px-2 py-1 text-[10px] font-mono uppercase transition-colors ${revenueViewMode === 'daily' ? 'bg-primary text-primary-foreground' : 'text-muted-foreground hover:text-foreground'}`}
                             >
-                                Daily
+                                {t('dashboard.home.daily')}
                             </button>
                             <button
                                 type="button"
                                 onClick={() => setRevenueViewMode('weekly')}
                                 className={`px-2 py-1 text-[10px] font-mono uppercase transition-colors ${revenueViewMode === 'weekly' ? 'bg-primary text-primary-foreground' : 'text-muted-foreground hover:text-foreground'}`}
                             >
-                                Weekly
+                                {t('dashboard.home.weekly')}
                             </button>
                         </div>
                     </div>
                     <div className="mb-3 flex items-center gap-4 text-xs font-mono">
                         <div className="flex items-center gap-1.5 text-muted-foreground">
                             <span className="h-2.5 w-2.5 rounded-full" style={{ backgroundColor: revenueBarColor }} />
-                            Revenue
+                            {t('dashboard.home.revenue')}
                         </div>
                         <div className="flex items-center gap-1.5 text-muted-foreground">
                             <span className="h-2.5 w-2.5 rounded-full" style={{ backgroundColor: expensesBarColor }} />
-                            Expenses
+                            {t('dashboard.home.expenses')}
                         </div>
                     </div>
                     <div className="mt-1 min-h-0 flex-1">
@@ -397,10 +399,13 @@ function AdminDashboard({ userName }: { userName: string }) {
                                     />
                                     <YAxis tick={{ fontSize: 11, fill: 'var(--muted-foreground)', fontFamily: 'var(--font-mono)' }} axisLine={false} tickLine={false} />
                                     <Tooltip
-                                        formatter={(value, name) => [`${Number(value ?? 0).toFixed(2)} JOD`, String(name)]}
+                                        formatter={(value, name) => [
+                                            formatCurrency(Number(value ?? 0), 'JOD', { currencyDisplay: 'code' }),
+                                            String(name) === 'Revenue' ? t('dashboard.home.revenue') : t('dashboard.home.expenses'),
+                                        ]}
                                         contentStyle={{ background: 'var(--card)', border: '1px solid var(--border)', borderRadius: '0px', fontSize: '0.8rem', color: 'var(--foreground)' }}
                                     />
-                                    <Bar dataKey="revenue" name="Revenue" fill={revenueBarColor} maxBarSize={22} radius={[2, 2, 0, 0]}>
+                                    <Bar dataKey="revenue" name={t('dashboard.home.revenue')} fill={revenueBarColor} maxBarSize={22} radius={[2, 2, 0, 0]}>
                                         {revenueChartData.map((_, i) => (
                                             <Cell
                                                 key={`rev-${i}`}
@@ -409,7 +414,7 @@ function AdminDashboard({ userName }: { userName: string }) {
                                             />
                                         ))}
                                     </Bar>
-                                    <Bar dataKey="expenses" name="Expenses" fill={expensesBarColor} maxBarSize={22} radius={[2, 2, 0, 0]}>
+                                    <Bar dataKey="expenses" name={t('dashboard.home.expenses')} fill={expensesBarColor} maxBarSize={22} radius={[2, 2, 0, 0]}>
                                         {revenueChartData.map((_, i) => (
                                             <Cell
                                                 key={`exp-${i}`}
@@ -421,7 +426,7 @@ function AdminDashboard({ userName }: { userName: string }) {
                                 </BarChart>
                             </ResponsiveContainer>
                         ) : (
-                            <div className="flex items-center justify-center h-full text-muted-foreground text-sm font-mono">NO FINANCIAL DATA</div>
+                            <div className="flex items-center justify-center h-full text-muted-foreground text-sm font-mono">{t('dashboard.home.noFinancialData')}</div>
                         )}
                     </div>
                 </div>
@@ -510,6 +515,54 @@ function AdminDashboard({ userName }: { userName: string }) {
 // ======================== COACH DASHBOARD ========================
 
 function CoachDashboard({ userName }: { userName: string }) {
+    const { locale, t } = useLocale();
+    const txt = locale === 'ar'
+        ? {
+            trainerPortal: 'بوابة المدرب',
+            workoutPlans: 'خطط التمرين',
+            plansCreated: 'الخطط المنشأة',
+            assignedToMembers: 'مُعيّنة للأعضاء',
+            noAssignedClients: 'لا يوجد أعضاء معيّنون بعد',
+            assignedCompleted: 'عميلًا مُعيّنًا أكمل التمارين',
+            createManagePrograms: 'إنشاء وإدارة البرامج',
+            manageNutrition: 'إدارة التغذية',
+            traineeFeedback: 'ملاحظات المتدربين',
+            logsRatings: 'السجلات والتقييمات',
+            entranceAccess: 'وصول الدخول',
+            recentPlans: 'أحدث الخطط المنشأة',
+            viewAll: 'عرض الكل ←',
+            biometricsSubtitle: 'راقب قياسات العميل وتقدمه',
+            client: 'العميل',
+            searchClient: 'ابحث عن عميل...',
+            age: 'العمر',
+            height: 'الطول',
+            weight: 'الوزن',
+            bodyFat: 'دهون الجسم',
+            noClientSelected: 'لم يتم اختيار عميل.',
+        }
+        : {
+            trainerPortal: 'Trainer Portal',
+            workoutPlans: 'Workout Plans',
+            plansCreated: 'Plans created',
+            assignedToMembers: 'Assigned to members',
+            noAssignedClients: 'No assigned clients yet',
+            assignedCompleted: 'assigned clients completed workouts',
+            createManagePrograms: 'Create & manage programs',
+            manageNutrition: 'Manage nutrition',
+            traineeFeedback: 'Trainee Feedback',
+            logsRatings: 'Logs & ratings',
+            entranceAccess: 'Entrance access',
+            recentPlans: 'Recently Created Plans',
+            viewAll: 'VIEW ALL →',
+            biometricsSubtitle: 'Monitor member biometrics and progress trends',
+            client: 'Client',
+            searchClient: 'Search client...',
+            age: 'Age',
+            height: 'Height',
+            weight: 'Weight',
+            bodyFat: 'Body Fat',
+            noClientSelected: 'No client selected.',
+        };
     const chartMetricConfig: Array<{ key: CoachBiometricMetricKey; label: string; color: string }> = [
         { key: 'weight_kg', label: 'Weight (kg)', color: 'var(--primary)' },
         { key: 'body_fat_pct', label: 'Body Fat (%)', color: '#f97316' },
@@ -609,8 +662,8 @@ function CoachDashboard({ userName }: { userName: string }) {
     return (
         <div className="space-y-8">
             <div>
-                <h1 className="text-2xl font-bold text-foreground font-serif tracking-tight">Coach Dashboard</h1>
-                <p className="text-sm text-muted-foreground mt-1">Trainer Portal • {userName}</p>
+                <h1 className="text-2xl font-bold text-foreground font-serif tracking-tight">{locale === 'ar' ? 'لوحة المدرب' : 'Coach Dashboard'}</h1>
+                <p className="text-sm text-muted-foreground mt-1">{txt.trainerPortal} • {userName}</p>
             </div>
 
             {/* KPI Summary */}
@@ -618,9 +671,9 @@ function CoachDashboard({ userName }: { userName: string }) {
                 <div className="kpi-card group">
                     <div className="flex items-start justify-between">
                         <div>
-                            <p className="inline-flex rounded-md border border-orange-500/30 bg-orange-500/10 px-2 py-1 text-xs font-extrabold text-orange-500 uppercase tracking-wider font-mono">Workout Plans</p>
+                            <p className="inline-flex rounded-md border border-orange-500/30 bg-orange-500/10 px-2 py-1 text-xs font-extrabold text-orange-500 uppercase tracking-wider font-mono">{txt.workoutPlans}</p>
                             <p className="text-3xl font-bold text-foreground mt-2 font-mono tracking-tighter">{plansCount}</p>
-                            <p className="text-xs text-muted-foreground mt-1">Plans created</p>
+                            <p className="text-xs text-muted-foreground mt-1">{txt.plansCreated}</p>
                         </div>
                         <div className="p-2 border border-border bg-muted/50">
                             <Dumbbell size={18} className="text-foreground" />
@@ -630,9 +683,9 @@ function CoachDashboard({ userName }: { userName: string }) {
                 <div className="kpi-card group">
                     <div className="flex items-start justify-between">
                         <div>
-                            <p className="inline-flex rounded-md border border-orange-500/30 bg-orange-500/10 px-2 py-1 text-xs font-extrabold text-orange-500 uppercase tracking-wider font-mono">Assigned Diet Plans</p>
+                            <p className="inline-flex rounded-md border border-orange-500/30 bg-orange-500/10 px-2 py-1 text-xs font-extrabold text-orange-500 uppercase tracking-wider font-mono">{locale === 'ar' ? 'خطط التغذية المعينة' : 'Assigned Diet Plans'}</p>
                             <p className="text-3xl font-bold text-foreground mt-2 font-mono tracking-tighter">{dietsCount}</p>
-                            <p className="text-xs text-muted-foreground mt-1">Assigned to members</p>
+                            <p className="text-xs text-muted-foreground mt-1">{txt.assignedToMembers}</p>
                         </div>
                         <div className="p-2 border border-border bg-muted/50">
                             <Utensils size={18} className="text-foreground" />
@@ -642,12 +695,12 @@ function CoachDashboard({ userName }: { userName: string }) {
                 <div className="kpi-card group">
                     <div className="flex items-start justify-between">
                         <div>
-                            <p className="inline-flex rounded-md border border-orange-500/30 bg-orange-500/10 px-2 py-1 text-xs font-extrabold text-orange-500 uppercase tracking-wider font-mono">Plan Adherence (7d)</p>
+                            <p className="inline-flex rounded-md border border-orange-500/30 bg-orange-500/10 px-2 py-1 text-xs font-extrabold text-orange-500 uppercase tracking-wider font-mono">{locale === 'ar' ? 'الالتزام بالخطة (7 أيام)' : 'Plan Adherence (7d)'}</p>
                             <p className="text-3xl font-bold text-foreground mt-2 font-mono tracking-tighter">{planAdherence.rate}%</p>
                             <p className="text-xs text-muted-foreground mt-1">
                                 {planAdherence.assigned > 0
-                                    ? `${planAdherence.adherent}/${planAdherence.assigned} assigned clients completed workouts`
-                                    : 'No assigned clients yet'}
+                                    ? `${planAdherence.adherent}/${planAdherence.assigned} ${txt.assignedCompleted}`
+                                    : txt.noAssignedClients}
                             </p>
                         </div>
                         <div className="p-2 border border-border bg-muted/50">
@@ -665,8 +718,8 @@ function CoachDashboard({ userName }: { userName: string }) {
                             <Dumbbell size={20} />
                         </div>
                         <div>
-                            <h3 className="text-foreground font-bold text-sm uppercase tracking-wide">Workout Plans</h3>
-                            <p className="text-muted-foreground text-xs">Create & manage programs</p>
+                            <h3 className="text-foreground font-bold text-sm uppercase tracking-wide">{txt.workoutPlans}</h3>
+                            <p className="text-muted-foreground text-xs">{txt.createManagePrograms}</p>
                         </div>
                     </div>
                     <ChevronRight size={18} className="text-muted-foreground group-hover:text-primary transition-colors" />
@@ -678,7 +731,7 @@ function CoachDashboard({ userName }: { userName: string }) {
                         </div>
                         <div>
                             <h3 className="text-foreground font-bold text-sm uppercase tracking-wide">Diet Plans</h3>
-                            <p className="text-muted-foreground text-xs">Manage nutrition</p>
+                            <p className="text-muted-foreground text-xs">{txt.manageNutrition}</p>
                         </div>
                     </div>
                     <ChevronRight size={18} className="text-muted-foreground group-hover:text-primary transition-colors" />
@@ -689,8 +742,8 @@ function CoachDashboard({ userName }: { userName: string }) {
                             <MessageSquare size={20} />
                         </div>
                         <div>
-                            <h3 className="text-foreground font-bold text-sm uppercase tracking-wide">Trainee Feedback</h3>
-                            <p className="text-muted-foreground text-xs">Logs & ratings</p>
+                            <h3 className="text-foreground font-bold text-sm uppercase tracking-wide">{txt.traineeFeedback}</h3>
+                            <p className="text-muted-foreground text-xs">{txt.logsRatings}</p>
                         </div>
                     </div>
                     <ChevronRight size={18} className="text-muted-foreground group-hover:text-primary transition-colors" />
@@ -701,8 +754,8 @@ function CoachDashboard({ userName }: { userName: string }) {
                             <QrCode size={20} />
                         </div>
                         <div>
-                            <h3 className="text-foreground font-bold text-sm uppercase tracking-wide">My QR Code</h3>
-                            <p className="text-muted-foreground text-xs">Entrance access</p>
+                            <h3 className="text-foreground font-bold text-sm uppercase tracking-wide">{t('dashboard.nav.myQrCode')}</h3>
+                            <p className="text-muted-foreground text-xs">{txt.entranceAccess}</p>
                         </div>
                     </div>
                     <ChevronRight size={18} className="text-muted-foreground group-hover:text-primary transition-colors" />
@@ -714,7 +767,7 @@ function CoachDashboard({ userName }: { userName: string }) {
                 <div className="kpi-card p-0">
                     <div className="flex items-center justify-between p-4 border-b border-border">
                         <h3 className="inline-flex rounded-md border border-orange-500/30 bg-orange-500/10 px-2 py-1 text-base font-extrabold text-orange-500 uppercase tracking-wider font-mono">Recently Created Plans</h3>
-                        <Link href="/dashboard/coach/plans" className="text-xs text-primary hover:text-primary/80 font-mono">VIEW ALL →</Link>
+                        <Link href="/dashboard/coach/plans" className="text-xs text-primary hover:text-primary/80 font-mono">{txt.viewAll}</Link>
                     </div>
                     <div className="divide-y divide-border">
                         {plans.slice(0, 5).map((plan: Plan, i: number) => (
@@ -730,24 +783,24 @@ function CoachDashboard({ userName }: { userName: string }) {
                 </div>
             ) : (
                 <div className="kpi-card border-dashed border-border min-h-[140px] flex items-center justify-center text-sm text-muted-foreground">
-                    No recent plans yet.
+                    {locale === 'ar' ? 'لا توجد خطط حديثة بعد.' : 'No recent plans yet.'}
                 </div>
             )}
 
             <div className="kpi-card p-6 space-y-4">
                 <div className="flex flex-col sm:flex-row sm:items-end sm:justify-between gap-3">
                     <div>
-                        <h3 className="inline-flex rounded-md border border-orange-500/30 bg-orange-500/10 px-2 py-1 text-base font-extrabold text-orange-500 uppercase tracking-wider font-mono">Client Progress Tracking</h3>
-                        <p className="text-xs text-muted-foreground mt-1">Monitor member biometrics and progress trends</p>
+                        <h3 className="inline-flex rounded-md border border-orange-500/30 bg-orange-500/10 px-2 py-1 text-base font-extrabold text-orange-500 uppercase tracking-wider font-mono">{locale === 'ar' ? 'تتبع تقدم العميل' : 'Client Progress Tracking'}</h3>
+                        <p className="text-xs text-muted-foreground mt-1">{txt.biometricsSubtitle}</p>
                     </div>
                     <div className="w-full sm:w-72">
-                        <label className="block text-[10px] uppercase font-bold text-muted-foreground mb-1">Client</label>
+                        <label className="block text-[10px] uppercase font-bold text-muted-foreground mb-1">{txt.client}</label>
                         <MemberSearchSelect
                             members={members}
                             value={selectedMemberId}
                             onChange={setSelectedMemberId}
                             allowClear={false}
-                            placeholder="Search client..."
+                            placeholder={txt.searchClient}
                         />
                     </div>
                 </div>
@@ -755,24 +808,24 @@ function CoachDashboard({ userName }: { userName: string }) {
                 {selectedMember ? (
                     <div className="grid grid-cols-1 md:grid-cols-4 gap-3">
                         <div className="rounded-sm border border-border bg-muted/20 p-3">
-                            <p className="text-[10px] uppercase text-muted-foreground font-bold">Age</p>
+                            <p className="text-[10px] uppercase text-muted-foreground font-bold">{txt.age}</p>
                             <p className="text-lg font-bold text-foreground mt-1">{selectedMemberAge !== null ? selectedMemberAge : 'N/A'}</p>
                         </div>
                         <div className="rounded-sm border border-border bg-muted/20 p-3">
-                            <p className="text-[10px] uppercase text-muted-foreground font-bold">Height</p>
+                            <p className="text-[10px] uppercase text-muted-foreground font-bold">{txt.height}</p>
                             <p className="text-lg font-bold text-foreground mt-1">{latestMemberMetrics?.height_cm ? `${latestMemberMetrics.height_cm} cm` : 'N/A'}</p>
                         </div>
                         <div className="rounded-sm border border-border bg-muted/20 p-3">
-                            <p className="text-[10px] uppercase text-muted-foreground font-bold">Weight</p>
+                            <p className="text-[10px] uppercase text-muted-foreground font-bold">{txt.weight}</p>
                             <p className="text-lg font-bold text-foreground mt-1">{latestMemberMetrics?.weight_kg ? `${latestMemberMetrics.weight_kg} kg` : 'N/A'}</p>
                         </div>
                         <div className="rounded-sm border border-border bg-muted/20 p-3">
-                            <p className="text-[10px] uppercase text-muted-foreground font-bold">Body Fat</p>
+                            <p className="text-[10px] uppercase text-muted-foreground font-bold">{txt.bodyFat}</p>
                             <p className="text-lg font-bold text-foreground mt-1">{latestMemberMetrics?.body_fat_pct ? `${latestMemberMetrics.body_fat_pct}%` : 'N/A'}</p>
                         </div>
                     </div>
                 ) : (
-                    <div className="text-sm text-muted-foreground">No client selected.</div>
+                    <div className="text-sm text-muted-foreground">{txt.noClientSelected}</div>
                 )}
 
                 <div className="space-y-3">
@@ -832,7 +885,7 @@ function CoachDashboard({ userName }: { userName: string }) {
                     ) : (
                         <div className="flex items-center justify-center h-full text-muted-foreground text-sm font-mono border border-dashed border-border flex-col">
                             <Activity size={24} className="mb-2 opacity-50" />
-                            <span>NO BIOMETRIC DATA FOR THIS CLIENT</span>
+                            <span>{locale === 'ar' ? 'لا توجد بيانات قياسات حيوية لهذا العميل' : 'NO BIOMETRIC DATA FOR THIS CLIENT'}</span>
                         </div>
                     )}
                 </div>
@@ -856,6 +909,7 @@ function CustomerDashboard({
     subscriptionStatus?: 'ACTIVE' | 'FROZEN' | 'EXPIRED' | 'NONE';
     subscriptionPlanName?: string | null;
 }) {
+    const { t, formatDate, locale } = useLocale();
     const [stats, setStats] = useState<MemberGamificationStats | null>(null);
     const [biometrics, setBiometrics] = useState<BiometricLogResponse[]>([]);
     const [loading, setLoading] = useState(true);
@@ -886,14 +940,14 @@ function CustomerDashboard({
     const parsedExpiryDate = subscriptionEndDate ? new Date(subscriptionEndDate) : null;
     const hasValidExpiry = Boolean(parsedExpiryDate && !Number.isNaN(parsedExpiryDate.getTime()));
     const formattedExpiryDate = hasValidExpiry
-        ? parsedExpiryDate!.toLocaleDateString(undefined, {
+        ? formatDate(parsedExpiryDate!, {
             weekday: 'short',
             year: 'numeric',
             month: 'long',
             day: 'numeric',
         })
-        : 'No expiry date set';
-    const planLabel = subscriptionPlanName || 'Membership Plan';
+        : (locale === 'ar' ? 'لا يوجد تاريخ انتهاء' : 'No expiry date set');
+    const planLabel = subscriptionPlanName || (locale === 'ar' ? 'خطة اشتراك' : 'Membership Plan');
     const statusLabel = subscriptionStatus || 'NONE';
     const subscriptionCardTheme = {
         ACTIVE: {
@@ -918,8 +972,8 @@ function CustomerDashboard({
         <div className="space-y-8">
             <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
                 <div>
-                    <h1 className="text-2xl font-bold text-foreground font-serif tracking-tight">Welcome, {userName}</h1>
-                    <p className="text-sm text-muted-foreground mt-1">Your fitness overview.</p>
+                    <h1 className="text-2xl font-bold text-foreground font-serif tracking-tight">{locale === 'ar' ? 'مرحباً،' : 'Welcome,'} {userName}</h1>
+                    <p className="text-sm text-muted-foreground mt-1">{locale === 'ar' ? 'نظرة عامة على لياقتك.' : 'Your fitness overview.'}</p>
                 </div>
                 {stats?.streak && stats.streak.current_streak > 0 && (
                     <div className="flex items-center gap-2 px-3 py-1.5 bg-orange-500/10 border border-orange-500/20 rounded-full">
@@ -945,7 +999,7 @@ function CustomerDashboard({
 
             <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                 <div className="kpi-card p-5">
-                    <p className="section-chip mb-2">Weekly Goal</p>
+                    <p className="section-chip mb-2">{locale === 'ar' ? 'الهدف الأسبوعي' : 'Weekly Goal'}</p>
                     <div className="flex items-end gap-2">
                         <span className="text-3xl font-bold text-foreground">{weeklyProgress}</span>
                         <span className="text-sm text-muted-foreground mb-1">/ {weeklyGoal} visits</span>
@@ -958,32 +1012,32 @@ function CustomerDashboard({
                     </div>
                 </div>
                 <div className="kpi-card p-5">
-                    <p className="section-chip mb-2">Total Visits</p>
+                    <p className="section-chip mb-2">{locale === 'ar' ? 'إجمالي الزيارات' : 'Total Visits'}</p>
                     <p className="text-3xl font-bold text-foreground font-mono">{stats?.total_visits || 0}</p>
                 </div>
                 <div className="kpi-card p-5">
-                    <p className="section-chip mb-2">Badges Earned</p>
+                    <p className="section-chip mb-2">{locale === 'ar' ? 'الشارات المكتسبة' : 'Badges Earned'}</p>
                     <p className="text-3xl font-bold text-foreground font-mono">{stats?.badges?.length || 0}</p>
                 </div>
             </div>
 
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
                 <div className="kpi-card p-5">
-                    <p className="text-xs uppercase tracking-wider text-muted-foreground">Latest Height</p>
-                    <p className="text-xl font-bold text-foreground mt-1">{latestBio?.height_cm ? `${latestBio.height_cm} cm` : 'N/A'}</p>
+                    <p className="text-xs uppercase tracking-wider text-muted-foreground">{locale === 'ar' ? 'آخر طول' : 'Latest Height'}</p>
+                    <p className="text-xl font-bold text-foreground mt-1">{latestBio?.height_cm ? `${latestBio.height_cm} cm` : '--'}</p>
                 </div>
                 <div className="kpi-card p-5">
-                    <p className="text-xs uppercase tracking-wider text-muted-foreground">Latest Weight</p>
-                    <p className="text-xl font-bold text-foreground mt-1">{latestBio?.weight_kg ? `${latestBio.weight_kg} kg` : 'N/A'}</p>
+                    <p className="text-xs uppercase tracking-wider text-muted-foreground">{locale === 'ar' ? 'آخر وزن' : 'Latest Weight'}</p>
+                    <p className="text-xl font-bold text-foreground mt-1">{latestBio?.weight_kg ? `${latestBio.weight_kg} kg` : '--'}</p>
                 </div>
                 <div className="kpi-card p-5">
-                    <p className="text-xs uppercase tracking-wider text-muted-foreground">Body Fat</p>
-                    <p className="text-xl font-bold text-foreground mt-1">{latestBio?.body_fat_pct ? `${latestBio.body_fat_pct}%` : 'N/A'}</p>
+                    <p className="text-xs uppercase tracking-wider text-muted-foreground">{locale === 'ar' ? 'دهون الجسم' : 'Body Fat'}</p>
+                    <p className="text-xl font-bold text-foreground mt-1">{latestBio?.body_fat_pct ? `${latestBio.body_fat_pct}%` : '--'}</p>
                 </div>
             </div>
 
             <div>
-                <p className="section-chip mb-4">Quick Access</p>
+                <p className="section-chip mb-4">{locale === 'ar' ? 'وصول سريع' : 'Quick Access'}</p>
                 <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
                     <Link href="/dashboard/member/progress" className="kpi-card group cursor-pointer hover:border-primary transition-colors">
                         <div className="flex items-start justify-between">
@@ -1066,18 +1120,19 @@ function CustomerDashboard({
 // ======================== MAIN DASHBOARD PAGE ========================
 
 function CashierDashboard({ userName }: { userName: string }) {
+    const { locale } = useLocale();
     return (
         <div className="space-y-6">
             <div>
-                <h1 className="text-2xl font-bold text-foreground font-serif tracking-tight">Cashier Dashboard</h1>
-                <p className="text-sm text-muted-foreground mt-1">Point of sale operations for {userName}</p>
+                <h1 className="text-2xl font-bold text-foreground font-serif tracking-tight">{locale === 'ar' ? 'لوحة الكاشير' : 'Cashier Dashboard'}</h1>
+                <p className="text-sm text-muted-foreground mt-1">{locale === 'ar' ? 'عمليات نقطة البيع لـ' : 'Point of sale operations for'} {userName}</p>
             </div>
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <Link href="/dashboard/admin/pos" className="kpi-card group cursor-pointer hover:border-primary transition-colors">
                     <div className="flex items-start justify-between">
                         <div>
                             <p className="text-lg font-bold text-foreground font-mono">Cashier POS</p>
-                            <p className="text-xs text-muted-foreground mt-1">Start and complete sales</p>
+                            <p className="text-xs text-muted-foreground mt-1">{locale === 'ar' ? 'ابدأ وأكمل المبيعات' : 'Start and complete sales'}</p>
                         </div>
                         <DollarSign size={20} className="text-foreground" />
                     </div>
@@ -1086,7 +1141,7 @@ function CashierDashboard({ userName }: { userName: string }) {
                     <div className="flex items-start justify-between">
                         <div>
                             <p className="text-lg font-bold text-foreground font-mono">My Profile</p>
-                            <p className="text-xs text-muted-foreground mt-1">Account details</p>
+                            <p className="text-xs text-muted-foreground mt-1">{locale === 'ar' ? 'تفاصيل الحساب' : 'Account details'}</p>
                         </div>
                         <UserCheck size={20} className="text-foreground" />
                     </div>
@@ -1095,7 +1150,7 @@ function CashierDashboard({ userName }: { userName: string }) {
                     <div className="flex items-start justify-between">
                         <div>
                             <p className="text-lg font-bold text-foreground font-mono">My Leaves</p>
-                            <p className="text-xs text-muted-foreground mt-1">Request and track leave days</p>
+                            <p className="text-xs text-muted-foreground mt-1">{locale === 'ar' ? 'طلب وتتبع أيام الإجازة' : 'Request and track leave days'}</p>
                         </div>
                         <ClipboardList size={20} className="text-foreground" />
                     </div>
@@ -1104,7 +1159,7 @@ function CashierDashboard({ userName }: { userName: string }) {
                     <div className="flex items-start justify-between">
                         <div>
                             <p className="text-lg font-bold text-foreground font-mono">Work Check-In</p>
-                            <p className="text-xs text-muted-foreground mt-1">Use the same QR workflow as coach</p>
+                            <p className="text-xs text-muted-foreground mt-1">{locale === 'ar' ? 'استخدم نفس مسار QR الخاص بالمدرب' : 'Use the same QR workflow as coach'}</p>
                         </div>
                         <QrCode size={20} className="text-foreground" />
                     </div>
@@ -1115,18 +1170,19 @@ function CashierDashboard({ userName }: { userName: string }) {
 }
 
 function ReceptionDashboard({ userName }: { userName: string }) {
+    const { locale } = useLocale();
     return (
         <div className="space-y-6">
             <div>
-                <h1 className="text-2xl font-bold text-foreground font-serif tracking-tight">Reception Dashboard</h1>
-                <p className="text-sm text-muted-foreground mt-1">Registration and member operations for {userName}</p>
+                <h1 className="text-2xl font-bold text-foreground font-serif tracking-tight">{locale === 'ar' ? 'لوحة الاستقبال' : 'Reception Dashboard'}</h1>
+                <p className="text-sm text-muted-foreground mt-1">{locale === 'ar' ? 'عمليات التسجيل والأعضاء لـ' : 'Registration and member operations for'} {userName}</p>
             </div>
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <Link href="/dashboard/admin/members" className="kpi-card group cursor-pointer hover:border-primary transition-colors">
                     <div className="flex items-start justify-between">
                         <div>
                             <p className="text-lg font-bold text-foreground font-mono">Reception/Registration</p>
-                            <p className="text-xs text-muted-foreground mt-1">Create and manage member subscriptions</p>
+                            <p className="text-xs text-muted-foreground mt-1">{locale === 'ar' ? 'إنشاء وإدارة اشتراكات الأعضاء' : 'Create and manage member subscriptions'}</p>
                         </div>
                         <Users size={20} className="text-foreground" />
                     </div>
@@ -1135,7 +1191,7 @@ function ReceptionDashboard({ userName }: { userName: string }) {
                     <div className="flex items-start justify-between">
                         <div>
                             <p className="text-lg font-bold text-foreground font-mono">My Profile</p>
-                            <p className="text-xs text-muted-foreground mt-1">Account details</p>
+                            <p className="text-xs text-muted-foreground mt-1">{locale === 'ar' ? 'تفاصيل الحساب' : 'Account details'}</p>
                         </div>
                         <UserCheck size={20} className="text-foreground" />
                     </div>
@@ -1144,7 +1200,7 @@ function ReceptionDashboard({ userName }: { userName: string }) {
                     <div className="flex items-start justify-between">
                         <div>
                             <p className="text-lg font-bold text-foreground font-mono">My Leaves</p>
-                            <p className="text-xs text-muted-foreground mt-1">Request and track leave days</p>
+                            <p className="text-xs text-muted-foreground mt-1">{locale === 'ar' ? 'طلب وتتبع أيام الإجازة' : 'Request and track leave days'}</p>
                         </div>
                         <ClipboardList size={20} className="text-foreground" />
                     </div>
@@ -1153,7 +1209,7 @@ function ReceptionDashboard({ userName }: { userName: string }) {
                     <div className="flex items-start justify-between">
                         <div>
                             <p className="text-lg font-bold text-foreground font-mono">Work Check-In</p>
-                            <p className="text-xs text-muted-foreground mt-1">Use the same QR workflow as coach</p>
+                            <p className="text-xs text-muted-foreground mt-1">{locale === 'ar' ? 'استخدم نفس مسار QR الخاص بالمدرب' : 'Use the same QR workflow as coach'}</p>
                         </div>
                         <QrCode size={20} className="text-foreground" />
                     </div>
@@ -1192,5 +1248,6 @@ export default function DashboardPage() {
             );
     }
 }
+
 
 

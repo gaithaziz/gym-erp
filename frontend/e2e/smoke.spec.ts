@@ -17,8 +17,15 @@ test('login page allows sign in', async ({ page }) => {
     await page.goto('/login');
     await page.fill('#email-address', adminEmail);
     await page.fill('#password', adminPassword);
-    await page.getByRole('button', { name: 'SIGN IN' }).click();
+    await page.getByTestId('login-submit').click();
     await expect(page).toHaveURL(/\/dashboard/);
+});
+
+test('language toggle switches document direction', async ({ page }) => {
+    await page.goto('/login');
+    await expect(page.locator('html')).toHaveAttribute('dir', 'ltr');
+    await page.locator('[data-testid="locale-ar"]:visible').first().click();
+    await expect(page.locator('html')).toHaveAttribute('dir', 'rtl');
 });
 
 test('member create flow (API smoke)', async ({ request }) => {

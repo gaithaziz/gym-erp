@@ -10,6 +10,7 @@ import { useFeedback } from '@/components/FeedbackProvider';
 import { useAuth } from '@/context/AuthContext';
 import { resolveProfileImageUrl } from '@/lib/profileImage';
 import { ResponsiveContainer, LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip } from 'recharts';
+import { useLocale } from '@/context/LocaleContext';
 
 interface Member {
     id: string;
@@ -79,9 +80,9 @@ interface WorkoutSession {
 }
 
 const FIXED_SUBSCRIPTION_PLANS = [
-    { value: 'Monthly', label: 'Monthly (30d)', days: 30 },
-    { value: 'Quarterly', label: 'Quarterly (90d)', days: 90 },
-    { value: 'Annual', label: 'Annual (365d)', days: 365 },
+    { value: 'Monthly', days: 30 },
+    { value: 'Quarterly', days: 90 },
+    { value: 'Annual', days: 365 },
 ] as const;
 
 type FixedPlan = (typeof FIXED_SUBSCRIPTION_PLANS)[number]['value'];
@@ -92,6 +93,7 @@ type WorkoutPlanStatusFilter = 'ALL' | 'PUBLISHED' | 'DRAFT' | 'ARCHIVED';
 type DietPlanStatusFilter = 'ALL' | 'PUBLISHED' | 'DRAFT' | 'ARCHIVED';
 
 export default function MembersPage() {
+    const { t, formatDate, locale } = useLocale();
     const router = useRouter();
     const { user } = useAuth();
     const canManageMembers = ['ADMIN', 'RECEPTION', 'FRONT_DESK'].includes(user?.role || '');
@@ -136,6 +138,251 @@ export default function MembersPage() {
     const [assignType, setAssignType] = useState<AssignableType>('WORKOUT');
     const [assignWorkoutStatusFilter, setAssignWorkoutStatusFilter] = useState<WorkoutPlanStatusFilter>('PUBLISHED');
     const [assignDietStatusFilter, setAssignDietStatusFilter] = useState<DietPlanStatusFilter>('PUBLISHED');
+
+    const text = locale === 'ar'
+        ? {
+            failedLoadWorkoutPlans: 'فشل في تحميل خطط التمرين.',
+            failedLoadDietPlans: 'فشل في تحميل خطط التغذية.',
+            failedRegisterMember: 'فشل في تسجيل العضو.',
+            failedUpdateMember: 'فشل في تحديث العضو.',
+            deactivateMemberTitle: 'تعطيل العضو',
+            deactivateMemberConfirm: 'تعطيل',
+            failedDeactivateMember: 'فشل في تعطيل العضو.',
+            durationPositive: 'يجب أن تكون المدة عددًا موجبًا من الأيام.',
+            amountPositive: 'يجب أن يكون المبلغ المدفوع أكبر من صفر.',
+            failedCreateSubscription: 'فشل في إنشاء الاشتراك.',
+            failedSubscriptionAction: 'فشل في تحديث حالة الاشتراك.',
+            selectPlanFirst: 'اختر خطة أولاً.',
+            cannotAssignArchived: 'لا يمكن تعيين خطة مؤرشفة.',
+            planAssigned: 'تم تعيين الخطة لـ',
+            failedAssignPlan: 'فشل في تعيين الخطة.',
+            openChatError: 'تعذر فتح المحادثة مع هذا العميل.',
+            expires: 'ينتهي',
+            viewProfile: 'عرض الملف',
+            view: 'عرض',
+            messageClient: 'مراسلة العميل',
+            message: 'رسالة',
+            assignPlan: 'تعيين خطة',
+            assign: 'تعيين',
+            manageSubscription: 'إدارة الاشتراك',
+            sub: 'اشتراك',
+            editDetails: 'تعديل التفاصيل',
+            edit: 'تعديل',
+            deactivate: 'تعطيل',
+            addMemberModal: 'تسجيل عضو جديد',
+            fullName: 'الاسم الكامل',
+            email: 'البريد الإلكتروني',
+            cancel: 'إلغاء',
+            register: 'تسجيل',
+            editMemberModal: 'تعديل بيانات العضو',
+            update: 'تحديث',
+            manageTitle: 'إدارة - ',
+            currentStatus: 'الحالة الحالية',
+            noSubscription: 'بدون اشتراك',
+            renewalMode: 'وضع التجديد',
+            fixedPlan: 'خطة ثابتة',
+            customDays: 'أيام مخصصة',
+            plan: 'الخطة',
+            durationDays: 'المدة (أيام)',
+            customDurationDays: 'مدة مخصصة (أيام)',
+            amountPaid: 'المبلغ المدفوع (JOD)',
+            paymentMethod: 'طريقة الدفع',
+            cash: 'نقدًا',
+            card: 'بطاقة',
+            bankTransfer: 'تحويل بنكي',
+            renewSubscription: 'تجديد الاشتراك',
+            activateSubscription: 'تفعيل الاشتراك',
+            renew: 'تجديد',
+            createSubscription: 'إنشاء اشتراك',
+            unfreeze: 'إلغاء التجميد',
+            freeze: 'تجميد',
+            assignPlanTitle: 'تعيين خطة - ',
+            planType: 'نوع الخطة',
+            workout: 'تمرين',
+            diet: 'تغذية',
+            workoutStatusFilter: 'فلتر حالة التمرين',
+            dietStatusFilter: 'فلتر حالة التغذية',
+            all: 'الكل',
+            workoutPlan: 'خطة تمرين',
+            dietPlan: 'خطة تغذية',
+            selectPlan: 'اختر خطة...',
+            warningDraft: 'تحذير: سيتم تعيين خطة مسودة.',
+            archivedCannotAssign: 'لا يمكن تعيين خطة مؤرشفة.',
+            noWorkoutTemplates: 'لا توجد قوالب تمرين مطابقة للفلتر.',
+            noDietTemplates: 'لا توجد قوالب تغذية مطابقة للفلتر.',
+            assignPlanAction: 'تعيين الخطة',
+            memberProfile: 'ملف العضو',
+            phone: 'الهاتف',
+            dateOfBirth: 'تاريخ الميلاد',
+            age: 'العمر',
+            emergencyContact: 'جهة اتصال الطوارئ',
+            bioNotes: 'نبذة / ملاحظات',
+            latestHeight: 'آخر طول',
+            latestWeight: 'آخر وزن',
+            na: 'غير متوفر',
+            noBio: 'لا توجد نبذة.',
+            progressVisualization: 'عرض التقدم',
+            noBiometricData: 'لا توجد بيانات قياسات حيوية بعد.',
+            workoutSessionLogs: 'سجل جلسات التمرين',
+            exercises: 'تمارين',
+            moreExercises: 'تمارين إضافية',
+            noWorkoutSessions: 'لا توجد جلسات تمرين بعد.',
+            deactivateDescriptionPrefix: 'هل أنت متأكد من تعطيل',
+            deactivateDescriptionSuffix: '؟ هذا الإجراء قد لا يمكن التراجع عنه بسهولة.',
+            monthly30d: 'شهري (30 يوماً)',
+            quarterly90d: 'ربع سنوي (90 يوماً)',
+            annual365d: 'سنوي (365 يوماً)',
+            active: 'نشط',
+            frozen: 'مجمد',
+            expired: 'منتهي',
+            none: 'بدون',
+            published: 'منشور',
+            draft: 'مسودة',
+            archived: 'مؤرشف',
+            sections: 'أقسام',
+            videos: 'فيديوهات',
+            contentLength: 'طول المحتوى',
+            chars: 'حرف',
+            structuredJson: 'JSON منظم',
+            volumeKg: 'حجم كجم',
+            lineWeightKg: 'الوزن (كجم)',
+            lineBodyFat: 'نسبة الدهون (%)',
+            lineMuscleKg: 'العضلات (كجم)',
+        }
+        : {
+            failedLoadWorkoutPlans: 'Failed to load workout plans.',
+            failedLoadDietPlans: 'Failed to load diet plans.',
+            failedRegisterMember: 'Failed to register member.',
+            failedUpdateMember: 'Failed to update member.',
+            deactivateMemberTitle: 'Deactivate Member',
+            deactivateMemberConfirm: 'Deactivate',
+            failedDeactivateMember: 'Failed to deactivate member.',
+            durationPositive: 'Duration must be a positive number of days.',
+            amountPositive: 'Paid amount must be greater than zero.',
+            failedCreateSubscription: 'Failed to create subscription.',
+            failedSubscriptionAction: 'Failed to update subscription status.',
+            selectPlanFirst: 'Select a plan first.',
+            cannotAssignArchived: 'Cannot assign archived plan.',
+            planAssigned: 'Plan assigned to',
+            failedAssignPlan: 'Failed to assign plan.',
+            openChatError: 'Could not open chat with this client.',
+            expires: 'Expires',
+            viewProfile: 'View Profile',
+            view: 'View',
+            messageClient: 'Message Client',
+            message: 'Message',
+            assignPlan: 'Assign Plan',
+            assign: 'Assign',
+            manageSubscription: 'Manage Subscription',
+            sub: 'Sub',
+            editDetails: 'Edit Details',
+            edit: 'Edit',
+            deactivate: 'Deactivate',
+            addMemberModal: 'Register New Member',
+            fullName: 'Full Name',
+            email: 'Email',
+            cancel: 'Cancel',
+            register: 'Register',
+            editMemberModal: 'Edit Member Details',
+            update: 'Update',
+            manageTitle: 'Manage - ',
+            currentStatus: 'Current Status',
+            noSubscription: 'NO SUBSCRIPTION',
+            renewalMode: 'Renewal Mode',
+            fixedPlan: 'Fixed Plan',
+            customDays: 'Custom Days',
+            plan: 'Plan',
+            durationDays: 'Duration (days)',
+            customDurationDays: 'Custom Duration (days)',
+            amountPaid: 'Amount Paid (JOD)',
+            paymentMethod: 'Payment Method',
+            cash: 'Cash',
+            card: 'Card',
+            bankTransfer: 'Bank Transfer',
+            renewSubscription: 'Renew Subscription',
+            activateSubscription: 'Activate Subscription',
+            renew: 'Renew',
+            createSubscription: 'Create Subscription',
+            unfreeze: 'Unfreeze',
+            freeze: 'Freeze',
+            assignPlanTitle: 'Assign Plan - ',
+            planType: 'Plan Type',
+            workout: 'Workout',
+            diet: 'Diet',
+            workoutStatusFilter: 'Workout Status Filter',
+            dietStatusFilter: 'Diet Status Filter',
+            all: 'All',
+            workoutPlan: 'Workout Plan',
+            dietPlan: 'Diet Plan',
+            selectPlan: 'Select Plan...',
+            warningDraft: 'Warning: assigning a draft plan.',
+            archivedCannotAssign: 'Archived plan cannot be assigned.',
+            noWorkoutTemplates: 'No workout templates match this status filter.',
+            noDietTemplates: 'No diet templates match this status filter.',
+            assignPlanAction: 'Assign Plan',
+            memberProfile: 'Member Profile',
+            phone: 'Phone',
+            dateOfBirth: 'Date of Birth',
+            age: 'Age',
+            emergencyContact: 'Emergency Contact',
+            bioNotes: 'Bio / Notes',
+            latestHeight: 'Latest Height',
+            latestWeight: 'Latest Weight',
+            na: 'N/A',
+            noBio: 'No bio provided.',
+            progressVisualization: 'Progress Visualization',
+            noBiometricData: 'No biometric progress data logged yet.',
+            workoutSessionLogs: 'Workout Session Logs',
+            exercises: 'exercises',
+            moreExercises: 'more exercises',
+            noWorkoutSessions: 'No workout session logs yet.',
+            deactivateDescriptionPrefix: 'Are you sure you want to deactivate',
+            deactivateDescriptionSuffix: '? This action cannot be easily undone.',
+            monthly30d: 'Monthly (30d)',
+            quarterly90d: 'Quarterly (90d)',
+            annual365d: 'Annual (365d)',
+            active: 'ACTIVE',
+            frozen: 'FROZEN',
+            expired: 'EXPIRED',
+            none: 'NONE',
+            published: 'PUBLISHED',
+            draft: 'DRAFT',
+            archived: 'ARCHIVED',
+            sections: 'sections',
+            videos: 'videos',
+            contentLength: 'Content length',
+            chars: 'chars',
+            structuredJson: 'Structured JSON',
+            volumeKg: 'kg vol',
+            lineWeightKg: 'Weight (kg)',
+            lineBodyFat: 'Body Fat (%)',
+            lineMuscleKg: 'Muscle (kg)',
+        };
+
+    const fixedPlanLabelByValue: Record<FixedPlan, string> = {
+        Monthly: text.monthly30d,
+        Quarterly: text.quarterly90d,
+        Annual: text.annual365d,
+    };
+
+    const statusLabel = (status?: string | null) => {
+        switch (status) {
+            case 'ACTIVE':
+                return text.active;
+            case 'FROZEN':
+                return text.frozen;
+            case 'EXPIRED':
+                return text.expired;
+            case 'PUBLISHED':
+                return text.published;
+            case 'DRAFT':
+                return text.draft;
+            case 'ARCHIVED':
+                return text.archived;
+            default:
+                return text.none;
+        }
+    };
 
     const openView = (member: Member) => {
         setViewMember(member);
@@ -186,7 +433,7 @@ export default function MembersPage() {
             setPlans(allPlans.filter((plan: WorkoutPlan) => !plan.member_id));
         } catch (err) {
             console.error(err);
-            showToast('Failed to load workout plans.', 'error');
+            showToast(text.failedLoadWorkoutPlans, 'error');
         }
     };
 
@@ -211,7 +458,7 @@ export default function MembersPage() {
             setDietPlans(allPlans.filter((plan: DietPlan) => !plan.member_id));
         } catch (err) {
             console.error(err);
-            showToast('Failed to load diet plans.', 'error');
+            showToast(text.failedLoadDietPlans, 'error');
         }
     };
 
@@ -235,7 +482,7 @@ export default function MembersPage() {
             fetchMembers();
         } catch (err) {
             console.error(err);
-            showToast('Failed to register member.', 'error');
+            showToast(text.failedRegisterMember, 'error');
         }
     };
 
@@ -255,15 +502,15 @@ export default function MembersPage() {
             fetchMembers();
         } catch (err) {
             console.error(err);
-            showToast('Failed to update member.', 'error');
+            showToast(text.failedUpdateMember, 'error');
         }
     };
 
     const handleDeleteMember = async (id: string, name: string) => {
         const confirmed = await confirmAction({
-            title: 'Deactivate Member',
-            description: `Are you sure you want to deactivate ${name}? This action cannot be easily undone.`,
-            confirmText: 'Deactivate',
+            title: text.deactivateMemberTitle,
+            description: `${text.deactivateDescriptionPrefix} ${name}${text.deactivateDescriptionSuffix}`,
+            confirmText: text.deactivateMemberConfirm,
             destructive: true,
         });
         if (!confirmed) return;
@@ -272,7 +519,7 @@ export default function MembersPage() {
             fetchMembers();
         } catch (err) {
             console.error(err);
-            showToast('Failed to deactivate member.', 'error');
+            showToast(text.failedDeactivateMember, 'error');
         }
     };
 
@@ -290,12 +537,12 @@ export default function MembersPage() {
         if (!manageMember) return;
         const normalizedDays = Math.floor(Number(subDays));
         if (!Number.isFinite(normalizedDays) || normalizedDays <= 0) {
-            showToast('Duration must be a positive number of days.', 'error');
+            showToast(text.durationPositive, 'error');
             return;
         }
         const amountPaid = Number(subAmountPaid);
         if (!Number.isFinite(amountPaid) || amountPaid <= 0) {
-            showToast('Paid amount must be greater than zero.', 'error');
+            showToast(text.amountPositive, 'error');
             return;
         }
         try {
@@ -310,7 +557,7 @@ export default function MembersPage() {
             fetchMembers();
         } catch (err) {
             console.error(err);
-            showToast('Failed to create subscription.', 'error');
+            showToast(text.failedCreateSubscription, 'error');
         }
     };
 
@@ -322,7 +569,7 @@ export default function MembersPage() {
             fetchMembers();
         } catch (err) {
             console.error(err);
-            showToast(`Failed to ${action.toLowerCase()} subscription.`, 'error');
+            showToast(text.failedSubscriptionAction, 'error');
         }
     };
 
@@ -350,14 +597,14 @@ export default function MembersPage() {
     const handleAssignPlan = async (e: React.FormEvent) => {
         e.preventDefault();
         if (!assignMember || !assignPlanId) {
-            showToast('Select a plan first.', 'error');
+            showToast(text.selectPlanFirst, 'error');
             return;
         }
         try {
             if (assignType === 'WORKOUT') {
                 const selectedPlan = plans.find(plan => plan.id === assignPlanId);
                 if (selectedPlan?.status === 'ARCHIVED') {
-                    showToast('Cannot assign archived plan.', 'error');
+                    showToast(text.cannotAssignArchived, 'error');
                     return;
                 }
                 await api.post(`/fitness/plans/${assignPlanId}/bulk-assign`, {
@@ -367,7 +614,7 @@ export default function MembersPage() {
             } else {
                 const selectedPlan = dietPlans.find(plan => plan.id === assignPlanId);
                 if (selectedPlan?.status === 'ARCHIVED') {
-                    showToast('Cannot assign archived plan.', 'error');
+                    showToast(text.cannotAssignArchived, 'error');
                     return;
                 }
                 await api.post(`/fitness/diets/${assignPlanId}/bulk-assign`, {
@@ -376,10 +623,10 @@ export default function MembersPage() {
                 });
             }
             setIsAssignPlanOpen(false);
-            showToast(`${assignType === 'WORKOUT' ? 'Workout' : 'Diet'} plan assigned to ${assignMember.full_name}.`, 'success');
+            showToast(`${text.planAssigned} ${assignMember.full_name}.`, 'success');
         } catch (err) {
             console.error(err);
-            showToast(`Failed to assign ${assignType === 'WORKOUT' ? 'workout' : 'diet'} plan.`, 'error');
+            showToast(text.failedAssignPlan, 'error');
         }
     };
 
@@ -394,7 +641,7 @@ export default function MembersPage() {
             router.push(`/dashboard/chat?thread=${threadId}`);
         } catch (err) {
             showToast(
-                (err as { response?: { data?: { detail?: string } } })?.response?.data?.detail || 'Could not open chat with this client.',
+                (err as { response?: { data?: { detail?: string } } })?.response?.data?.detail || text.openChatError,
                 'error'
             );
         }
@@ -432,15 +679,15 @@ export default function MembersPage() {
         <div className="space-y-8">
             <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
                 <div>
-                    <h1 className="text-2xl font-bold text-foreground">{canManageMembers ? 'Members' : 'Clients'}</h1>
-                    <p className="text-sm text-muted-foreground mt-1">{members.length} registered {canManageMembers ? 'members' : 'clients'}</p>
+                    <h1 className="text-2xl font-bold text-foreground">{canManageMembers ? t('members.titleMembers') : t('members.titleClients')}</h1>
+                    <p className="text-sm text-muted-foreground mt-1">{members.length} {canManageMembers ? t('members.registeredMembers') : t('members.registeredClients')}</p>
                 </div>
                 <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3 w-full sm:w-auto">
                     <div className="field-with-icon">
                         <Search size={16} className="field-icon" />
                         <input
                             type="text"
-                            placeholder="Search members..."
+                            placeholder={t('members.searchPlaceholder')}
                             className="input-dark input-with-icon w-full sm:w-64"
                             value={search}
                             onChange={e => setSearch(e.target.value)}
@@ -448,7 +695,7 @@ export default function MembersPage() {
                     </div>
                     {canManageMembers && (
                         <button onClick={() => setIsAddOpen(true)} className="btn-primary">
-                            <UserPlus size={18} /> Add Member
+                            <UserPlus size={18} /> {t('members.addMember')}
                         </button>
                     )}
                 </div>
@@ -456,11 +703,11 @@ export default function MembersPage() {
 
             <div className="flex flex-wrap items-center gap-2">
                 {[
-                    { value: 'ALL', label: 'All' },
-                    { value: 'ACTIVE', label: 'Active' },
-                    { value: 'FROZEN', label: 'Frozen' },
-                    { value: 'EXPIRED', label: 'Expired' },
-                    { value: 'NONE', label: 'No Subscription' },
+                    { value: 'ALL', label: t('members.filterAll') },
+                    { value: 'ACTIVE', label: t('members.filterActive') },
+                    { value: 'FROZEN', label: t('members.filterFrozen') },
+                    { value: 'EXPIRED', label: t('members.filterExpired') },
+                    { value: 'NONE', label: t('members.filterNone') },
                 ].map(filter => (
                     <button
                         key={filter.value}
@@ -482,16 +729,16 @@ export default function MembersPage() {
                     <table className="w-full text-left table-dark min-w-[800px]">
                         <thead>
                             <tr>
-                                <th>Name</th>
-                                <th>Email</th>
-                                <th>Subscription</th>
-                                <th>Expires</th>
-                                <th className="text-right pr-6">Actions</th>
+                                <th>{t('members.name')}</th>
+                                <th>{t('members.email')}</th>
+                                <th>{t('members.subscription')}</th>
+                                <th>{t('members.expires')}</th>
+                                <th className="text-right pr-6">{t('members.actions')}</th>
                             </tr>
                         </thead>
                         <tbody>
                             {filtered.length === 0 && (
-                                <tr><td colSpan={5} className="text-center py-8 text-muted-foreground text-sm">No members found</td></tr>
+                                <tr><td colSpan={5} className="text-center py-8 text-muted-foreground text-sm">{t('members.noMembers')}</td></tr>
                             )}
                             {filtered.map(m => (
                                 <tr key={m.id}>
@@ -515,53 +762,53 @@ export default function MembersPage() {
                                     <td>{m.email}</td>
                                     <td>
                                         <span className={`badge ${statusBadge(m.subscription?.status)}`}>
-                                            {m.subscription?.status || 'NONE'}
+                                            {statusLabel(m.subscription?.status)}
                                         </span>
                                     </td>
                                     <td>
-                                        {m.subscription?.end_date ? new Date(m.subscription.end_date).toLocaleDateString() : '-'}
+                                        {m.subscription?.end_date ? formatDate(m.subscription.end_date, { year: 'numeric', month: '2-digit', day: '2-digit' }) : '-'}
                                     </td>
                                     <td className="text-right pr-6">
                                         <div className="flex items-center justify-end gap-2">
                                             <button
                                                 onClick={() => openView(m)}
                                                 className="btn-ghost py-1 px-2 h-auto text-xs text-emerald-400 hover:text-emerald-300"
-                                                title="View Profile"
+                                                title={text.viewProfile}
                                             >
-                                                <Eye size={14} /> View
+                                                <Eye size={14} /> {text.view}
                                             </button>
                                             {canMessageClient && (
                                                 <button
                                                     onClick={() => handleMessageClient(m.id)}
                                                     className="btn-ghost py-1 px-2 h-auto text-xs text-primary hover:text-primary/80"
-                                                    title="Message Client"
+                                                    title={text.messageClient}
                                                 >
-                                                    <MessageCircle size={14} /> Message
+                                                    <MessageCircle size={14} /> {text.message}
                                                 </button>
                                             )}
                                             {canAssignPlans && (
                                                 <button
                                                     onClick={() => openAssignPlan(m)}
                                                     className="btn-ghost py-1 px-2 h-auto text-xs text-orange-400 hover:text-orange-300"
-                                                    title="Assign Plan"
+                                                    title={text.assignPlan}
                                                 >
-                                                    <Dumbbell size={14} /> Assign
+                                                    <Dumbbell size={14} /> {text.assign}
                                                 </button>
                                             )}
                                             {canManageMembers && (
                                                 <button
                                                     onClick={() => openManage(m)}
                                                     className="btn-ghost py-1 px-2 h-auto text-xs"
-                                                    title="Manage Subscription"
+                                                    title={text.manageSubscription}
                                                 >
-                                                    <Shield size={14} /> Sub
+                                                    <Shield size={14} /> {text.sub}
                                                 </button>
                                             )}
                                             {canManageMembers && (
                                                 <button
                                                     onClick={() => openEdit(m)}
                                                     className="btn-ghost py-1 px-2 h-auto text-xs text-blue-400 hover:text-blue-300"
-                                                    title="Edit Details"
+                                                    title={text.editDetails}
                                                 >
                                                     <Pencil size={14} />
                                                 </button>
@@ -570,7 +817,7 @@ export default function MembersPage() {
                                                 <button
                                                     onClick={() => handleDeleteMember(m.id, m.full_name)}
                                                     className="btn-ghost py-1 px-2 h-auto text-xs text-destructive hover:text-destructive/80"
-                                                    title="Deactivate Member"
+                                                    title={text.deactivateMemberTitle}
                                                 >
                                                     <Trash2 size={14} />
                                                 </button>
@@ -585,7 +832,7 @@ export default function MembersPage() {
 
                 <div className="md:hidden divide-y divide-border">
                     {filtered.length === 0 && (
-                        <div className="px-4 py-8 text-center text-sm text-muted-foreground">No members found</div>
+                        <div className="px-4 py-8 text-center text-sm text-muted-foreground">{t('members.noMembers')}</div>
                     )}
                     {filtered.map((m) => (
                         <div key={m.id} className="p-4">
@@ -609,14 +856,14 @@ export default function MembersPage() {
                                     </div>
                                 </div>
                                 <span className={`badge ${statusBadge(m.subscription?.status)}`}>
-                                    {m.subscription?.status || 'NONE'}
+                                    {statusLabel(m.subscription?.status)}
                                 </span>
                             </div>
 
                             <div className="mt-3 flex items-center justify-between text-xs">
-                                <span className="text-muted-foreground">Expires</span>
+                                <span className="text-muted-foreground">{text.expires}</span>
                                 <span className="text-foreground font-medium">
-                                    {m.subscription?.end_date ? new Date(m.subscription.end_date).toLocaleDateString() : '--'}
+                                    {m.subscription?.end_date ? formatDate(m.subscription.end_date, { year: 'numeric', month: '2-digit', day: '2-digit' }) : '--'}
                                 </span>
                             </div>
 
@@ -624,53 +871,53 @@ export default function MembersPage() {
                                 <button
                                     onClick={() => openView(m)}
                                     className="btn-ghost !px-2 !py-2 h-auto text-xs text-emerald-400 hover:text-emerald-300 justify-center"
-                                    title="View Profile"
+                                    title={text.viewProfile}
                                 >
-                                    <Eye size={14} /> View
+                                    <Eye size={14} /> {text.view}
                                 </button>
                                 {canAssignPlans && (
                                     <button
                                         onClick={() => openAssignPlan(m)}
                                         className="btn-ghost !px-2 !py-2 h-auto text-xs text-orange-400 hover:text-orange-300 justify-center"
-                                        title="Assign Plan"
+                                        title={text.assignPlan}
                                     >
-                                        <Dumbbell size={14} /> Assign
+                                        <Dumbbell size={14} /> {text.assign}
                                     </button>
                                 )}
                                 {canMessageClient && (
                                     <button
                                         onClick={() => handleMessageClient(m.id)}
                                         className="btn-ghost !px-2 !py-2 h-auto text-xs text-primary hover:text-primary/80 justify-center"
-                                        title="Message Client"
+                                        title={text.messageClient}
                                     >
-                                        <MessageCircle size={14} /> Message
+                                        <MessageCircle size={14} /> {text.message}
                                     </button>
                                 )}
                                 {canManageMembers && (
                                     <button
                                         onClick={() => openManage(m)}
                                         className="btn-ghost !px-2 !py-2 h-auto text-xs justify-center"
-                                        title="Manage Subscription"
+                                        title={text.manageSubscription}
                                     >
-                                        <Shield size={14} /> Sub
+                                        <Shield size={14} /> {text.sub}
                                     </button>
                                 )}
                                 {canManageMembers && (
                                     <button
                                         onClick={() => openEdit(m)}
                                         className="btn-ghost !px-2 !py-2 h-auto text-xs text-blue-400 hover:text-blue-300 justify-center"
-                                        title="Edit Details"
+                                        title={text.editDetails}
                                     >
-                                        <Pencil size={14} /> Edit
+                                        <Pencil size={14} /> {text.edit}
                                     </button>
                                 )}
                                 {canManageMembers && (
                                     <button
                                         onClick={() => handleDeleteMember(m.id, m.full_name)}
                                         className="btn-ghost !px-2 !py-2 h-auto text-xs text-destructive hover:text-destructive/80 justify-center"
-                                        title="Deactivate Member"
+                                        title={text.deactivateMemberTitle}
                                     >
-                                        <Trash2 size={14} /> Deactivate
+                                        <Trash2 size={14} /> {text.deactivate}
                                     </button>
                                 )}
                             </div>
@@ -680,65 +927,65 @@ export default function MembersPage() {
             </div>
 
             {/* ===== ADD MEMBER MODAL ===== */}
-            <Modal isOpen={isAddOpen && canManageMembers} onClose={() => setIsAddOpen(false)} title="Register New Member">
+            <Modal isOpen={isAddOpen && canManageMembers} onClose={() => setIsAddOpen(false)} title={text.addMemberModal}>
                 <form onSubmit={handleAddMember} className="space-y-4">
                     <div>
-                        <label className="block text-xs font-medium text-muted-foreground mb-1.5">Full Name</label>
+                        <label className="block text-xs font-medium text-muted-foreground mb-1.5">{text.fullName}</label>
                         <input type="text" required className="input-dark" value={addForm.full_name} onChange={e => setAddForm({ ...addForm, full_name: e.target.value })} />
                     </div>
                     <div>
-                        <label className="block text-xs font-medium text-muted-foreground mb-1.5">Email</label>
+                        <label className="block text-xs font-medium text-muted-foreground mb-1.5">{text.email}</label>
                         <input type="email" required className="input-dark" value={addForm.email} onChange={e => setAddForm({ ...addForm, email: e.target.value })} />
                     </div>
                     <div className="flex justify-end gap-3 pt-4 border-t border-border">
-                        <button type="button" onClick={() => setIsAddOpen(false)} className="btn-ghost">Cancel</button>
-                        <button type="submit" className="btn-primary"><Save size={16} /> Register</button>
+                        <button type="button" onClick={() => setIsAddOpen(false)} className="btn-ghost">{text.cancel}</button>
+                        <button type="submit" className="btn-primary"><Save size={16} /> {text.register}</button>
                     </div>
                 </form>
             </Modal>
 
             {/* ===== EDIT MEMBER MODAL ===== */}
-            <Modal isOpen={isEditOpen && canManageMembers} onClose={() => setIsEditOpen(false)} title="Edit Member Details">
+            <Modal isOpen={isEditOpen && canManageMembers} onClose={() => setIsEditOpen(false)} title={text.editMemberModal}>
                 <form onSubmit={handleEditMember} className="space-y-4">
                     <div>
-                        <label className="block text-xs font-medium text-muted-foreground mb-1.5">Full Name</label>
+                        <label className="block text-xs font-medium text-muted-foreground mb-1.5">{text.fullName}</label>
                         <input type="text" required className="input-dark" value={editForm.full_name} onChange={e => setEditForm({ ...editForm, full_name: e.target.value })} />
                     </div>
                     <div>
-                        <label className="block text-xs font-medium text-muted-foreground mb-1.5">Email</label>
+                        <label className="block text-xs font-medium text-muted-foreground mb-1.5">{text.email}</label>
                         <input type="email" required className="input-dark" value={editForm.email} onChange={e => setEditForm({ ...editForm, email: e.target.value })} />
                     </div>
                     <div className="flex justify-end gap-3 pt-4 border-t border-border">
-                        <button type="button" onClick={() => setIsEditOpen(false)} className="btn-ghost">Cancel</button>
-                        <button type="submit" className="btn-primary"><Save size={16} /> Update</button>
+                        <button type="button" onClick={() => setIsEditOpen(false)} className="btn-ghost">{text.cancel}</button>
+                        <button type="submit" className="btn-primary"><Save size={16} /> {text.update}</button>
                     </div>
                 </form>
             </Modal>
 
             {/* ===== MANAGE SUBSCRIPTION MODAL ===== */}
-            <Modal isOpen={isManageOpen && canManageMembers} onClose={() => setIsManageOpen(false)} title={`Manage - ${manageMember?.full_name}`}>
+            <Modal isOpen={isManageOpen && canManageMembers} onClose={() => setIsManageOpen(false)} title={`${text.manageTitle}${manageMember?.full_name || ''}`}>
                 <div className="space-y-5">
                     {/* Current status */}
                     <div className="flex items-center justify-between rounded-sm p-4 bg-card border border-border">
                         <div>
-                            <p className="text-xs text-muted-foreground">Current Status</p>
+                            <p className="text-xs text-muted-foreground">{text.currentStatus}</p>
                             <span className={`badge mt-1 ${statusBadge(manageMemberStatus)}`}>
-                                {manageMemberStatus || 'NO SUBSCRIPTION'}
+                                {manageMemberStatus ? statusLabel(manageMemberStatus) : text.noSubscription}
                             </span>
                         </div>
                         {manageMember?.subscription?.end_date && (
                             <div className="text-right">
-                                <p className="text-xs text-muted-foreground">Expires</p>
-                                <p className="text-sm font-medium text-foreground mt-1">{new Date(manageMember.subscription.end_date).toLocaleDateString()}</p>
+                                <p className="text-xs text-muted-foreground">{text.expires}</p>
+                                <p className="text-sm font-medium text-foreground mt-1">{formatDate(manageMember.subscription.end_date, { year: 'numeric', month: '2-digit', day: '2-digit' })}</p>
                             </div>
                         )}
                     </div>
 
                     {/* Create / Renew */}
                     <div className="border border-border rounded-sm p-4 space-y-3">
-                        <h4 className="text-sm font-semibold text-foreground flex items-center gap-2"><Shield size={16} className="text-primary" /> {manageMember?.subscription ? 'Renew' : 'Create'} Subscription</h4>
+                        <h4 className="text-sm font-semibold text-foreground flex items-center gap-2"><Shield size={16} className="text-primary" /> {manageMember?.subscription ? text.renew : text.createSubscription} {t('members.subscription')}</h4>
                         <div>
-                            <label className="block text-xs text-muted-foreground mb-1">Renewal Mode</label>
+                            <label className="block text-xs text-muted-foreground mb-1">{text.renewalMode}</label>
                             <div className="grid grid-cols-2 gap-2">
                                 <button
                                     type="button"
@@ -752,7 +999,7 @@ export default function MembersPage() {
                                         : 'border-border text-muted-foreground hover:text-foreground hover:bg-white/5'
                                         }`}
                                 >
-                                    Fixed Plan
+                                    {text.fixedPlan}
                                 </button>
                                 <button
                                     type="button"
@@ -762,7 +1009,7 @@ export default function MembersPage() {
                                         : 'border-border text-muted-foreground hover:text-foreground hover:bg-white/5'
                                         }`}
                                 >
-                                    Custom Days
+                                    {text.customDays}
                                 </button>
                             </div>
                         </div>
@@ -771,7 +1018,7 @@ export default function MembersPage() {
                             {renewalMode === 'fixed' ? (
                                 <>
                                     <div>
-                                        <label className="block text-xs text-muted-foreground mb-1">Plan</label>
+                                        <label className="block text-xs text-muted-foreground mb-1">{text.plan}</label>
                                         <select
                                             className="input-dark"
                                             value={subPlan}
@@ -783,18 +1030,18 @@ export default function MembersPage() {
                                             }}
                                         >
                                             {FIXED_SUBSCRIPTION_PLANS.map(plan => (
-                                                <option key={plan.value} value={plan.value}>{plan.label}</option>
+                                                <option key={plan.value} value={plan.value}>{fixedPlanLabelByValue[plan.value]}</option>
                                             ))}
                                         </select>
                                     </div>
                                     <div>
-                                        <label className="block text-xs text-muted-foreground mb-1">Duration (days)</label>
+                                        <label className="block text-xs text-muted-foreground mb-1">{text.durationDays}</label>
                                         <input type="number" className="input-dark" value={subDays} disabled readOnly />
                                     </div>
                                 </>
                             ) : (
                                 <div className="sm:col-span-2">
-                                    <label className="block text-xs text-muted-foreground mb-1">Custom Duration (days)</label>
+                                    <label className="block text-xs text-muted-foreground mb-1">{text.customDurationDays}</label>
                                     <input
                                         type="number"
                                         min={1}
@@ -808,7 +1055,7 @@ export default function MembersPage() {
                         </div>
                         <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                             <div>
-                                <label className="block text-xs text-muted-foreground mb-1">Amount Paid (JOD)</label>
+                                <label className="block text-xs text-muted-foreground mb-1">{text.amountPaid}</label>
                                 <input
                                     type="number"
                                     min={0.01}
@@ -819,16 +1066,16 @@ export default function MembersPage() {
                                 />
                             </div>
                             <div>
-                                <label className="block text-xs text-muted-foreground mb-1">Payment Method</label>
+                                <label className="block text-xs text-muted-foreground mb-1">{text.paymentMethod}</label>
                                 <select className="input-dark" value={subPaymentMethod} onChange={(e) => setSubPaymentMethod(e.target.value as 'CASH' | 'CARD' | 'TRANSFER')}>
-                                    <option value="CASH">Cash</option>
-                                    <option value="CARD">Card</option>
-                                    <option value="TRANSFER">Bank Transfer</option>
+                                    <option value="CASH">{text.cash}</option>
+                                    <option value="CARD">{text.card}</option>
+                                    <option value="TRANSFER">{text.bankTransfer}</option>
                                 </select>
                             </div>
                         </div>
                         <button onClick={handleCreateSub} className="btn-primary w-full justify-center">
-                            <RefreshCw size={15} /> {manageMember?.subscription ? 'Renew Subscription' : 'Activate Subscription'}
+                            <RefreshCw size={15} /> {manageMember?.subscription ? text.renewSubscription : text.activateSubscription}
                         </button>
                     </div>
 
@@ -840,14 +1087,14 @@ export default function MembersPage() {
                                 disabled={manageMemberStatus !== 'FROZEN'}
                                 className="flex items-center justify-center gap-2 py-2.5 border border-emerald-500/30 text-emerald-400 rounded-sm text-sm font-medium hover:bg-emerald-500/10 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
                             >
-                                <RefreshCw size={15} /> Unfreeze
+                                <RefreshCw size={15} /> {text.unfreeze}
                             </button>
                             <button
                                 onClick={() => handleSubAction('FROZEN')}
                                 disabled={manageMemberStatus !== 'ACTIVE'}
                                 className="flex items-center justify-center gap-2 py-2.5 border border-blue-500/30 text-blue-400 rounded-sm text-sm font-medium hover:bg-blue-500/10 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
                             >
-                                <Snowflake size={15} /> Freeze
+                                <Snowflake size={15} /> {text.freeze}
                             </button>
                         </div>
                     )}
@@ -855,10 +1102,10 @@ export default function MembersPage() {
             </Modal>
 
             {/* ASSIGN PLAN MODAL */}
-            <Modal isOpen={isAssignPlanOpen && canAssignPlans} onClose={() => setIsAssignPlanOpen(false)} title={`Assign Plan - ${assignMember?.full_name || ''}`}>
+            <Modal isOpen={isAssignPlanOpen && canAssignPlans} onClose={() => setIsAssignPlanOpen(false)} title={`${text.assignPlanTitle}${assignMember?.full_name || ''}`}>
                 <form onSubmit={handleAssignPlan} className="space-y-4">
                     <div>
-                        <label className="block text-xs font-medium text-muted-foreground mb-1.5">Plan Type</label>
+                        <label className="block text-xs font-medium text-muted-foreground mb-1.5">{text.planType}</label>
                         <div className="grid grid-cols-2 gap-2">
                             <button
                                 type="button"
@@ -868,7 +1115,7 @@ export default function MembersPage() {
                                     }`}
                                 onClick={() => { setAssignType('WORKOUT'); setAssignPlanId(''); }}
                             >
-                                Workout
+                                {text.workout}
                             </button>
                             <button
                                 type="button"
@@ -878,14 +1125,14 @@ export default function MembersPage() {
                                     }`}
                                 onClick={() => { setAssignType('DIET'); setAssignPlanId(''); }}
                             >
-                                Diet
+                                {text.diet}
                             </button>
                         </div>
                     </div>
                     <div>
                         {assignType === 'WORKOUT' && (
                             <div className="mb-3">
-                                <label className="block text-xs font-medium text-muted-foreground mb-1.5">Workout Status Filter</label>
+                                <label className="block text-xs font-medium text-muted-foreground mb-1.5">{text.workoutStatusFilter}</label>
                                 <div className="flex flex-wrap gap-2">
                                     {(['ALL', 'PUBLISHED', 'DRAFT', 'ARCHIVED'] as WorkoutPlanStatusFilter[]).map(status => {
                                         const count = status === 'ALL' ? plans.length : plans.filter(plan => plan.status === status).length;
@@ -903,7 +1150,7 @@ export default function MembersPage() {
                                                         : 'border-border text-muted-foreground hover:text-foreground hover:bg-white/5'
                                                 }`}
                                             >
-                                                {status === 'ALL' ? 'All' : status} ({count})
+                                                {status === 'ALL' ? text.all : statusLabel(status)} ({count})
                                             </button>
                                         );
                                     })}
@@ -912,7 +1159,7 @@ export default function MembersPage() {
                         )}
                         {assignType === 'DIET' && (
                             <div className="mb-3">
-                                <label className="block text-xs font-medium text-muted-foreground mb-1.5">Diet Status Filter</label>
+                                <label className="block text-xs font-medium text-muted-foreground mb-1.5">{text.dietStatusFilter}</label>
                                 <div className="flex flex-wrap gap-2">
                                     {(['ALL', 'PUBLISHED', 'DRAFT', 'ARCHIVED'] as DietPlanStatusFilter[]).map(status => {
                                         const count = status === 'ALL' ? dietPlans.length : dietPlans.filter(plan => plan.status === status).length;
@@ -930,7 +1177,7 @@ export default function MembersPage() {
                                                         : 'border-border text-muted-foreground hover:text-foreground hover:bg-white/5'
                                                 }`}
                                             >
-                                                {status === 'ALL' ? 'All' : status} ({count})
+                                                {status === 'ALL' ? text.all : statusLabel(status)} ({count})
                                             </button>
                                         );
                                     })}
@@ -938,7 +1185,7 @@ export default function MembersPage() {
                             </div>
                         )}
                         <label className="block text-xs font-medium text-muted-foreground mb-1.5">
-                            {assignType === 'WORKOUT' ? 'Workout Plan' : 'Diet Plan'}
+                            {assignType === 'WORKOUT' ? text.workoutPlan : text.dietPlan}
                         </label>
                         <select
                             required
@@ -946,16 +1193,16 @@ export default function MembersPage() {
                             value={assignPlanId}
                             onChange={e => setAssignPlanId(e.target.value)}
                         >
-                            <option value="">Select Plan...</option>
+                            <option value="">{text.selectPlan}</option>
                             {assignType === 'WORKOUT'
                                 ? filteredAssignableWorkoutPlans.map(plan => (
                                     <option key={plan.id} value={plan.id}>
-                                        {plan.name} [{plan.status || 'DRAFT'}]
+                                        {plan.name} [{statusLabel(plan.status || 'DRAFT')}]
                                     </option>
                                 ))
                                 : filteredAssignableDietPlans.map(plan => (
                                     <option key={plan.id} value={plan.id}>
-                                        {plan.name} [{plan.status || 'DRAFT'}]
+                                        {plan.name} [{statusLabel(plan.status || 'DRAFT')}]
                                     </option>
                                 ))}
                         </select>
@@ -967,11 +1214,11 @@ export default function MembersPage() {
                             <div className="rounded-sm border border-border bg-muted/20 p-3 space-y-2">
                                 <div className="flex items-center justify-between">
                                     <p className="text-sm font-semibold text-foreground">{plan.name}</p>
-                                    {plan.status && <span className={`badge ${plan.status === 'PUBLISHED' ? 'badge-green' : plan.status === 'ARCHIVED' ? 'badge-gray' : 'badge-orange'}`}>{plan.status}</span>}
+                                    {plan.status && <span className={`badge ${plan.status === 'PUBLISHED' ? 'badge-green' : plan.status === 'ARCHIVED' ? 'badge-gray' : 'badge-orange'}`}>{statusLabel(plan.status)}</span>}
                                 </div>
                                 {(plan.total_sections || plan.total_exercises || plan.total_videos) && (
                                     <p className="text-xs text-muted-foreground">
-                                        {(plan.total_sections || 0)} sections | {(plan.total_exercises || 0)} exercises | {(plan.total_videos || 0)} videos
+                                        {(plan.total_sections || 0)} {text.sections} | {(plan.total_exercises || 0)} {text.exercises} | {(plan.total_videos || 0)} {text.videos}
                                     </p>
                                 )}
                                 {plan.preview_sections && plan.preview_sections.length > 0 && (
@@ -983,8 +1230,8 @@ export default function MembersPage() {
                                         ))}
                                     </div>
                                 )}
-                                {plan.status === 'DRAFT' && <p className="text-xs text-yellow-400">Warning: assigning a draft plan.</p>}
-                                {plan.status === 'ARCHIVED' && <p className="text-xs text-destructive">Archived plan cannot be assigned.</p>}
+                                {plan.status === 'DRAFT' && <p className="text-xs text-yellow-400">{text.warningDraft}</p>}
+                                {plan.status === 'ARCHIVED' && <p className="text-xs text-destructive">{text.archivedCannotAssign}</p>}
                             </div>
                         );
                     })()}
@@ -995,28 +1242,28 @@ export default function MembersPage() {
                             <div className="rounded-sm border border-border bg-muted/20 p-3 space-y-2">
                                 <div className="flex items-center justify-between">
                                     <p className="text-sm font-semibold text-foreground">{plan.name}</p>
-                                    {plan.status && <span className={`badge ${plan.status === 'PUBLISHED' ? 'badge-green' : plan.status === 'ARCHIVED' ? 'badge-gray' : 'badge-orange'}`}>{plan.status}</span>}
+                                    {plan.status && <span className={`badge ${plan.status === 'PUBLISHED' ? 'badge-green' : plan.status === 'ARCHIVED' ? 'badge-gray' : 'badge-orange'}`}>{statusLabel(plan.status)}</span>}
                                 </div>
                                 {plan.description_excerpt && <p className="text-xs text-muted-foreground">{plan.description_excerpt}</p>}
                                 {plan.content_length !== undefined && (
                                     <p className="text-xs text-muted-foreground">
-                                        Content length: {plan.content_length} chars{plan.has_structured_content ? ' | Structured JSON' : ''}
+                                        {text.contentLength}: {plan.content_length} {text.chars}{plan.has_structured_content ? ` | ${text.structuredJson}` : ''}
                                     </p>
                                 )}
-                                {plan.status === 'DRAFT' && <p className="text-xs text-yellow-400">Warning: assigning a draft plan.</p>}
-                                {plan.status === 'ARCHIVED' && <p className="text-xs text-destructive">Archived plan cannot be assigned.</p>}
+                                {plan.status === 'DRAFT' && <p className="text-xs text-yellow-400">{text.warningDraft}</p>}
+                                {plan.status === 'ARCHIVED' && <p className="text-xs text-destructive">{text.archivedCannotAssign}</p>}
                             </div>
                         );
                     })()}
                     {(assignType === 'WORKOUT' ? filteredAssignableWorkoutPlans.length === 0 : filteredAssignableDietPlans.length === 0) && (
                         <p className="text-xs text-muted-foreground">
                             {assignType === 'WORKOUT'
-                                ? 'No workout templates match this status filter.'
-                                : 'No diet templates match this status filter.'}
+                                ? text.noWorkoutTemplates
+                                : text.noDietTemplates}
                         </p>
                     )}
                     <div className="flex justify-end gap-3 pt-4 border-t border-border">
-                        <button type="button" onClick={() => setIsAssignPlanOpen(false)} className="btn-ghost">Cancel</button>
+                        <button type="button" onClick={() => setIsAssignPlanOpen(false)} className="btn-ghost">{text.cancel}</button>
                         <button
                             type="submit"
                             className="btn-primary"
@@ -1027,14 +1274,14 @@ export default function MembersPage() {
                             }
                         >
                             {assignType === 'WORKOUT' ? <Dumbbell size={16} /> : <Utensils size={16} />}
-                            Assign Plan
+                            {text.assignPlanAction}
                         </button>
                     </div>
                 </form>
             </Modal>
 
             {/* VIEW PROFILE MODAL */}
-            <Modal isOpen={isViewOpen} onClose={() => setIsViewOpen(false)} title="Member Profile">
+            <Modal isOpen={isViewOpen} onClose={() => setIsViewOpen(false)} title={text.memberProfile}>
                 {viewMember && (
                     <div className="space-y-6">
                         <div className="flex items-center gap-4 border-b border-border pb-6">
@@ -1060,43 +1307,43 @@ export default function MembersPage() {
                         </div>
                         <div className="grid grid-cols-2 gap-4 text-sm">
                             <div>
-                                <p className="text-xs text-muted-foreground uppercase tracking-wider mb-1 font-semibold">Phone</p>
-                                <p className="font-medium text-foreground">{viewMember.phone_number || 'N/A'}</p>
+                                <p className="text-xs text-muted-foreground uppercase tracking-wider mb-1 font-semibold">{text.phone}</p>
+                                <p className="font-medium text-foreground">{viewMember.phone_number || text.na}</p>
                             </div>
                             <div>
-                                <p className="text-xs text-muted-foreground uppercase tracking-wider mb-1 font-semibold">Date of Birth</p>
-                                <p className="font-medium text-foreground">{viewMember.date_of_birth ? new Date(viewMember.date_of_birth).toLocaleDateString() : 'N/A'}</p>
+                                <p className="text-xs text-muted-foreground uppercase tracking-wider mb-1 font-semibold">{text.dateOfBirth}</p>
+                                <p className="font-medium text-foreground">{viewMember.date_of_birth ? formatDate(viewMember.date_of_birth, { year: 'numeric', month: '2-digit', day: '2-digit' }) : text.na}</p>
                             </div>
                             <div>
-                                <p className="text-xs text-muted-foreground uppercase tracking-wider mb-1 font-semibold">Age</p>
-                                <p className="font-medium text-foreground">{getAgeFromDob(viewMember.date_of_birth) ?? 'N/A'}</p>
+                                <p className="text-xs text-muted-foreground uppercase tracking-wider mb-1 font-semibold">{text.age}</p>
+                                <p className="font-medium text-foreground">{getAgeFromDob(viewMember.date_of_birth) ?? text.na}</p>
                             </div>
                             <div className="col-span-2">
-                                <p className="text-xs text-muted-foreground uppercase tracking-wider mb-1 font-semibold">Emergency Contact</p>
-                                <p className="font-medium text-foreground">{viewMember.emergency_contact || 'N/A'}</p>
+                                <p className="text-xs text-muted-foreground uppercase tracking-wider mb-1 font-semibold">{text.emergencyContact}</p>
+                                <p className="font-medium text-foreground">{viewMember.emergency_contact || text.na}</p>
                             </div>
                             <div className="col-span-2">
-                                <p className="text-xs text-muted-foreground uppercase tracking-wider mb-1 font-semibold">Bio / Notes</p>
-                                <p className="font-medium text-foreground whitespace-pre-wrap">{viewMember.bio || 'No bio provided.'}</p>
+                                <p className="text-xs text-muted-foreground uppercase tracking-wider mb-1 font-semibold">{text.bioNotes}</p>
+                                <p className="font-medium text-foreground whitespace-pre-wrap">{viewMember.bio || text.noBio}</p>
                             </div>
                             <div>
-                                <p className="text-xs text-muted-foreground uppercase tracking-wider mb-1 font-semibold">Latest Height</p>
+                                <p className="text-xs text-muted-foreground uppercase tracking-wider mb-1 font-semibold">{text.latestHeight}</p>
                                 <p className="font-medium text-foreground">
                                     {viewBiometrics.length > 0 && viewBiometrics[viewBiometrics.length - 1].height_cm
                                         ? `${viewBiometrics[viewBiometrics.length - 1].height_cm} cm`
-                                        : 'N/A'}
+                                        : text.na}
                                 </p>
                             </div>
                             <div>
-                                <p className="text-xs text-muted-foreground uppercase tracking-wider mb-1 font-semibold">Latest Weight</p>
+                                <p className="text-xs text-muted-foreground uppercase tracking-wider mb-1 font-semibold">{text.latestWeight}</p>
                                 <p className="font-medium text-foreground">
                                     {viewBiometrics.length > 0 && viewBiometrics[viewBiometrics.length - 1].weight_kg
                                         ? `${viewBiometrics[viewBiometrics.length - 1].weight_kg} kg`
-                                        : 'N/A'}
+                                        : text.na}
                                 </p>
                             </div>
                             <div className="col-span-2">
-                                <p className="text-xs text-muted-foreground uppercase tracking-wider mb-2 font-semibold">Progress Visualization</p>
+                                <p className="text-xs text-muted-foreground uppercase tracking-wider mb-2 font-semibold">{text.progressVisualization}</p>
                                 <div className="h-52 border border-border bg-muted/10 p-2 rounded-sm">
                                     {viewBiometrics.length > 0 ? (
                                         <ResponsiveContainer width="100%" height="100%">
@@ -1104,25 +1351,25 @@ export default function MembersPage() {
                                                 <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" vertical={false} />
                                                 <XAxis
                                                     dataKey="date"
-                                                    tickFormatter={(val) => new Date(val).toLocaleDateString()}
+                                                    tickFormatter={(val) => formatDate(String(val), { year: 'numeric', month: '2-digit', day: '2-digit' })}
                                                     tick={{ fontSize: 10, fill: 'var(--muted-foreground)' }}
                                                     axisLine={false}
                                                     tickLine={false}
                                                 />
                                                 <YAxis tick={{ fontSize: 10, fill: 'var(--muted-foreground)' }} axisLine={false} tickLine={false} />
-                                                <Tooltip labelFormatter={(label) => new Date(label as string).toLocaleDateString()} />
-                                                <Line type="monotone" dataKey="weight_kg" stroke="var(--primary)" strokeWidth={2} name="Weight (kg)" dot={{ r: 2 }} />
-                                                <Line type="monotone" dataKey="body_fat_pct" stroke="#f97316" strokeWidth={2} name="Body Fat (%)" dot={{ r: 2 }} />
-                                                <Line type="monotone" dataKey="muscle_mass_kg" stroke="#22c55e" strokeWidth={2} name="Muscle (kg)" dot={{ r: 2 }} />
+                                                <Tooltip labelFormatter={(label) => formatDate(String(label), { year: 'numeric', month: '2-digit', day: '2-digit' })} />
+                                                <Line type="monotone" dataKey="weight_kg" stroke="var(--primary)" strokeWidth={2} name={text.lineWeightKg} dot={{ r: 2 }} />
+                                                <Line type="monotone" dataKey="body_fat_pct" stroke="#f97316" strokeWidth={2} name={text.lineBodyFat} dot={{ r: 2 }} />
+                                                <Line type="monotone" dataKey="muscle_mass_kg" stroke="#22c55e" strokeWidth={2} name={text.lineMuscleKg} dot={{ r: 2 }} />
                                             </LineChart>
                                         </ResponsiveContainer>
                                     ) : (
-                                        <div className="h-full flex items-center justify-center text-xs text-muted-foreground">No biometric progress data logged yet.</div>
+                                        <div className="h-full flex items-center justify-center text-xs text-muted-foreground">{text.noBiometricData}</div>
                                     )}
                                 </div>
                             </div>
                             <div className="col-span-2">
-                                <p className="text-xs text-muted-foreground uppercase tracking-wider mb-2 font-semibold">Workout Session Logs</p>
+                                <p className="text-xs text-muted-foreground uppercase tracking-wider mb-2 font-semibold">{text.workoutSessionLogs}</p>
                                 <div className="border border-border bg-muted/10 rounded-sm p-3 space-y-3 max-h-72 overflow-y-auto">
                                     {viewSessions.length > 0 ? (
                                         viewSessions.slice(0, 10).map((session) => {
@@ -1134,21 +1381,21 @@ export default function MembersPage() {
                                                 <div key={session.id} className="rounded-sm border border-border bg-card/60 p-3">
                                                     <div className="flex items-center justify-between gap-2 mb-2">
                                                         <p className="text-sm font-semibold text-foreground">
-                                                            {new Date(session.performed_at).toLocaleDateString()}
+                                                            {formatDate(session.performed_at, { year: 'numeric', month: '2-digit', day: '2-digit' })}
                                                         </p>
                                                         <p className="text-[11px] text-muted-foreground font-mono">
-                                                            {session.entries.length} exercises | {Math.round(sessionVolume)} kg vol
+                                                            {session.entries.length} {text.exercises} | {Math.round(sessionVolume)} {text.volumeKg}
                                                         </p>
                                                     </div>
                                                     <div className="space-y-1">
                                                         {session.entries.slice(0, 3).map((entry) => (
                                                             <div key={entry.id} className="flex justify-between text-xs">
-                                                                <span className="text-muted-foreground">{entry.exercise_name || 'Exercise'}</span>
+                                                                <span className="text-muted-foreground">{entry.exercise_name || text.workout}</span>
                                                                 <span className="text-muted-foreground font-mono">{entry.sets_completed}x{entry.reps_completed} @ {entry.weight_kg ?? 0}kg</span>
                                                             </div>
                                                         ))}
                                                         {session.entries.length > 3 && (
-                                                            <p className="text-[10px] text-primary font-mono">+{session.entries.length - 3} more exercises</p>
+                                                            <p className="text-[10px] text-primary font-mono">+{session.entries.length - 3} {text.moreExercises}</p>
                                                         )}
                                                     </div>
                                                 </div>
@@ -1156,7 +1403,7 @@ export default function MembersPage() {
                                         })
                                     ) : (
                                         <div className="h-24 flex items-center justify-center text-xs text-muted-foreground">
-                                            No workout session logs yet.
+                                            {text.noWorkoutSessions}
                                         </div>
                                     )}
                                 </div>
@@ -1169,7 +1416,7 @@ export default function MembersPage() {
                                     className="btn-primary w-full justify-center"
                                     onClick={() => handleMessageClient(viewMember.id)}
                                 >
-                                    <MessageCircle size={16} /> Message Client
+                                    <MessageCircle size={16} /> {text.messageClient}
                                 </button>
                             </div>
                         )}

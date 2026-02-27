@@ -11,6 +11,7 @@ import PlanCardShell from '@/components/PlanCardShell';
 import PlanDetailsToggle from '@/components/PlanDetailsToggle';
 import PlanSectionHeader from '@/components/PlanSectionHeader';
 import AssignPlanSummaryPanel from '@/components/AssignPlanSummaryPanel';
+import { useLocale } from '@/context/LocaleContext';
 
 interface Member {
     id: string;
@@ -98,7 +99,175 @@ const getErrorMessage = (error: unknown, fallback: string) => {
 };
 
 export default function WorkoutPlansPage() {
+    const { locale } = useLocale();
     const { showToast, confirm: confirmAction } = useFeedback();
+    const txt = locale === 'ar'
+        ? {
+            pageTitle: 'خطط التمرين',
+            pageSubtitle: 'أنشئ تقسيمات تمرين حسب الأقسام مع تمارين وفيديوهات',
+            openLibrary: 'فتح المكتبة',
+            refresh: 'تحديث',
+            createPlan: 'إنشاء خطة',
+            loadingError: 'فشل تحميل خطط التمرين.',
+            minSectionError: 'يلزم قسم واحد على الأقل.',
+            exerciseNameRequired: 'اسم التمرين مطلوب.',
+            chooseVideo: 'اختر ملف فيديو للرفع.',
+            uploadFail: 'فشل رفع الفيديو.',
+            embedRequired: 'رابط التضمين مطلوب عند اختيار تضمين.',
+            savedReusable: 'تم الحفظ في مكتبتك القابلة لإعادة الاستخدام.',
+            saveReusableFail: 'فشل حفظ التمرين القابل لإعادة الاستخدام.',
+            deletePlan: 'حذف خطة التمرين',
+            deleteConfirm: 'هل أنت متأكد أنك تريد حذف هذه الخطة؟',
+            delete: 'حذف',
+            cancel: 'إلغاء',
+            assignPlan: 'تعيين الخطة',
+            assignMembersLabel: 'الأعضاء (يدعم التعيين الجماعي)',
+            searchMember: 'ابحث عن عضو بالاسم/البريد...',
+            noAssignedPlans: 'لا توجد خطط نشطة معيّنة للأعضاء.',
+            noTemplates: 'لا توجد قوالب للحالة المحددة.',
+            noTemplatesYet: 'لا توجد قوالب بعد. أنشئ أول قالب لك.',
+            watch: 'مشاهدة',
+            open: 'فتح',
+            exercises: 'تمارين',
+            moreSections: 'أقسام إضافية',
+            templates: 'القوالب',
+            templatesSubtitle: 'خطط تمرين قابلة لإعادة الاستخدام حسب الحالة.',
+            assignedPlansTitle: 'الخطط المعينة',
+            assignedPlansSubtitle: 'خطط تمرين نشطة معيّنة للأعضاء.',
+            edit: 'تعديل',
+            assign: 'تعيين',
+            publish: 'نشر',
+            archive: 'أرشفة',
+            unassign: 'إلغاء التعيين',
+            step1: 'الخطوة 1: أساسيات الخطة',
+            step2: 'الخطوة 2: منشئ التمرين',
+            planName: 'اسم الخطة',
+            description: 'الوصف',
+            draft: 'مسودة',
+            published: 'منشورة',
+            archived: 'مؤرشفة',
+            expectedSessions: 'الجلسات المتوقعة / 30 يوم',
+            unassignedTemplate: 'غير معيّن (قالب)',
+            searchMemberLong: 'ابحث عن عضو بالاسم أو البريد...',
+            sectionName: 'اسم القسم',
+            addSection: 'إضافة قسم',
+            exerciseBuilder: 'منشئ التمارين',
+            hideLibrary: 'إخفاء المكتبة',
+            addFromLibrary: 'أضف من المكتبة',
+            fullLibraryQuestion: 'تحتاج إدارة كاملة للمكتبة؟',
+            openWorkoutDietLibrary: 'افتح مكتبة التمارين والتغذية',
+            searchLibrary: 'ابحث بالاسم أو العضلة أو المعدة...',
+            search: 'بحث',
+            recent: 'الأخيرة',
+            noLibraryItems: 'لا توجد عناصر في المكتبة.',
+            exerciseName: 'اسم التمرين',
+            noVideo: 'بدون فيديو',
+            embedUrl: 'رابط تضمين',
+            uploadVideo: 'رفع فيديو',
+            addExercise: 'إضافة تمرين',
+            noExercisesInSection: 'لا توجد تمارين في هذا القسم بعد.',
+            added: 'تمت الإضافة',
+            saveReusable: 'حفظ كقابل لإعادة الاستخدام',
+            back: 'رجوع',
+            next: 'التالي',
+            closeVideo: 'إغلاق الفيديو',
+            cannotPreview: 'تعذر معاينة هذا المصدر في النافذة المنبثقة.',
+            openSource: 'فتح المصدر',
+            replaceActiveNote: 'وضع استبدال النشط مفعّل: سيتم أرشفة الخطط النشطة الحالية للأعضاء المحددين.',
+            assignPrefix: 'تعيين:',
+            adherent30d: 'ملتزم (30 يوم)',
+            lastBulkAssignCheck: 'آخر فحص تعيين جماعي',
+            assignedLabel: 'المعين:',
+            adherentLabel: ' | الملتزم (30 يوم):',
+            scoreLabel: ' | النسبة:',
+            sections: 'أقسام',
+            warningDraftAssign: 'تحذير: أنت تقوم بتعيين خطة مسودة.',
+            archivedCannotAssign: 'لا يمكن تعيين الخطط المؤرشفة.',
+            summarySectionsExercisesVideos: 'أقسام | تمارين | فيديوهات',
+        }
+        : {
+            pageTitle: 'Workout Plans',
+            pageSubtitle: 'Create section-based workout splits with manual exercises and videos',
+            openLibrary: 'Open Library',
+            refresh: 'Refresh',
+            createPlan: 'Create Plan',
+            loadingError: 'Failed to load workout plans.',
+            minSectionError: 'At least one section is required.',
+            exerciseNameRequired: 'Exercise name is required.',
+            chooseVideo: 'Please choose a video file to upload.',
+            uploadFail: 'Failed to upload video.',
+            embedRequired: 'Embed URL is required when video type is Embed.',
+            savedReusable: 'Saved to your reusable library.',
+            saveReusableFail: 'Failed to save reusable exercise.',
+            deletePlan: 'Delete Workout Plan',
+            deleteConfirm: 'Are you sure you want to delete this plan?',
+            delete: 'Delete',
+            cancel: 'Cancel',
+            assignPlan: 'Assign Plan',
+            assignMembersLabel: 'Members (bulk assign supported)',
+            searchMember: 'Search member by name/email...',
+            noAssignedPlans: 'No active plans assigned to members.',
+            noTemplates: 'No templates for selected status.',
+            noTemplatesYet: 'No workout templates yet. Create your first one!',
+            watch: 'Watch',
+            open: 'Open',
+            exercises: 'exercises',
+            moreSections: 'more section(s)',
+            templates: 'Templates',
+            templatesSubtitle: 'Reusable workout plans by status.',
+            assignedPlansTitle: 'Assigned Plans',
+            assignedPlansSubtitle: 'Active workout plans assigned to members.',
+            edit: 'Edit',
+            assign: 'Assign',
+            publish: 'Publish',
+            archive: 'Archive',
+            unassign: 'Unassign',
+            step1: 'Step 1: Plan Basics',
+            step2: 'Step 2: Workout Builder',
+            planName: 'Plan Name',
+            description: 'Description',
+            draft: 'Draft',
+            published: 'Published',
+            archived: 'Archived',
+            expectedSessions: 'Expected sessions / 30d',
+            unassignedTemplate: 'Unassigned (template)',
+            searchMemberLong: 'Search member by name or email...',
+            sectionName: 'Section name',
+            addSection: 'Add Section',
+            exerciseBuilder: 'Exercise Builder',
+            hideLibrary: 'Hide Library',
+            addFromLibrary: 'Add from Library',
+            fullLibraryQuestion: 'Need full library management?',
+            openWorkoutDietLibrary: 'Open Workout & Diet Library',
+            searchLibrary: 'Search by name, muscle, equipment...',
+            search: 'Search',
+            recent: 'Recent',
+            noLibraryItems: 'No library items found.',
+            exerciseName: 'Exercise name',
+            noVideo: 'No Video',
+            embedUrl: 'Embed URL',
+            uploadVideo: 'Upload Video',
+            addExercise: 'Add Exercise',
+            noExercisesInSection: 'No exercises in this section yet.',
+            added: 'Added',
+            saveReusable: 'Save reusable',
+            back: 'Back',
+            next: 'Next',
+            closeVideo: 'Close video',
+            cannotPreview: 'Unable to preview this source in popup.',
+            openSource: 'Open Source',
+            replaceActiveNote: 'Replace-active mode is enabled: existing active plans for selected members will be archived.',
+            assignPrefix: 'Assign:',
+            adherent30d: 'adherent (30d)',
+            lastBulkAssignCheck: 'Last Bulk Assign Check',
+            assignedLabel: 'Assigned:',
+            adherentLabel: ' | Adherent (30d):',
+            scoreLabel: ' | Score:',
+            sections: 'sections',
+            warningDraftAssign: 'Warning: you are assigning a draft plan.',
+            archivedCannotAssign: 'Archived plans cannot be assigned.',
+            summarySectionsExercisesVideos: 'sections | exercises | videos',
+        };
     const [plans, setPlans] = useState<Plan[]>([]);
     const [planSummaries, setPlanSummaries] = useState<PlanSummary[]>([]);
     const [adherenceRows, setAdherenceRows] = useState<PlanAdherenceRow[]>([]);
@@ -227,7 +396,7 @@ export default function WorkoutPlansPage() {
                 setMembers([]);
             }
         } catch {
-            showToast('Failed to load workout plans.', 'error');
+            showToast(txt.loadingError, 'error');
         }
         setLoading(false);
         setRefreshing(false);
@@ -308,7 +477,7 @@ export default function WorkoutPlansPage() {
 
     const removeSection = (sectionId: string) => {
         if (sections.length === 1) {
-            showToast('At least one section is required.', 'error');
+            showToast(txt.minSectionError, 'error');
             return;
         }
         const next = sections.filter(s => s.id !== sectionId);
@@ -331,16 +500,16 @@ export default function WorkoutPlansPage() {
         const targetSection = sections.find(s => s.id === activeSectionId) || sections[0];
         if (!targetSection) return;
         const name = currentExerciseName.trim();
-        if (!name) { showToast('Exercise name is required.', 'error'); return; }
+        if (!name) { showToast(txt.exerciseNameRequired, 'error'); return; }
 
         let uploadedVideoUrl: string | null = null;
         if (currentVideoType === 'UPLOAD') {
-            if (!currentVideoFile) { showToast('Please choose a video file to upload.', 'error'); return; }
+            if (!currentVideoFile) { showToast(txt.chooseVideo, 'error'); return; }
             try { uploadedVideoUrl = await uploadVideo(currentVideoFile); }
-            catch { showToast('Failed to upload video.', 'error'); return; }
+            catch { showToast(txt.uploadFail, 'error'); return; }
         }
         if (currentVideoType === 'EMBED' && !currentVideoUrl.trim()) {
-            showToast('Embed URL is required when video type is Embed.', 'error');
+            showToast(txt.embedRequired, 'error');
             return;
         }
 
@@ -385,10 +554,10 @@ export default function WorkoutPlansPage() {
                 is_global: false,
                 tags: [],
             });
-            showToast('Saved to your reusable library.', 'success');
+            showToast(txt.savedReusable, 'success');
             fetchExerciseLibrary(libraryQuery);
         } catch {
-            showToast('Failed to save reusable exercise.', 'error');
+            showToast(txt.saveReusableFail, 'error');
         }
     };
 
@@ -547,7 +716,7 @@ export default function WorkoutPlansPage() {
     };
 
     const handleDelete = async (planId: string) => {
-        const confirmed = await confirmAction({ title: 'Delete Workout Plan', description: 'Are you sure you want to delete this plan?', confirmText: 'Delete', destructive: true });
+        const confirmed = await confirmAction({ title: txt.deletePlan, description: txt.deleteConfirm, confirmText: txt.delete, destructive: true });
         if (!confirmed) return;
         try { await api.delete(`/fitness/plans/${planId}`); showToast('Plan deleted.', 'success'); fetchData(); }
         catch (error) { showToast(getErrorMessage(error, 'Failed to delete plan'), 'error'); }
@@ -608,10 +777,10 @@ export default function WorkoutPlansPage() {
                                         externalUrl: videoUrl,
                                     })}
                                     className="inline-flex items-center gap-1 rounded-sm border border-primary/40 bg-primary/10 px-2 py-1 text-xs text-primary hover:bg-primary/20"
-                                    title="Play exercise video"
+                                    title={locale === 'ar' ? 'تشغيل فيديو التمرين' : 'Play exercise video'}
                                 >
                                     <PlayCircle size={14} />
-                                    Watch
+                                    {txt.watch}
                                 </button>
                             ) : (
                                 <a
@@ -619,10 +788,10 @@ export default function WorkoutPlansPage() {
                                     target="_blank"
                                     rel="noreferrer"
                                     className="inline-flex items-center gap-1 rounded-sm border border-primary/40 bg-primary/10 px-2 py-1 text-xs text-primary hover:bg-primary/20"
-                                    title="Open exercise video"
+                                    title={locale === 'ar' ? 'فتح فيديو التمرين' : 'Open exercise video'}
                                 >
                                     <Video size={14} />
-                                    Open
+                                    {txt.open}
                                 </a>
                             )
                         )}
@@ -643,7 +812,7 @@ export default function WorkoutPlansPage() {
                     <div key={`${plan.id}-${sectionName}`} className="rounded-sm border border-border bg-muted/20 px-3 py-2 space-y-2">
                         <div className="flex items-center justify-between gap-2">
                             <p className="text-[11px] uppercase tracking-wider text-primary font-semibold">{sectionName}</p>
-                            <span className="text-[11px] font-mono text-muted-foreground">{exercises.length} exercises</span>
+                            <span className="text-[11px] font-mono text-muted-foreground">{exercises.length} {txt.exercises}</span>
                         </div>
                         {expanded && exercises.map((exercise, index) => (
                             renderExerciseLine(exercise, `${plan.id}-${sectionName}-${index}`, { compact: true })
@@ -651,7 +820,7 @@ export default function WorkoutPlansPage() {
                     </div>
                 ))}
                 {!expanded && entries.length > 2 && (
-                    <p className="text-xs text-primary font-medium">+{entries.length - 2} more section(s)</p>
+                    <p className="text-xs text-primary font-medium">+{entries.length - 2} {txt.moreSections}</p>
                 )}
             </div>
         );
@@ -704,17 +873,17 @@ export default function WorkoutPlansPage() {
         <div className="space-y-8">
             <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
                 <div>
-                    <h1 className="text-2xl font-bold text-foreground">Workout Plans</h1>
-                    <p className="text-sm text-muted-foreground mt-1">Create section-based workout splits with manual exercises and videos</p>
+                    <h1 className="text-2xl font-bold text-foreground">{txt.pageTitle}</h1>
+                    <p className="text-sm text-muted-foreground mt-1">{txt.pageSubtitle}</p>
                 </div>
                 <div className="flex flex-wrap items-center gap-2">
                     <Link href="/dashboard/coach/library" className="btn-ghost min-h-11">
-                        Open Library
+                        {txt.openLibrary}
                     </Link>
-                    <button onClick={fetchData} className="btn-ghost min-h-11" title="Refresh">
-                        <RefreshCw size={16} className={refreshing ? 'animate-spin' : ''} /> Refresh
+                    <button onClick={fetchData} className="btn-ghost min-h-11" title={txt.refresh}>
+                        <RefreshCw size={16} className={refreshing ? 'animate-spin' : ''} /> {txt.refresh}
                     </button>
-                    <button onClick={handleOpenCreateModal} className="btn-primary min-h-11"><Plus size={18} /> Create Plan</button>
+                    <button onClick={handleOpenCreateModal} className="btn-primary min-h-11"><Plus size={18} /> {txt.createPlan}</button>
                 </div>
             </div>
 
@@ -723,7 +892,7 @@ export default function WorkoutPlansPage() {
                     {adherenceRows.slice(0, 3).map(row => (
                         <div key={row.plan_id} className="rounded-sm border border-border bg-muted/20 p-3">
                             <p className="text-sm font-semibold text-foreground truncate">{row.plan_name}</p>
-                            <p className="text-xs text-muted-foreground mt-1">{row.adherent_members}/{row.assigned_members} adherent (30d)</p>
+                            <p className="text-xs text-muted-foreground mt-1">{row.adherent_members}/{row.assigned_members} {txt.adherent30d}</p>
                             <p className="text-lg font-bold text-primary mt-1">{row.adherence_percent}%</p>
                         </div>
                     ))}
@@ -732,18 +901,18 @@ export default function WorkoutPlansPage() {
 
             {lastBulkAssignSnapshot && (
                 <div className="rounded-sm border border-emerald-500/30 bg-emerald-500/10 p-3">
-                    <p className="text-sm font-semibold text-foreground">Last Bulk Assign Check</p>
+                    <p className="text-sm font-semibold text-foreground">{txt.lastBulkAssignCheck}</p>
                     <p className="text-xs text-muted-foreground mt-1">
                         {lastBulkAssignSnapshot.planName} | {new Date(lastBulkAssignSnapshot.capturedAt).toLocaleString()}
                     </p>
                     <p className="text-xs text-foreground mt-2">
-                        Assigned: <span className="font-semibold">{lastBulkAssignSnapshot.assignedMembers}</span> | Adherent (30d): <span className="font-semibold">{lastBulkAssignSnapshot.adherentMembers}</span> | Score: <span className="font-semibold text-primary">{lastBulkAssignSnapshot.adherencePercent}%</span>
+                        {txt.assignedLabel} <span className="font-semibold">{lastBulkAssignSnapshot.assignedMembers}</span>{txt.adherentLabel} <span className="font-semibold">{lastBulkAssignSnapshot.adherentMembers}</span>{txt.scoreLabel} <span className="font-semibold text-primary">{lastBulkAssignSnapshot.adherencePercent}%</span>
                     </p>
                 </div>
             )}
 
             <div className="space-y-3">
-                <PlanSectionHeader title="Templates" subtitle="Reusable workout plans by status." />
+                <PlanSectionHeader title={txt.templates} subtitle={txt.templatesSubtitle} />
                 <div className="flex flex-wrap gap-2">
                     {templateStatusFilters.map(status => (
                         <button
@@ -777,18 +946,18 @@ export default function WorkoutPlansPage() {
                                     </div>
                                     <div className="flex flex-col items-end gap-1">
                                         <span className={`badge ${statusBadgeClass(plan.status)} rounded-sm`}>{plan.status}</span>
-                                        <span className="badge badge-orange rounded-sm">{plan.exercises?.length || 0} Ex</span>
+                                        <span className="badge badge-orange rounded-sm">{plan.exercises?.length || 0}</span>
                                     </div>
                                 </div>
                             )}
                             body={renderGroupedPreview(plan, expandedTemplatePlanId === plan.id)}
                             actions={(
                                 <>
-                                    <button disabled={plan.status === 'ARCHIVED'} onClick={() => handleEditClick(plan)} className="btn-ghost text-xs min-h-11 disabled:opacity-40"><Pencil size={14} /> Edit</button>
-                                    <button disabled={plan.status === 'ARCHIVED'} onClick={() => openAssign(plan)} className="btn-ghost text-xs min-h-11 disabled:opacity-40"><UserPlus size={14} /> Assign</button>
-                                    {plan.status === 'DRAFT' && <button onClick={() => handlePublish(plan.id)} className="btn-ghost text-xs min-h-11"><Send size={14} /> Publish</button>}
-                                    {plan.status !== 'ARCHIVED' && <button onClick={() => handleArchive(plan.id)} className="btn-ghost text-xs min-h-11"><Archive size={14} /> Archive</button>}
-                                    <button onClick={() => handleDelete(plan.id)} className="btn-ghost text-xs min-h-11 text-destructive hover:text-destructive/80"><Trash2 size={14} /> Delete</button>
+                                    <button disabled={plan.status === 'ARCHIVED'} onClick={() => handleEditClick(plan)} className="btn-ghost text-xs min-h-11 disabled:opacity-40"><Pencil size={14} /> {txt.edit}</button>
+                                    <button disabled={plan.status === 'ARCHIVED'} onClick={() => openAssign(plan)} className="btn-ghost text-xs min-h-11 disabled:opacity-40"><UserPlus size={14} /> {txt.assign}</button>
+                                    {plan.status === 'DRAFT' && <button onClick={() => handlePublish(plan.id)} className="btn-ghost text-xs min-h-11"><Send size={14} /> {txt.publish}</button>}
+                                    {plan.status !== 'ARCHIVED' && <button onClick={() => handleArchive(plan.id)} className="btn-ghost text-xs min-h-11"><Archive size={14} /> {txt.archive}</button>}
+                                    <button onClick={() => handleDelete(plan.id)} className="btn-ghost text-xs min-h-11 text-destructive hover:text-destructive/80"><Trash2 size={14} /> {txt.delete}</button>
                                 </>
                             )}
                             footer={(
@@ -813,14 +982,14 @@ export default function WorkoutPlansPage() {
             </div>
 
             <div className="space-y-4">
-                <PlanSectionHeader title="Assigned Plans" subtitle="Active workout plans assigned to members." />
+                <PlanSectionHeader title={txt.assignedPlansTitle} subtitle={txt.assignedPlansSubtitle} />
                 <div className="space-y-4">
                     {assignedPlanGroups.map(group => (
                         <div key={group.rootId} className="kpi-card">
                             <div className="flex items-center justify-between gap-2 mb-3">
                                 <div>
                                     <p className="text-base font-semibold text-foreground">{group.rootPlanName}</p>
-                                    <p className="text-xs text-muted-foreground">{group.members.length} assigned member{group.members.length > 1 ? 's' : ''}</p>
+                                    <p className="text-xs text-muted-foreground">{group.members.length} {locale === 'ar' ? 'عضو معيّن' : `assigned member${group.members.length > 1 ? 's' : ''}`}</p>
                                 </div>
                             </div>
                             <div className="space-y-3">
@@ -831,7 +1000,7 @@ export default function WorkoutPlansPage() {
                                             <div className="flex items-center justify-between gap-2 mb-2">
                                                 <div className="min-w-0">
                                                     <p className="text-sm font-semibold text-foreground truncate">{memberName}</p>
-                                                    <p className="text-[11px] text-muted-foreground">{plan.exercises?.length || 0} exercises | v{plan.version}</p>
+                                                    <p className="text-[11px] text-muted-foreground">{plan.exercises?.length || 0} {txt.exercises} {locale === 'ar' ? '| الإصدار ' : '| v'}{plan.version}</p>
                                                 </div>
                                                 <span className={`badge ${statusBadgeClass(plan.status)} rounded-sm`}>{plan.status}</span>
                                             </div>
@@ -839,9 +1008,9 @@ export default function WorkoutPlansPage() {
                                                 {renderGroupedPreview(plan, expandedAssignedPlanId === plan.id)}
                                             </div>
                                             <div className="flex flex-wrap gap-2 mt-3 pt-2 border-t border-border">
-                                                {plan.status !== 'ARCHIVED' && <button onClick={() => handleArchive(plan.id)} className="btn-ghost text-xs min-h-11"><Archive size={14} /> Archive</button>}
-                                                <button onClick={() => handleEditClick(plan)} className="btn-ghost text-xs min-h-11"><Pencil size={14} /> Edit</button>
-                                                <button onClick={() => handleDelete(plan.id)} className="btn-ghost text-xs min-h-11 text-destructive hover:text-destructive/80"><Trash2 size={14} /> Unassign</button>
+                                                {plan.status !== 'ARCHIVED' && <button onClick={() => handleArchive(plan.id)} className="btn-ghost text-xs min-h-11"><Archive size={14} /> {txt.archive}</button>}
+                                                <button onClick={() => handleEditClick(plan)} className="btn-ghost text-xs min-h-11"><Pencil size={14} /> {txt.edit}</button>
+                                                <button onClick={() => handleDelete(plan.id)} className="btn-ghost text-xs min-h-11 text-destructive hover:text-destructive/80"><Trash2 size={14} /> {txt.unassign}</button>
                                             </div>
                                             <div className="border-t border-border pt-2 mt-2">
                                                 <PlanDetailsToggle
@@ -856,33 +1025,33 @@ export default function WorkoutPlansPage() {
                             </div>
                         </div>
                     ))}
-                    {assignedPlans.length === 0 && <div className="text-center py-8 text-muted-foreground text-sm">No active plans assigned to members.</div>}
+                    {assignedPlans.length === 0 && <div className="text-center py-8 text-muted-foreground text-sm">{txt.noAssignedPlans}</div>}
                 </div>
             </div>
 
             <Modal
                 isOpen={showModal}
                 onClose={() => setShowModal(false)}
-                title={editingPlan ? 'Edit Workout Plan' : 'Create New Workout Plan'}
+                title={editingPlan ? (locale === 'ar' ? 'تعديل خطة التمرين' : 'Edit Workout Plan') : (locale === 'ar' ? 'إنشاء خطة تمرين جديدة' : 'Create New Workout Plan')}
                 maxWidthClassName="max-w-3xl"
             >
                 <form onSubmit={handleModalSubmit} className="space-y-5">
                     <div className="flex items-center gap-2 text-xs">
-                        <span className={`rounded-sm border px-2 py-1 ${modalStep === 1 ? 'border-primary text-primary bg-primary/10' : 'border-border text-muted-foreground'}`}>Step 1: Plan Basics</span>
-                        <span className={`rounded-sm border px-2 py-1 ${modalStep === 2 ? 'border-primary text-primary bg-primary/10' : 'border-border text-muted-foreground'}`}>Step 2: Workout Builder</span>
+                        <span className={`rounded-sm border px-2 py-1 ${modalStep === 1 ? 'border-primary text-primary bg-primary/10' : 'border-border text-muted-foreground'}`}>{txt.step1}</span>
+                        <span className={`rounded-sm border px-2 py-1 ${modalStep === 2 ? 'border-primary text-primary bg-primary/10' : 'border-border text-muted-foreground'}`}>{txt.step2}</span>
                     </div>
 
                     {modalStep === 1 && (
                         <div className="space-y-4">
                             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                                <input type="text" required className="input-dark" value={planName} onChange={e => setPlanName(e.target.value)} placeholder="Plan Name" />
-                                <input type="text" className="input-dark" value={planDesc} onChange={e => setPlanDesc(e.target.value)} placeholder="Description" />
+                                <input type="text" required className="input-dark" value={planName} onChange={e => setPlanName(e.target.value)} placeholder={txt.planName} />
+                                <input type="text" className="input-dark" value={planDesc} onChange={e => setPlanDesc(e.target.value)} placeholder={txt.description} />
                                 <select className="input-dark" value={planStatus} onChange={e => setPlanStatus(e.target.value as Plan['status'])}>
-                                    <option value="DRAFT">Draft</option>
-                                    <option value="PUBLISHED">Published</option>
-                                    <option value="ARCHIVED">Archived</option>
+                                    <option value="DRAFT">{txt.draft}</option>
+                                    <option value="PUBLISHED">{txt.published}</option>
+                                    <option value="ARCHIVED">{txt.archived}</option>
                                 </select>
-                                <input type="number" min={1} max={60} className="input-dark" value={expectedSessions30d} onChange={e => setExpectedSessions30d(parseInt(e.target.value) || 12)} placeholder="Expected sessions / 30d" />
+                                <input type="number" min={1} max={60} className="input-dark" value={expectedSessions30d} onChange={e => setExpectedSessions30d(parseInt(e.target.value) || 12)} placeholder={txt.expectedSessions} />
                             </div>
                             {!editingPlan && members.length > 0 && (
                                 <MemberSearchSelect
@@ -890,8 +1059,8 @@ export default function WorkoutPlansPage() {
                                     value={assignedMemberId}
                                     onChange={setAssignedMemberId}
                                     allowClear={true}
-                                    clearLabel="Unassigned (template)"
-                                    placeholder="Search member by name or email..."
+                                    clearLabel={txt.unassignedTemplate}
+                                    placeholder={txt.searchMemberLong}
                                 />
                             )}
                         </div>
@@ -901,8 +1070,8 @@ export default function WorkoutPlansPage() {
                         <div className="space-y-4">
                             <div className="p-4 rounded-sm border border-border bg-muted/20 space-y-3">
                                 <div className="flex gap-2">
-                                    <input type="text" className="input-dark" value={sectionNameInput} onChange={e => setSectionNameInput(e.target.value)} placeholder="Section name" />
-                                    <button type="button" className="btn-primary min-h-11" onClick={addSection}><Plus size={16} /> Add Section</button>
+                                    <input type="text" className="input-dark" value={sectionNameInput} onChange={e => setSectionNameInput(e.target.value)} placeholder={txt.sectionName} />
+                                    <button type="button" className="btn-primary min-h-11" onClick={addSection}><Plus size={16} /> {txt.addSection}</button>
                                 </div>
                                 <div className="flex flex-wrap gap-2">
                                     {sections.map(section => (
@@ -916,13 +1085,13 @@ export default function WorkoutPlansPage() {
 
                             <div className="p-4 rounded-sm border border-border bg-muted/20 space-y-3">
                                 <div className="flex flex-wrap items-center justify-between gap-2">
-                                    <p className="text-xs font-medium text-muted-foreground">Exercise Builder</p>
+                                    <p className="text-xs font-medium text-muted-foreground">{txt.exerciseBuilder}</p>
                                     <button type="button" className="btn-ghost text-xs min-h-11" onClick={() => setLibraryOpen(prev => !prev)}>
-                                        <Dumbbell size={14} /> {libraryOpen ? 'Hide Library' : 'Add from Library'}
+                                        <Dumbbell size={14} /> {libraryOpen ? txt.hideLibrary : txt.addFromLibrary}
                                     </button>
                                 </div>
                                 <p className="text-[11px] text-muted-foreground">
-                                    Need full library management? <Link href="/dashboard/coach/library" className="text-primary hover:underline">Open Workout & Diet Library</Link>.
+                                    {txt.fullLibraryQuestion} <Link href="/dashboard/coach/library" className="text-primary hover:underline">{txt.openWorkoutDietLibrary}</Link>.
                                 </p>
                                 {libraryOpen && (
                                     <div className="rounded-sm border border-border bg-card/50 p-3 space-y-2">
@@ -930,15 +1099,15 @@ export default function WorkoutPlansPage() {
                                             <input
                                                 type="text"
                                                 className="input-dark"
-                                                placeholder="Search by name, muscle, equipment..."
+                                                placeholder={txt.searchLibrary}
                                                 value={libraryQuery}
                                                 onChange={e => setLibraryQuery(e.target.value)}
                                             />
-                                            <button type="button" className="btn-ghost text-xs min-h-11" onClick={() => fetchExerciseLibrary(libraryQuery)}>Search</button>
+                                            <button type="button" className="btn-ghost text-xs min-h-11" onClick={() => fetchExerciseLibrary(libraryQuery)}>{txt.search}</button>
                                         </div>
                                         {recentLibraryItems.length > 0 && (
                                             <div className="space-y-1">
-                                                <p className="text-[11px] uppercase tracking-wider text-muted-foreground">Recent</p>
+                                                <p className="text-[11px] uppercase tracking-wider text-muted-foreground">{txt.recent}</p>
                                                 <div className="flex flex-wrap gap-2">
                                                     {recentLibraryItems.map(item => (
                                                         <button key={`recent-${item.id}`} type="button" className="btn-ghost text-xs" onClick={() => applyLibraryItem(item)}>{item.name}</button>
@@ -953,32 +1122,32 @@ export default function WorkoutPlansPage() {
                                                     <p className="text-xs text-muted-foreground">{[item.category, item.muscle_group, item.equipment].filter(Boolean).join(' | ')}</p>
                                                 </button>
                                             ))}
-                                            {libraryItems.length === 0 && <p className="px-3 py-2 text-xs text-muted-foreground">No library items found.</p>}
+                                            {libraryItems.length === 0 && <p className="px-3 py-2 text-xs text-muted-foreground">{txt.noLibraryItems}</p>}
                                         </div>
                                     </div>
                                 )}
                                 <div className="grid grid-cols-1 md:grid-cols-4 gap-3">
-                                    <input type="text" className="input-dark md:col-span-2" value={currentExerciseName} onChange={e => setCurrentExerciseName(e.target.value)} placeholder="Exercise name" />
+                                    <input type="text" className="input-dark md:col-span-2" value={currentExerciseName} onChange={e => setCurrentExerciseName(e.target.value)} placeholder={txt.exerciseName} />
                                     <input type="number" className="input-dark text-center" value={currentSets} min={1} onChange={e => setCurrentSets(parseInt(e.target.value) || 1)} />
                                     <input type="number" className="input-dark text-center" value={currentReps} min={1} onChange={e => setCurrentReps(parseInt(e.target.value) || 1)} />
                                 </div>
                                 <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
                                     <select className="input-dark" value={currentVideoType} onChange={e => setCurrentVideoType(e.target.value as VideoType)}>
-                                        <option value="">No Video</option>
-                                        <option value="EMBED">Embed URL</option>
-                                        <option value="UPLOAD">Upload Video</option>
+                                        <option value="">{txt.noVideo}</option>
+                                        <option value="EMBED">{txt.embedUrl}</option>
+                                        <option value="UPLOAD">{txt.uploadVideo}</option>
                                     </select>
-                                    {currentVideoType === 'EMBED' && <input type="url" className="input-dark md:col-span-2" value={currentVideoUrl} onChange={e => setCurrentVideoUrl(e.target.value)} placeholder="https://youtube.com/..." />}
+                                    {currentVideoType === 'EMBED' && <input type="url" className="input-dark md:col-span-2" value={currentVideoUrl} onChange={e => setCurrentVideoUrl(e.target.value)} placeholder={locale === 'ar' ? 'https://youtube.com/...' : 'https://youtube.com/...'} />}
                                     {currentVideoType === 'UPLOAD' && <input type="file" accept="video/*" className="input-dark md:col-span-2" onChange={e => setCurrentVideoFile(e.target.files?.[0] || null)} />}
                                 </div>
-                                <button type="button" onClick={addExerciseToSection} className="btn-primary min-h-11"><Plus size={16} /> Add Exercise</button>
+                                <button type="button" onClick={addExerciseToSection} className="btn-primary min-h-11"><Plus size={16} /> {txt.addExercise}</button>
                             </div>
 
                             <div className="space-y-3">
                                 {sections.map(section => (
                                     <div key={section.id} className="border border-border rounded-sm p-3">
                                         <p className="text-sm font-semibold text-primary mb-2">{section.name}</p>
-                                        {section.exercises.length === 0 && <p className="text-xs text-muted-foreground">No exercises in this section yet.</p>}
+                                        {section.exercises.length === 0 && <p className="text-xs text-muted-foreground">{txt.noExercisesInSection}</p>}
                                         {section.exercises.map((ex, idx) => (
                                             <div key={idx} className="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-2 border border-border p-3 rounded-sm text-sm bg-muted/10 mb-2">
                                                 <div>
@@ -986,8 +1155,8 @@ export default function WorkoutPlansPage() {
                                                     <p className="text-xs text-muted-foreground">{ex.sets} x {ex.reps}</p>
                                                 </div>
                                                 <div className="flex items-center gap-2">
-                                                    {resolveVideoUrl(ex) && <span className="inline-flex items-center gap-1 rounded-sm border border-border px-2 py-1 text-xs text-muted-foreground"><Video size={12} /> Added</span>}
-                                                    <button type="button" onClick={() => saveExerciseAsReusable(ex)} className="btn-ghost !px-2 !py-1 h-auto text-xs">Save reusable</button>
+                                                    {resolveVideoUrl(ex) && <span className="inline-flex items-center gap-1 rounded-sm border border-border px-2 py-1 text-xs text-muted-foreground"><Video size={12} /> {txt.added}</span>}
+                                                    <button type="button" onClick={() => saveExerciseAsReusable(ex)} className="btn-ghost !px-2 !py-1 h-auto text-xs">{txt.saveReusable}</button>
                                                     <button type="button" onClick={() => removeExerciseFromSection(section.id, idx)} className="text-muted-foreground hover:text-destructive"><Trash2 size={16} /></button>
                                                 </div>
                                             </div>
@@ -999,14 +1168,14 @@ export default function WorkoutPlansPage() {
                     )}
 
                     <div className="flex flex-wrap justify-end gap-3 pt-4 border-t border-border">
-                        <button type="button" onClick={() => setShowModal(false)} className="btn-ghost min-h-11">Cancel</button>
+                        <button type="button" onClick={() => setShowModal(false)} className="btn-ghost min-h-11">{txt.cancel}</button>
                         {modalStep === 2 && (
-                            <button type="button" onClick={() => setModalStep(1)} className="btn-ghost min-h-11">Back</button>
+                            <button type="button" onClick={() => setModalStep(1)} className="btn-ghost min-h-11">{txt.back}</button>
                         )}
                         {modalStep === 1 ? (
-                            <button type="submit" className="btn-primary min-h-11">Next</button>
+                            <button type="submit" className="btn-primary min-h-11">{txt.next}</button>
                         ) : (
-                            <button type="submit" className="btn-primary min-h-11"><Save size={16} /> {editingPlan ? 'Update Plan' : 'Save Plan'}</button>
+                            <button type="submit" className="btn-primary min-h-11"><Save size={16} /> {editingPlan ? (locale === 'ar' ? 'تحديث الخطة' : 'Update Plan') : (locale === 'ar' ? 'حفظ الخطة' : 'Save Plan')}</button>
                         )}
                     </div>
                 </form>
@@ -1021,7 +1190,7 @@ export default function WorkoutPlansPage() {
                                 type="button"
                                 onClick={() => setVideoPopup(null)}
                                 className="inline-flex items-center justify-center rounded-sm p-1.5 text-muted-foreground hover:text-foreground hover:bg-muted"
-                                aria-label="Close video"
+                                aria-label={txt.closeVideo}
                             >
                                 <X size={18} />
                             </button>
@@ -1043,7 +1212,7 @@ export default function WorkoutPlansPage() {
                                 <video controls playsInline src={videoPopup.videoUrl} className="w-full max-h-[70vh] rounded-sm border border-border bg-black" />
                             ) : (
                                 <div className="rounded-sm border border-border bg-muted/20 p-3 text-sm text-muted-foreground">
-                                    Unable to preview this source in popup.
+                                    {txt.cannotPreview}
                                     {videoPopup.externalUrl && (
                                         <div className="mt-2">
                                             <a
@@ -1052,7 +1221,7 @@ export default function WorkoutPlansPage() {
                                                 rel="noreferrer"
                                                 className="inline-flex items-center gap-1 rounded-sm border border-primary/40 bg-primary/10 px-2 py-1 text-xs text-primary hover:bg-primary/20"
                                             >
-                                                Open Source
+                                                {txt.openSource}
                                             </a>
                                         </div>
                                     )}
@@ -1066,7 +1235,7 @@ export default function WorkoutPlansPage() {
             <Modal
                 isOpen={assignModalOpen}
                 onClose={() => setAssignModalOpen(false)}
-                title={`Assign: ${assigningPlan?.name}`}
+                title={`${txt.assignPrefix} ${assigningPlan?.name}`}
                 maxWidthClassName="max-w-2xl"
             >
                 <form onSubmit={handleAssignSubmit} className="space-y-4">
@@ -1077,20 +1246,20 @@ export default function WorkoutPlansPage() {
                                 planName={assigningPlan.name}
                                 status={assigningPlan.status}
                                 statusBadgeClass={statusBadgeClass(assigningPlan.status)}
-                                summaryLine={summary ? `${summary.total_sections} sections | ${summary.total_exercises} exercises | ${summary.total_videos} videos` : `${assigningPlan.exercises.length} exercises`}
+                                summaryLine={summary ? `${summary.total_sections} ${txt.sections} | ${summary.total_exercises} ${txt.exercises} | ${summary.total_videos} ${locale === 'ar' ? 'فيديوهات' : 'videos'}` : `${assigningPlan.exercises.length} ${txt.exercises}`}
                                 previewSections={summary?.preview_sections || []}
-                                draftWarning={assigningPlan.status === 'DRAFT' ? 'Warning: you are assigning a draft plan.' : undefined}
-                                archivedWarning={assigningPlan.status === 'ARCHIVED' ? 'Archived plans cannot be assigned.' : undefined}
+                                draftWarning={assigningPlan.status === 'DRAFT' ? txt.warningDraftAssign : undefined}
+                                archivedWarning={assigningPlan.status === 'ARCHIVED' ? txt.archivedCannotAssign : undefined}
                             />
                         );
                     })()}
 
                     <div className="space-y-2">
-                        <label className="block text-xs font-medium text-muted-foreground">Members (bulk assign supported)</label>
+                        <label className="block text-xs font-medium text-muted-foreground">{txt.assignMembersLabel}</label>
                         <input
                             type="text"
                             className="input-dark"
-                            placeholder="Search member by name/email..."
+                            placeholder={txt.searchMember}
                             value={memberSearch}
                             onChange={e => setMemberSearch(e.target.value)}
                         />
@@ -1112,12 +1281,14 @@ export default function WorkoutPlansPage() {
                                 );
                             })}
                         </div>
-                        <p className="text-xs text-muted-foreground">Replace-active mode is enabled: existing active plans for selected members will be archived.</p>
+                        <p className="text-xs text-muted-foreground">{txt.replaceActiveNote}</p>
                     </div>
-                    <div className="flex justify-end gap-3 pt-4 border-t border-border"><button type="button" onClick={() => setAssignModalOpen(false)} className="btn-ghost">Cancel</button><button type="submit" disabled={assigningPlan?.status === 'ARCHIVED'} className="btn-primary disabled:opacity-40"><UserPlus size={16} /> Assign Plan</button></div>
+                    <div className="flex justify-end gap-3 pt-4 border-t border-border"><button type="button" onClick={() => setAssignModalOpen(false)} className="btn-ghost">{txt.cancel}</button><button type="submit" disabled={assigningPlan?.status === 'ARCHIVED'} className="btn-primary disabled:opacity-40"><UserPlus size={16} /> {txt.assignPlan}</button></div>
                 </form>
             </Modal>
         </div>
     );
 }
+
+
 
