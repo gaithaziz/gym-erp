@@ -6,6 +6,7 @@ import { MessageCircle, PlusCircle, Search, X } from 'lucide-react';
 import { api } from '@/lib/api';
 import { useAuth } from '@/context/AuthContext';
 import { useChatThreads } from '@/hooks/useChatThreads';
+import { useLocale } from '@/context/LocaleContext';
 
 interface ChatUser {
     id: string;
@@ -35,13 +36,13 @@ interface ChatDrawerProps {
     onClose: () => void;
 }
 
-function formatPreview(message: ChatMessage | null): string {
-    if (!message) return 'No messages yet';
-    if (message.message_type === 'TEXT') return message.text_content || '(empty)';
-    if (message.message_type === 'IMAGE') return '[Image]';
-    if (message.message_type === 'VIDEO') return '[Video]';
-    if (message.message_type === 'VOICE') return '[Voice note]';
-    return '[Attachment]';
+function formatPreview(message: ChatMessage | null, locale: 'en' | 'ar'): string {
+    if (!message) return locale === 'ar' ? 'لا توجد رسائل بعد.' : 'No messages yet';
+    if (message.message_type === 'TEXT') return message.text_content || (locale === 'ar' ? '(فارغ)' : '(empty)');
+    if (message.message_type === 'IMAGE') return locale === 'ar' ? '[صورة]' : '[Image]';
+    if (message.message_type === 'VIDEO') return locale === 'ar' ? '[فيديو]' : '[Video]';
+    if (message.message_type === 'VOICE') return locale === 'ar' ? '[رسالة صوتية]' : '[Voice note]';
+    return locale === 'ar' ? '[مرفق]' : '[Attachment]';
 }
 
 function getCounterpart(thread: ChatThread, meRole?: string) {
@@ -51,6 +52,7 @@ function getCounterpart(thread: ChatThread, meRole?: string) {
 }
 
 export default function ChatDrawer({ isOpen, onClose }: ChatDrawerProps) {
+    const { locale } = useLocale();
     const { user } = useAuth();
     const [contacts, setContacts] = useState<ChatUser[]>([]);
     const [newChatOpen, setNewChatOpen] = useState(false);
@@ -101,7 +103,13 @@ export default function ChatDrawer({ isOpen, onClose }: ChatDrawerProps) {
         fetchContacts();
     }, [isOpen, mutateThreads]); // eslint-disable-line react-hooks/exhaustive-deps
 
-    const title = useMemo(() => (isReadOnly ? 'Chats (Read-only)' : 'Recent Chats'), [isReadOnly]);
+    const title = useMemo(
+        () =>
+            isReadOnly
+                ? (locale === 'ar' ? 'المحادثات (قراءة فقط)' : 'Chats (Read-only)')
+                : (locale === 'ar' ? 'آخر المحادثات' : 'Recent Chats'),
+        [isReadOnly, locale]
+    );
     const availableContacts = user?.role === 'CUSTOMER'
         ? contacts.filter((contact) => contact.role === 'COACH')
         : contacts.filter((contact) => contact.role === 'CUSTOMER');
@@ -115,7 +123,7 @@ export default function ChatDrawer({ isOpen, onClose }: ChatDrawerProps) {
         <>
             {isOpen && <div className="fixed inset-0 bg-black/40 z-[60]" onClick={onClose} />}
             <aside
-                className={`fixed right-0 top-0 z-[70] h-dvh w-full max-w-md border-l border-border bg-card transition-transform duration-300 ${isOpen ? 'translate-x-0' : 'translate-x-full'
+                className={`fixed top-0 inset-y-0 ltr:right-0 rtl:left-0 z-[70] h-dvh w-full max-w-md ltr:border-l rtl:border-r border-border bg-card transition-transform duration-300 ${isOpen ? 'ltr:translate-x-0 rtl:translate-x-0' : 'ltr:translate-x-full rtl:-translate-x-full'
                     }`}
             >
                 <div className="flex items-center justify-between border-b border-border px-4 py-3">
@@ -123,7 +131,7 @@ export default function ChatDrawer({ isOpen, onClose }: ChatDrawerProps) {
                         <MessageCircle size={18} className="text-primary" />
                         <h2 className="text-sm font-bold text-foreground">{title}</h2>
                     </div>
-                    <button className="btn-ghost !p-2" onClick={onClose} aria-label="Close chats">
+                    <button className="btn-ghost !p-2" onClick={onClose} aria-label={locale === 'ar' ? 'إغلاق المحادثات' : 'Close chats'}>
                         <X size={16} />
                     </button>
                 </div>
@@ -137,7 +145,7 @@ export default function ChatDrawer({ isOpen, onClose }: ChatDrawerProps) {
                                 onClick={() => setNewChatOpen((prev) => !prev)}
                             >
                                 <PlusCircle size={14} />
-                                New Chat
+                                {locale === 'ar' ? 'محادثة جديدة' : 'New Chat'}
                             </button>
                             {newChatOpen && (
                                 <div className="space-y-2">
@@ -148,7 +156,9 @@ export default function ChatDrawer({ isOpen, onClose }: ChatDrawerProps) {
                                             className="input-dark input-with-icon"
                                             value={contactSearch}
                                             onChange={(e) => setContactSearch(e.target.value)}
-                                            placeholder={user?.role === 'CUSTOMER' ? 'Search coaches...' : 'Search clients...'}
+                                            placeholder={user?.role === 'CUSTOMER'
+                                                ? (locale === 'ar' ? 'ابحث عن المدربين...' : 'Search coaches...')
+                                                : (locale === 'ar' ? 'ابحث عن العملاء...' : 'Search clients...')}
                                         />
                                     </div>
                                     <div className="max-h-40 overflow-y-auto hide-scrollbar space-y-1">
@@ -158,7 +168,7 @@ export default function ChatDrawer({ isOpen, onClose }: ChatDrawerProps) {
                                                 type="button"
                                                 disabled={creatingThread}
                                                 onClick={() => openOrCreateThread(contact.id)}
-                                                className="w-full text-left border border-border hover:border-primary rounded-sm p-2 transition-colors"
+                                                className="w-full text-start border border-border hover:border-primary rounded-sm p-2 transition-colors"
                                             >
                                                 <p className="text-sm font-medium text-foreground truncate">
                                                     {contact.full_name || contact.email}
@@ -168,7 +178,7 @@ export default function ChatDrawer({ isOpen, onClose }: ChatDrawerProps) {
                                         ))}
                                         {filteredContacts.length === 0 && (
                                             <p className="text-xs text-muted-foreground p-2 border border-dashed border-border rounded-sm">
-                                                No contacts found.
+                                                {locale === 'ar' ? 'لا توجد جهات اتصال.' : 'No contacts found.'}
                                             </p>
                                         )}
                                     </div>
@@ -182,13 +192,13 @@ export default function ChatDrawer({ isOpen, onClose }: ChatDrawerProps) {
                         onClick={onClose}
                         className="block border border-border hover:border-primary rounded-sm p-2 text-xs text-center text-muted-foreground hover:text-foreground transition-colors"
                     >
-                        Open Full Chat
+                        {locale === 'ar' ? 'فتح المحادثة الكاملة' : 'Open Full Chat'}
                     </Link>
 
-                    {loading && <p className="text-xs text-muted-foreground px-2 py-1">Loading chats...</p>}
+                    {loading && <p className="text-xs text-muted-foreground px-2 py-1">{locale === 'ar' ? 'جارٍ تحميل المحادثات...' : 'Loading chats...'}</p>}
                     {!loading && threads.length === 0 && (
                         <div className="border border-dashed border-border rounded-sm p-4 text-center">
-                            <p className="text-sm text-muted-foreground">No recent chats.</p>
+                            <p className="text-sm text-muted-foreground">{locale === 'ar' ? 'لا توجد محادثات حديثة.' : 'No recent chats.'}</p>
                         </div>
                     )}
 
@@ -210,14 +220,14 @@ export default function ChatDrawer({ isOpen, onClose }: ChatDrawerProps) {
                                     </p>
                                     {unread > 0 && (
                                         <span className="flex items-center gap-1.5 shrink-0">
-                                            <span className="h-2 w-2 rounded-full bg-red-500" aria-label="new conversation" />
+                                            <span className="h-2 w-2 rounded-full bg-red-500" aria-label={locale === 'ar' ? 'محادثة جديدة' : 'new conversation'} />
                                             <span className="inline-flex min-w-[20px] h-[20px] px-1.5 items-center justify-center rounded-full bg-black text-white text-xs font-bold">
                                                 {unread > 99 ? '99+' : unread}
                                             </span>
                                         </span>
                                     )}
                                 </div>
-                                <p className="text-xs text-muted-foreground mt-1 truncate">{formatPreview(thread.last_message)}</p>
+                                <p className="text-xs text-muted-foreground mt-1 truncate">{formatPreview(thread.last_message, locale)}</p>
                             </Link>
                         );
                     })}
@@ -226,4 +236,5 @@ export default function ChatDrawer({ isOpen, onClose }: ChatDrawerProps) {
         </>
     );
 }
+
 

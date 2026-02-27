@@ -22,6 +22,9 @@ export function DateRangePicker({
     const pickerId = React.useId();
     const buttonId = `${pickerId}-button`;
     const popupId = `${pickerId}-popup`;
+    const dialogRole = 'dialog';
+    const rangeMode = 'range' as const;
+    const dateRangePlaceholder = locale === 'ar' ? '\u0627\u062e\u062a\u0631 \u0646\u0637\u0627\u0642 \u0627\u0644\u062a\u0627\u0631\u064a\u062e' : 'Pick a date range';
 
     React.useEffect(() => {
         if (!isOpen) return;
@@ -40,14 +43,14 @@ export function DateRangePicker({
     const toLabel = date?.to ? formatDate(date.to, { month: 'short', day: '2-digit', year: 'numeric' }) : '';
 
     return (
-        <div className={`relative inline-block ${direction === 'rtl' ? 'text-right' : 'text-left'} ${className || ''}`}>
+        <div className={`relative inline-block ${direction === 'rtl' ? 'text-end' : 'text-start'} ${className || ''}`}>
             <div>
                 <button
                     onClick={() => setIsOpen(!isOpen)}
                     className="inline-flex justify-between w-full rounded-none border border-border shadow-sm px-4 py-2 bg-card text-sm font-medium text-foreground hover:bg-muted focus:outline-none focus:ring-1 focus:ring-primary focus:border-primary font-mono"
                     id={buttonId}
                     aria-expanded={isOpen}
-                    aria-haspopup="dialog"
+                    aria-haspopup={dialogRole}
                     aria-controls={popupId}
                 >
                     <span className="flex items-center gap-2">
@@ -61,7 +64,7 @@ export function DateRangePicker({
                                 fromLabel
                             )
                         ) : (
-                            <span>{locale === 'ar' ? 'اختر نطاق التاريخ' : 'Pick a date range'}</span>
+                            <span>{dateRangePlaceholder}</span>
                         )}
                     </span>
                 </button>
@@ -70,13 +73,13 @@ export function DateRangePicker({
             {isOpen && (
                 <div
                     id={popupId}
-                    className={`absolute z-50 mt-2 w-auto rounded-none shadow-lg bg-card ring-1 ring-black ring-opacity-5 focus:outline-none border border-border p-2 ${direction === 'rtl' ? 'origin-top-left left-0' : 'origin-top-right right-0'}`}
+                    className={`absolute z-50 mt-2 w-auto rounded-none shadow-lg bg-card ring-1 ring-black ring-opacity-5 focus:outline-none border border-border p-2 ${direction === 'rtl' ? 'rtl:origin-top-left rtl:left-0' : 'ltr:origin-top-right ltr:right-0'}`}
                     role="dialog"
                     aria-modal="false"
                     aria-labelledby={buttonId}
                 >
                     <DayPicker
-                        mode="range"
+                        mode={rangeMode}
                         defaultMonth={date?.from}
                         selected={date}
                         onSelect={setDate}
@@ -104,3 +107,4 @@ export function DateRangePicker({
         </div>
     );
 }
+

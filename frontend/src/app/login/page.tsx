@@ -9,6 +9,10 @@ import { LanguageToggle } from '@/components/LanguageToggle';
 
 export default function LoginPage() {
     const { t, direction } = useLocale();
+    const emailPlaceholder = 'admin@gym.com';
+    const passwordPlaceholder = '********';
+    const autoCompleteEmail = 'email';
+    const autoCompleteCurrentPassword = 'current-password';
     const [email, setEmail] = useState('');
     const [password, setPassword] = useState('');
     const [error, setError] = useState('');
@@ -43,14 +47,20 @@ export default function LoginPage() {
             <div className="pointer-events-none absolute inset-0 opacity-60">
                 <div className="absolute -top-20 -left-16 h-72 w-72 rounded-full bg-primary/10 blur-3xl" />
                 <div className="absolute -bottom-24 -right-20 h-80 w-80 rounded-full bg-emerald-500/10 blur-3xl" />
-                <div className="absolute left-1/2 top-1/2 h-[620px] w-[620px] -translate-x-1/2 -translate-y-1/2 rounded-full border border-primary/10" />
-                <div className="absolute left-1/2 top-1/2 h-[760px] w-[760px] -translate-x-1/2 -translate-y-1/2 rounded-full border border-border/40" />
+                <div
+                    className="absolute top-1/2 h-[620px] w-[620px] -translate-y-1/2 rounded-full border border-primary/10"
+                    style={{ left: '50%', transform: 'translateX(-50%) translateY(-50%)' }}
+                />
+                <div
+                    className="absolute top-1/2 h-[760px] w-[760px] -translate-y-1/2 rounded-full border border-border/40"
+                    style={{ left: '50%', transform: 'translateX(-50%) translateY(-50%)' }}
+                />
                 <div className="absolute inset-0 bg-[linear-gradient(to_right,rgba(255,255,255,0.02)_1px,transparent_1px),linear-gradient(to_bottom,rgba(255,255,255,0.02)_1px,transparent_1px)] bg-[size:44px_44px]" />
             </div>
 
             <div className="mx-auto grid w-full max-w-5xl grid-cols-1 gap-6 lg:grid-cols-2 relative z-10">
                 <div className="hidden lg:flex flex-col justify-between rounded-md border border-border bg-card p-8">
-                    <div className={`absolute top-4 z-20 ${direction === 'rtl' ? 'left-4' : 'right-4'}`}>
+                    <div className={`absolute top-4 z-20 ${direction === 'rtl' ? 'rtl:left-4' : 'ltr:right-4'}`}>
                         <LanguageToggle />
                     </div>
                     <div>
@@ -109,7 +119,7 @@ export default function LoginPage() {
                     <div className="pointer-events-none absolute -right-12 -top-12 h-36 w-36 rounded-full bg-primary/10 blur-2xl" />
                     <div className="pointer-events-none absolute -left-10 -bottom-10 h-28 w-28 rounded-full bg-emerald-500/10 blur-2xl" />
                     <div className="flex items-center gap-3 mb-8 lg:hidden">
-                        <div className={`absolute top-4 z-20 ${direction === 'rtl' ? 'left-4' : 'right-4'}`}>
+                        <div className={`absolute top-4 z-20 ${direction === 'rtl' ? 'rtl:left-4' : 'ltr:right-4'}`}>
                             <LanguageToggle />
                         </div>
                         <div className="h-10 w-10 flex items-center justify-center bg-primary rounded-md">
@@ -136,12 +146,12 @@ export default function LoginPage() {
                             <input
                                 id="email-address"
                                 type="email"
-                                autoComplete="email"
+                                autoComplete={autoCompleteEmail}
                                 required
                                 value={email}
                                 onChange={(e) => setEmail(e.target.value)}
                                 className="input-dark rounded-md"
-                                placeholder="admin@gym.com"
+                                placeholder={emailPlaceholder}
                             />
                         </div>
 
@@ -151,17 +161,17 @@ export default function LoginPage() {
                                 <input
                                     id="password"
                                     type={showPassword ? 'text' : 'password'}
-                                    autoComplete="current-password"
+                                    autoComplete={autoCompleteCurrentPassword}
                                     required
                                     value={password}
                                     onChange={(e) => setPassword(e.target.value)}
-                                    className={`input-dark ${direction === 'rtl' ? 'pl-11' : 'pr-11'} rounded-md`}
-                                    placeholder="********"
+                                    className={`input-dark ${direction === 'rtl' ? 'ltr:pl-11 rtl:pr-11' : 'ltr:pr-11 rtl:pl-11'} rounded-md`}
+                                    placeholder={passwordPlaceholder}
                                 />
                                 <button
                                     type="button"
                                     onClick={() => setShowPassword(!showPassword)}
-                                    className={`absolute ${direction === 'rtl' ? 'left-3' : 'right-3'} top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground transition-colors`}
+                                    className={`absolute ${direction === 'rtl' ? 'rtl:left-3' : 'ltr:right-3'} top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground transition-colors`}
                                 >
                                     {showPassword ? <EyeOff size={18} /> : <Eye size={18} />}
                                 </button>

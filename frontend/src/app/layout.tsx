@@ -42,14 +42,18 @@ export default function RootLayout({
 }: Readonly<{
   children: React.ReactNode;
 }>) {
+  const htmlLang = "en";
+  const htmlDir = "ltr";
+  const themeAttribute = "class";
+  const themeDefault = "dark";
   return (
-    <html lang="en" dir="ltr" suppressHydrationWarning>
+    <html lang={htmlLang} dir={htmlDir} suppressHydrationWarning>
       <body
         className={`${outfit.variable} ${fraunces.variable} ${jetbrainsMono.variable} ${tajawal.variable} antialiased font-serif bg-background text-foreground`}
       >
         <ThemeProvider
-          attribute="class"
-          defaultTheme="dark"
+          attribute={themeAttribute}
+          defaultTheme={themeDefault}
           enableSystem
           disableTransitionOnChange
         >

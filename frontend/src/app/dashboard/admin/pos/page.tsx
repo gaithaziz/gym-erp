@@ -3,6 +3,7 @@
 import { useEffect, useState, useCallback } from 'react';
 import { api } from '@/lib/api';
 import { ShoppingCart, Plus, Minus, Trash2, CreditCard, Banknote, ArrowRightLeft, Check, Package } from 'lucide-react';
+import { useLocale } from '@/context/LocaleContext';
 
 interface Product {
     id: string;
@@ -20,12 +21,13 @@ interface CartItem {
 }
 
 const PAYMENT_METHODS = [
-    { value: 'CASH', label: 'Cash', icon: Banknote },
-    { value: 'CARD', label: 'Card', icon: CreditCard },
-    { value: 'TRANSFER', label: 'Transfer', icon: ArrowRightLeft },
-];
+    { value: 'CASH', key: 'pos.payment.cash', icon: Banknote },
+    { value: 'CARD', key: 'pos.payment.card', icon: CreditCard },
+    { value: 'TRANSFER', key: 'pos.payment.transfer', icon: ArrowRightLeft },
+] as const;
 
 export default function POSPage() {
+    const { t } = useLocale();
     const [products, setProducts] = useState<Product[]>([]);
     const [cart, setCart] = useState<CartItem[]>([]);
     const [loading, setLoading] = useState(true);
@@ -115,8 +117,8 @@ export default function POSPage() {
             {/* Product Grid */}
             <div className="flex-1 flex flex-col min-w-0">
                 <div className="mb-4">
-                    <h1 className="text-2xl font-bold text-foreground font-serif tracking-tight">Point of Sale</h1>
-                    <p className="text-sm text-muted-foreground mt-1">Quick product sales</p>
+                    <h1 className="text-2xl font-bold text-foreground font-serif tracking-tight">{t('pos.title')}</h1>
+                    <p className="text-sm text-muted-foreground mt-1">{t('pos.subtitle')}</p>
                 </div>
 
                 {/* Category Tabs */}
@@ -126,7 +128,7 @@ export default function POSPage() {
                         className={`px-3 py-1.5 text-xs font-mono uppercase border transition-colors shrink-0 ${!categoryFilter ? 'bg-primary text-primary-foreground border-primary' : 'border-border text-muted-foreground hover:text-foreground'
                             }`}
                     >
-                        All
+                        {t('pos.categoryAll')}
                     </button>
                     {categories.map(c => (
                         <button
@@ -149,7 +151,7 @@ export default function POSPage() {
                     <div className="flex-1 flex items-center justify-center">
                         <div className="text-center">
                             <Package size={40} className="mx-auto text-muted-foreground mb-3 opacity-50" />
-                            <p className="text-muted-foreground text-sm">No products available</p>
+                            <p className="text-muted-foreground text-sm">{t('pos.noProducts')}</p>
                         </div>
                     </div>
                 ) : (
@@ -160,7 +162,7 @@ export default function POSPage() {
                                 <button
                                     key={p.id}
                                     onClick={() => addToCart(p)}
-                                    className={`kpi-card p-4 text-left transition-all hover:border-primary cursor-pointer ${inCart ? 'border-primary bg-primary/5' : ''
+                                    className={`kpi-card p-4 text-start transition-all hover:border-primary cursor-pointer ${inCart ? 'border-primary bg-primary/5' : ''
                                         }`}
                                 >
                                     <p className="text-sm font-bold text-foreground truncate">{p.name}</p>
@@ -168,12 +170,12 @@ export default function POSPage() {
                                     <div className="flex items-end justify-between mt-3">
                                         <span className="text-lg font-bold text-foreground font-mono">${p.price.toFixed(2)}</span>
                                         <span className={`text-xs font-mono ${p.stock_quantity <= 5 ? 'text-red-500' : 'text-muted-foreground'}`}>
-                                            {p.stock_quantity} left
+                                            {p.stock_quantity} {t('pos.stockLeft')}
                                         </span>
                                     </div>
                                     {inCart && (
                                         <div className="mt-2 text-xs text-primary font-mono font-bold">
-                                            ×{inCart.quantity} in cart
+                                            x{inCart.quantity} {t('pos.inCart')}
                                         </div>
                                     )}
                                 </button>
@@ -188,9 +190,9 @@ export default function POSPage() {
                 <div className="p-4 border-b border-border">
                     <div className="flex items-center gap-2">
                         <ShoppingCart size={18} className="text-primary" />
-                        <h2 className="text-sm font-bold text-foreground font-mono uppercase">Cart</h2>
-                        <span className="text-xs text-muted-foreground font-mono ml-auto">
-                            {cart.reduce((s, i) => s + i.quantity, 0)} items
+                        <h2 className="text-sm font-bold text-foreground font-mono uppercase">{t('pos.cart')}</h2>
+                        <span className="text-xs text-muted-foreground font-mono ltr:ml-auto rtl:mr-auto">
+                            {cart.reduce((s, i) => s + i.quantity, 0)} {t('pos.items')}
                         </span>
                     </div>
                 </div>
@@ -200,13 +202,13 @@ export default function POSPage() {
                     {cart.length === 0 ? (
                         <div className="text-center py-10">
                             <ShoppingCart size={28} className="mx-auto text-muted-foreground mb-2 opacity-40" />
-                            <p className="text-xs text-muted-foreground">Tap products to add</p>
+                            <p className="text-xs text-muted-foreground">{t('pos.tapToAdd')}</p>
                         </div>
                     ) : cart.map(item => (
                         <div key={item.product.id} className="p-3 border border-border bg-muted/10">
                             <div className="flex items-start justify-between mb-2">
                                 <p className="text-sm font-bold text-foreground leading-tight">{item.product.name}</p>
-                                <button onClick={() => removeFromCart(item.product.id)} className="text-muted-foreground hover:text-red-500 shrink-0 ml-2">
+                                <button onClick={() => removeFromCart(item.product.id)} className="text-muted-foreground hover:text-red-500 shrink-0 ltr:ml-2 rtl:mr-2">
                                     <Trash2 size={12} />
                                 </button>
                             </div>
@@ -242,14 +244,14 @@ export default function POSPage() {
                                     }`}
                             >
                                 <pm.icon size={14} />
-                                {pm.label}
+                                {t(pm.key)}
                             </button>
                         ))}
                     </div>
 
                     {/* Total */}
                     <div className="flex items-end justify-between">
-                        <span className="text-xs font-mono text-muted-foreground uppercase">Total</span>
+                        <span className="text-xs font-mono text-muted-foreground uppercase">{t('pos.total')}</span>
                         <span className="text-2xl font-bold text-foreground font-mono">${total.toFixed(2)}</span>
                     </div>
 
@@ -262,15 +264,15 @@ export default function POSPage() {
                         {processing ? (
                             <>
                                 <span className="h-4 w-4 animate-spin rounded-full border-2 border-primary-foreground border-t-transparent" />
-                                Processing...
+                                {t('pos.processing')}
                             </>
                         ) : saleComplete ? (
                             <>
                                 <Check size={16} />
-                                Sale Complete — {saleComplete}
+                                {t('pos.saleComplete').replace('{{total}}', saleComplete)}
                             </>
                         ) : (
-                            'Complete Sale'
+                            t('pos.completeSale')
                         )}
                     </button>
                 </div>
@@ -278,3 +280,4 @@ export default function POSPage() {
         </div>
     );
 }
+

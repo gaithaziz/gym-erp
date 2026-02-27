@@ -4,15 +4,68 @@ import { useEffect, useMemo, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { CalendarClock, ShieldAlert, Snowflake, Lock, ArrowRightCircle } from 'lucide-react';
 import { useAuth } from '@/context/AuthContext';
+import { useLocale } from '@/context/LocaleContext';
 
 type SubscriptionStatus = 'ACTIVE' | 'FROZEN' | 'EXPIRED' | 'NONE';
 
 export default function CustomerSubscriptionPage() {
     const { user } = useAuth();
+    const { locale } = useLocale();
     const router = useRouter();
+    const txt = locale === 'ar' ? {
+        noActivePlan: 'لا توجد خطة نشطة',
+        noExpirySet: 'لا يوجد تاريخ انتهاء محدد',
+        title: 'الاشتراك',
+        subtitle: 'اعرض تفاصيل الاشتراك واطلب إجراءات الخطة.',
+        currentPlan: 'الخطة الحالية',
+        status: 'الحالة',
+        expiryDate: 'تاريخ الانتهاء',
+        requests: 'طلبات الاشتراك',
+        requestRenewal: 'طلب تجديد',
+        requestFreeze: 'طلب تجميد',
+        requestUnfreeze: 'طلب إلغاء تجميد',
+        contactSupport: 'تواصل مع الدعم',
+        requestExtension: 'طلب تمديد',
+        requestActivationExtend: 'طلب تفعيل / تمديد',
+        lockPrefix: 'الطلبات مقفلة مؤقتًا لمدة',
+        lockSuffix: 'ساعة إضافية.',
+        activeTitle: 'الاشتراك نشط',
+        activeDesc: 'خطتك نشطة. يمكنك طلب تمديد أو تجميد من هذه الصفحة.',
+        frozenTitle: 'الاشتراك مجمّد',
+        frozenDesc: 'اشتراكك مجمّد حاليًا. اطلب إلغاء التجميد لاستعادة الوصول الكامل.',
+        expiredTitle: 'الاشتراك منتهي',
+        expiredDesc: 'انتهى اشتراكك. اطلب تجديدًا أو تمديدًا للاستمرار في استخدام جميع الميزات.',
+        noneTitle: 'لا يوجد اشتراك نشط',
+        noneDesc: 'لا يوجد اشتراك نشط مرتبط بحسابك. اطلب تفعيلًا أو تمديدًا.',
+    } : {
+        noActivePlan: 'No active plan',
+        noExpirySet: 'No expiry date set',
+        title: 'Subscription',
+        subtitle: 'View subscription details and request plan actions.',
+        currentPlan: 'Current Plan',
+        status: 'Status',
+        expiryDate: 'Expiry Date',
+        requests: 'Subscription Requests',
+        requestRenewal: 'Request Renewal',
+        requestFreeze: 'Request Freeze',
+        requestUnfreeze: 'Request Unfreeze',
+        contactSupport: 'Contact Support',
+        requestExtension: 'Request Extension',
+        requestActivationExtend: 'Request Activation / Extend',
+        lockPrefix: 'Requests are temporarily locked for',
+        lockSuffix: 'more hour(s).',
+        activeTitle: 'Subscription Active',
+        activeDesc: 'Your plan is active. You can request an extension or freeze from this page.',
+        frozenTitle: 'Subscription Frozen',
+        frozenDesc: 'Your subscription is currently frozen. Request unfreeze to restore full access.',
+        expiredTitle: 'Subscription Expired',
+        expiredDesc: 'Your subscription has expired. Request renewal or extension to continue using all features.',
+        noneTitle: 'No Active Subscription',
+        noneDesc: 'No active subscription is linked to your account. Request activation or extension.',
+    };
 
     const status = (user?.subscription_status || 'NONE') as SubscriptionStatus;
-    const planName = user?.subscription_plan_name || 'No active plan';
+    const planName = user?.subscription_plan_name || txt.noActivePlan;
     const parsedEndDate = user?.subscription_end_date ? new Date(user.subscription_end_date) : null;
     const hasValidEndDate = Boolean(parsedEndDate && !Number.isNaN(parsedEndDate.getTime()));
     const endDateLabel = hasValidEndDate
@@ -22,30 +75,30 @@ export default function CustomerSubscriptionPage() {
             month: 'long',
             day: 'numeric',
         })
-        : 'No expiry date set';
+        : txt.noExpirySet;
 
     const statusMeta = {
         ACTIVE: {
-            title: 'Subscription Active',
-            description: 'Your plan is active. You can request an extension or freeze from this page.',
+            title: txt.activeTitle,
+            description: txt.activeDesc,
             cardClass: 'border-emerald-500/30 bg-emerald-500/5',
             badgeClass: 'border-emerald-500/30 bg-emerald-500/10 text-emerald-400',
         },
         FROZEN: {
-            title: 'Subscription Frozen',
-            description: 'Your subscription is currently frozen. Request unfreeze to restore full access.',
+            title: txt.frozenTitle,
+            description: txt.frozenDesc,
             cardClass: 'border-blue-500/30 bg-blue-500/5',
             badgeClass: 'border-blue-500/30 bg-blue-500/10 text-blue-400',
         },
         EXPIRED: {
-            title: 'Subscription Expired',
-            description: 'Your subscription has expired. Request renewal or extension to continue using all features.',
+            title: txt.expiredTitle,
+            description: txt.expiredDesc,
             cardClass: 'border-red-500/30 bg-red-500/5',
             badgeClass: 'border-red-500/30 bg-red-500/10 text-red-400',
         },
         NONE: {
-            title: 'No Active Subscription',
-            description: 'No active subscription is linked to your account. Request activation or extension.',
+            title: txt.noneTitle,
+            description: txt.noneDesc,
             cardClass: 'border-border bg-muted/20',
             badgeClass: 'border-border bg-muted/30 text-muted-foreground',
         },
@@ -81,14 +134,14 @@ export default function CustomerSubscriptionPage() {
     return (
         <div className="max-w-4xl mx-auto space-y-6">
             <div>
-                <h1 className="text-2xl font-bold text-foreground font-serif tracking-tight">Subscription</h1>
-                <p className="text-sm text-muted-foreground mt-1">View subscription details and request plan actions.</p>
+                <h1 className="text-2xl font-bold text-foreground font-serif tracking-tight">{txt.title}</h1>
+                <p className="text-sm text-muted-foreground mt-1">{txt.subtitle}</p>
             </div>
 
             <div className={`kpi-card p-6 ${statusMeta.cardClass}`}>
                 <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-4">
                     <div>
-                        <p className="text-xs uppercase tracking-wider text-muted-foreground">Current Plan</p>
+                        <p className="text-xs uppercase tracking-wider text-muted-foreground">{txt.currentPlan}</p>
                         <p className="text-xl font-bold text-foreground mt-1">{planName}</p>
                         <p className="text-sm text-muted-foreground mt-2">{statusMeta.description}</p>
                     </div>
@@ -100,11 +153,11 @@ export default function CustomerSubscriptionPage() {
 
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mt-5">
                     <div className="rounded-sm border border-border bg-card/40 p-3">
-                        <p className="text-[11px] uppercase tracking-wider text-muted-foreground">Status</p>
+                        <p className="text-[11px] uppercase tracking-wider text-muted-foreground">{txt.status}</p>
                         <p className="text-sm font-semibold text-foreground mt-1">{statusMeta.title}</p>
                     </div>
                     <div className="rounded-sm border border-border bg-card/40 p-3">
-                        <p className="text-[11px] uppercase tracking-wider text-muted-foreground">Expiry Date</p>
+                        <p className="text-[11px] uppercase tracking-wider text-muted-foreground">{txt.expiryDate}</p>
                         <p className="text-sm font-semibold text-foreground mt-1 inline-flex items-center gap-2">
                             <CalendarClock size={14} className="text-primary" />
                             {endDateLabel}
@@ -114,7 +167,7 @@ export default function CustomerSubscriptionPage() {
             </div>
 
             <div className="kpi-card p-6">
-                <p className="section-chip mb-4">Subscription Requests</p>
+                <p className="section-chip mb-4">{txt.requests}</p>
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                     {status === 'ACTIVE' && (
                         <>
@@ -125,7 +178,7 @@ export default function CustomerSubscriptionPage() {
                                 disabled={isRequestLocked}
                             >
                                 <ArrowRightCircle size={16} />
-                                Request Renewal
+                                {txt.requestRenewal}
                             </button>
                             <button
                                 type="button"
@@ -134,7 +187,7 @@ export default function CustomerSubscriptionPage() {
                                 disabled={isRequestLocked}
                             >
                                 <Snowflake size={16} />
-                                Request Freeze
+                                {txt.requestFreeze}
                             </button>
                         </>
                     )}
@@ -148,14 +201,14 @@ export default function CustomerSubscriptionPage() {
                                 disabled={isRequestLocked}
                             >
                                 <ArrowRightCircle size={16} />
-                                Request Unfreeze
+                                {txt.requestUnfreeze}
                             </button>
                             <button
                                 type="button"
                                 onClick={() => router.push('/dashboard/support')}
                                 className="btn-secondary justify-center"
                             >
-                                Contact Support
+                                {txt.contactSupport}
                             </button>
                         </>
                     )}
@@ -169,7 +222,7 @@ export default function CustomerSubscriptionPage() {
                                 disabled={isRequestLocked}
                             >
                                 <ArrowRightCircle size={16} />
-                                Request Renewal
+                                {txt.requestRenewal}
                             </button>
                             <button
                                 type="button"
@@ -177,7 +230,7 @@ export default function CustomerSubscriptionPage() {
                                 className="btn-secondary justify-center"
                                 disabled={isRequestLocked}
                             >
-                                Request Extension
+                                {txt.requestExtension}
                             </button>
                         </>
                     )}
@@ -191,14 +244,14 @@ export default function CustomerSubscriptionPage() {
                                 disabled={isRequestLocked}
                             >
                                 <Lock size={16} />
-                                Request Activation / Extend
+                                {txt.requestActivationExtend}
                             </button>
                             <button
                                 type="button"
                                 onClick={() => router.push('/dashboard/support')}
                                 className="btn-secondary justify-center"
                             >
-                                Contact Support
+                                {txt.contactSupport}
                             </button>
                         </>
                     )}
@@ -206,7 +259,7 @@ export default function CustomerSubscriptionPage() {
 
                 {isRequestLocked && (
                     <p className="mt-3 text-xs text-muted-foreground">
-                        Requests are temporarily locked for {lockHoursRemaining} more hour(s).
+                        {txt.lockPrefix} {lockHoursRemaining} {txt.lockSuffix}
                     </p>
                 )}
             </div>

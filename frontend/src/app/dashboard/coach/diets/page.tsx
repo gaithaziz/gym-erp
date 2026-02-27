@@ -6,6 +6,7 @@ import { Plus, Utensils, Trash2, Pencil, Save, X, Send, Archive, RefreshCw, User
 import { api } from '@/lib/api';
 import Modal from '@/components/Modal';
 import { useFeedback } from '@/components/FeedbackProvider';
+import { useLocale } from '@/context/LocaleContext';
 
 interface DietPlan {
     id: string;
@@ -191,7 +192,125 @@ const getPlanMealGroups = (plan: DietPlan): MealGroupDraft[] => {
 };
 
 export default function DietPlansPage() {
+    const { locale } = useLocale();
     const { showToast, confirm: confirmAction } = useFeedback();
+    const txt = locale === 'ar' ? {
+        title: 'خطط التغذية',
+        subtitle: 'إنشاء وإدارة برامج التغذية',
+        refreshing: 'جارٍ التحديث...',
+        openLibrary: 'فتح المكتبة',
+        refresh: 'تحديث',
+        createPlan: 'إنشاء خطة',
+        all: 'الكل',
+        yes: 'نعم',
+        no: 'لا',
+        templates: 'القوالب',
+        structured: 'منظم:',
+        edit: 'تعديل',
+        assign: 'تعيين',
+        publish: 'نشر',
+        archive: 'أرشفة',
+        forkDraft: 'إنشاء مسودة',
+        delete: 'حذف',
+        collapse: 'طي',
+        viewDetails: 'عرض التفاصيل',
+        noTemplates: 'لا توجد قوالب تغذية لهذه الحالة.',
+        assignedPlans: 'الخطط المعينة',
+        assignedMember: 'عضو معيّن',
+        unknownMember: 'عضو غير معروف',
+        noAssigned: 'لا توجد خطط تغذية نشطة معينة للأعضاء.',
+        editPlan: 'تعديل خطة تغذية',
+        createPlanTitle: 'إنشاء خطة تغذية',
+        planNamePlaceholder: 'اسم الخطة',
+        descriptionPlaceholder: 'الوصف',
+        mealPlanner: 'مخطط الوجبات',
+        hideLibrary: 'إخفاء المكتبة',
+        chooseFromLibrary: 'اختر من المكتبة',
+        searchLibraryPlaceholder: 'ابحث في قوالب المكتبة...',
+        search: 'بحث',
+        clear: 'مسح',
+        loadingLibrary: 'جارٍ تحميل المكتبة...',
+        noLibrary: 'لا توجد عناصر في المكتبة.',
+        noDescription: 'بدون وصف',
+        use: 'استخدام',
+        addMeal: 'إضافة وجبة',
+        newMealGroupPlaceholder: 'اسم مجموعة وجبات جديدة (اختياري)',
+        addMealGroup: 'إضافة مجموعة وجبات',
+        generatedPreview: 'معاينة المحتوى المُنشأ',
+        draft: 'مسودة',
+        published: 'منشور',
+        archived: 'مؤرشف',
+        template: 'قالب',
+        unassignedTemplate: 'غير معيّن (قالب)',
+        cancel: 'إلغاء',
+        updatePlan: 'تحديث الخطة',
+        savePlan: 'حفظ الخطة',
+        assignTitle: 'تعيين:',
+        warningDraftAssign: 'تحذير: أنت تعين خطة تغذية مسودة.',
+        warningArchivedAssign: 'لا يمكن تعيين الخطط المؤرشفة.',
+        membersBulk: 'الأعضاء (يدعم التعيين الجماعي)',
+        memberSearchPlaceholder: 'ابحث عن عضو بالاسم/البريد...',
+        replaceActiveWarning: 'وضع استبدال النشط مفعّل: سيتم أرشفة الخطط النشطة الحالية للأعضاء المحددين.',
+        assignPlan: 'تعيين الخطة',
+    } : {
+        title: 'Diet Plans',
+        subtitle: 'Create and manage nutrition programs',
+        refreshing: 'Refreshing...',
+        openLibrary: 'Open Library',
+        refresh: 'Refresh',
+        createPlan: 'Create Plan',
+        all: 'All',
+        yes: 'Yes',
+        no: 'No',
+        templates: 'Templates',
+        structured: 'Structured:',
+        edit: 'Edit',
+        assign: 'Assign',
+        publish: 'Publish',
+        archive: 'Archive',
+        forkDraft: 'Fork Draft',
+        delete: 'Delete',
+        collapse: 'Collapse',
+        viewDetails: 'View Details',
+        noTemplates: 'No diet templates found for this status.',
+        assignedPlans: 'Assigned Plans',
+        assignedMember: 'assigned member',
+        unknownMember: 'Unknown member',
+        noAssigned: 'No active diet plans assigned to members.',
+        editPlan: 'Edit Diet Plan',
+        createPlanTitle: 'Create Diet Plan',
+        planNamePlaceholder: 'Plan Name',
+        descriptionPlaceholder: 'Description',
+        mealPlanner: 'Meal Planner',
+        hideLibrary: 'Hide Library',
+        chooseFromLibrary: 'Choose from Library',
+        searchLibraryPlaceholder: 'Search library templates...',
+        search: 'Search',
+        clear: 'Clear',
+        loadingLibrary: 'Loading library...',
+        noLibrary: 'No library items found.',
+        noDescription: 'No description',
+        use: 'Use',
+        addMeal: 'Add Meal',
+        newMealGroupPlaceholder: 'New meal group name (optional)',
+        addMealGroup: 'Add Meal Group',
+        generatedPreview: 'Generated Content Preview',
+        draft: 'Draft',
+        published: 'Published',
+        archived: 'Archived',
+        template: 'Template',
+        unassignedTemplate: 'Unassigned (template)',
+        cancel: 'Cancel',
+        updatePlan: 'Update Plan',
+        savePlan: 'Save Plan',
+        assignTitle: 'Assign:',
+        warningDraftAssign: 'Warning: assigning a draft diet plan.',
+        warningArchivedAssign: 'Archived plans cannot be assigned.',
+        membersBulk: 'Members (bulk assign supported)',
+        memberSearchPlaceholder: 'Search member by name/email...',
+        replaceActiveWarning: 'Replace-active mode is enabled: existing active diet plans for selected members will be archived.',
+        assignPlan: 'Assign Plan',
+    };
     const [plans, setPlans] = useState<DietPlan[]>([]);
     const [members, setMembers] = useState<Member[]>([]);
     const [loading, setLoading] = useState(true);
@@ -555,16 +674,16 @@ export default function DietPlansPage() {
         <div className="space-y-8">
             <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3">
                 <div>
-                    <h1 className="text-2xl font-bold text-white">Diet Plans</h1>
-                    <p className="text-sm text-[#6B6B6B] mt-1">{refreshing ? 'Refreshing...' : 'Create and manage nutrition programs'}</p>
+                    <h1 className="text-2xl font-bold text-white">{txt.title}</h1>
+                    <p className="text-sm text-[#6B6B6B] mt-1">{refreshing ? txt.refreshing : txt.subtitle}</p>
                 </div>
                 <div className="flex items-center gap-2">
                     <Link href="/dashboard/coach/library" className="btn-ghost min-h-11">
-                        Open Library
+                        {txt.openLibrary}
                     </Link>
-                    <button onClick={() => fetchData()} className="btn-ghost min-h-11"><RefreshCw size={16} /> Refresh</button>
+                    <button onClick={() => fetchData()} className="btn-ghost min-h-11"><RefreshCw size={16} /> {txt.refresh}</button>
                     <button onClick={handleOpenCreate} className="btn-primary">
-                        <Plus size={18} /> Create Plan
+                        <Plus size={18} /> {txt.createPlan}
                     </button>
                 </div>
             </div>
@@ -583,14 +702,14 @@ export default function DietPlansPage() {
                                     : 'border-border text-muted-foreground hover:text-foreground hover:bg-white/5'
                             }`}
                         >
-                            {status === 'ALL' ? 'All' : status} ({count})
+                            {status === 'ALL' ? txt.all : status} ({count})
                         </button>
                     );
                 })}
             </div>
 
             <div className="space-y-4">
-                <h2 className="text-sm font-semibold uppercase tracking-wider text-muted-foreground">Templates</h2>
+                <h2 className="text-sm font-semibold uppercase tracking-wider text-muted-foreground">{txt.templates}</h2>
                 <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-5">
                     {filteredTemplatePlans.map(plan => (
                         <div key={plan.id} className="kpi-card group">
@@ -603,7 +722,7 @@ export default function DietPlansPage() {
                             <h3 className="font-bold text-lg text-foreground mb-1 group-hover:text-primary transition-colors">
                                 {plan.name} <span className="text-xs text-muted-foreground">v{plan.version}</span>
                             </h3>
-                            <p className="text-muted-foreground text-sm mb-3 line-clamp-2">{plan.description || 'No description'}</p>
+                            <p className="text-muted-foreground text-sm mb-3 line-clamp-2">{plan.description || txt.noDescription}</p>
                             <div className="rounded-sm p-3 text-sm text-muted-foreground max-h-28 overflow-y-auto bg-muted/30 border border-border space-y-2">
                                 {(
                                     expandedTemplatePlanId === plan.id
@@ -620,14 +739,14 @@ export default function DietPlansPage() {
                                     </div>
                                 ))}
                             </div>
-                            <p className="text-[11px] text-muted-foreground mt-2">Structured: {plan.content_structured ? 'Yes' : 'No'}</p>
+                            <p className="text-[11px] text-muted-foreground mt-2">{txt.structured} {plan.content_structured ? txt.yes : txt.no}</p>
                             <div className="flex flex-wrap gap-2 mt-4">
-                                <button onClick={() => handleEditClick(plan)} className="btn-ghost text-xs min-h-11"><Pencil size={14} /> Edit</button>
-                                <button onClick={() => openAssign(plan)} disabled={plan.status === 'ARCHIVED'} className="btn-ghost text-xs min-h-11 disabled:opacity-40"><UserPlus size={14} /> Assign</button>
-                                {plan.status !== 'PUBLISHED' && <button onClick={() => handlePublish(plan.id)} className="btn-ghost text-xs min-h-11"><Send size={14} /> Publish</button>}
-                                {plan.status !== 'ARCHIVED' && <button onClick={() => handleArchive(plan.id)} className="btn-ghost text-xs min-h-11"><Archive size={14} /> Archive</button>}
-                                {plan.status !== 'DRAFT' && <button onClick={() => handleForkDraft(plan.id)} className="btn-ghost text-xs min-h-11">Fork Draft</button>}
-                                <button onClick={() => handleDelete(plan.id)} className="btn-ghost text-xs min-h-11 text-destructive hover:text-destructive/80"><Trash2 size={14} /> Delete</button>
+                                <button onClick={() => handleEditClick(plan)} className="btn-ghost text-xs min-h-11"><Pencil size={14} /> {txt.edit}</button>
+                                <button onClick={() => openAssign(plan)} disabled={plan.status === 'ARCHIVED'} className="btn-ghost text-xs min-h-11 disabled:opacity-40"><UserPlus size={14} /> {txt.assign}</button>
+                                {plan.status !== 'PUBLISHED' && <button onClick={() => handlePublish(plan.id)} className="btn-ghost text-xs min-h-11"><Send size={14} /> {txt.publish}</button>}
+                                {plan.status !== 'ARCHIVED' && <button onClick={() => handleArchive(plan.id)} className="btn-ghost text-xs min-h-11"><Archive size={14} /> {txt.archive}</button>}
+                                {plan.status !== 'DRAFT' && <button onClick={() => handleForkDraft(plan.id)} className="btn-ghost text-xs min-h-11">{txt.forkDraft}</button>}
+                                <button onClick={() => handleDelete(plan.id)} className="btn-ghost text-xs min-h-11 text-destructive hover:text-destructive/80"><Trash2 size={14} /> {txt.delete}</button>
                             </div>
                             <div className="border-t border-border pt-3 mt-3">
                                 <button
@@ -635,7 +754,7 @@ export default function DietPlansPage() {
                                     onClick={() => setExpandedTemplatePlanId(prev => prev === plan.id ? null : plan.id)}
                                     className="text-primary text-sm font-medium hover:text-primary/80 transition-colors flex items-center gap-1"
                                 >
-                                    {expandedTemplatePlanId === plan.id ? <><ChevronUp size={16} /> Collapse</> : <><ChevronDown size={16} /> View Details</>}
+                                    {expandedTemplatePlanId === plan.id ? <><ChevronUp size={16} /> {txt.collapse}</> : <><ChevronDown size={16} /> {txt.viewDetails}</>}
                                 </button>
                             </div>
                         </div>
@@ -643,21 +762,21 @@ export default function DietPlansPage() {
                     {filteredTemplatePlans.length === 0 && (
                         <div className="text-center py-16 chart-card border-dashed border-border col-span-full">
                             <Utensils size={40} className="mx-auto text-muted-foreground mb-3 opacity-50" />
-                            <p className="text-muted-foreground text-sm">No diet templates found for this status.</p>
+                            <p className="text-muted-foreground text-sm">{txt.noTemplates}</p>
                         </div>
                     )}
                 </div>
             </div>
 
             <div className="space-y-4">
-                <h2 className="text-sm font-semibold uppercase tracking-wider text-muted-foreground">Assigned Plans</h2>
+                <h2 className="text-sm font-semibold uppercase tracking-wider text-muted-foreground">{txt.assignedPlans}</h2>
                 <div className="space-y-4">
                     {assignedPlanGroups.map(group => (
                         <div key={group.rootId} className="kpi-card">
                             <div className="flex items-center justify-between gap-2 mb-3">
                                 <div>
                                     <p className="text-base font-semibold text-foreground">{group.rootPlanName}</p>
-                                    <p className="text-xs text-muted-foreground">{group.members.length} assigned member{group.members.length > 1 ? 's' : ''}</p>
+                                    <p className="text-xs text-muted-foreground">{group.members.length} {txt.assignedMember}{group.members.length > 1 ? 's' : ''}</p>
                                 </div>
                             </div>
 
@@ -666,7 +785,7 @@ export default function DietPlansPage() {
                                     <div key={plan.id} className="rounded-sm border border-border p-3 bg-muted/15">
                                         <div className="flex items-center justify-between gap-2 mb-2">
                                             <div>
-                                                <p className="text-sm font-semibold text-foreground">{plan.member_id ? (memberNameById[plan.member_id] || 'Unknown member') : 'Unknown member'}</p>
+                                                <p className="text-sm font-semibold text-foreground">{plan.member_id ? (memberNameById[plan.member_id] || txt.unknownMember) : txt.unknownMember}</p>
                                                 <p className="text-[11px] text-muted-foreground">{plan.name}</p>
                                             </div>
                                             <span className={`badge ${statusBadgeClass(plan.status)} rounded-sm`}>{plan.status}</span>
@@ -690,8 +809,8 @@ export default function DietPlansPage() {
                                         </div>
 
                                         <div className="flex flex-wrap gap-2 mt-3 pt-2 border-t border-border">
-                                            {plan.status !== 'ARCHIVED' && <button onClick={() => handleArchive(plan.id)} className="btn-ghost text-xs min-h-11"><Archive size={14} /> Archive</button>}
-                                            <button onClick={() => handleDelete(plan.id)} className="btn-ghost text-xs min-h-11 text-destructive hover:text-destructive/80"><Trash2 size={14} /> Unassign</button>
+                                            {plan.status !== 'ARCHIVED' && <button onClick={() => handleArchive(plan.id)} className="btn-ghost text-xs min-h-11"><Archive size={14} /> {txt.archive}</button>}
+                                            <button onClick={() => handleDelete(plan.id)} className="btn-ghost text-xs min-h-11 text-destructive hover:text-destructive/80"><Trash2 size={14} /> {txt.delete}</button>
                                         </div>
                                         <div className="border-t border-border pt-2 mt-2">
                                             <button
@@ -699,7 +818,7 @@ export default function DietPlansPage() {
                                                 onClick={() => setExpandedAssignedPlanId(prev => prev === plan.id ? null : plan.id)}
                                                 className="text-primary text-xs font-medium hover:text-primary/80 transition-colors flex items-center gap-1"
                                             >
-                                                {expandedAssignedPlanId === plan.id ? <><ChevronUp size={14} /> Collapse</> : <><ChevronDown size={14} /> View Details</>}
+                                                {expandedAssignedPlanId === plan.id ? <><ChevronUp size={14} /> {txt.collapse}</> : <><ChevronDown size={14} /> {txt.viewDetails}</>}
                                             </button>
                                         </div>
                                     </div>
@@ -707,7 +826,7 @@ export default function DietPlansPage() {
                             </div>
                         </div>
                     ))}
-                    {assignedPlanGroups.length === 0 && <div className="text-center py-8 text-muted-foreground text-sm">No active diet plans assigned to members.</div>}
+                    {assignedPlanGroups.length === 0 && <div className="text-center py-8 text-muted-foreground text-sm">{txt.noAssigned}</div>}
                 </div>
             </div>
 
@@ -715,16 +834,16 @@ export default function DietPlansPage() {
                 <div className="fixed inset-0 bg-background/80 backdrop-blur-sm flex items-center justify-center p-4 z-50">
                     <div className="rounded-sm border border-border bg-card p-6 w-full max-w-2xl max-h-[90vh] overflow-y-auto shadow-lg">
                         <div className="flex justify-between items-center mb-5">
-                            <h2 className="text-lg font-bold text-foreground">{editingPlan ? 'Edit Diet Plan' : 'Create Diet Plan'}</h2>
+                            <h2 className="text-lg font-bold text-foreground">{editingPlan ? txt.editPlan : txt.createPlanTitle}</h2>
                             <button onClick={() => setShowModal(false)}><X size={20} className="text-muted-foreground" /></button>
                         </div>
                         <form onSubmit={handleSubmit} className="space-y-4">
-                            <input type="text" required className="input-dark" value={planName} onChange={e => setPlanName(e.target.value)} placeholder="Plan Name" />
-                            <input type="text" className="input-dark" value={planDesc} onChange={e => setPlanDesc(e.target.value)} placeholder="Description" />
+                            <input type="text" required className="input-dark" value={planName} onChange={e => setPlanName(e.target.value)} placeholder={txt.planNamePlaceholder} />
+                            <input type="text" className="input-dark" value={planDesc} onChange={e => setPlanDesc(e.target.value)} placeholder={txt.descriptionPlaceholder} />
 
                             <div className="rounded-sm border border-border p-4 space-y-4 bg-muted/10">
                                 <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
-                                    <h3 className="text-sm font-semibold text-foreground uppercase tracking-wider">Meal Planner</h3>
+                                    <h3 className="text-sm font-semibold text-foreground uppercase tracking-wider">{txt.mealPlanner}</h3>
                                     <button
                                         type="button"
                                         className="btn-ghost text-xs min-h-11"
@@ -736,7 +855,7 @@ export default function DietPlansPage() {
                                             }
                                         }}
                                     >
-                                        {libraryOpen ? 'Hide Library' : 'Choose from Library'}
+                                        {libraryOpen ? txt.hideLibrary : txt.chooseFromLibrary}
                                     </button>
                                 </div>
 
@@ -745,24 +864,24 @@ export default function DietPlansPage() {
                                         <input
                                             type="text"
                                             className="input-dark"
-                                            placeholder="Search library templates..."
+                                            placeholder={txt.searchLibraryPlaceholder}
                                             value={libraryQuery}
                                             onChange={e => setLibraryQuery(e.target.value)}
                                         />
                                         <div className="flex gap-2">
-                                            <button type="button" className="btn-ghost text-xs min-h-11" onClick={() => fetchDietLibrary(libraryQuery)}>Search</button>
-                                            <button type="button" className="btn-ghost text-xs min-h-11" onClick={() => { setLibraryQuery(''); fetchDietLibrary(''); }}>Clear</button>
+                                            <button type="button" className="btn-ghost text-xs min-h-11" onClick={() => fetchDietLibrary(libraryQuery)}>{txt.search}</button>
+                                            <button type="button" className="btn-ghost text-xs min-h-11" onClick={() => { setLibraryQuery(''); fetchDietLibrary(''); }}>{txt.clear}</button>
                                         </div>
                                         <div className="max-h-52 overflow-y-auto divide-y divide-border border border-border rounded-sm">
-                                            {libraryLoading && <p className="px-3 py-3 text-xs text-muted-foreground">Loading library...</p>}
-                                            {!libraryLoading && dietLibraryItems.length === 0 && <p className="px-3 py-3 text-xs text-muted-foreground">No library items found.</p>}
+                                            {libraryLoading && <p className="px-3 py-3 text-xs text-muted-foreground">{txt.loadingLibrary}</p>}
+                                            {!libraryLoading && dietLibraryItems.length === 0 && <p className="px-3 py-3 text-xs text-muted-foreground">{txt.noLibrary}</p>}
                                             {dietLibraryItems.map(item => (
                                                 <div key={item.id} className="px-3 py-2 flex items-center justify-between gap-3">
                                                     <div className="min-w-0">
                                                         <p className="text-sm text-foreground truncate">{item.name}</p>
-                                                        <p className="text-xs text-muted-foreground truncate">{item.description || 'No description'}</p>
+                                                        <p className="text-xs text-muted-foreground truncate">{item.description || txt.noDescription}</p>
                                                     </div>
-                                                    <button type="button" className="btn-ghost text-xs min-h-11" onClick={() => applyLibraryItemToPlanner(item)}>Use</button>
+                                                    <button type="button" className="btn-ghost text-xs min-h-11" onClick={() => applyLibraryItemToPlanner(item)}>{txt.use}</button>
                                                 </div>
                                             ))}
                                         </div>
@@ -803,7 +922,7 @@ export default function DietPlansPage() {
                                             </div>
 
                                             <button type="button" className="btn-ghost text-xs min-h-11" onClick={() => addMealToGroup(group.id)}>
-                                                <Plus size={14} /> Add Meal
+                                                <Plus size={14} /> {txt.addMeal}
                                             </button>
                                         </div>
                                     ))}
@@ -815,31 +934,31 @@ export default function DietPlansPage() {
                                         className="input-dark"
                                         value={newGroupName}
                                         onChange={e => setNewGroupName(e.target.value)}
-                                        placeholder="New meal group name (optional)"
+                                        placeholder={txt.newMealGroupPlaceholder}
                                     />
                                     <button type="button" className="btn-ghost min-h-11" onClick={addGroup}>
-                                        <Plus size={14} /> Add Meal Group
+                                        <Plus size={14} /> {txt.addMealGroup}
                                     </button>
                                 </div>
 
                                 <div>
-                                    <p className="text-xs text-muted-foreground mb-2">Generated Content Preview</p>
+                                    <p className="text-xs text-muted-foreground mb-2">{txt.generatedPreview}</p>
                                     <textarea rows={6} readOnly className="input-dark resize-none font-mono text-xs" value={generatedContentPreview} />
                                 </div>
                             </div>
                             <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
                                 <select className="input-dark" value={planStatus} onChange={e => setPlanStatus(e.target.value as DietPlan['status'])}>
-                                    <option value="DRAFT">Draft</option>
-                                    <option value="PUBLISHED">Published</option>
-                                    <option value="ARCHIVED">Archived</option>
+                                    <option value="DRAFT">{txt.draft}</option>
+                                    <option value="PUBLISHED">{txt.published}</option>
+                                    <option value="ARCHIVED">{txt.archived}</option>
                                 </select>
                                 <label className="flex items-center gap-2 px-3 border border-border rounded-sm text-sm text-muted-foreground">
                                     <input type="checkbox" checked={isTemplate} onChange={e => setIsTemplate(e.target.checked)} />
-                                    Template
+                                    {txt.template}
                                 </label>
                                 {!editingPlan && (
                                     <select className="input-dark" value={assignedMemberId} onChange={e => setAssignedMemberId(e.target.value)}>
-                                        <option value="">Unassigned (template)</option>
+                                        <option value="">{txt.unassignedTemplate}</option>
                                         {members.map(member => (
                                             <option key={member.id} value={member.id}>{member.full_name}</option>
                                         ))}
@@ -847,8 +966,8 @@ export default function DietPlansPage() {
                                 )}
                             </div>
                             <div className="flex justify-end gap-3 pt-4 border-t border-border">
-                                <button type="button" onClick={() => setShowModal(false)} className="btn-ghost">Cancel</button>
-                                <button type="submit" className="btn-primary"><Save size={16} /> {editingPlan ? 'Update Plan' : 'Save Plan'}</button>
+                                <button type="button" onClick={() => setShowModal(false)} className="btn-ghost">{txt.cancel}</button>
+                                <button type="submit" className="btn-primary"><Save size={16} /> {editingPlan ? txt.updatePlan : txt.savePlan}</button>
                             </div>
                         </form>
                     </div>
@@ -858,7 +977,7 @@ export default function DietPlansPage() {
             <Modal
                 isOpen={assignModalOpen}
                 onClose={() => setAssignModalOpen(false)}
-                title={`Assign: ${assigningPlan?.name || ''}`}
+                title={`${txt.assignTitle} ${assigningPlan?.name || ''}`}
                 maxWidthClassName="max-w-2xl"
             >
                 <form onSubmit={handleAssignSubmit} className="space-y-4">
@@ -868,17 +987,17 @@ export default function DietPlansPage() {
                                 <p className="text-sm font-semibold text-foreground">{assigningPlan.name}</p>
                                 <span className={`badge ${statusBadgeClass(assigningPlan.status)}`}>{assigningPlan.status}</span>
                             </div>
-                            {assigningPlan.status === 'DRAFT' && <p className="text-xs text-yellow-400">Warning: assigning a draft diet plan.</p>}
-                            {assigningPlan.status === 'ARCHIVED' && <p className="text-xs text-destructive">Archived plans cannot be assigned.</p>}
+                            {assigningPlan.status === 'DRAFT' && <p className="text-xs text-yellow-400">{txt.warningDraftAssign}</p>}
+                            {assigningPlan.status === 'ARCHIVED' && <p className="text-xs text-destructive">{txt.warningArchivedAssign}</p>}
                         </div>
                     )}
 
                     <div className="space-y-2">
-                        <label className="block text-xs font-medium text-muted-foreground">Members (bulk assign supported)</label>
+                        <label className="block text-xs font-medium text-muted-foreground">{txt.membersBulk}</label>
                         <input
                             type="text"
                             className="input-dark"
-                            placeholder="Search member by name/email..."
+                            placeholder={txt.memberSearchPlaceholder}
                             value={memberSearch}
                             onChange={e => setMemberSearch(e.target.value)}
                         />
@@ -900,12 +1019,12 @@ export default function DietPlansPage() {
                                 );
                             })}
                         </div>
-                        <p className="text-xs text-muted-foreground">Replace-active mode is enabled: existing active diet plans for selected members will be archived.</p>
+                        <p className="text-xs text-muted-foreground">{txt.replaceActiveWarning}</p>
                     </div>
                     <div className="flex justify-end gap-3 pt-4 border-t border-border">
-                        <button type="button" onClick={() => setAssignModalOpen(false)} className="btn-ghost">Cancel</button>
+                        <button type="button" onClick={() => setAssignModalOpen(false)} className="btn-ghost">{txt.cancel}</button>
                         <button type="submit" disabled={assigningPlan?.status === 'ARCHIVED'} className="btn-primary disabled:opacity-40">
-                            <UserPlus size={16} /> Assign Plan
+                            <UserPlus size={16} /> {txt.assignPlan}
                         </button>
                     </div>
                 </form>

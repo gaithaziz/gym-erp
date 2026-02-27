@@ -3,6 +3,19 @@ import { ArrowRight, Dumbbell, ShieldCheck, Users, Zap, BarChart3, CreditCard } 
 import { ThemeToggle } from "@/components/ThemeToggle";
 
 export default function Home() {
+  const brandName = "GymERP";
+  const navFeatures = "Features";
+  const navAbout = "About";
+  const signInLabel = "Sign In";
+  const builtForGyms = "Built for modern gyms";
+  const heroLine1 = "Run Your Gym";
+  const heroLine2 = "Like a Machine";
+  const heroSubtitle = "Memberships. Payroll. Access control. Workout plans. One system, zero friction.";
+  const getStartedLabel = "Get Started";
+  const seeFeaturesLabel = "See Features";
+  const everythingOneRoof = "Everything under one roof";
+  const operationsSubtitle = "Stop juggling spreadsheets. Manage your entire gym operation from a single dashboard.";
+  const footerText = "© 2026 Gym ERP Systems. Industrial Strength Software.";
   return (
     <div className="flex min-h-screen flex-col bg-background font-sans">
       <header className="sticky top-0 z-50 w-full border-b border-border bg-background/95 backdrop-blur-sm">
@@ -11,15 +24,15 @@ export default function Home() {
             <div className="h-9 w-9 bg-primary flex items-center justify-center rounded-md">
               <Dumbbell className="h-5 w-5 text-primary-foreground" />
             </div>
-            <span className="text-lg font-bold text-foreground tracking-tight font-serif">GymERP</span>
+            <span className="text-lg font-bold text-foreground tracking-tight font-serif">{brandName}</span>
           </div>
           <nav className="hidden md:flex gap-8 items-center">
-            <Link href="#features" className="text-sm font-medium text-muted-foreground hover:text-foreground transition-colors">Features</Link>
-            <Link href="#about" className="text-sm font-medium text-muted-foreground hover:text-foreground transition-colors">About</Link>
+            <Link href="#features" className="text-sm font-medium text-muted-foreground hover:text-foreground transition-colors">{navFeatures}</Link>
+            <Link href="#about" className="text-sm font-medium text-muted-foreground hover:text-foreground transition-colors">{navAbout}</Link>
             <ThemeToggle />
           </nav>
           <Link href="/login" className="btn-primary text-sm px-5 py-2 rounded-md">
-            Sign In
+            {signInLabel}
           </Link>
         </div>
       </header>
@@ -30,21 +43,21 @@ export default function Home() {
           <div className="container mx-auto px-6 text-center relative z-10">
             <div className="inline-flex items-center gap-2 px-4 py-1.5 border border-border bg-muted/30 mb-8 rounded-md">
               <Zap size={14} className="text-primary" />
-              <span className="text-xs font-bold text-muted-foreground uppercase tracking-wider font-mono">Built for modern gyms</span>
+              <span className="text-xs font-bold text-muted-foreground uppercase tracking-wider font-mono">{builtForGyms}</span>
             </div>
             <h1 className="mb-6 text-4xl sm:text-6xl font-bold tracking-tight text-foreground leading-tight font-serif">
-              Run Your Gym<br />
-              <span className="text-primary">Like a Machine</span>
+              {heroLine1}<br />
+              <span className="text-primary">{heroLine2}</span>
             </h1>
             <p className="mb-10 mx-auto max-w-xl text-lg text-muted-foreground leading-relaxed">
-              Memberships. Payroll. Access control. Workout plans. One system, zero friction.
+              {heroSubtitle}
             </p>
             <div className="flex flex-col sm:flex-row justify-center gap-4">
               <Link href="/login" className="btn-primary px-8 py-3 text-base rounded-md">
-                Get Started <ArrowRight className="h-4 w-4" />
+                {getStartedLabel} <ArrowRight className="h-4 w-4" />
               </Link>
               <Link href="#features" className="inline-flex items-center justify-center gap-2 px-8 py-3 text-base border border-border text-foreground hover:bg-muted/30 transition-colors font-semibold rounded-md">
-                See Features
+                {seeFeaturesLabel}
               </Link>
             </div>
           </div>
@@ -55,10 +68,10 @@ export default function Home() {
           <div className="container mx-auto px-6">
             <div className="mb-16 text-center">
               <h2 className="text-3xl sm:text-4xl font-bold text-foreground tracking-tight font-serif">
-                Everything under one roof
+                {everythingOneRoof}
               </h2>
               <p className="mt-4 text-muted-foreground max-w-lg mx-auto">
-                Stop juggling spreadsheets. Manage your entire gym operation from a single dashboard.
+                {operationsSubtitle}
               </p>
             </div>
             <div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-3">
@@ -85,7 +98,7 @@ export default function Home() {
 
       <footer className="border-t border-border py-10 bg-background">
         <div className="container mx-auto px-6 text-center text-muted-foreground text-sm font-mono">
-          <p>&copy; 2026 Gym ERP Systems. Industrial Strength Software.</p>
+          <p>{footerText}</p>
         </div>
       </footer>
     </div>

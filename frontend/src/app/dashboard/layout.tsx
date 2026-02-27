@@ -243,7 +243,7 @@ export default function DashboardLayout({
         <div className="flex min-h-dvh bg-background">
             {/* Mobile top bar */}
             <div
-                className="fixed top-0 left-0 right-0 z-40 flex items-center justify-between px-4 py-3 md:hidden bg-card"
+                className="fixed top-0 inset-x-0 z-40 flex items-center justify-between px-4 py-3 md:hidden bg-card"
             >
                 <div className="flex items-center gap-3">
                     <button
@@ -282,7 +282,7 @@ export default function DashboardLayout({
                 `}
             >
                 <div className="p-5 pb-4 border-b border-border relative">
-                    <div className={`absolute top-3 ${direction === 'rtl' ? 'left-3' : 'right-3'} flex items-center gap-2`}>
+                    <div className={`mb-3 flex items-center gap-2 ${direction === 'rtl' ? 'justify-start' : 'justify-end'}`}>
                         <LanguageToggle />
                         <ThemeToggle />
                     </div>

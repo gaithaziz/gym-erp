@@ -220,7 +220,7 @@ export default function AdminLeavesPage() {
 
             <div className="chart-card overflow-hidden !p-0 border border-border">
                 <div className="overflow-x-auto">
-                    <table className="w-full text-left table-dark min-w-[700px]">
+                    <table className="w-full text-start table-dark min-w-[700px]">
                         <thead>
                             <tr>
                                 <th>{txt.staffMember}</th>
@@ -275,3 +275,4 @@ export default function AdminLeavesPage() {
         </div>
     );
 }
+

@@ -15,7 +15,6 @@ import { fetchMemberOverviewData } from '@/app/dashboard/member/_shared/customer
 import type { GamificationStats as MemberGamificationStats } from '@/app/dashboard/member/_shared/types';
 import { DateRange } from 'react-day-picker';
 import { subDays } from 'date-fns';
-import { Move } from 'lucide-react';
 import { useLocale } from '@/context/LocaleContext';
 
 // ======================== ADMIN DASHBOARD ========================
@@ -118,7 +117,34 @@ const calculateAge = (dob?: string) => {
 };
 
 function AdminDashboard({ userName }: { userName: string }) {
-    const { t, direction, formatCurrency, formatDate } = useLocale();
+    const { t, direction, formatCurrency, formatDate, locale } = useLocale();
+    const adminTxt = locale === 'ar'
+        ? {
+            justNow: 'الآن',
+            minutesAgoSuffix: 'دقيقة مضت',
+            hoursAgoSuffix: 'ساعة مضت',
+            recentSystemActivity: 'آخر نشاطات النظام',
+            noRecentActivity: 'لا يوجد نشاط حديث',
+            dailyVisitorReport: 'تقرير الزوار اليومي (غير مباشر)',
+            exportCsv: 'تصدير CSV',
+            noVisitorData: 'لا توجد بيانات تقرير زوار للنطاق المحدد.',
+            date: 'التاريخ',
+            uniqueVisitors: 'الزوار الفريدون',
+            noRows: 'لا توجد صفوف',
+        }
+        : {
+            justNow: 'Just now',
+            minutesAgoSuffix: 'm ago',
+            hoursAgoSuffix: 'h ago',
+            recentSystemActivity: 'Recent System Activity',
+            noRecentActivity: 'No recent activity',
+            dailyVisitorReport: 'Daily Visitor Report (Non-Live)',
+            exportCsv: 'Export CSV',
+            noVisitorData: 'No visitor report data for selected range.',
+            date: 'Date',
+            uniqueVisitors: 'Unique Visitors',
+            noRows: 'No rows',
+        };
     const [stats, setStats] = useState<DashboardStats | null>(null);
     const [attendanceData, setAttendanceData] = useState<AttendanceData[]>([]);
     const [revenueData, setRevenueData] = useState<RevenueData[]>([]);
@@ -189,10 +215,10 @@ function AdminDashboard({ userName }: { userName: string }) {
             const now = new Date();
             const diffMs = now.getTime() - d.getTime();
             const diffMin = Math.floor(diffMs / 60000);
-            if (diffMin < 1) return 'Just now';
-            if (diffMin < 60) return `${diffMin}m ago`;
+            if (diffMin < 1) return adminTxt.justNow;
+            if (diffMin < 60) return `${diffMin}${adminTxt.minutesAgoSuffix}`;
             const diffHr = Math.floor(diffMin / 60);
-            if (diffHr < 24) return `${diffHr}h ago`;
+            if (diffHr < 24) return `${diffHr}${adminTxt.hoursAgoSuffix}`;
             return formatDate(d, { month: 'short', day: '2-digit', year: 'numeric' });
         } catch { return ''; }
     };
@@ -287,17 +313,14 @@ function AdminDashboard({ userName }: { userName: string }) {
                 {/* KPI Cards */}
                 {kpiCards.map((card, i) => (
                     <div key={`stats-${i}`} className="kpi-card group h-full relative" data-grid={{ w: 3, h: 4, x: (i % 4) * 3, y: Math.floor(i / 4) * 4 }}>
-                        <div className={`absolute top-2 ${direction === 'rtl' ? 'left-2' : 'right-2'} text-muted-foreground/30 cursor-move drag-handle opacity-0 group-hover:opacity-100 transition-opacity z-10`}>
-                            <Move size={14} />
-                        </div>
                         <div className="flex items-start justify-between h-full flex-col">
                             <div className="w-full flex justify-between items-start">
                                 <div>
                                     <p className="inline-flex rounded-md border border-orange-500/30 bg-orange-500/10 px-2 py-1 text-xs font-extrabold text-orange-500 uppercase tracking-wider font-mono">{card.title}</p>
                                     <p className="text-3xl font-bold text-foreground mt-2 font-mono tracking-tighter">{card.value}</p>
                                 </div>
-                                <div className="p-2 border border-border bg-muted/50 mt-1">
-                                    <card.icon size={18} className="text-foreground" />
+                                <div className="mt-1 h-10 w-10 shrink-0 border border-border bg-muted/50 flex items-center justify-center overflow-hidden">
+                                    <card.icon size={16} className="text-foreground" />
                                 </div>
                             </div>
                             <div className="mt-auto w-full pt-2 pb-2">
@@ -315,9 +338,6 @@ function AdminDashboard({ userName }: { userName: string }) {
 
                 {/* Charts */}
                 <div key="chart-visits" className="kpi-card p-6 h-full relative group">
-                    <div className={`absolute top-2 ${direction === 'rtl' ? 'left-2' : 'right-2'} text-muted-foreground/30 cursor-move drag-handle opacity-0 group-hover:opacity-100 transition-opacity z-10`}>
-                        <Move size={14} />
-                    </div>
                     <h3 className="inline-flex rounded-md border border-orange-500/30 bg-orange-500/10 px-2 py-1 text-base font-extrabold text-orange-500 uppercase tracking-wider font-mono mb-6">{t('dashboard.home.visitsByHour')} ({t('dashboard.home.lastDays').replace('{{days}}', String(selectedDays))})</h3>
                     <div className="h-[calc(100%-2rem)]">
                         {attendanceData.length > 0 ? (
@@ -340,9 +360,6 @@ function AdminDashboard({ userName }: { userName: string }) {
                 </div>
 
                 <div key="chart-revenue" className="kpi-card p-6 h-full relative group flex flex-col">
-                    <div className={`absolute top-2 ${direction === 'rtl' ? 'left-2' : 'right-2'} text-muted-foreground/30 cursor-move drag-handle opacity-0 group-hover:opacity-100 transition-opacity z-10`}>
-                        <Move size={14} />
-                    </div>
                     <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
                         <h3 className="inline-flex rounded-md border border-orange-500/30 bg-orange-500/10 px-2 py-1 text-base font-extrabold text-orange-500 uppercase tracking-wider font-mono">{t('dashboard.home.revenueVsExpenses')} ({t('dashboard.home.lastDays').replace('{{days}}', String(selectedDays))})</h3>
                         <div className="flex items-center gap-1 border border-border bg-muted/20 p-1">
@@ -433,11 +450,8 @@ function AdminDashboard({ userName }: { userName: string }) {
 
                 {/* Recent Activity */}
                 <div key="activity" className="kpi-card p-0 h-full relative group overflow-hidden flex flex-col">
-                    <div className="absolute top-2 right-2 text-muted-foreground/30 cursor-move drag-handle opacity-0 group-hover:opacity-100 transition-opacity z-10">
-                        <Move size={14} />
-                    </div>
                     <div className="p-4 border-b border-border flex-shrink-0">
-                        <h3 className="inline-flex rounded-md border border-orange-500/30 bg-orange-500/10 px-2 py-1 text-base font-extrabold text-orange-500 uppercase tracking-wider font-mono">Recent System Activity</h3>
+                        <h3 className="inline-flex rounded-md border border-orange-500/30 bg-orange-500/10 px-2 py-1 text-base font-extrabold text-orange-500 uppercase tracking-wider font-mono">{adminTxt.recentSystemActivity}</h3>
                     </div>
                     <div className="divide-y divide-border overflow-y-auto flex-1">
                         {recentActivity.length > 0 ? (
@@ -454,7 +468,7 @@ function AdminDashboard({ userName }: { userName: string }) {
                                 </div>
                             ))
                         ) : (
-                            <div className="p-8 text-center text-muted-foreground text-sm font-mono">No recent activity</div>
+                            <div className="p-8 text-center text-muted-foreground text-sm font-mono">{adminTxt.noRecentActivity}</div>
                         )}
                     </div>
                 </div>
@@ -462,10 +476,10 @@ function AdminDashboard({ userName }: { userName: string }) {
 
             <div className="kpi-card p-6">
                 <div className="flex items-center justify-between gap-3 mb-4">
-                    <h3 className="inline-flex rounded-md border border-orange-500/30 bg-orange-500/10 px-2 py-1 text-base font-extrabold text-orange-500 uppercase tracking-wider font-mono">Daily Visitor Report (Non-Live)</h3>
+                    <h3 className="inline-flex rounded-md border border-orange-500/30 bg-orange-500/10 px-2 py-1 text-base font-extrabold text-orange-500 uppercase tracking-wider font-mono">{adminTxt.dailyVisitorReport}</h3>
                     <button type="button" className="btn-ghost !py-1.5 !px-3 text-xs flex items-center gap-1" onClick={exportDailyVisitorsCsv}>
                         <Download size={14} />
-                        Export CSV
+                        {adminTxt.exportCsv}
                     </button>
                 </div>
                 <div className="h-44 mb-4">
@@ -480,15 +494,15 @@ function AdminDashboard({ userName }: { userName: string }) {
                             </LineChart>
                         </ResponsiveContainer>
                     ) : (
-                        <div className="h-full flex items-center justify-center text-sm text-muted-foreground border border-dashed border-border">No visitor report data for selected range.</div>
+                        <div className="h-full flex items-center justify-center text-sm text-muted-foreground border border-dashed border-border">{adminTxt.noVisitorData}</div>
                     )}
                 </div>
                 <div className="overflow-x-auto">
-                    <table className="w-full text-left table-dark min-w-[440px]">
+                    <table className="w-full text-start table-dark min-w-[440px]">
                         <thead>
                             <tr>
-                                <th>Date</th>
-                                <th>Unique Visitors</th>
+                                <th>{adminTxt.date}</th>
+                                <th>{adminTxt.uniqueVisitors}</th>
                             </tr>
                         </thead>
                         <tbody>
@@ -501,7 +515,7 @@ function AdminDashboard({ userName }: { userName: string }) {
                                 ))
                             ) : (
                                 <tr>
-                                    <td colSpan={2} className="text-center py-4 text-muted-foreground text-sm">No rows</td>
+                                    <td colSpan={2} className="text-center py-4 text-muted-foreground text-sm">{adminTxt.noRows}</td>
                                 </tr>
                             )}
                         </tbody>
@@ -730,7 +744,7 @@ function CoachDashboard({ userName }: { userName: string }) {
                             <Utensils size={20} />
                         </div>
                         <div>
-                            <h3 className="text-foreground font-bold text-sm uppercase tracking-wide">Diet Plans</h3>
+                            <h3 className="text-foreground font-bold text-sm uppercase tracking-wide">{locale === 'ar' ? 'خطط التغذية' : 'Diet Plans'}</h3>
                             <p className="text-muted-foreground text-xs">{txt.manageNutrition}</p>
                         </div>
                     </div>
@@ -766,7 +780,7 @@ function CoachDashboard({ userName }: { userName: string }) {
             {plans.length > 0 ? (
                 <div className="kpi-card p-0">
                     <div className="flex items-center justify-between p-4 border-b border-border">
-                        <h3 className="inline-flex rounded-md border border-orange-500/30 bg-orange-500/10 px-2 py-1 text-base font-extrabold text-orange-500 uppercase tracking-wider font-mono">Recently Created Plans</h3>
+                        <h3 className="inline-flex rounded-md border border-orange-500/30 bg-orange-500/10 px-2 py-1 text-base font-extrabold text-orange-500 uppercase tracking-wider font-mono">{txt.recentPlans}</h3>
                         <Link href="/dashboard/coach/plans" className="text-xs text-primary hover:text-primary/80 font-mono">{txt.viewAll}</Link>
                     </div>
                     <div className="divide-y divide-border">
@@ -910,6 +924,55 @@ function CustomerDashboard({
     subscriptionPlanName?: string | null;
 }) {
     const { t, formatDate, locale } = useLocale();
+    const customerTxt = locale === 'ar'
+        ? {
+            streak: 'سلسلة',
+            dayStreakSuffix: 'يوم متتالٍ',
+            subscription: 'الاشتراك',
+            expires: 'ينتهي:',
+            statusLabel: 'الحالة:',
+            visits: 'زيارة',
+            myProgress: 'تقدمي',
+            bodyMetricsTrends: 'قياسات الجسم والاتجاهات',
+            workoutPlans: 'خطط التمرين',
+            viewPlansAndLog: 'عرض الخطط وتسجيل الجلسات',
+            dietPlans: 'خطط التغذية',
+            assignedNutrition: 'خطط التغذية المعينة',
+            history: 'السجل',
+            attendancePayments: 'الحضور والمدفوعات',
+            achievements: 'الإنجازات',
+            badgesMilestones: 'الشارات والإنجازات المرحلية',
+            myFeedback: 'ملاحظاتي',
+            shareFeedback: 'شارك ملاحظاتك عن الخطط والنادي',
+            myQrCode: 'رمز QR الخاص بي',
+            checkInAccess: 'وصول تسجيل الدخول',
+            myProfile: 'ملفي الشخصي',
+            manageAccount: 'إدارة تفاصيل الحساب',
+        }
+        : {
+            streak: 'Streak',
+            dayStreakSuffix: 'day streak',
+            subscription: 'Subscription',
+            expires: 'Expires:',
+            statusLabel: 'Status:',
+            visits: 'visits',
+            myProgress: 'My Progress',
+            bodyMetricsTrends: 'Body metrics and trends',
+            workoutPlans: 'Workout Plans',
+            viewPlansAndLog: 'View plans and log sessions',
+            dietPlans: 'Diet Plans',
+            assignedNutrition: 'Assigned nutrition plans',
+            history: 'History',
+            attendancePayments: 'Attendance and payments',
+            achievements: 'Achievements',
+            badgesMilestones: 'Badges and milestones',
+            myFeedback: 'My Feedback',
+            shareFeedback: 'Share plan and gym feedback',
+            myQrCode: 'My QR Code',
+            checkInAccess: 'Check-in access',
+            myProfile: 'My Profile',
+            manageAccount: 'Manage account details',
+        };
     const [stats, setStats] = useState<MemberGamificationStats | null>(null);
     const [biometrics, setBiometrics] = useState<BiometricLogResponse[]>([]);
     const [loading, setLoading] = useState(true);
@@ -977,8 +1040,8 @@ function CustomerDashboard({
                 </div>
                 {stats?.streak && stats.streak.current_streak > 0 && (
                     <div className="flex items-center gap-2 px-3 py-1.5 bg-orange-500/10 border border-orange-500/20 rounded-full">
-                        <span className="text-orange-500">Streak</span>
-                        <span className="text-sm font-bold text-orange-500">{stats.streak.current_streak} day streak</span>
+                        <span className="text-orange-500">{customerTxt.streak}</span>
+                        <span className="text-sm font-bold text-orange-500">{stats.streak.current_streak} {customerTxt.dayStreakSuffix}</span>
                     </div>
                 )}
             </div>
@@ -986,12 +1049,12 @@ function CustomerDashboard({
             <div className={`kpi-card p-5 ${subscriptionCardTheme.cardClass}`}>
                 <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-3">
                     <div>
-                        <p className="section-chip mb-2">Subscription</p>
+                        <p className="section-chip mb-2">{customerTxt.subscription}</p>
                         <p className="text-lg font-bold text-foreground font-mono">
-                            Expires: {formattedExpiryDate}
+                            {customerTxt.expires} {formattedExpiryDate}
                         </p>
                         <p className="text-xs text-muted-foreground mt-1">
-                            {planLabel} | Status: <span className={subscriptionCardTheme.statusClass}>{statusLabel}</span>
+                            {planLabel} | {customerTxt.statusLabel} <span className={subscriptionCardTheme.statusClass}>{statusLabel}</span>
                         </p>
                     </div>
                 </div>
@@ -1002,7 +1065,7 @@ function CustomerDashboard({
                     <p className="section-chip mb-2">{locale === 'ar' ? 'الهدف الأسبوعي' : 'Weekly Goal'}</p>
                     <div className="flex items-end gap-2">
                         <span className="text-3xl font-bold text-foreground">{weeklyProgress}</span>
-                        <span className="text-sm text-muted-foreground mb-1">/ {weeklyGoal} visits</span>
+                        <span className="text-sm text-muted-foreground mb-1">/ {weeklyGoal} {customerTxt.visits}</span>
                     </div>
                     <div className="w-full bg-muted/30 h-2 rounded-full overflow-hidden mt-3">
                         <div
@@ -1042,8 +1105,8 @@ function CustomerDashboard({
                     <Link href="/dashboard/member/progress" className="kpi-card group cursor-pointer hover:border-primary transition-colors">
                         <div className="flex items-start justify-between">
                             <div>
-                                <p className="text-lg font-bold text-foreground font-mono">My Progress</p>
-                                <p className="text-xs text-muted-foreground mt-1">Body metrics and trends</p>
+                                <p className="text-lg font-bold text-foreground font-mono">{customerTxt.myProgress}</p>
+                                <p className="text-xs text-muted-foreground mt-1">{customerTxt.bodyMetricsTrends}</p>
                             </div>
                             <Activity size={20} className="text-foreground" />
                         </div>
@@ -1051,8 +1114,8 @@ function CustomerDashboard({
                     <Link href="/dashboard/member/plans" className="kpi-card group cursor-pointer hover:border-primary transition-colors">
                         <div className="flex items-start justify-between">
                             <div>
-                                <p className="text-lg font-bold text-foreground font-mono">Workout Plans</p>
-                                <p className="text-xs text-muted-foreground mt-1">View plans and log sessions</p>
+                                <p className="text-lg font-bold text-foreground font-mono">{customerTxt.workoutPlans}</p>
+                                <p className="text-xs text-muted-foreground mt-1">{customerTxt.viewPlansAndLog}</p>
                             </div>
                             <Dumbbell size={20} className="text-foreground" />
                         </div>
@@ -1060,8 +1123,8 @@ function CustomerDashboard({
                     <Link href="/dashboard/member/diets" className="kpi-card group cursor-pointer hover:border-primary transition-colors">
                         <div className="flex items-start justify-between">
                             <div>
-                                <p className="text-lg font-bold text-foreground font-mono">Diet Plans</p>
-                                <p className="text-xs text-muted-foreground mt-1">Assigned nutrition plans</p>
+                                <p className="text-lg font-bold text-foreground font-mono">{customerTxt.dietPlans}</p>
+                                <p className="text-xs text-muted-foreground mt-1">{customerTxt.assignedNutrition}</p>
                             </div>
                             <Utensils size={20} className="text-foreground" />
                         </div>
@@ -1069,8 +1132,8 @@ function CustomerDashboard({
                     <Link href="/dashboard/member/history" className="kpi-card group cursor-pointer hover:border-primary transition-colors">
                         <div className="flex items-start justify-between">
                             <div>
-                                <p className="text-lg font-bold text-foreground font-mono">History</p>
-                                <p className="text-xs text-muted-foreground mt-1">Attendance and payments</p>
+                                <p className="text-lg font-bold text-foreground font-mono">{customerTxt.history}</p>
+                                <p className="text-xs text-muted-foreground mt-1">{customerTxt.attendancePayments}</p>
                             </div>
                             <ClipboardList size={20} className="text-foreground" />
                         </div>
@@ -1078,8 +1141,8 @@ function CustomerDashboard({
                     <Link href="/dashboard/member/achievements" className="kpi-card group cursor-pointer hover:border-primary transition-colors">
                         <div className="flex items-start justify-between">
                             <div>
-                                <p className="text-lg font-bold text-foreground font-mono">Achievements</p>
-                                <p className="text-xs text-muted-foreground mt-1">Badges and milestones</p>
+                                <p className="text-lg font-bold text-foreground font-mono">{customerTxt.achievements}</p>
+                                <p className="text-xs text-muted-foreground mt-1">{customerTxt.badgesMilestones}</p>
                             </div>
                             <Trophy size={20} className="text-foreground" />
                         </div>
@@ -1087,8 +1150,8 @@ function CustomerDashboard({
                     <Link href="/dashboard/member/feedback" className="kpi-card group cursor-pointer hover:border-primary transition-colors">
                         <div className="flex items-start justify-between">
                             <div>
-                                <p className="text-lg font-bold text-foreground font-mono">My Feedback</p>
-                                <p className="text-xs text-muted-foreground mt-1">Share plan and gym feedback</p>
+                                <p className="text-lg font-bold text-foreground font-mono">{customerTxt.myFeedback}</p>
+                                <p className="text-xs text-muted-foreground mt-1">{customerTxt.shareFeedback}</p>
                             </div>
                             <MessageSquare size={20} className="text-foreground" />
                         </div>
@@ -1096,8 +1159,8 @@ function CustomerDashboard({
                     <Link href="/dashboard/qr" className="kpi-card group cursor-pointer hover:border-primary transition-colors">
                         <div className="flex items-start justify-between">
                             <div>
-                                <p className="text-lg font-bold text-foreground font-mono">My QR Code</p>
-                                <p className="text-xs text-muted-foreground mt-1">Check-in access</p>
+                                <p className="text-lg font-bold text-foreground font-mono">{customerTxt.myQrCode}</p>
+                                <p className="text-xs text-muted-foreground mt-1">{customerTxt.checkInAccess}</p>
                             </div>
                             <QrCode size={20} className="text-foreground" />
                         </div>
@@ -1105,8 +1168,8 @@ function CustomerDashboard({
                     <Link href="/dashboard/profile" className="kpi-card group cursor-pointer hover:border-primary transition-colors">
                         <div className="flex items-start justify-between">
                             <div>
-                                <p className="text-lg font-bold text-foreground font-mono">My Profile</p>
-                                <p className="text-xs text-muted-foreground mt-1">Manage account details</p>
+                                <p className="text-lg font-bold text-foreground font-mono">{customerTxt.myProfile}</p>
+                                <p className="text-xs text-muted-foreground mt-1">{customerTxt.manageAccount}</p>
                             </div>
                             <UserCheck size={20} className="text-foreground" />
                         </div>
@@ -1121,6 +1184,19 @@ function CustomerDashboard({
 
 function CashierDashboard({ userName }: { userName: string }) {
     const { locale } = useLocale();
+    const txt = locale === 'ar'
+        ? {
+            cashierPos: 'نقطة بيع الكاشير',
+            myProfile: 'ملفي الشخصي',
+            myLeaves: 'إجازاتي',
+            workCheckIn: 'تسجيل حضور العمل',
+        }
+        : {
+            cashierPos: 'Cashier POS',
+            myProfile: 'My Profile',
+            myLeaves: 'My Leaves',
+            workCheckIn: 'Work Check-In',
+        };
     return (
         <div className="space-y-6">
             <div>
@@ -1131,7 +1207,7 @@ function CashierDashboard({ userName }: { userName: string }) {
                 <Link href="/dashboard/admin/pos" className="kpi-card group cursor-pointer hover:border-primary transition-colors">
                     <div className="flex items-start justify-between">
                         <div>
-                            <p className="text-lg font-bold text-foreground font-mono">Cashier POS</p>
+                            <p className="text-lg font-bold text-foreground font-mono">{txt.cashierPos}</p>
                             <p className="text-xs text-muted-foreground mt-1">{locale === 'ar' ? 'ابدأ وأكمل المبيعات' : 'Start and complete sales'}</p>
                         </div>
                         <DollarSign size={20} className="text-foreground" />
@@ -1140,7 +1216,7 @@ function CashierDashboard({ userName }: { userName: string }) {
                 <Link href="/dashboard/profile" className="kpi-card group cursor-pointer hover:border-primary transition-colors">
                     <div className="flex items-start justify-between">
                         <div>
-                            <p className="text-lg font-bold text-foreground font-mono">My Profile</p>
+                            <p className="text-lg font-bold text-foreground font-mono">{txt.myProfile}</p>
                             <p className="text-xs text-muted-foreground mt-1">{locale === 'ar' ? 'تفاصيل الحساب' : 'Account details'}</p>
                         </div>
                         <UserCheck size={20} className="text-foreground" />
@@ -1149,7 +1225,7 @@ function CashierDashboard({ userName }: { userName: string }) {
                 <Link href="/dashboard/leaves" className="kpi-card group cursor-pointer hover:border-primary transition-colors">
                     <div className="flex items-start justify-between">
                         <div>
-                            <p className="text-lg font-bold text-foreground font-mono">My Leaves</p>
+                            <p className="text-lg font-bold text-foreground font-mono">{txt.myLeaves}</p>
                             <p className="text-xs text-muted-foreground mt-1">{locale === 'ar' ? 'طلب وتتبع أيام الإجازة' : 'Request and track leave days'}</p>
                         </div>
                         <ClipboardList size={20} className="text-foreground" />
@@ -1158,7 +1234,7 @@ function CashierDashboard({ userName }: { userName: string }) {
                 <Link href="/dashboard/qr" className="kpi-card group cursor-pointer hover:border-primary transition-colors">
                     <div className="flex items-start justify-between">
                         <div>
-                            <p className="text-lg font-bold text-foreground font-mono">Work Check-In</p>
+                            <p className="text-lg font-bold text-foreground font-mono">{txt.workCheckIn}</p>
                             <p className="text-xs text-muted-foreground mt-1">{locale === 'ar' ? 'استخدم نفس مسار QR الخاص بالمدرب' : 'Use the same QR workflow as coach'}</p>
                         </div>
                         <QrCode size={20} className="text-foreground" />
@@ -1171,6 +1247,19 @@ function CashierDashboard({ userName }: { userName: string }) {
 
 function ReceptionDashboard({ userName }: { userName: string }) {
     const { locale } = useLocale();
+    const txt = locale === 'ar'
+        ? {
+            receptionRegistration: 'الاستقبال/التسجيل',
+            myProfile: 'ملفي الشخصي',
+            myLeaves: 'إجازاتي',
+            workCheckIn: 'تسجيل حضور العمل',
+        }
+        : {
+            receptionRegistration: 'Reception/Registration',
+            myProfile: 'My Profile',
+            myLeaves: 'My Leaves',
+            workCheckIn: 'Work Check-In',
+        };
     return (
         <div className="space-y-6">
             <div>
@@ -1181,7 +1270,7 @@ function ReceptionDashboard({ userName }: { userName: string }) {
                 <Link href="/dashboard/admin/members" className="kpi-card group cursor-pointer hover:border-primary transition-colors">
                     <div className="flex items-start justify-between">
                         <div>
-                            <p className="text-lg font-bold text-foreground font-mono">Reception/Registration</p>
+                            <p className="text-lg font-bold text-foreground font-mono">{txt.receptionRegistration}</p>
                             <p className="text-xs text-muted-foreground mt-1">{locale === 'ar' ? 'إنشاء وإدارة اشتراكات الأعضاء' : 'Create and manage member subscriptions'}</p>
                         </div>
                         <Users size={20} className="text-foreground" />
@@ -1190,7 +1279,7 @@ function ReceptionDashboard({ userName }: { userName: string }) {
                 <Link href="/dashboard/profile" className="kpi-card group cursor-pointer hover:border-primary transition-colors">
                     <div className="flex items-start justify-between">
                         <div>
-                            <p className="text-lg font-bold text-foreground font-mono">My Profile</p>
+                            <p className="text-lg font-bold text-foreground font-mono">{txt.myProfile}</p>
                             <p className="text-xs text-muted-foreground mt-1">{locale === 'ar' ? 'تفاصيل الحساب' : 'Account details'}</p>
                         </div>
                         <UserCheck size={20} className="text-foreground" />
@@ -1199,7 +1288,7 @@ function ReceptionDashboard({ userName }: { userName: string }) {
                 <Link href="/dashboard/leaves" className="kpi-card group cursor-pointer hover:border-primary transition-colors">
                     <div className="flex items-start justify-between">
                         <div>
-                            <p className="text-lg font-bold text-foreground font-mono">My Leaves</p>
+                            <p className="text-lg font-bold text-foreground font-mono">{txt.myLeaves}</p>
                             <p className="text-xs text-muted-foreground mt-1">{locale === 'ar' ? 'طلب وتتبع أيام الإجازة' : 'Request and track leave days'}</p>
                         </div>
                         <ClipboardList size={20} className="text-foreground" />
@@ -1208,7 +1297,7 @@ function ReceptionDashboard({ userName }: { userName: string }) {
                 <Link href="/dashboard/qr" className="kpi-card group cursor-pointer hover:border-primary transition-colors">
                     <div className="flex items-start justify-between">
                         <div>
-                            <p className="text-lg font-bold text-foreground font-mono">Work Check-In</p>
+                            <p className="text-lg font-bold text-foreground font-mono">{txt.workCheckIn}</p>
                             <p className="text-xs text-muted-foreground mt-1">{locale === 'ar' ? 'استخدم نفس مسار QR الخاص بالمدرب' : 'Use the same QR workflow as coach'}</p>
                         </div>
                         <QrCode size={20} className="text-foreground" />
@@ -1248,6 +1337,7 @@ export default function DashboardPage() {
             );
     }
 }
+
 
 
 

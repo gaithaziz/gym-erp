@@ -257,13 +257,13 @@ export default function AttendancePage() {
                     <span className="text-xs text-muted-foreground">{txt.page} {page} {txt.of} {totalPages}</span>
                 </div>
                 <div className="overflow-x-auto">
-                    <table className="w-full text-left table-dark min-w-[600px]">
+                    <table className="w-full text-start table-dark min-w-[600px]">
                         <thead>
                             <tr>
                                 <th>{txt.employee}</th>
                                 <th>{txt.clockIn}</th>
                                 <th>{txt.clockOut}</th>
-                                <th className="text-right">{txt.hours}</th>
+                                <th className="text-end">{txt.hours}</th>
                                 <th className="text-center">{txt.actions}</th>
                             </tr>
                         </thead>
@@ -284,7 +284,7 @@ export default function AttendancePage() {
                                             <input type="datetime-local" className="input-dark !p-1.5 text-xs !rounded-lg" value={editOut} onChange={e => setEditOut(e.target.value)} />
                                         ) : fmt(log.check_out_time)}
                                     </td>
-                                    <td className="text-right font-mono text-sm !text-white">
+                                    <td className="text-end font-mono text-sm !text-white">
                                         {log.hours_worked != null ? `${log.hours_worked}h` : '-'}
                                     </td>
                                     <td className="text-center">
@@ -324,3 +324,4 @@ export default function AttendancePage() {
         </div>
     );
 }
+

@@ -4,41 +4,19 @@ import { useLocale } from "@/context/LocaleContext";
 
 export function LanguageToggle() {
   const { locale, setLocale, t } = useLocale();
-  const isArabic = locale === "ar";
+  const nextLocale = locale === "ar" ? "en" : "ar";
+  const nextLabel = nextLocale.toUpperCase();
 
   return (
-    <div className="inline-flex items-center gap-1 rounded-sm border border-border bg-card p-1">
-      <span className="px-2 text-[10px] font-bold uppercase text-muted-foreground">
-        {t("language.label")}
-      </span>
-      <button
-        type="button"
-        onClick={() => setLocale("en")}
-        aria-label={t("language.switchToEnglish")}
-        aria-pressed={!isArabic}
-        data-testid="locale-en"
-        className={`rounded-xs px-2 py-1 text-xs font-semibold transition-colors ${
-          !isArabic
-            ? "bg-primary text-primary-foreground"
-            : "text-muted-foreground hover:text-foreground"
-        }`}
-      >
-        EN
-      </button>
-      <button
-        type="button"
-        onClick={() => setLocale("ar")}
-        aria-label={t("language.switchToArabic")}
-        aria-pressed={isArabic}
-        data-testid="locale-ar"
-        className={`rounded-xs px-2 py-1 text-xs font-semibold transition-colors ${
-          isArabic
-            ? "bg-primary text-primary-foreground"
-            : "text-muted-foreground hover:text-foreground"
-        }`}
-      >
-        AR
-      </button>
-    </div>
+    <button
+      type="button"
+      onClick={() => setLocale(nextLocale)}
+      aria-label={nextLocale === "ar" ? t("language.switchToArabic") : t("language.switchToEnglish")}
+      data-testid={nextLocale === "ar" ? "locale-ar" : "locale-en"}
+      className="inline-flex h-9 min-w-[2.75rem] items-center justify-center rounded-sm border border-border bg-card px-2 text-xs font-bold text-foreground transition-colors hover:bg-muted"
+      title={t("language.label")}
+    >
+      {nextLabel}
+    </button>
   );
 }

@@ -308,15 +308,15 @@ export default function StaffSummaryPage() {
                     <button className="btn-ghost" onClick={() => printSection('attendance')}><Printer size={14} /> {txt.printAttendance}</button>
                 </div>
                 <div className="overflow-x-auto">
-                    <table className="w-full text-left table-dark min-w-[620px]">
-                        <thead><tr><th>{txt.checkIn}</th><th>{txt.checkOut}</th><th className="text-right">{txt.hours}</th></tr></thead>
+                    <table className="w-full text-start table-dark min-w-[620px]">
+                        <thead><tr><th>{txt.checkIn}</th><th>{txt.checkOut}</th><th className="text-end">{txt.hours}</th></tr></thead>
                         <tbody>
                             {attendanceRows.length === 0 && <tr><td colSpan={3} className="text-center py-8 text-muted-foreground text-sm">{txt.noAttendance}</td></tr>}
                             {attendanceRows.map((r) => (
                                 <tr key={r.id}>
                                     <td>{r.check_in_time ? new Date(r.check_in_time).toLocaleString() : '-'}</td>
                                     <td>{r.check_out_time ? new Date(r.check_out_time).toLocaleString() : '-'}</td>
-                                    <td className="text-right font-mono">{r.hours_worked.toFixed(2)}</td>
+                                    <td className="text-end font-mono">{r.hours_worked.toFixed(2)}</td>
                                 </tr>
                             ))}
                         </tbody>
@@ -336,7 +336,7 @@ export default function StaffSummaryPage() {
                     <button className="btn-ghost" onClick={() => printSection('leaves')}><Printer size={14} /> {txt.printLeaves}</button>
                 </div>
                 <div className="overflow-x-auto">
-                    <table className="w-full text-left table-dark min-w-[620px]">
+                    <table className="w-full text-start table-dark min-w-[620px]">
                         <thead><tr><th>{txt.start}</th><th>{txt.end}</th><th>{txt.type}</th><th>{txt.status}</th></tr></thead>
                         <tbody>
                             {leaveRows.length === 0 && <tr><td colSpan={4} className="text-center py-8 text-muted-foreground text-sm">{txt.noLeaves}</td></tr>}

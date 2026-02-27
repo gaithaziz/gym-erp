@@ -209,6 +209,7 @@ export default function CustomerSupportPage() {
     };
     const statusLabel = (status: TicketStatus) => t(`support.status.${status}`);
     const categoryLabel = (category: TicketCategory) => t(`support.category.${category}`);
+    const supportAttachmentAlt = 'Support attachment';
     const pageLabel = (page: number, total: number) =>
         t('support.customer.pageOf')
             .replace('{{page}}', String(page))
@@ -249,7 +250,7 @@ export default function CustomerSupportPage() {
                                 </span>
                             </div>
                         </div>
-                        <div className={`${direction === 'rtl' ? 'text-left' : 'text-right'} text-xs text-muted-foreground`}>
+                        <div className={`${direction === 'rtl' ? 'text-start' : 'text-end'} text-xs text-muted-foreground`}>
                             <div>{t('support.customer.opened')}: {formatDate(ticketDetails.created_at, { month: 'short', day: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit' })}</div>
                         </div>
                     </div>
@@ -262,7 +263,7 @@ export default function CustomerSupportPage() {
                             const mediaUrl = resolveProfileImageUrl(msg.media_url);
                             return (
                                 <div key={msg.id} className={`flex ${isMe ? 'justify-end' : 'justify-start'}`}>
-                                    <div className={`max-w-[80%] rounded-2xl p-4 ${isMe ? 'bg-primary text-primary-foreground rounded-tr-sm' : 'bg-muted rounded-tl-sm'}`}>
+                                    <div className={`max-w-[80%] rounded-2xl p-4 ${isMe ? 'bg-primary text-primary-foreground ltr:rounded-tr-sm rtl:rounded-tl-sm' : 'bg-muted ltr:rounded-tl-sm rtl:rounded-tr-sm'}`}>
                                         <div className="text-xs font-semibold mb-1 opacity-70 flex justify-between gap-4">
                                             <span>{isMe ? t('support.customer.you') : t('support.customer.supportStaff')}</span>
                                             <span>{formatDate(msg.created_at, { hour: 'numeric', minute: '2-digit' })}</span>
@@ -277,7 +278,7 @@ export default function CustomerSupportPage() {
                                             >
                                                 <Image
                                                     src={mediaUrl}
-                                                    alt="Support attachment"
+                                                    alt={supportAttachmentAlt}
                                                     width={640}
                                                     height={480}
                                                     className="max-h-64 rounded-lg border border-border/50"
@@ -384,7 +385,7 @@ export default function CustomerSupportPage() {
                                     </span>
                                 </div>
                             </div>
-                            <div className={`text-sm text-muted-foreground text-left ${direction === 'rtl' ? 'sm:text-left' : 'sm:text-right'}`}>
+                            <div className={`text-sm text-muted-foreground text-start ${direction === 'rtl' ? 'sm:text-start' : 'sm:text-end'}`}>
                                 <div className="text-xs uppercase tracking-wider mb-1 opacity-70">{t('support.customer.lastUpdated')}</div>
                                 <div className="font-medium text-foreground">{formatDate(ticket.updated_at, { month: 'short', day: 'numeric', year: 'numeric' })}</div>
                                 <div className="text-xs">{formatDate(ticket.updated_at, { hour: 'numeric', minute: '2-digit' })}</div>
@@ -418,7 +419,7 @@ export default function CustomerSupportPage() {
                     <div className="bg-card w-full max-w-md rounded-xl border border-border shadow-2xl p-6 relative animate-in fade-in zoom-in-95 duration-200">
                         <button
                             onClick={() => setIsNewTicketModalOpen(false)}
-                            className={`absolute top-4 ${direction === 'rtl' ? 'left-4' : 'right-4'} text-muted-foreground hover:text-foreground transition-colors`}
+                            className={`absolute top-4 ${direction === 'rtl' ? 'rtl:left-4' : 'ltr:right-4'} text-muted-foreground hover:text-foreground transition-colors`}
                         >
                             <X size={20} />
                         </button>
@@ -492,3 +493,4 @@ export default function CustomerSupportPage() {
         </div>
     );
 }
+

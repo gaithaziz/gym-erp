@@ -15,7 +15,11 @@
     "i18n:rtl:strict": "node scripts/i18n-rtl-check.cjs --fail-on-found",
     "i18n:verify": "npm run i18n:check && npm run i18n:hardcoded && npm run i18n:rtl",
     "i18n:verify:strict": "npm run i18n:check:strict && npm run i18n:hardcoded:strict && npm run i18n:rtl:strict",
-    "test:e2e": "playwright test",
+    "test:e2e": "npm run test:e2e:fast",
+    "test:e2e:fast": "playwright test e2e/smoke.spec.ts && playwright test e2e/i18n-rtl-visual.spec.ts --grep \"@fast\"",
+    "test:e2e:full": "playwright test e2e/smoke.spec.ts && playwright test e2e/i18n-rtl-visual.spec.ts --grep \"@full\"",
+    "test:e2e:visual:fast:update": "playwright test e2e/i18n-rtl-visual.spec.ts --grep \"@fast\" --update-snapshots",
+    "test:e2e:visual:full:update": "playwright test e2e/i18n-rtl-visual.spec.ts --grep \"@full\" --update-snapshots",
     "test:e2e:ui": "playwright test --ui"
   },
   "dependencies": {

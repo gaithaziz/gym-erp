@@ -405,7 +405,7 @@ export default function StaffPage() {
             {/* Table */}
             <div className="chart-card overflow-hidden !p-0 border border-border">
                 <div className="hidden md:block overflow-x-auto">
-                    <table className="w-full text-left table-dark min-w-[600px]">
+                    <table className="w-full text-start table-dark min-w-[600px]">
                         <thead>
                             <tr>
                                 <th>{txt.name}</th>
@@ -706,4 +706,5 @@ export default function StaffPage() {
         </div>
     );
 }
+
 

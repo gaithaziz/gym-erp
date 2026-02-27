@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react';
 import { api } from '@/lib/api';
 import { ShieldAlert, RefreshCw, User, Activity, Clock, Target } from 'lucide-react';
+import { useLocale } from '@/context/LocaleContext';
 
 interface AuditLog {
     id: string;
@@ -14,6 +15,7 @@ interface AuditLog {
 }
 
 export default function AuditLogsPage() {
+    const { t, formatDate } = useLocale();
     const [logs, setLogs] = useState<AuditLog[]>([]);
     const [loading, setLoading] = useState(true);
 
@@ -35,7 +37,13 @@ export default function AuditLogsPage() {
 
     const formatTime = (isoString: string) => {
         try {
-            return new Date(isoString).toLocaleString();
+            return formatDate(new Date(isoString), {
+                year: 'numeric',
+                month: '2-digit',
+                day: '2-digit',
+                hour: '2-digit',
+                minute: '2-digit',
+            });
         } catch {
             return isoString;
         }
@@ -55,9 +63,9 @@ export default function AuditLogsPage() {
                 <div>
                     <h1 className="text-2xl font-bold text-foreground font-serif tracking-tight flex items-center gap-2">
                         <ShieldAlert className="text-primary" />
-                        Audit Logs
+                        {t('audit.title')}
                     </h1>
-                    <p className="text-sm text-muted-foreground mt-1">System activity and security trail</p>
+                    <p className="text-sm text-muted-foreground mt-1">{t('audit.subtitle')}</p>
                 </div>
                 <button
                     onClick={fetchLogs}
@@ -65,20 +73,20 @@ export default function AuditLogsPage() {
                     className="btn-primary group"
                 >
                     <RefreshCw size={16} className={loading ? 'animate-spin' : 'group-hover:rotate-180 transition-transform duration-500'} />
-                    Refresh
+                    {t('audit.refresh')}
                 </button>
             </div>
 
             <div className="kpi-card p-0 overflow-hidden">
                 <div className="overflow-x-auto">
-                    <table className="w-full text-left border-collapse table-dark">
+                    <table className="w-full text-start border-collapse table-dark">
                         <thead>
                             <tr>
-                                <th><div className="flex items-center gap-2"><Clock size={14} /> Timestamp</div></th>
-                                <th><div className="flex items-center gap-2"><Activity size={14} /> Action</div></th>
-                                <th><div className="flex items-center gap-2"><User size={14} /> User ID</div></th>
-                                <th><div className="flex items-center gap-2"><Target size={14} /> Target ID</div></th>
-                                <th>Details</th>
+                                <th><div className="flex items-center gap-2"><Clock size={14} /> {t('audit.timestamp')}</div></th>
+                                <th><div className="flex items-center gap-2"><Activity size={14} /> {t('audit.action')}</div></th>
+                                <th><div className="flex items-center gap-2"><User size={14} /> {t('audit.userId')}</div></th>
+                                <th><div className="flex items-center gap-2"><Target size={14} /> {t('audit.targetId')}</div></th>
+                                <th>{t('audit.details')}</th>
                             </tr>
                         </thead>
                         <tbody>
@@ -86,13 +94,13 @@ export default function AuditLogsPage() {
                                 <tr>
                                     <td colSpan={5} className="text-center py-12">
                                         <RefreshCw size={24} className="animate-spin text-primary mx-auto" />
-                                        <p className="text-muted-foreground mt-2 text-sm">Loading logs...</p>
+                                        <p className="text-muted-foreground mt-2 text-sm">{t('audit.loading')}</p>
                                     </td>
                                 </tr>
                             ) : logs.length === 0 ? (
                                 <tr>
                                     <td colSpan={5} className="text-center py-12 text-muted-foreground text-sm font-mono">
-                                        No audit logs found.
+                                        {t('audit.empty')}
                                     </td>
                                 </tr>
                             ) : (
@@ -106,8 +114,8 @@ export default function AuditLogsPage() {
                                                 {log.action}
                                             </span>
                                         </td>
-                                        <td className="font-mono text-xs text-muted-foreground" title={log.user_id || 'System'}>
-                                            {log.user_id ? log.user_id.split('-')[0] + '...' : 'SYSTEM'}
+                                        <td className="font-mono text-xs text-muted-foreground" title={log.user_id || t('audit.system')}>
+                                            {log.user_id ? log.user_id.split('-')[0] + '...' : t('audit.system')}
                                         </td>
                                         <td className="font-mono text-xs text-muted-foreground" title={log.target_id || 'N/A'}>
                                             {log.target_id ? log.target_id.split('-')[0] + '...' : '-'}
@@ -125,3 +133,4 @@ export default function AuditLogsPage() {
         </div>
     );
 }
+

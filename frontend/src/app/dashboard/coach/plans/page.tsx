@@ -1117,7 +1117,7 @@ export default function WorkoutPlansPage() {
                                         )}
                                         <div className="max-h-40 overflow-y-auto border border-border rounded-sm divide-y divide-border">
                                             {libraryItems.map(item => (
-                                                <button key={item.id} type="button" className="w-full text-left px-3 py-2 hover:bg-muted/30" onClick={() => applyLibraryItem(item)}>
+                                                <button key={item.id} type="button" className="w-full text-start px-3 py-2 hover:bg-muted/30" onClick={() => applyLibraryItem(item)}>
                                                     <p className="text-sm text-foreground">{item.name}</p>
                                                     <p className="text-xs text-muted-foreground">{[item.category, item.muscle_group, item.equipment].filter(Boolean).join(' | ')}</p>
                                                 </button>
@@ -1185,7 +1185,7 @@ export default function WorkoutPlansPage() {
                 <div className="fixed inset-0 z-[100] bg-background/85 backdrop-blur-sm flex items-center justify-center p-3 sm:p-4">
                     <div className="w-full max-w-4xl rounded-sm border border-border bg-card shadow-lg overflow-hidden">
                         <div className="flex items-center justify-between border-b border-border px-3 py-2 sm:px-4 sm:py-3">
-                            <h3 className="text-sm sm:text-base font-semibold text-foreground truncate pr-3">{videoPopup.title}</h3>
+                            <h3 className="text-sm sm:text-base font-semibold text-foreground truncate ltr:pr-3 rtl:pl-3">{videoPopup.title}</h3>
                             <button
                                 type="button"
                                 onClick={() => setVideoPopup(null)}
@@ -1289,6 +1289,7 @@ export default function WorkoutPlansPage() {
         </div>
     );
 }
+
 
 
 

@@ -49,6 +49,25 @@ const COLS = { lg: 12, md: 10, sm: 6, xs: 4, xxs: 2 } as const;
 type GridItem = { i: string; x: number; y: number; w: number; h: number };
 type GridLayouts = Partial<Record<keyof typeof COLS, GridItem[]>>;
 
+function mirrorLayoutItems(items: GridItem[], cols: number): GridItem[] {
+    return items.map((item) => ({
+        ...item,
+        x: Math.max(0, cols - item.x - item.w),
+    }));
+}
+
+function mirrorLayoutsForRtl(layouts: GridLayouts): GridLayouts {
+    const mirrored: GridLayouts = {};
+    const breakpoints = Object.keys(COLS) as Array<keyof typeof COLS>;
+
+    for (const bp of breakpoints) {
+        const source = layouts[bp] ?? [];
+        mirrored[bp] = mirrorLayoutItems(source, COLS[bp]);
+    }
+
+    return mirrored;
+}
+
 function minSizeForKey(key: string): { w: number; h: number } {
     // Prevent important cards/charts from collapsing to near-zero size.
     if (key.startsWith('stats-')) return { w: 2, h: 3 };
@@ -67,15 +86,15 @@ function normalizeItem(item: GridItem, cols: number): GridItem {
     return { i: item.i, x, y, w, h };
 }
 
-function sanitizeLayouts(stored: unknown, requiredKeys: string[]): GridLayouts {
-    if (!stored || typeof stored !== 'object') return defaultLayouts;
+function sanitizeLayouts(stored: unknown, requiredKeys: string[], fallbackLayouts: GridLayouts = defaultLayouts): GridLayouts {
+    if (!stored || typeof stored !== 'object') return fallbackLayouts;
     const parsed = stored as GridLayouts;
     const normalized: GridLayouts = {};
     const breakpoints = Object.keys(COLS) as Array<keyof typeof COLS>;
 
     for (const bp of breakpoints) {
         const cols = COLS[bp];
-        const fallback = (defaultLayouts as GridLayouts)[bp] ?? (defaultLayouts as GridLayouts).sm ?? [];
+        const fallback = fallbackLayouts[bp] ?? fallbackLayouts.sm ?? [];
         const fallbackByKey = new Map(fallback.map((item) => [item.i, item]));
         const sourceRaw = Array.isArray(parsed[bp]) ? parsed[bp]! : [];
         const sourceByKey = new Map<string, GridItem>();
@@ -113,7 +132,13 @@ export function DashboardGrid({ children, layoutId }: DashboardGridProps) {
     const useSafeStaticGrid = true;
     const [layouts, setLayouts] = useState<GridLayouts>(defaultLayouts);
     const [mounted, setMounted] = useState(false);
-    const storageKey = `dashboard_layout_v3_${layoutId}_${direction}`;
+    const storageKey = `dashboard_layout_v4_${layoutId}_${direction}`;
+    const politeLive = 'polite';
+    const compactType = 'vertical' as const;
+    const baseDefaults = useMemo<GridLayouts>(
+        () => (isRtl ? mirrorLayoutsForRtl(defaultLayouts) : defaultLayouts),
+        [isRtl]
+    );
     const childKeys = useMemo(
         () =>
             React.Children.toArray(children)
@@ -139,34 +164,28 @@ export function DashboardGrid({ children, layoutId }: DashboardGridProps) {
     );
 
     useEffect(() => {
-        if (isRtl) {
-            setLayouts(sanitizeLayouts(defaultLayouts, childKeys));
-            setMounted(true);
-            return;
-        }
-
         const storedLayout = localStorage.getItem(storageKey);
         setTimeout(() => {
             setMounted(true);
             if (storedLayout) {
                 try {
-                    setLayouts(sanitizeLayouts(JSON.parse(storedLayout), childKeys));
+                    const parsed = JSON.parse(storedLayout);
+                    const safe = sanitizeLayouts(parsed, childKeys, baseDefaults);
+                    setLayouts(safe);
                 } catch {
                     console.error("Failed to parse stored layout");
-                    setLayouts(sanitizeLayouts(defaultLayouts, childKeys));
+                    setLayouts(sanitizeLayouts(baseDefaults, childKeys, baseDefaults));
                 }
                 return;
             }
-            setLayouts(sanitizeLayouts(defaultLayouts, childKeys));
+            setLayouts(sanitizeLayouts(baseDefaults, childKeys, baseDefaults));
         }, 0);
-    }, [childKeys, isRtl, storageKey]);
+    }, [baseDefaults, childKeys, storageKey]);
 
     const handleLayoutChange = (_layout: unknown, allLayouts: unknown) => {
-        const safeLayouts = sanitizeLayouts(allLayouts, childKeys);
+        const safeLayouts = sanitizeLayouts(allLayouts, childKeys, baseDefaults);
         setLayouts(safeLayouts);
-        if (!isRtl) {
-            localStorage.setItem(storageKey, JSON.stringify(safeLayouts));
-        }
+        localStorage.setItem(storageKey, JSON.stringify(safeLayouts));
     };
 
     if (!mounted) {
@@ -176,7 +195,7 @@ export function DashboardGrid({ children, layoutId }: DashboardGridProps) {
             <div
                 className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-12 gap-4 animate-pulse"
                 aria-busy="true"
-                aria-live="polite"
+                aria-live={politeLive}
             >
                 {Array.from({ length: childCount }).map((_, idx) => {
                     const blockClass =
@@ -201,7 +220,7 @@ export function DashboardGrid({ children, layoutId }: DashboardGridProps) {
         );
     }
 
-    if (useSafeStaticGrid || isRtl) {
+    if (useSafeStaticGrid) {
         return (
             <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-12 gap-4">
                 {React.Children.toArray(directionalChildren).map((child, idx) => {
@@ -230,11 +249,10 @@ export function DashboardGrid({ children, layoutId }: DashboardGridProps) {
             cols={COLS}
             rowHeight={30}
             onLayoutChange={handleLayoutChange}
-            compactType="vertical"
+            compactType={compactType}
             preventCollision={false}
-            isDraggable
-            isResizable
-            draggableHandle=".drag-handle"
+            isDraggable={false}
+            isResizable={false}
             style={{ direction: 'ltr' }}
         >
             {directionalChildren}

@@ -6,6 +6,7 @@ import { Dumbbell, PlayCircle, X } from 'lucide-react';
 import Modal from '@/components/Modal';
 import { useFeedback } from '@/components/FeedbackProvider';
 import { api } from '@/lib/api';
+import { useLocale } from '@/context/LocaleContext';
 
 import { fetchMemberPlans, fetchMemberSessionLogs } from '../_shared/customerData';
 import type { MemberPlan } from '../_shared/types';
@@ -26,6 +27,7 @@ const getApiErrorMessage = (error: unknown, fallback: string) => {
 };
 
 export default function MemberPlansPage() {
+    const { locale } = useLocale();
     const { showToast } = useFeedback();
     const [plans, setPlans] = useState<MemberPlan[]>([]);
     const [loading, setLoading] = useState(true);
@@ -49,6 +51,83 @@ export default function MemberPlansPage() {
         : configuredApiUrl;
 
     const toAbsoluteUrl = (url: string) => (url.startsWith('http') ? url : `${apiOrigin}${url}`);
+    const txt = locale === 'ar' ? {
+        loadPlansFailed: 'فشل تحميل خطط التمرين',
+        fallbackExercise: 'تمرين',
+        workoutLogged: 'تم تسجيل جلسة التمرين بنجاح.',
+        workoutLogFailed: 'فشل تسجيل جلسة التمرين.',
+        title: 'خطط التمرين الخاصة بي',
+        subtitle: 'خطط التمرين المعينة وتسجيل الجلسات.',
+        plansAssigned: 'الخطط المعينة',
+        totalExercises: 'إجمالي التمارين',
+        sessions7d: 'الجلسات (7 أيام)',
+        planLibrary: 'مكتبة الخطط',
+        noDescription: 'بدون وصف',
+        exercises: 'تمارين',
+        logSession: 'تسجيل جلسة',
+        general: 'عام',
+        sets: 'الجولات',
+        reps: 'التكرارات',
+        duration: 'المدة',
+        min: 'دقيقة',
+        video: 'فيديو',
+        watchVideo: 'مشاهدة الفيديو',
+        noPlansTitle: 'لا توجد خطط تمرين معينة بعد.',
+        noPlansHint: 'سيقوم المدرب بتعيين خطط لك.',
+        logSessionTitle: 'تسجيل جلسة',
+        workoutGroupDoneToday: 'مجموعة التمرين المنفذة اليوم',
+        durationMinutes: 'المدة (بالدقائق)',
+        durationPlaceholder: 'مثال: 60',
+        sessionNotes: 'ملاحظات الجلسة',
+        notesPlaceholder: 'كيف كانت الجلسة؟',
+        weightKg: 'الوزن (كجم)',
+        optional: 'اختياري',
+        cancel: 'إلغاء',
+        saving: 'جارٍ الحفظ...',
+        saveSession: 'حفظ الجلسة',
+        closeVideo: 'إغلاق الفيديو',
+        videoTitleSuffix: 'فيديو',
+        previewUnavailable: 'تعذر معاينة هذا المصدر في النافذة المنبثقة.',
+        openSource: 'فتح المصدر',
+    } : {
+        loadPlansFailed: 'Failed to load workout plans',
+        fallbackExercise: 'Exercise',
+        workoutLogged: 'Workout session logged successfully.',
+        workoutLogFailed: 'Failed to log workout session.',
+        title: 'My Workout Plans',
+        subtitle: 'Assigned workout plans and session logging.',
+        plansAssigned: 'Plans Assigned',
+        totalExercises: 'Total Exercises',
+        sessions7d: 'Sessions (7d)',
+        planLibrary: 'Plan Library',
+        noDescription: 'No description',
+        exercises: 'exercises',
+        logSession: 'Log Session',
+        general: 'General',
+        sets: 'Sets',
+        reps: 'Reps',
+        duration: 'Duration',
+        min: 'min',
+        video: 'Video',
+        watchVideo: 'Watch Video',
+        noPlansTitle: 'No workout plans assigned yet.',
+        noPlansHint: 'Your coach will assign plans to you.',
+        logSessionTitle: 'Log Session',
+        workoutGroupDoneToday: 'Workout Group Done Today',
+        durationMinutes: 'Duration (minutes)',
+        durationPlaceholder: 'e.g. 60',
+        sessionNotes: 'Session Notes',
+        notesPlaceholder: 'How did it go?',
+        weightKg: 'Weight (kg)',
+        optional: 'Optional',
+        cancel: 'Cancel',
+        saving: 'Saving...',
+        saveSession: 'Save Session',
+        closeVideo: 'Close video',
+        videoTitleSuffix: 'video',
+        previewUnavailable: 'Unable to preview this source in popup.',
+        openSource: 'Open Source',
+    };
 
     const resolveExerciseVideoUrl = (exercise: NonNullable<MemberPlan['exercises']>[number]) => {
         if (exercise.embed_url) return toAbsoluteUrl(exercise.embed_url);
@@ -121,7 +200,7 @@ export default function MemberPlansPage() {
             setPlans(data);
             setLoadError(null);
         } catch (error) {
-            const message = error instanceof Error ? error.message : 'Failed to load workout plans';
+            const message = error instanceof Error ? error.message : txt.loadPlansFailed;
             setPlans([]);
             setLoadError(message);
             showToast(message, 'error');
@@ -160,7 +239,7 @@ export default function MemberPlansPage() {
         );
         const baseEntries = groupExercises.map((exercise, index) => ({
             exercise_id: exercise.exercise_id,
-            exercise_name: exercise.exercise_name || exercise.exercise?.name || exercise.name || `Exercise ${index + 1}`,
+            exercise_name: exercise.exercise_name || exercise.exercise?.name || exercise.name || `${txt.fallbackExercise} ${index + 1}`,
             target_sets: exercise.sets || 0,
             target_reps: exercise.reps || 0,
             sets_completed: exercise.sets || 0,
@@ -170,7 +249,7 @@ export default function MemberPlansPage() {
         setSessionModalPlan(plan);
         setSelectedSessionGroup(defaultGroup);
         setSessionEntries(baseEntries.length > 0 ? baseEntries : [{
-            exercise_name: 'Exercise 1',
+            exercise_name: `${txt.fallbackExercise} 1`,
             sets_completed: 0,
             reps_completed: 0,
             weight_kg: '',
@@ -182,11 +261,11 @@ export default function MemberPlansPage() {
     const updateSessionGroup = (groupName: string) => {
         if (!sessionModalPlan) return;
         const groupExercises = (sessionModalPlan.exercises || []).filter(
-            (exercise) => (exercise.section_name?.trim() || 'General') === groupName
+            (exercise) => (exercise.section_name?.trim() || txt.general) === groupName
         );
         const nextEntries = groupExercises.map((exercise, index) => ({
             exercise_id: exercise.exercise_id,
-            exercise_name: exercise.exercise_name || exercise.exercise?.name || exercise.name || `Exercise ${index + 1}`,
+            exercise_name: exercise.exercise_name || exercise.exercise?.name || exercise.name || `${txt.fallbackExercise} ${index + 1}`,
             target_sets: exercise.sets || 0,
             target_reps: exercise.reps || 0,
             sets_completed: exercise.sets || 0,
@@ -195,7 +274,7 @@ export default function MemberPlansPage() {
         }));
         setSelectedSessionGroup(groupName);
         setSessionEntries(nextEntries.length > 0 ? nextEntries : [{
-            exercise_name: 'Exercise 1',
+            exercise_name: `${txt.fallbackExercise} 1`,
             sets_completed: 0,
             reps_completed: 0,
             weight_kg: '',
@@ -244,9 +323,9 @@ export default function MemberPlansPage() {
             localStorage.setItem('member_progress_refresh_ts', refreshTs);
             window.dispatchEvent(new Event('member-progress-refresh'));
 
-            showToast('Workout session logged successfully.', 'success');
+            showToast(txt.workoutLogged, 'success');
         } catch (error) {
-            showToast(getApiErrorMessage(error, 'Failed to log workout session.'), 'error');
+            showToast(getApiErrorMessage(error, txt.workoutLogFailed), 'error');
         } finally {
             setLoggingSession(false);
         }
@@ -263,27 +342,27 @@ export default function MemberPlansPage() {
     return (
         <div className="space-y-6">
             <div className="flex flex-col gap-2">
-                <h1 className="text-2xl font-bold text-foreground font-serif tracking-tight">My Workout Plans</h1>
-                <p className="text-sm text-muted-foreground">Assigned workout plans and session logging.</p>
+                <h1 className="text-2xl font-bold text-foreground font-serif tracking-tight">{txt.title}</h1>
+                <p className="text-sm text-muted-foreground">{txt.subtitle}</p>
             </div>
 
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
                 <div className="kpi-card p-5">
-                    <p className="section-chip">Plans Assigned</p>
+                    <p className="section-chip">{txt.plansAssigned}</p>
                     <p className="mt-2 text-3xl font-bold text-foreground font-mono">{plans.length}</p>
                 </div>
                 <div className="kpi-card p-5">
-                    <p className="section-chip">Total Exercises</p>
+                    <p className="section-chip">{txt.totalExercises}</p>
                     <p className="mt-2 text-3xl font-bold text-foreground font-mono">{totalExercises}</p>
                 </div>
                 <div className="kpi-card p-5">
-                    <p className="section-chip">Sessions (7d)</p>
+                    <p className="section-chip">{txt.sessions7d}</p>
                     <p className="mt-2 text-3xl font-bold text-foreground font-mono">{sessionsThisWeek}</p>
                 </div>
             </div>
 
             <div className="kpi-card p-6">
-                <p className="section-chip mb-4">Plan Library</p>
+                <p className="section-chip mb-4">{txt.planLibrary}</p>
                 {loadError && (
                     <div className="mb-4 border border-destructive/40 bg-destructive/10 px-3 py-2 text-xs text-destructive">
                         {loadError}
@@ -300,11 +379,11 @@ export default function MemberPlansPage() {
                                         </div>
                                         <div className="min-w-0">
                                             <h3 className="text-foreground font-bold text-sm uppercase truncate">{plan.name}</h3>
-                                            <p className="text-muted-foreground text-xs">{plan.description || 'No description'}</p>
+                                            <p className="text-muted-foreground text-xs">{plan.description || txt.noDescription}</p>
                                         </div>
                                     </div>
                                     <span className="text-xs text-muted-foreground px-2 py-1 bg-muted/30 font-mono whitespace-nowrap">
-                                        {plan.exercises?.length || 0} exercises
+                                        {plan.exercises?.length || 0} {txt.exercises}
                                     </span>
                                 </div>
 
@@ -313,14 +392,14 @@ export default function MemberPlansPage() {
                                     className="btn-primary !py-1 !px-3 text-xs"
                                     onClick={() => openSessionLogger(plan)}
                                 >
-                                    Log Session
+                                    {txt.logSession}
                                 </button>
 
                                 {plan.exercises && plan.exercises.length > 0 && (
                                     <div className="mt-3 space-y-2">
                                         {Array.from(
                                             (plan.exercises || []).reduce((acc, exercise) => {
-                                                const group = exercise.section_name?.trim() || 'General';
+                                                const group = exercise.section_name?.trim() || txt.general;
                                                 if (!acc.has(group)) acc.set(group, []);
                                                 acc.get(group)?.push(exercise);
                                                 return acc;
@@ -334,7 +413,7 @@ export default function MemberPlansPage() {
                                                         .sort((a, b) => (a.order ?? 0) - (b.order ?? 0))
                                                         .map((exercise, index) => {
                                                             const videoUrl = resolveExerciseVideoUrl(exercise);
-                                                            const exerciseName = exercise.exercise_name || exercise.exercise?.name || exercise.name || `Exercise ${index + 1}`;
+                                                            const exerciseName = exercise.exercise_name || exercise.exercise?.name || exercise.name || `${txt.fallbackExercise} ${index + 1}`;
                                                             return (
                                                                 <div key={`${plan.id}-${groupName}-${index}`} className="border border-border bg-background/60 p-2 space-y-2">
                                                                     <div className="flex items-center justify-between gap-2">
@@ -342,13 +421,13 @@ export default function MemberPlansPage() {
                                                                         <span className="text-[11px] text-muted-foreground font-mono">{exercise.sets}x{exercise.reps}</span>
                                                                     </div>
                                                                     <div className="flex flex-wrap gap-2 text-[10px] font-mono">
-                                                                        <span className="px-1.5 py-0.5 border border-border text-muted-foreground">Sets: {exercise.sets}</span>
-                                                                        <span className="px-1.5 py-0.5 border border-border text-muted-foreground">Reps: {exercise.reps}</span>
+                                                                        <span className="px-1.5 py-0.5 border border-border text-muted-foreground">{txt.sets}: {exercise.sets}</span>
+                                                                        <span className="px-1.5 py-0.5 border border-border text-muted-foreground">{txt.reps}: {exercise.reps}</span>
                                                                         {exercise.duration_minutes ? (
-                                                                            <span className="px-1.5 py-0.5 border border-border text-muted-foreground">Duration: {exercise.duration_minutes} min</span>
+                                                                            <span className="px-1.5 py-0.5 border border-border text-muted-foreground">{txt.duration}: {exercise.duration_minutes} {txt.min}</span>
                                                                         ) : null}
                                                                         {exercise.video_provider ? (
-                                                                            <span className="px-1.5 py-0.5 border border-border text-primary">Video: {exercise.video_provider}</span>
+                                                                            <span className="px-1.5 py-0.5 border border-border text-primary">{txt.video}: {exercise.video_provider}</span>
                                                                         ) : null}
                                                                     </div>
                                                                     {videoUrl && (
@@ -359,7 +438,7 @@ export default function MemberPlansPage() {
                                                                                 onClick={() => openVideoPopup(exerciseName, videoUrl)}
                                                                             >
                                                                                 <PlayCircle size={12} />
-                                                                                Watch Video
+                                                                                {txt.watchVideo}
                                                                             </button>
                                                                         </div>
                                                                     )}
@@ -377,8 +456,8 @@ export default function MemberPlansPage() {
                 ) : (
                     <div className="text-center py-10 border border-dashed border-border">
                         <Dumbbell size={32} className="mx-auto text-muted-foreground mb-3 opacity-50" />
-                        <p className="text-muted-foreground text-sm">No workout plans assigned yet.</p>
-                        <p className="text-muted-foreground/60 text-xs mt-1">Your coach will assign plans to you.</p>
+                        <p className="text-muted-foreground text-sm">{txt.noPlansTitle}</p>
+                        <p className="text-muted-foreground/60 text-xs mt-1">{txt.noPlansHint}</p>
                     </div>
                 )}
             </div>
@@ -386,17 +465,17 @@ export default function MemberPlansPage() {
             <Modal
                 isOpen={!!sessionModalPlan}
                 onClose={() => setSessionModalPlan(null)}
-                title={sessionModalPlan ? `Log Session: ${sessionModalPlan.name}` : 'Log Session'}
+                title={sessionModalPlan ? `${txt.logSession}: ${sessionModalPlan.name}` : txt.logSessionTitle}
             >
                 {sessionModalPlan && (
                     <form onSubmit={handleLogSession} className="space-y-4">
                         {(() => {
                             const groups = Array.from(
-                                new Set((sessionModalPlan.exercises || []).map((exercise) => exercise.section_name?.trim() || 'General'))
+                                new Set((sessionModalPlan.exercises || []).map((exercise) => exercise.section_name?.trim() || txt.general))
                             );
                             return (
                                 <div>
-                                    <label className="block text-xs font-medium text-muted-foreground mb-1">Workout Group Done Today</label>
+                                    <label className="block text-xs font-medium text-muted-foreground mb-1">{txt.workoutGroupDoneToday}</label>
                                     <select
                                         className="input-dark"
                                         value={selectedSessionGroup}
@@ -412,35 +491,35 @@ export default function MemberPlansPage() {
 
                         <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                             <div>
-                                <label className="block text-xs font-medium text-muted-foreground mb-1">Duration (minutes)</label>
+                                <label className="block text-xs font-medium text-muted-foreground mb-1">{txt.durationMinutes}</label>
                                 <input
                                     type="number"
                                     min={1}
                                     className="input-dark"
                                     value={sessionDuration}
                                     onChange={(e) => setSessionDuration(e.target.value)}
-                                    placeholder="e.g. 60"
+                                    placeholder={txt.durationPlaceholder}
                                 />
                             </div>
                             <div>
-                                <label className="block text-xs font-medium text-muted-foreground mb-1">Session Notes</label>
+                                <label className="block text-xs font-medium text-muted-foreground mb-1">{txt.sessionNotes}</label>
                                 <input
                                     type="text"
                                     className="input-dark"
                                     value={sessionNotes}
                                     onChange={(e) => setSessionNotes(e.target.value)}
-                                    placeholder="How did it go?"
+                                    placeholder={txt.notesPlaceholder}
                                 />
                             </div>
                         </div>
 
-                        <div className="space-y-2 max-h-[360px] overflow-y-auto pr-1">
+                        <div className="space-y-2 max-h-[360px] overflow-y-auto ltr:pr-1 rtl:pl-1">
                             {sessionEntries.map((entry, idx) => (
                                 <div key={`${entry.exercise_name}-${idx}`} className="rounded-sm border border-border bg-muted/10 p-3 space-y-2">
                                     <p className="text-sm font-semibold text-foreground">{entry.exercise_name}</p>
                                     <div className="grid grid-cols-1 md:grid-cols-3 gap-2">
                                         <div>
-                                            <label className="block text-[10px] uppercase font-bold text-muted-foreground mb-1">Sets</label>
+                                            <label className="block text-[10px] uppercase font-bold text-muted-foreground mb-1">{txt.sets}</label>
                                             <input
                                                 type="number"
                                                 min={0}
@@ -450,7 +529,7 @@ export default function MemberPlansPage() {
                                             />
                                         </div>
                                         <div>
-                                            <label className="block text-[10px] uppercase font-bold text-muted-foreground mb-1">Reps</label>
+                                            <label className="block text-[10px] uppercase font-bold text-muted-foreground mb-1">{txt.reps}</label>
                                             <input
                                                 type="number"
                                                 min={0}
@@ -460,7 +539,7 @@ export default function MemberPlansPage() {
                                             />
                                         </div>
                                         <div>
-                                            <label className="block text-[10px] uppercase font-bold text-muted-foreground mb-1">Weight (kg)</label>
+                                            <label className="block text-[10px] uppercase font-bold text-muted-foreground mb-1">{txt.weightKg}</label>
                                             <input
                                                 type="number"
                                                 min={0}
@@ -468,7 +547,7 @@ export default function MemberPlansPage() {
                                                 className="input-dark py-1.5 text-sm"
                                                 value={entry.weight_kg}
                                                 onChange={(e) => updateSessionEntry(idx, 'weight_kg', e.target.value)}
-                                                placeholder="Optional"
+                                                placeholder={txt.optional}
                                             />
                                         </div>
                                     </div>
@@ -477,9 +556,9 @@ export default function MemberPlansPage() {
                         </div>
 
                         <div className="flex justify-end gap-3 pt-2 border-t border-border">
-                            <button type="button" className="btn-ghost" onClick={() => setSessionModalPlan(null)} disabled={loggingSession}>Cancel</button>
+                            <button type="button" className="btn-ghost" onClick={() => setSessionModalPlan(null)} disabled={loggingSession}>{txt.cancel}</button>
                             <button type="submit" className="btn-primary" disabled={loggingSession}>
-                                {loggingSession ? 'Saving...' : 'Save Session'}
+                                {loggingSession ? txt.saving : txt.saveSession}
                             </button>
                         </div>
                     </form>
@@ -490,12 +569,12 @@ export default function MemberPlansPage() {
                 <div className="fixed inset-0 z-[100] bg-background/85 backdrop-blur-sm flex items-center justify-center p-3 sm:p-4">
                     <div className="w-full max-w-4xl rounded-sm border border-border bg-card shadow-lg overflow-hidden">
                         <div className="flex items-center justify-between border-b border-border px-3 py-2 sm:px-4 sm:py-3">
-                            <h3 className="text-sm sm:text-base font-semibold text-foreground truncate pr-3">{videoPopup.title}</h3>
+                            <h3 className="text-sm sm:text-base font-semibold text-foreground truncate ltr:pr-3 rtl:pl-3">{videoPopup.title}</h3>
                             <button
                                 type="button"
                                 onClick={() => setVideoPopup(null)}
                                 className="inline-flex items-center justify-center rounded-sm p-1.5 text-muted-foreground hover:text-foreground hover:bg-muted"
-                                aria-label="Close video"
+                                aria-label={txt.closeVideo}
                             >
                                 <X size={18} />
                             </button>
@@ -505,7 +584,7 @@ export default function MemberPlansPage() {
                                 <div className="aspect-video w-full rounded-sm overflow-hidden border border-border bg-black">
                                     <iframe
                                         src={`${videoPopup.youtubeEmbedUrl}?rel=0&playsinline=1&autoplay=1`}
-                                        title={`${videoPopup.title} video`}
+                                        title={`${videoPopup.title} ${txt.videoTitleSuffix}`}
                                         className="h-full w-full"
                                         loading="lazy"
                                         referrerPolicy="strict-origin-when-cross-origin"
@@ -517,7 +596,7 @@ export default function MemberPlansPage() {
                                 <video controls playsInline src={videoPopup.videoUrl} className="w-full max-h-[70vh] rounded-sm border border-border bg-black" />
                             ) : (
                                 <div className="rounded-sm border border-border bg-muted/20 p-3 text-sm text-muted-foreground">
-                                    Unable to preview this source in popup.
+                                    {txt.previewUnavailable}
                                 </div>
                             )}
                             {videoPopup.externalUrl && (
@@ -528,7 +607,7 @@ export default function MemberPlansPage() {
                                         rel="noreferrer"
                                         className="inline-flex items-center gap-1 rounded-sm border border-primary/40 bg-primary/10 px-2 py-1 text-xs text-primary hover:bg-primary/20"
                                     >
-                                        Open Source
+                                        {txt.openSource}
                                     </a>
                                 </div>
                             )}

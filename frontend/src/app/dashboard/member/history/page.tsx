@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react';
 import { api } from '@/lib/api';
 import { format } from 'date-fns';
 import { QrCode, Wallet, ArrowUpRight, ArrowDownLeft, Clock } from 'lucide-react';
+import { useLocale } from '@/context/LocaleContext';
 
 interface AccessLog {
     id: string;
@@ -23,6 +24,7 @@ interface Transaction {
 }
 
 export default function HistoryPage() {
+    const { locale } = useLocale();
     const [activeTab, setActiveTab] = useState<'ACCESS' | 'PAYMENTS'>('ACCESS');
     const [accessLogs, setAccessLogs] = useState<AccessLog[]>([]);
     const [transactions, setTransactions] = useState<Transaction[]>([]);
@@ -61,8 +63,8 @@ export default function HistoryPage() {
     return (
         <div className="max-w-4xl mx-auto space-y-8">
             <div>
-                <h1 className="text-2xl font-bold text-foreground font-serif tracking-tight">History & Logs</h1>
-                <p className="text-sm text-muted-foreground mt-1">View your attendance and payment records</p>
+                <h1 className="text-2xl font-bold text-foreground font-serif tracking-tight">{locale === 'ar' ? 'السجل والسجلات' : 'History & Logs'}</h1>
+                <p className="text-sm text-muted-foreground mt-1">{locale === 'ar' ? 'اطّلع على سجلات الحضور والمدفوعات' : 'View your attendance and payment records'}</p>
             </div>
 
             {/* Tabs */}
@@ -75,7 +77,7 @@ export default function HistoryPage() {
                         }`}
                 >
                     <QrCode size={16} />
-                    Access Logs
+                    {locale === 'ar' ? 'سجلات الدخول' : 'Access Logs'}
                 </button>
                 <button
                     onClick={() => setActiveTab('PAYMENTS')}
@@ -85,7 +87,7 @@ export default function HistoryPage() {
                         }`}
                 >
                     <Wallet size={16} />
-                    Payments
+                    {locale === 'ar' ? 'المدفوعات' : 'Payments'}
                 </button>
             </div>
 
@@ -103,7 +105,9 @@ export default function HistoryPage() {
                                         </div>
                                         <div>
                                             <p className="text-sm font-bold text-foreground">
-                                                {log.status === 'GRANTED' ? 'Check-in Successful' : 'Access Denied'}
+                                                {log.status === 'GRANTED'
+                                                    ? (locale === 'ar' ? 'تم تسجيل الدخول بنجاح' : 'Check-in Successful')
+                                                    : (locale === 'ar' ? 'تم رفض الدخول' : 'Access Denied')}
                                             </p>
                                             <p className="text-xs text-muted-foreground font-mono">
                                                 {format(new Date(log.scan_time), 'PPpp')}
@@ -116,7 +120,7 @@ export default function HistoryPage() {
                                 </div>
                             ))
                         ) : (
-                            <EmptyState icon={QrCode} text="No access logs found" />
+                            <EmptyState icon={QrCode} text={locale === 'ar' ? 'لا توجد سجلات دخول' : 'No access logs found'} />
                         )}
                     </div>
                 ) : (
@@ -141,7 +145,7 @@ export default function HistoryPage() {
                                 </div>
                             ))
                         ) : (
-                            <EmptyState icon={Wallet} text="No transactions found" />
+                            <EmptyState icon={Wallet} text={locale === 'ar' ? 'لا توجد معاملات' : 'No transactions found'} />
                         )}
                     </div>
                 )}
@@ -162,7 +166,10 @@ function EmptyState({ icon: Icon, text }: { icon: React.ElementType, text: strin
 }
 
 function CheckIcon() {
+    const svgXmlns = 'http://www.w3.org/2000/svg';
+    const strokeLineCap = 'round';
+    const strokeLineJoin = 'round';
     return (
-        <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12" /></svg>
+        <svg xmlns={svgXmlns} width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap={strokeLineCap} strokeLinejoin={strokeLineJoin}><polyline points="20 6 9 17 4 12" /></svg>
     )
 }

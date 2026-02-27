@@ -16,6 +16,7 @@ import {
 
 import { useFeedback } from '@/components/FeedbackProvider';
 import { api } from '@/lib/api';
+import { useLocale } from '@/context/LocaleContext';
 
 import { fetchMemberProgressData } from '../_shared/customerData';
 import type { BiometricLogResponse, WorkoutSessionLog } from '../_shared/types';
@@ -23,7 +24,85 @@ import type { BiometricLogResponse, WorkoutSessionLog } from '../_shared/types';
 type MetricKey = keyof Pick<BiometricLogResponse, 'weight_kg' | 'body_fat_pct' | 'muscle_mass_kg'>;
 
 export default function MemberProgressPage() {
+    const { locale } = useLocale();
     const { showToast } = useFeedback();
+    const txt = locale === 'ar' ? {
+        metricsLogged: 'تم تسجيل قياسات الجسم.',
+        metricsFailed: 'فشل تسجيل قياسات الجسم.',
+        fallbackExercise: 'تمرين',
+        firstLogInRange: 'أول سجل ضمن النطاق',
+        vsPrevious: 'مقارنة بالسابق',
+        title: 'تقدمي',
+        subtitle: 'اتساق التمرين وقياسات الجسم واتجاهات حمل الجلسات.',
+        consistencyTitle: 'اتساق التمرين (آخر 30 يومًا)',
+        workoutsLogged: 'تمارين مسجلة',
+        noWorkoutData: 'لا توجد بيانات تمرين',
+        bodyTracking: 'تتبع تقدم الجسم',
+        noDataInRange: 'لا توجد بيانات في النطاق المحدد',
+        quickLog: 'تسجيل سريع للجسم',
+        heightCm: 'الطول (سم)',
+        weightKg: 'الوزن (كجم)',
+        bodyFatPct: 'دهون الجسم (%)',
+        muscleKg: 'العضلات (كجم)',
+        eg175: 'مثال: 175',
+        eg75: 'مثال: 75',
+        eg15: 'مثال: 15',
+        eg32: 'مثال: 32',
+        saving: 'جارٍ الحفظ...',
+        log: 'تسجيل',
+        prTable: 'جدول أرقام التمرين الشخصية',
+        exercise: 'التمرين',
+        bestWeight: 'أفضل وزن',
+        bestReps: 'أفضل تكرارات',
+        repsAt: 'تكرار عند',
+        weightUnit: 'كجم',
+        noPrData: 'لا توجد بيانات أرقام شخصية في النطاق المحدد بعد.',
+        sessionLoad: 'تتبع حمل الجلسات',
+        sessionsLogged: 'جلسات مسجلة',
+        noSessionVolume: 'لا توجد بيانات لحجم الجلسات بعد.',
+        noData: 'غير متاح',
+        weight: 'الوزن',
+        bodyFat: 'دهون الجسم',
+        muscleMass: 'الكتلة العضلية',
+    } : {
+        metricsLogged: 'Body metrics logged.',
+        metricsFailed: 'Failed to log biometrics.',
+        fallbackExercise: 'Exercise',
+        firstLogInRange: 'First log in range',
+        vsPrevious: 'vs previous',
+        title: 'My Progress',
+        subtitle: 'Workout consistency, body metrics, and session load trends.',
+        consistencyTitle: 'Workout Consistency (Last 30 Days)',
+        workoutsLogged: 'Workouts Logged',
+        noWorkoutData: 'No workout data',
+        bodyTracking: 'Body Progress Tracking',
+        noDataInRange: 'No data in selected range',
+        quickLog: 'Quick Body Log',
+        heightCm: 'Height (cm)',
+        weightKg: 'Weight (kg)',
+        bodyFatPct: 'Body Fat (%)',
+        muscleKg: 'Muscle (kg)',
+        eg175: 'e.g. 175',
+        eg75: 'e.g. 75',
+        eg15: 'e.g. 15',
+        eg32: 'e.g. 32',
+        saving: 'Saving...',
+        log: 'Log',
+        prTable: 'Exercise PR Table',
+        exercise: 'Exercise',
+        bestWeight: 'Best Weight',
+        bestReps: 'Best Reps',
+        repsAt: 'reps @',
+        weightUnit: 'kg',
+        noPrData: 'No PR data in selected range yet.',
+        sessionLoad: 'Session Load Tracking',
+        sessionsLogged: 'sessions logged',
+        noSessionVolume: 'No session volume data yet.',
+        noData: 'N/A',
+        weight: 'Weight',
+        bodyFat: 'Body Fat',
+        muscleMass: 'Muscle Mass',
+    };
     const [workoutStats, setWorkoutStats] = useState<{ date: string; workouts: number }[]>([]);
     const [sessionLogs, setSessionLogs] = useState<WorkoutSessionLog[]>([]);
     const [biometrics, setBiometrics] = useState<BiometricLogResponse[]>([]);
@@ -96,9 +175,9 @@ export default function MemberProgressPage() {
             setWeight('');
             setBodyFat('');
             setMuscleMass('');
-            showToast('Body metrics logged.', 'success');
+            showToast(txt.metricsLogged, 'success');
         } catch {
-            showToast('Failed to log biometrics.', 'error');
+            showToast(txt.metricsFailed, 'error');
         } finally {
             setLoggingBiometrics(false);
         }
@@ -155,7 +234,7 @@ export default function MemberProgressPage() {
         const byExercise = new Map<string, { bestWeight: number; bestWeightReps: number; bestReps: number; bestRepsWeight: number }>();
         filteredSessionLogs.forEach((session) => {
             session.entries.forEach((entry) => {
-                const name = (entry.exercise_name || 'Exercise').trim();
+                const name = (entry.exercise_name || txt.fallbackExercise).trim();
                 const weightValue = Number(entry.weight_kg || 0);
                 const repsValue = Number(entry.reps_completed || 0);
                 const existing = byExercise.get(name);
@@ -201,7 +280,7 @@ export default function MemberProgressPage() {
         if (!active || !payload || payload.length === 0) return null;
         const point = payload[0].payload;
         const delta = point.delta;
-        const deltaText = delta === null ? 'First log in range' : `${delta >= 0 ? '+' : ''}${delta.toFixed(1)} ${unit} vs previous`;
+        const deltaText = delta === null ? txt.firstLogInRange : `${delta >= 0 ? '+' : ''}${delta.toFixed(1)} ${unit} ${txt.vsPrevious}`;
         const deltaClass = delta === null ? 'text-muted-foreground' : delta >= 0 ? 'text-emerald-400' : 'text-orange-400';
         const parsedLabel = typeof label === 'string' ? label : String(label ?? '');
 
@@ -225,14 +304,14 @@ export default function MemberProgressPage() {
     return (
         <div className="space-y-6">
             <div>
-                <h1 className="text-2xl font-bold text-foreground font-serif tracking-tight">My Progress</h1>
-                <p className="text-sm text-muted-foreground mt-1">Workout consistency, body metrics, and session load trends.</p>
+                <h1 className="text-2xl font-bold text-foreground font-serif tracking-tight">{txt.title}</h1>
+                <p className="text-sm text-muted-foreground mt-1">{txt.subtitle}</p>
             </div>
 
             <div className="grid grid-cols-1 xl:grid-cols-3 gap-6 items-start">
                 <div className="space-y-6 xl:col-span-2">
                     <div className="kpi-card p-5">
-                        <p className="section-chip mb-3">Workout Consistency (Last 30 Days)</p>
+                        <p className="section-chip mb-3">{txt.consistencyTitle}</p>
                         <div className="h-44">
                             {workoutStats.length > 0 ? (
                                 <ResponsiveContainer width="100%" height="100%" minHeight={1} minWidth={1}>
@@ -259,13 +338,13 @@ export default function MemberProgressPage() {
                                             contentStyle={{ background: 'var(--card)', border: '1px solid var(--border)', borderRadius: '0px', fontSize: '0.8rem', color: 'var(--foreground)' }}
                                             labelFormatter={(label) => new Date(label as string).toLocaleDateString()}
                                         />
-                                        <Bar dataKey="workouts" fill="var(--primary)" barSize={16} name="Workouts Logged" radius={[2, 2, 0, 0]} />
+                                        <Bar dataKey="workouts" fill="var(--primary)" barSize={16} name={txt.workoutsLogged} radius={[2, 2, 0, 0]} />
                                     </BarChart>
                                 </ResponsiveContainer>
                             ) : (
                                 <div className="flex items-center justify-center h-full text-muted-foreground text-sm font-mono border border-dashed border-border flex-col">
                                     <Activity size={24} className="mb-2 opacity-50" />
-                                    <span>No workout data</span>
+                                    <span>{txt.noWorkoutData}</span>
                                 </div>
                             )}
                         </div>
@@ -273,7 +352,7 @@ export default function MemberProgressPage() {
 
                     <div className="kpi-card p-5">
                         <div className="flex items-center justify-between mb-4">
-                            <p className="section-chip">Body Progress Tracking</p>
+                            <p className="section-chip">{txt.bodyTracking}</p>
                             <div className="flex items-center gap-1">
                                 {[7, 30, 90].map((days) => (
                                     <button
@@ -290,15 +369,15 @@ export default function MemberProgressPage() {
 
                         <div className="space-y-3">
                             {[
-                                { title: 'Weight', unit: 'kg', series: weightSeries, color: 'var(--primary)' },
-                                { title: 'Body Fat', unit: '%', series: bodyFatSeries, color: '#f97316' },
-                                { title: 'Muscle Mass', unit: 'kg', series: muscleSeries, color: '#22c55e' },
+                                { title: txt.weight, unit: 'kg', series: weightSeries, color: 'var(--primary)' },
+                                { title: txt.bodyFat, unit: '%', series: bodyFatSeries, color: '#f97316' },
+                                { title: txt.muscleMass, unit: 'kg', series: muscleSeries, color: '#22c55e' },
                             ].map((metric) => (
                                 <div key={metric.title} className="rounded-sm border border-border bg-muted/10 p-2">
                                     <div className="flex items-center justify-between mb-1">
                                         <p className="text-[10px] uppercase font-bold text-muted-foreground">{metric.title}</p>
                                         <p className="text-xs font-mono text-foreground">
-                                            {metric.series.length > 0 ? `${metric.series[metric.series.length - 1].value.toFixed(1)} ${metric.unit}` : 'N/A'}
+                                            {metric.series.length > 0 ? `${metric.series[metric.series.length - 1].value.toFixed(1)} ${metric.unit}` : txt.noData}
                                         </p>
                                     </div>
                                     <div className="h-24">
@@ -323,7 +402,7 @@ export default function MemberProgressPage() {
                                             </ResponsiveContainer>
                                         ) : (
                                             <div className="h-full flex items-center justify-center text-[10px] text-muted-foreground font-mono">
-                                                No data in selected range
+                                                {txt.noDataInRange}
                                             </div>
                                         )}
                                     </div>
@@ -335,43 +414,43 @@ export default function MemberProgressPage() {
 
                 <div className="space-y-4">
                     <div className="kpi-card p-4">
-                        <p className="section-chip mb-3">Quick Body Log</p>
+                        <p className="section-chip mb-3">{txt.quickLog}</p>
                         <form onSubmit={handleLogBiometrics} className="grid grid-cols-2 gap-2 items-end">
                             <div>
-                                <label className="block text-[10px] uppercase font-bold text-muted-foreground mb-1">Height (cm)</label>
-                                <input type="number" step="0.1" className="input-dark py-1.5 text-sm" value={height} onChange={(e) => setHeight(e.target.value)} placeholder="e.g. 175" />
+                                <label className="block text-[10px] uppercase font-bold text-muted-foreground mb-1">{txt.heightCm}</label>
+                                <input type="number" step="0.1" className="input-dark py-1.5 text-sm" value={height} onChange={(e) => setHeight(e.target.value)} placeholder={txt.eg175} />
                             </div>
                             <div>
-                                <label className="block text-[10px] uppercase font-bold text-muted-foreground mb-1">Weight (kg)</label>
-                                <input type="number" step="0.1" className="input-dark py-1.5 text-sm" value={weight} onChange={(e) => setWeight(e.target.value)} placeholder="e.g. 75" />
+                                <label className="block text-[10px] uppercase font-bold text-muted-foreground mb-1">{txt.weightKg}</label>
+                                <input type="number" step="0.1" className="input-dark py-1.5 text-sm" value={weight} onChange={(e) => setWeight(e.target.value)} placeholder={txt.eg75} />
                             </div>
                             <div>
-                                <label className="block text-[10px] uppercase font-bold text-muted-foreground mb-1">Body Fat (%)</label>
-                                <input type="number" step="0.1" className="input-dark py-1.5 text-sm" value={bodyFat} onChange={(e) => setBodyFat(e.target.value)} placeholder="e.g. 15" />
+                                <label className="block text-[10px] uppercase font-bold text-muted-foreground mb-1">{txt.bodyFatPct}</label>
+                                <input type="number" step="0.1" className="input-dark py-1.5 text-sm" value={bodyFat} onChange={(e) => setBodyFat(e.target.value)} placeholder={txt.eg15} />
                             </div>
                             <div>
-                                <label className="block text-[10px] uppercase font-bold text-muted-foreground mb-1">Muscle (kg)</label>
-                                <input type="number" step="0.1" className="input-dark py-1.5 text-sm" value={muscleMass} onChange={(e) => setMuscleMass(e.target.value)} placeholder="e.g. 32" />
+                                <label className="block text-[10px] uppercase font-bold text-muted-foreground mb-1">{txt.muscleKg}</label>
+                                <input type="number" step="0.1" className="input-dark py-1.5 text-sm" value={muscleMass} onChange={(e) => setMuscleMass(e.target.value)} placeholder={txt.eg32} />
                             </div>
                             <button type="submit" disabled={loggingBiometrics || (!height && !weight && !bodyFat && !muscleMass)} className="btn-primary py-1.5 px-4 text-sm whitespace-nowrap col-span-2">
-                                {loggingBiometrics ? 'Saving...' : 'Log'}
+                                {loggingBiometrics ? txt.saving : txt.log}
                             </button>
                         </form>
                     </div>
 
                     <div className="kpi-card p-4">
                         <div className="flex items-center justify-between mb-3">
-                            <p className="section-chip">Exercise PR Table ({trendRangeDays}d)</p>
+                            <p className="section-chip">{`${txt.prTable} (${trendRangeDays}d)`}</p>
                             <p className="text-xs text-muted-foreground font-mono">{exercisePrTable.length}</p>
                         </div>
                         {exercisePrTable.length > 0 ? (
                             <div className="overflow-x-auto">
-                                <table className="w-full text-left table-dark min-w-[420px]">
+                                <table className="w-full text-start table-dark min-w-[420px]">
                                     <thead>
                                         <tr>
-                                            <th>Exercise</th>
-                                            <th>Best Weight</th>
-                                            <th>Best Reps</th>
+                                            <th>{txt.exercise}</th>
+                                            <th>{txt.bestWeight}</th>
+                                            <th>{txt.bestReps}</th>
                                         </tr>
                                     </thead>
                                     <tbody>
@@ -382,7 +461,7 @@ export default function MemberProgressPage() {
                                                     {row.bestWeight > 0 ? `${row.bestWeight.toFixed(1)} kg x ${row.bestWeightReps}` : '-'}
                                                 </td>
                                                 <td className="text-muted-foreground font-mono">
-                                                    {row.bestReps} reps @ {row.bestRepsWeight.toFixed(1)} kg
+                                                    {`${row.bestReps} ${txt.repsAt} ${row.bestRepsWeight.toFixed(1)} ${txt.weightUnit}`}
                                                 </td>
                                             </tr>
                                         ))}
@@ -391,7 +470,7 @@ export default function MemberProgressPage() {
                             </div>
                         ) : (
                             <div className="h-24 flex items-center justify-center text-sm text-muted-foreground border border-dashed border-border">
-                                No PR data in selected range yet.
+                                {txt.noPrData}
                             </div>
                         )}
                     </div>
@@ -400,8 +479,8 @@ export default function MemberProgressPage() {
 
             <div className="kpi-card p-6 space-y-4">
                 <div className="flex items-center justify-between">
-                    <p className="section-chip">Session Load Tracking ({trendRangeDays}d)</p>
-                    <p className="text-xs text-muted-foreground font-mono">{filteredSessionLogs.length} sessions logged</p>
+                    <p className="section-chip">{`${txt.sessionLoad} (${trendRangeDays}d)`}</p>
+                    <p className="text-xs text-muted-foreground font-mono">{filteredSessionLogs.length} {txt.sessionsLogged}</p>
                 </div>
                 <div className="h-40">
                     {sessionVolumeSeries.length > 0 ? (
@@ -432,7 +511,7 @@ export default function MemberProgressPage() {
                         </ResponsiveContainer>
                     ) : (
                         <div className="h-full flex items-center justify-center text-muted-foreground text-sm font-mono border border-dashed border-border">
-                            No session volume data yet.
+                            {txt.noSessionVolume}
                         </div>
                     )}
                 </div>
@@ -441,3 +520,4 @@ export default function MemberProgressPage() {
         </div>
     );
 }
+

@@ -726,14 +726,14 @@ export default function MembersPage() {
             {/* Members Table */}
             <div className="chart-card overflow-hidden !p-0 border border-border">
                 <div className="hidden md:block overflow-x-auto">
-                    <table className="w-full text-left table-dark min-w-[800px]">
+                    <table className="w-full text-start table-dark min-w-[800px]">
                         <thead>
                             <tr>
                                 <th>{t('members.name')}</th>
                                 <th>{t('members.email')}</th>
                                 <th>{t('members.subscription')}</th>
                                 <th>{t('members.expires')}</th>
-                                <th className="text-right pr-6">{t('members.actions')}</th>
+                                <th className="text-end ltr:pr-6 rtl:pl-6">{t('members.actions')}</th>
                             </tr>
                         </thead>
                         <tbody>
@@ -768,7 +768,7 @@ export default function MembersPage() {
                                     <td>
                                         {m.subscription?.end_date ? formatDate(m.subscription.end_date, { year: 'numeric', month: '2-digit', day: '2-digit' }) : '-'}
                                     </td>
-                                    <td className="text-right pr-6">
+                                    <td className="text-end ltr:pr-6 rtl:pl-6">
                                         <div className="flex items-center justify-end gap-2">
                                             <button
                                                 onClick={() => openView(m)}
@@ -974,7 +974,7 @@ export default function MembersPage() {
                             </span>
                         </div>
                         {manageMember?.subscription?.end_date && (
-                            <div className="text-right">
+                            <div className="text-end">
                                 <p className="text-xs text-muted-foreground">{text.expires}</p>
                                 <p className="text-sm font-medium text-foreground mt-1">{formatDate(manageMember.subscription.end_date, { year: 'numeric', month: '2-digit', day: '2-digit' })}</p>
                             </div>
@@ -1391,7 +1391,7 @@ export default function MembersPage() {
                                                         {session.entries.slice(0, 3).map((entry) => (
                                                             <div key={entry.id} className="flex justify-between text-xs">
                                                                 <span className="text-muted-foreground">{entry.exercise_name || text.workout}</span>
-                                                                <span className="text-muted-foreground font-mono">{entry.sets_completed}x{entry.reps_completed} @ {entry.weight_kg ?? 0}kg</span>
+                                                                <span className="text-muted-foreground font-mono">{`${entry.sets_completed}x${entry.reps_completed} @ ${entry.weight_kg ?? 0}kg`}</span>
                                                             </div>
                                                         ))}
                                                         {session.entries.length > 3 && (
@@ -1426,5 +1426,6 @@ export default function MembersPage() {
         </div>
     );
 }
+
 
 

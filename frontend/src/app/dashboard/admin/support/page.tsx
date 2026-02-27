@@ -173,6 +173,7 @@ export default function AdminSupportPage() {
     });
     const statusLabel = (status: TicketStatus) => t(`support.status.${status}`);
     const categoryLabel = (category: TicketCategory) => t(`support.category.${category}`);
+    const supportAttachmentAlt = 'Support attachment';
     const pageLabel = (page: number, total: number) =>
         t('support.admin.pageOf')
             .replace('{{page}}', String(page))
@@ -241,7 +242,7 @@ export default function AdminSupportPage() {
                                 </div>
                             </div>
                         </div>
-                        <div className={`${direction === 'rtl' ? 'text-left' : 'text-right'} text-xs text-muted-foreground`}>
+                        <div className={`${direction === 'rtl' ? 'text-start' : 'text-end'} text-xs text-muted-foreground`}>
                             <div>{t('support.admin.opened')}: {formatDate(ticketDetails.created_at, { month: 'short', day: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit' })}</div>
                         </div>
                     </div>
@@ -254,7 +255,7 @@ export default function AdminSupportPage() {
                             const mediaUrl = resolveProfileImageUrl(msg.media_url);
                             return (
                                 <div key={msg.id} className={`flex ${isStaff ? 'justify-end' : 'justify-start'}`}>
-                                    <div className={`max-w-[80%] rounded-2xl p-4 ${isStaff ? 'bg-primary text-primary-foreground rounded-tr-sm' : 'bg-muted rounded-tl-sm'}`}>
+                                    <div className={`max-w-[80%] rounded-2xl p-4 ${isStaff ? 'bg-primary text-primary-foreground ltr:rounded-tr-sm rtl:rounded-tl-sm' : 'bg-muted ltr:rounded-tl-sm rtl:rounded-tr-sm'}`}>
                                         <div className="text-xs font-semibold mb-1 opacity-70 flex justify-between gap-4">
                                             <span>{isStaff ? t('support.admin.staffYou') : ticketDetails.customer?.full_name?.split(' ')[0]}</span>
                                             <span>{formatDate(msg.created_at, { hour: 'numeric', minute: '2-digit' })}</span>
@@ -269,7 +270,7 @@ export default function AdminSupportPage() {
                                             >
                                                 <Image
                                                     src={mediaUrl}
-                                                    alt="Support attachment"
+                                                    alt={supportAttachmentAlt}
                                                     width={640}
                                                     height={480}
                                                     className="max-h-64 rounded-lg border border-border/50"
@@ -324,7 +325,7 @@ export default function AdminSupportPage() {
                     )}
                     {isClosed && (
                         <div className="p-4 border-t border-border bg-card/50 text-center text-sm text-muted-foreground font-semibold">
-                            <AlertCircle size={16} className="inline-block mr-2 mb-0.5" />
+                            <AlertCircle size={16} className="inline-block ltr:mr-2 rtl:ml-2 mb-0.5" />
                             {t('support.admin.closedNotice')}
                         </div>
                     )}
@@ -445,7 +446,7 @@ export default function AdminSupportPage() {
                                     </div>
                                 </div>
                             </div>
-                            <div className={`text-sm text-muted-foreground text-left ${direction === 'rtl' ? 'sm:text-left' : 'sm:text-right'}`}>
+                            <div className={`text-sm text-muted-foreground text-start ${direction === 'rtl' ? 'sm:text-start' : 'sm:text-end'}`}>
                                 <div className="text-xs uppercase tracking-wider mb-1 opacity-70">{t('support.admin.updated')}</div>
                                 <div className="font-medium text-foreground">{formatDate(ticket.updated_at, { month: 'short', day: 'numeric', year: 'numeric' })}</div>
                                 <div className="text-xs">{formatDate(ticket.updated_at, { hour: 'numeric', minute: '2-digit' })}</div>
@@ -476,3 +477,4 @@ export default function AdminSupportPage() {
         </div>
     );
 }
+

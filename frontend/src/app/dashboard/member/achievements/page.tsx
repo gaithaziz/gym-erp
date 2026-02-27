@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react';
 import { api } from '@/lib/api';
 import { Trophy, Flame, Star, Calendar, TrendingUp, Medal, Sunrise, MoonStar } from 'lucide-react';
+import { useLocale } from '@/context/LocaleContext';
 
 interface Badge {
     id: string;
@@ -45,6 +46,7 @@ const getBadgeSticker = (badgeType: string) => {
 };
 
 export default function AchievementsPage() {
+    const { locale } = useLocale();
     const [stats, setStats] = useState<GamificationStats | null>(null);
     const [loading, setLoading] = useState(true);
 
@@ -83,8 +85,8 @@ export default function AchievementsPage() {
     return (
         <div className="max-w-4xl mx-auto space-y-8">
             <div>
-                <h1 className="text-2xl font-bold text-foreground font-serif tracking-tight">Achievements</h1>
-                <p className="text-sm text-muted-foreground mt-1">Your gym milestones and badges</p>
+                <h1 className="text-2xl font-bold text-foreground font-serif tracking-tight">{locale === 'ar' ? 'الإنجازات' : 'Achievements'}</h1>
+                <p className="text-sm text-muted-foreground mt-1">{locale === 'ar' ? 'إنجازاتك وشاراتك في النادي' : 'Your gym milestones and badges'}</p>
             </div>
 
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
@@ -94,8 +96,8 @@ export default function AchievementsPage() {
                             <Flame size={20} className="text-primary" />
                         </div>
                         <div>
-                            <p className="text-xs font-mono text-muted-foreground uppercase tracking-wider">Current Streak</p>
-                            <p className="text-2xl font-bold text-foreground font-mono">{stats?.streak.current_streak || 0} <span className="text-sm text-muted-foreground">days</span></p>
+                            <p className="text-xs font-mono text-muted-foreground uppercase tracking-wider">{locale === 'ar' ? 'السلسلة الحالية' : 'Current Streak'}</p>
+                            <p className="text-2xl font-bold text-foreground font-mono">{stats?.streak.current_streak || 0} <span className="text-sm text-muted-foreground">{locale === 'ar' ? 'أيام' : 'days'}</span></p>
                         </div>
                     </div>
                 </div>
@@ -105,8 +107,8 @@ export default function AchievementsPage() {
                             <TrendingUp size={20} className="text-emerald-500" />
                         </div>
                         <div>
-                            <p className="text-xs font-mono text-muted-foreground uppercase tracking-wider">Best Streak</p>
-                            <p className="text-2xl font-bold text-foreground font-mono">{stats?.streak.best_streak || 0} <span className="text-sm text-muted-foreground">days</span></p>
+                            <p className="text-xs font-mono text-muted-foreground uppercase tracking-wider">{locale === 'ar' ? 'أفضل سلسلة' : 'Best Streak'}</p>
+                            <p className="text-2xl font-bold text-foreground font-mono">{stats?.streak.best_streak || 0} <span className="text-sm text-muted-foreground">{locale === 'ar' ? 'أيام' : 'days'}</span></p>
                         </div>
                     </div>
                 </div>
@@ -116,7 +118,7 @@ export default function AchievementsPage() {
                             <Calendar size={20} className="text-blue-500" />
                         </div>
                         <div>
-                            <p className="text-xs font-mono text-muted-foreground uppercase tracking-wider">Total Visits</p>
+                            <p className="text-xs font-mono text-muted-foreground uppercase tracking-wider">{locale === 'ar' ? 'إجمالي الزيارات' : 'Total Visits'}</p>
                             <p className="text-2xl font-bold text-foreground font-mono">{stats?.total_visits || 0}</p>
                         </div>
                     </div>
@@ -125,9 +127,9 @@ export default function AchievementsPage() {
 
             <div>
                 <h2 className="text-lg font-bold text-foreground font-serif mb-4 flex items-center gap-2">
-                    <Trophy size={18} className="text-primary" /> Badges
-                    <span className="text-xs font-mono text-muted-foreground ml-2">
-                        {earnedTypes.size}/{ALL_BADGES.length} unlocked
+                    <Trophy size={18} className="text-primary" /> {locale === 'ar' ? 'الشارات' : 'Badges'}
+                    <span className="text-xs font-mono text-muted-foreground ltr:ml-2 rtl:mr-2">
+                        {earnedTypes.size}/{ALL_BADGES.length} {locale === 'ar' ? 'مفتوحة' : 'unlocked'}
                     </span>
                 </h2>
                 <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
@@ -151,7 +153,7 @@ export default function AchievementsPage() {
                                     </p>
                                 )}
                                 {!earned && (
-                                    <p className="text-[0.6rem] text-muted-foreground font-mono mt-2 uppercase">Locked</p>
+                                    <p className="text-[0.6rem] text-muted-foreground font-mono mt-2 uppercase">{locale === 'ar' ? 'مقفلة' : 'Locked'}</p>
                                 )}
                             </div>
                         );

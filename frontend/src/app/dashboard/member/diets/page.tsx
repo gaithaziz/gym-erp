@@ -2,11 +2,13 @@
 
 import { useEffect, useState } from 'react';
 import { Utensils } from 'lucide-react';
+import { useLocale } from '@/context/LocaleContext';
 
 import { fetchMemberDiets } from '../_shared/customerData';
 import type { MemberDiet } from '../_shared/types';
 
 export default function MemberDietsPage() {
+    const { locale } = useLocale();
     const [diets, setDiets] = useState<MemberDiet[]>([]);
     const [loading, setLoading] = useState(true);
 
@@ -30,12 +32,16 @@ export default function MemberDietsPage() {
     return (
         <div className="space-y-6">
             <div>
-                <h1 className="text-2xl font-bold text-foreground font-serif tracking-tight">My Diet Plans</h1>
-                <p className="text-sm text-muted-foreground mt-1">Nutrition plans assigned by your coach.</p>
+                <h1 className="text-2xl font-bold text-foreground font-serif tracking-tight">
+                    {locale === 'ar' ? 'خططي الغذائية' : 'My Diet Plans'}
+                </h1>
+                <p className="text-sm text-muted-foreground mt-1">
+                    {locale === 'ar' ? 'خطط غذائية مخصصة من مدربك.' : 'Nutrition plans assigned by your coach.'}
+                </p>
             </div>
 
             <div className="kpi-card p-6">
-                <p className="section-chip mb-4">Assigned Diets</p>
+                <p className="section-chip mb-4">{locale === 'ar' ? 'الخطط المعيّنة' : 'Assigned Diets'}</p>
                 {diets.length > 0 ? (
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                         {diets.map((diet) => (
@@ -46,7 +52,7 @@ export default function MemberDietsPage() {
                                     </div>
                                     <div>
                                         <h3 className="text-foreground font-bold text-sm uppercase">{diet.name}</h3>
-                                        <p className="text-muted-foreground text-xs">{diet.description || 'No description'}</p>
+                                        <p className="text-muted-foreground text-xs">{diet.description || (locale === 'ar' ? 'بدون وصف' : 'No description')}</p>
                                     </div>
                                 </div>
                                 <div className="bg-muted/20 p-3 text-xs text-muted-foreground max-h-40 overflow-y-auto whitespace-pre-wrap">
@@ -58,8 +64,8 @@ export default function MemberDietsPage() {
                 ) : (
                     <div className="text-center py-10 border border-dashed border-border">
                         <Utensils size={32} className="mx-auto text-muted-foreground mb-3 opacity-50" />
-                        <p className="text-muted-foreground text-sm">No diet plans assigned yet.</p>
-                        <p className="text-muted-foreground/60 text-xs mt-1">Your coach will create a nutrition program for you.</p>
+                        <p className="text-muted-foreground text-sm">{locale === 'ar' ? 'لا توجد خطط غذائية مخصصة بعد.' : 'No diet plans assigned yet.'}</p>
+                        <p className="text-muted-foreground/60 text-xs mt-1">{locale === 'ar' ? 'سيقوم مدربك بإعداد برنامج غذائي لك.' : 'Your coach will create a nutrition program for you.'}</p>
                     </div>
                 )}
             </div>

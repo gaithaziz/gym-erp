@@ -154,6 +154,9 @@ export default function FinancePage() {
             amountPlaceholder: 'Amount',
             notePlaceholder: 'Note (optional)',
         };
+    const jodCode = 'JOD';
+    const paymentHistoryLabel = locale === 'ar' ? 'سجل المدفوعات' : 'Payment History';
+    const noPaymentsRecordedLabel = locale === 'ar' ? 'لا توجد مدفوعات مسجلة.' : 'No payments recorded.';
 
     const fetchTransactions = useCallback(async () => {
         const params: Record<string, string | number> = {
@@ -420,10 +423,10 @@ export default function FinancePage() {
                             <span className="text-xs text-muted-foreground">{t('finance.total')}: {formatNumber(transactionsTotal)}</span>
                         </div>
                         <div className="hidden md:block overflow-x-auto">
-                            <table className="w-full text-left table-dark min-w-[550px]"><thead><tr><th>{t('finance.date')}</th><th>{t('finance.description')}</th><th>{t('finance.category')}</th><th>{t('finance.type')}</th><th className="text-right">{t('finance.amount')}</th><th className="text-right">{t('finance.action')}</th></tr></thead>
+                            <table className="w-full text-start table-dark min-w-[550px]"><thead><tr><th>{t('finance.date')}</th><th>{t('finance.description')}</th><th>{t('finance.category')}</th><th>{t('finance.type')}</th><th className="text-end">{t('finance.amount')}</th><th className="text-end">{t('finance.action')}</th></tr></thead>
                                 <tbody>
                                     {filteredTransactions.length === 0 && (<tr><td colSpan={6} className="text-center py-8 text-muted-foreground text-sm">{t('finance.noTransactions')}</td></tr>)}
-                                    {filteredTransactions.map((tx) => (<tr key={tx.id}><td>{formatDate(tx.date, { year: 'numeric', month: '2-digit', day: '2-digit' })}</td><td className="!text-foreground font-medium">{tx.description || '-'}</td><td className="text-xs">{tx.category.replace(/_/g, ' ')}</td><td><span className={`badge ${tx.type === 'INCOME' ? 'badge-green' : 'badge-red'}`}>{tx.type === 'INCOME' ? t('finance.income') : t('finance.expense')}</span></td><td className={`text-right font-mono text-sm font-semibold ${tx.type === 'INCOME' ? 'text-emerald-500' : 'text-red-500'}`}>{tx.type === 'INCOME' ? '+' : '-'}{formatNumber(tx.amount, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td><td className="text-right"><button onClick={() => handlePrintReceipt(tx)} className="text-muted-foreground hover:text-primary transition-colors p-1" title={t('finance.printReport')}><Printer size={16} /></button></td></tr>))}
+                                    {filteredTransactions.map((tx) => (<tr key={tx.id}><td>{formatDate(tx.date, { year: 'numeric', month: '2-digit', day: '2-digit' })}</td><td className="!text-foreground font-medium">{tx.description || '-'}</td><td className="text-xs">{tx.category.replace(/_/g, ' ')}</td><td><span className={`badge ${tx.type === 'INCOME' ? 'badge-green' : 'badge-red'}`}>{tx.type === 'INCOME' ? t('finance.income') : t('finance.expense')}</span></td><td className={`text-end font-mono text-sm font-semibold ${tx.type === 'INCOME' ? 'text-emerald-500' : 'text-red-500'}`}>{tx.type === 'INCOME' ? '+' : '-'}{formatNumber(tx.amount, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td><td className="text-end"><button onClick={() => handlePrintReceipt(tx)} className="text-muted-foreground hover:text-primary transition-colors p-1" title={t('finance.printReport')}><Printer size={16} /></button></td></tr>))}
                                 </tbody>
                             </table>
                         </div>
@@ -477,7 +480,7 @@ export default function FinancePage() {
                             <span className="text-xs text-muted-foreground">{t('finance.total')}: {formatNumber(payrollsTotal)}</span>
                         </div>
                         <div className="hidden md:block overflow-x-auto">
-                            <table className="w-full text-left table-dark min-w-[900px]"><thead><tr><th>{t('finance.employee')}</th><th>{t('finance.period')}</th><th>{t('finance.status')}</th><th className="text-right">{t('finance.total')}</th><th className="text-right">{t('finance.paid')}</th><th className="text-right">{t('finance.pending')}</th><th>{t('finance.paidAt')}</th><th className="text-right">{t('finance.actions')}</th></tr></thead>
+                            <table className="w-full text-start table-dark min-w-[900px]"><thead><tr><th>{t('finance.employee')}</th><th>{t('finance.period')}</th><th>{t('finance.status')}</th><th className="text-end">{t('finance.total')}</th><th className="text-end">{t('finance.paid')}</th><th className="text-end">{t('finance.pending')}</th><th>{t('finance.paidAt')}</th><th className="text-end">{t('finance.actions')}</th></tr></thead>
                                 <tbody>
                                     {payrolls.length === 0 && (<tr><td colSpan={8} className="text-center py-8 text-muted-foreground text-sm">{t('finance.noPayroll')}</td></tr>)}
                                     {payrolls.map((item) => (
@@ -485,9 +488,9 @@ export default function FinancePage() {
                                             <td><p className="text-foreground font-medium">{item.user_name}</p><p className="text-xs text-muted-foreground">{item.user_email}</p></td>
                                             <td>{String(item.month).padStart(2, '0')}/{item.year}</td>
                                             <td><span className={`badge ${item.status === 'PAID' ? 'badge-green' : item.status === 'PARTIAL' ? 'badge-blue' : 'badge-amber'}`}>{item.status === 'PAID' ? t('finance.paid') : item.status === 'PARTIAL' ? t('finance.partial') : t('finance.draft')}</span></td>
-                                            <td className="text-right font-mono text-foreground">{formatCurrency(item.total_pay, 'JOD', { currencyDisplay: 'code' })}</td>
-                                            <td className="text-right font-mono text-foreground">{formatCurrency(item.paid_amount, 'JOD', { currencyDisplay: 'code' })}</td>
-                                            <td className={`text-right font-mono ${item.pending_amount > 0 ? 'text-amber-400' : 'text-emerald-400'}`}>{formatCurrency(item.pending_amount, 'JOD', { currencyDisplay: 'code' })}</td>
+                                            <td className="text-end font-mono text-foreground">{formatCurrency(item.total_pay, 'JOD', { currencyDisplay: 'code' })}</td>
+                                            <td className="text-end font-mono text-foreground">{formatCurrency(item.paid_amount, 'JOD', { currencyDisplay: 'code' })}</td>
+                                            <td className={`text-end font-mono ${item.pending_amount > 0 ? 'text-amber-400' : 'text-emerald-400'}`}>{formatCurrency(item.pending_amount, 'JOD', { currencyDisplay: 'code' })}</td>
                                             <td className="text-xs text-muted-foreground">{item.paid_at ? formatDate(item.paid_at, { year: 'numeric', month: '2-digit', day: '2-digit', hour: 'numeric', minute: '2-digit' }) : '-'}</td>
                                             <td><div className="flex items-center justify-end gap-2"><button className="btn-ghost !px-2 !py-1 text-xs" onClick={() => { setSelectedPayroll(item); setPayAmount(item.pending_amount > 0 ? String(item.pending_amount) : ''); setPayMethod('CASH'); setPayNote(''); }}>{t('finance.details')}</button>{item.status !== 'PAID' ? (<button className="btn-primary !px-2 !py-1 text-xs" onClick={() => updatePayrollStatus(item, 'PAID')} disabled={updatingPayrollId === item.id || item.pending_amount > 0}><CheckCircle2 size={14} /> {t('finance.markPaid')}</button>) : (<button className="btn-ghost !px-2 !py-1 text-xs text-amber-400" onClick={() => updatePayrollStatus(item, 'DRAFT')} disabled={updatingPayrollId === item.id}><RotateCcw size={14} /> {t('finance.reopen')}</button>)}</div></td>
                                         </tr>
@@ -525,7 +528,7 @@ export default function FinancePage() {
                         <form onSubmit={handleSubmit} className="space-y-4">
                             <div><label className="block text-xs font-medium text-muted-foreground mb-1.5">{t('finance.type')}</label><select className="input-dark" value={formData.type} onChange={e => setFormData({ ...formData, type: e.target.value })}><option value="INCOME">{t('finance.income')}</option><option value="EXPENSE">{t('finance.expense')}</option></select></div>
                             <div><label className="block text-xs font-medium text-muted-foreground mb-1.5">{t('finance.category')}</label><select className="input-dark" value={formData.category} onChange={e => setFormData({ ...formData, category: e.target.value })}><option value="OTHER_INCOME">{txt.categoryOtherIncome}</option><option value="SUBSCRIPTION">{txt.categorySubscription}</option><option value="POS_SALE">{txt.categoryPosSale}</option><option value="RENT">{txt.categoryRent}</option><option value="SALARY">{txt.categorySalary}</option><option value="UTILITIES">{txt.categoryUtilities}</option><option value="MAINTENANCE">{txt.categoryMaintenance}</option><option value="EQUIPMENT">{txt.categoryEquipment}</option><option value="OTHER_EXPENSE">{txt.categoryOtherExpense}</option></select></div>
-                            <div><label className="block text-xs font-medium text-muted-foreground mb-1.5">{t('finance.amount')} (JOD)</label><input type="number" step="0.01" required className="input-dark" value={formData.amount} onChange={e => setFormData({ ...formData, amount: e.target.value })} /></div>
+                            <div><label className="block text-xs font-medium text-muted-foreground mb-1.5">{`${t('finance.amount')} (${jodCode})`}</label><input type="number" step="0.01" required className="input-dark" value={formData.amount} onChange={e => setFormData({ ...formData, amount: e.target.value })} /></div>
                             <div><label className="block text-xs font-medium text-muted-foreground mb-1.5">{t('finance.description')}</label><input type="text" className="input-dark" value={formData.description} onChange={e => setFormData({ ...formData, description: e.target.value })} placeholder={locale === 'ar' ? 'مثال: اشتراك شهري للنادي' : 'e.g. Monthly gym subscription'} /></div>
                             <div><label className="block text-xs font-medium text-muted-foreground mb-1.5">{txt.paymentMethod}</label><select className="input-dark" value={formData.payment_method} onChange={e => setFormData({ ...formData, payment_method: e.target.value })}><option value="CASH">{txt.cash}</option><option value="CARD">{txt.card}</option><option value="TRANSFER">{txt.bankTransfer}</option></select></div>
                             <div className="flex justify-end gap-3 pt-4 border-t border-border"><button type="button" onClick={() => setShowModal(false)} className="btn-ghost">{t('finance.close')}</button><button type="submit" className="btn-primary">{t('finance.logTransaction')}</button></div>
@@ -567,12 +570,12 @@ export default function FinancePage() {
                             </div>
                         )}
                         <div className="rounded-lg p-3 bg-card border border-border space-y-2">
-                            <p className="text-xs text-muted-foreground uppercase tracking-wide">Payment History</p>
-                            {(selectedPayroll.payments || []).length === 0 && <p className="text-xs text-muted-foreground">No payments recorded.</p>}
+                            <p className="text-xs text-muted-foreground uppercase tracking-wide">{paymentHistoryLabel}</p>
+                            {(selectedPayroll.payments || []).length === 0 && <p className="text-xs text-muted-foreground">{noPaymentsRecordedLabel}</p>}
                             {(selectedPayroll.payments || []).map((payment) => (
                                 <div key={payment.id} className="flex items-center justify-between text-xs border-b border-border/60 pb-1 last:border-0 last:pb-0">
                                     <div>
-                                        <p className="text-foreground font-medium">{payment.amount.toFixed(2)} JOD - {payment.payment_method}</p>
+                                        <p className="text-foreground font-medium">{`${payment.amount.toFixed(2)} ${jodCode} - ${payment.payment_method}`}</p>
                                         <p className="text-muted-foreground">{payment.description || 'Salary payment'}</p>
                                     </div>
                                     <p className="text-muted-foreground">{new Date(payment.paid_at).toLocaleString()}</p>
@@ -585,3 +588,4 @@ export default function FinancePage() {
         </div>
     );
 }
+

@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { api } from '@/lib/api';
 import { MessageSquare, Star } from 'lucide-react';
+import { useLocale } from '@/context/LocaleContext';
 
 interface Plan {
     id: string;
@@ -44,6 +45,7 @@ interface GymFeedbackRow {
 }
 
 export default function FeedbackPage() {
+    const { locale } = useLocale();
     const [plans, setPlans] = useState<Plan[]>([]);
     const [dietPlans, setDietPlans] = useState<DietPlanSummary[]>([]);
     const [selectedPlan, setSelectedPlan] = useState('');
@@ -100,7 +102,7 @@ export default function FeedbackPage() {
     }, [dietPlans]);
 
     const renderStars = (rating: number | null) => {
-        if (!rating) return <span className="text-[#333] text-xs">No rating</span>;
+        if (!rating) return <span className="text-[#333] text-xs">{locale === 'ar' ? 'بدون تقييم' : 'No rating'}</span>;
         return (
             <div className="flex gap-0.5">
                 {[1, 2, 3, 4, 5].map(i => (
@@ -119,37 +121,37 @@ export default function FeedbackPage() {
     return (
         <div className="space-y-8">
             <div>
-                <h1 className="text-2xl font-bold text-white">Trainee Feedback</h1>
-                <p className="text-sm text-[#6B6B6B] mt-1">Workout, diet, and full gym feedback overview</p>
+                <h1 className="text-2xl font-bold text-white">{locale === 'ar' ? 'ملاحظات المتدربين' : 'Trainee Feedback'}</h1>
+                <p className="text-sm text-[#6B6B6B] mt-1">{locale === 'ar' ? 'نظرة عامة على ملاحظات التدريب والتغذية وتجربة النادي' : 'Workout, diet, and full gym feedback overview'}</p>
             </div>
 
             <div className="flex flex-wrap gap-2">
-                <button type="button" onClick={() => setTab('WORKOUT')} className={`px-3 py-1.5 text-xs font-mono uppercase border transition-colors ${tab === 'WORKOUT' ? 'bg-primary text-primary-foreground border-primary' : 'border-border text-muted-foreground hover:text-foreground'}`}>Workout</button>
-                <button type="button" onClick={() => setTab('DIET')} className={`px-3 py-1.5 text-xs font-mono uppercase border transition-colors ${tab === 'DIET' ? 'bg-primary text-primary-foreground border-primary' : 'border-border text-muted-foreground hover:text-foreground'}`}>Diet</button>
-                <button type="button" onClick={() => setTab('GYM')} className={`px-3 py-1.5 text-xs font-mono uppercase border transition-colors ${tab === 'GYM' ? 'bg-primary text-primary-foreground border-primary' : 'border-border text-muted-foreground hover:text-foreground'}`}>Gym</button>
+                <button type="button" onClick={() => setTab('WORKOUT')} className={`px-3 py-1.5 text-xs font-mono uppercase border transition-colors ${tab === 'WORKOUT' ? 'bg-primary text-primary-foreground border-primary' : 'border-border text-muted-foreground hover:text-foreground'}`}>{locale === 'ar' ? 'تمارين' : 'Workout'}</button>
+                <button type="button" onClick={() => setTab('DIET')} className={`px-3 py-1.5 text-xs font-mono uppercase border transition-colors ${tab === 'DIET' ? 'bg-primary text-primary-foreground border-primary' : 'border-border text-muted-foreground hover:text-foreground'}`}>{locale === 'ar' ? 'تغذية' : 'Diet'}</button>
+                <button type="button" onClick={() => setTab('GYM')} className={`px-3 py-1.5 text-xs font-mono uppercase border transition-colors ${tab === 'GYM' ? 'bg-primary text-primary-foreground border-primary' : 'border-border text-muted-foreground hover:text-foreground'}`}>{locale === 'ar' ? 'النادي' : 'Gym'}</button>
             </div>
 
             <div className="max-w-sm">
-                <label className="block text-xs font-medium text-[#6B6B6B] mb-1.5">Admin Overview Filter: Min Rating</label>
+                <label className="block text-xs font-medium text-[#6B6B6B] mb-1.5">{locale === 'ar' ? 'مرشح المشرف: الحد الأدنى للتقييم' : 'Admin Overview Filter: Min Rating'}</label>
                 <select className="input-dark" value={minRating} onChange={(e) => setMinRating(Number(e.target.value))}>
                     <option value={1}>1+</option>
                     <option value={2}>2+</option>
                     <option value={3}>3+</option>
                     <option value={4}>4+</option>
-                    <option value={5}>5 only</option>
+                    <option value={5}>{locale === 'ar' ? '5 فقط' : '5 only'}</option>
                 </select>
             </div>
 
             {tab === 'WORKOUT' && (
                 <>
                     <div className="max-w-sm">
-                        <label className="block text-xs font-medium text-[#6B6B6B] mb-1.5">Select Workout Plan</label>
+                        <label className="block text-xs font-medium text-[#6B6B6B] mb-1.5">{locale === 'ar' ? 'اختر خطة التدريب' : 'Select Workout Plan'}</label>
                         <select
                             className="input-dark"
                             value={selectedPlan}
                             onChange={e => handlePlanChange(e.target.value)}
                         >
-                            <option value="">Choose a plan...</option>
+                            <option value="">{locale === 'ar' ? 'اختر خطة...' : 'Choose a plan...'}</option>
                             {plans.map(p => (
                                 <option key={p.id} value={p.id}>{p.name}</option>
                             ))}
@@ -160,7 +162,7 @@ export default function FeedbackPage() {
                             {workoutRows.length === 0 ? (
                                 <div className="chart-card text-center py-12 border border-dashed border-border">
                                     <MessageSquare size={40} className="mx-auto text-muted-foreground mb-3 opacity-50" />
-                                    <p className="text-muted-foreground text-sm">No workout feedback for this filter</p>
+                                    <p className="text-muted-foreground text-sm">{locale === 'ar' ? 'لا توجد ملاحظات تدريب لهذا المرشح' : 'No workout feedback for this filter'}</p>
                                 </div>
                             ) : (
                                 workoutRows.map(log => (
@@ -169,7 +171,7 @@ export default function FeedbackPage() {
                                             <div className="flex items-center gap-3">
                                                 <div className={`h-3 w-3 rounded-full ${log.completed ? 'bg-emerald-500' : 'bg-amber-500'}`} />
                                                 <span className="text-sm font-medium text-foreground">
-                                                    {log.completed ? 'Completed' : 'Partial'}
+                                                    {log.completed ? (locale === 'ar' ? 'مكتمل' : 'Completed') : (locale === 'ar' ? 'جزئي' : 'Partial')}
                                                 </span>
                                             </div>
                                             <span className="text-xs text-muted-foreground">
@@ -177,12 +179,12 @@ export default function FeedbackPage() {
                                             </span>
                                         </div>
                                         <div className="flex items-center gap-2 mb-2">
-                                            <span className="text-xs text-muted-foreground">Difficulty:</span>
+                                            <span className="text-xs text-muted-foreground">{locale === 'ar' ? 'الصعوبة:' : 'Difficulty:'}</span>
                                             {renderStars(log.difficulty_rating)}
                                         </div>
                                         {log.comment && (
                                             <div className="rounded-sm p-3 text-sm text-muted-foreground mt-2 bg-muted/40 border border-border">
-                                                &quot;{log.comment}&quot;
+                                                {log.comment}
                                             </div>
                                         )}
                                     </div>
@@ -198,26 +200,26 @@ export default function FeedbackPage() {
                     {dietFeedback.length === 0 ? (
                         <div className="chart-card text-center py-12 border border-dashed border-border">
                             <MessageSquare size={40} className="mx-auto text-muted-foreground mb-3 opacity-50" />
-                            <p className="text-muted-foreground text-sm">No diet feedback yet for this filter</p>
+                            <p className="text-muted-foreground text-sm">{locale === 'ar' ? 'لا توجد ملاحظات تغذية لهذا المرشح' : 'No diet feedback yet for this filter'}</p>
                         </div>
                     ) : (
                         dietFeedback.map((row) => (
                             <div key={row.id} className="kpi-card">
                                 <div className="flex justify-between items-start mb-3">
                                     <span className="text-xs text-muted-foreground font-mono">
-                                        Plan: {row.diet_plan_name || dietPlanNameById.get(row.diet_plan_id) || row.diet_plan_id}
+                                        {locale === 'ar' ? 'الخطة:' : 'Plan:'} {row.diet_plan_name || dietPlanNameById.get(row.diet_plan_id) || row.diet_plan_id}
                                     </span>
                                     <span className="text-xs text-muted-foreground">
                                         {new Date(row.created_at).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' })}
                                     </span>
                                 </div>
                                 <div className="flex items-center gap-2 mb-2">
-                                    <span className="text-xs text-muted-foreground">Rating:</span>
+                                    <span className="text-xs text-muted-foreground">{locale === 'ar' ? 'التقييم:' : 'Rating:'}</span>
                                     {renderStars(row.rating)}
                                 </div>
                                 {row.comment && (
                                     <div className="rounded-sm p-3 text-sm text-muted-foreground mt-2 bg-muted/40 border border-border">
-                                        &quot;{row.comment}&quot;
+                                        {row.comment}
                                     </div>
                                 )}
                             </div>
@@ -231,24 +233,24 @@ export default function FeedbackPage() {
                     {gymFeedback.length === 0 ? (
                         <div className="chart-card text-center py-12 border border-dashed border-border">
                             <MessageSquare size={40} className="mx-auto text-muted-foreground mb-3 opacity-50" />
-                            <p className="text-muted-foreground text-sm">No gym feedback yet for this filter</p>
+                            <p className="text-muted-foreground text-sm">{locale === 'ar' ? 'لا توجد ملاحظات للنادي لهذا المرشح' : 'No gym feedback yet for this filter'}</p>
                         </div>
                     ) : (
                         gymFeedback.map((row) => (
                             <div key={row.id} className="kpi-card">
                                 <div className="flex justify-between items-start mb-3">
-                                    <span className="text-xs text-muted-foreground font-mono">Category: {row.category}</span>
+                                    <span className="text-xs text-muted-foreground font-mono">{locale === 'ar' ? 'الفئة:' : 'Category:'} {row.category}</span>
                                     <span className="text-xs text-muted-foreground">
                                         {new Date(row.created_at).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' })}
                                     </span>
                                 </div>
                                 <div className="flex items-center gap-2 mb-2">
-                                    <span className="text-xs text-muted-foreground">Rating:</span>
+                                    <span className="text-xs text-muted-foreground">{locale === 'ar' ? 'التقييم:' : 'Rating:'}</span>
                                     {renderStars(row.rating)}
                                 </div>
                                 {row.comment && (
                                     <div className="rounded-sm p-3 text-sm text-muted-foreground mt-2 bg-muted/40 border border-border">
-                                        &quot;{row.comment}&quot;
+                                        {row.comment}
                                     </div>
                                 )}
                             </div>

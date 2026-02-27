@@ -9,6 +9,7 @@ import { api } from '@/lib/api';
 import { useAuth } from '@/context/AuthContext';
 import { getAccessToken } from '@/lib/tokenStorage';
 import { useFeedback } from '@/components/FeedbackProvider';
+import { useLocale } from '@/context/LocaleContext';
 
 interface ChatUser {
     id: string;
@@ -136,7 +137,7 @@ function ChatAudioPlayer({ src, initialDurationSeconds }: { src: string; initial
                     className="h-8 w-8 rounded-full bg-primary/20 text-primary inline-flex items-center justify-center hover:bg-primary/30 transition-colors"
                     aria-label={playing ? 'Pause audio' : 'Play audio'}
                 >
-                    {playing ? <Pause size={14} /> : <Play size={14} className="ml-0.5" />}
+                    {playing ? <Pause size={14} /> : <Play size={14} className="ltr:ml-0.5 rtl:mr-0.5" />}
                 </button>
                 <div className="min-w-0 flex-1">
                     <input
@@ -160,6 +161,7 @@ function ChatAudioPlayer({ src, initialDurationSeconds }: { src: string; initial
 
 export default function ChatPage() {
     const { user } = useAuth();
+    const { locale } = useLocale();
     const { showToast, confirm: confirmAction } = useFeedback();
     const searchParams = useSearchParams();
     const initialThread = searchParams.get('thread');
@@ -575,7 +577,7 @@ export default function ChatPage() {
     if (!isAllowedRole) {
         return (
             <div className="kpi-card">
-                <h1 className="text-xl font-bold">Chat is unavailable for your role.</h1>
+                <h1 className="text-xl font-bold">{txt.unavailable}</h1>
             </div>
         );
     }
@@ -591,13 +593,47 @@ export default function ChatPage() {
         return name.includes(query) || email.includes(query);
     });
 
+    const txt = {
+        unavailable: locale === 'ar' ? 'المحادثة غير متاحة لدورك.' : 'Chat is unavailable for your role.',
+        title: locale === 'ar' ? 'المحادثة' : 'Chat',
+        adminMonitor: locale === 'ar' ? 'مراقبة محادثات المشرف (قراءة فقط)' : 'Admin chat monitor (read-only)',
+        directMessaging: locale === 'ar' ? 'مراسلة مباشرة مع دعم الوسائط' : 'Direct messaging with media support',
+        readOnly: locale === 'ar' ? 'قراءة فقط' : 'Read-only',
+        newChat: locale === 'ar' ? 'محادثة جديدة' : 'New Chat',
+        searchCoaches: locale === 'ar' ? 'ابحث عن المدربين' : 'Search coaches',
+        searchClients: locale === 'ar' ? 'ابحث عن العملاء' : 'Search clients',
+        typeCoach: locale === 'ar' ? 'اكتب اسم/بريد المدرب...' : 'Type coach name/email...',
+        typeClient: locale === 'ar' ? 'اكتب اسم/بريد العميل...' : 'Type client name/email...',
+        noContacts: locale === 'ar' ? 'لا توجد جهات اتصال.' : 'No contacts found.',
+        coachFilter: locale === 'ar' ? 'تصفية المدرب' : 'Coach filter',
+        allCoaches: locale === 'ar' ? 'كل المدربين' : 'All coaches',
+        customerFilter: locale === 'ar' ? 'تصفية العميل' : 'Customer filter',
+        allCustomers: locale === 'ar' ? 'كل العملاء' : 'All customers',
+        newConversation: locale === 'ar' ? 'محادثة جديدة' : 'new conversation',
+        noMessages: locale === 'ar' ? 'لا توجد رسائل بعد.' : 'No messages yet.',
+        attachment: locale === 'ar' ? 'مرفق' : 'attachment',
+        selectConversation: locale === 'ar' ? 'اختر محادثة' : 'Select a conversation',
+        latest: locale === 'ar' ? 'الأحدث' : 'Latest',
+        recording: locale === 'ar' ? 'جارٍ تسجيل رسالة صوتية...' : 'Recording voice note...',
+        previewBeforeSend: locale === 'ar' ? 'معاينة قبل الإرسال' : 'Preview before send',
+        pendingPreviewAlt: locale === 'ar' ? 'معاينة قبل الرفع' : 'Pending upload preview',
+        confirmSend: locale === 'ar' ? 'تأكيد وإرسال' : 'Confirm & Send',
+        cancel: locale === 'ar' ? 'إلغاء' : 'Cancel',
+        voicePreview: locale === 'ar' ? 'معاينة الرسالة الصوتية' : 'Voice note preview',
+        acceptSend: locale === 'ar' ? 'قبول وإرسال' : 'Accept & Send',
+        discard: locale === 'ar' ? 'تجاهل' : 'Discard',
+        typeMessage: locale === 'ar' ? 'اكتب رسالة...' : 'Type a message...',
+        stopAndSend: locale === 'ar' ? 'إيقاف وإرسال الرسالة الصوتية مباشرة' : 'Stop and send voice note directly',
+        uploading: locale === 'ar' ? 'جارٍ رفع المرفق...' : 'Uploading attachment...',
+    };
+
     return (
         <div className="space-y-4">
             <div className="flex items-center justify-between">
                 <div>
-                    <h1 className="text-2xl font-bold text-foreground">Chat</h1>
+                    <h1 className="text-2xl font-bold text-foreground">{txt.title}</h1>
                     <p className="text-sm text-muted-foreground mt-1">
-                        {isAdmin ? 'Admin chat monitor (read-only)' : 'Direct messaging with media support'}
+                        {isAdmin ? txt.adminMonitor : txt.directMessaging}
                     </p>
                 </div>
             </div>
@@ -606,7 +642,7 @@ export default function ChatPage() {
                 <aside className="kpi-card space-y-3 !p-3">
                     {isAdmin && (
                         <div className="rounded-sm border border-blue-500/30 bg-blue-500/10 text-blue-300 text-xs px-2 py-1 inline-flex items-center gap-1">
-                            <Shield size={12} /> Read-only
+                            <Shield size={12} /> {txt.readOnly}
                         </div>
                     )}
 
@@ -618,12 +654,12 @@ export default function ChatPage() {
                                 onClick={() => setNewChatOpen((prev) => !prev)}
                             >
                                 <PlusCircle size={14} />
-                                New Chat
+                                {txt.newChat}
                             </button>
                             {newChatOpen && (
                                 <div className="space-y-2">
                                     <label className="text-xs text-muted-foreground block">
-                                        {user?.role === 'CUSTOMER' ? 'Search coaches' : 'Search clients'}
+                                        {user?.role === 'CUSTOMER' ? txt.searchCoaches : txt.searchClients}
                                     </label>
                                     <div className="field-with-icon">
                                         <Search size={14} className="field-icon" />
@@ -632,7 +668,7 @@ export default function ChatPage() {
                                             className="input-dark input-with-icon"
                                             value={contactSearch}
                                             onChange={(e) => setContactSearch(e.target.value)}
-                                            placeholder={user?.role === 'CUSTOMER' ? 'Type coach name/email...' : 'Type client name/email...'}
+                                            placeholder={user?.role === 'CUSTOMER' ? txt.typeCoach : txt.typeClient}
                                         />
                                     </div>
                                     <div className="max-h-44 overflow-y-auto hide-scrollbar space-y-1">
@@ -642,7 +678,7 @@ export default function ChatPage() {
                                                 type="button"
                                                 onClick={() => openOrCreateThread(contact.id)}
                                                 disabled={creatingThread}
-                                                className="w-full text-left border border-border hover:border-primary rounded-sm p-2 transition-colors"
+                                                className="w-full text-start border border-border hover:border-primary rounded-sm p-2 transition-colors"
                                             >
                                                 <p className="text-sm font-medium text-foreground truncate">
                                                     {contact.full_name || contact.email}
@@ -652,7 +688,7 @@ export default function ChatPage() {
                                         ))}
                                         {filteredContacts.length === 0 && (
                                             <p className="text-xs text-muted-foreground p-2 border border-dashed border-border rounded-sm">
-                                                No contacts found.
+                                                {txt.noContacts}
                                             </p>
                                         )}
                                     </div>
@@ -663,16 +699,16 @@ export default function ChatPage() {
 
                     {isAdmin && (
                         <div className="space-y-2 border border-border p-2 rounded-sm">
-                            <label className="text-xs text-muted-foreground block">Coach filter</label>
+                            <label className="text-xs text-muted-foreground block">{txt.coachFilter}</label>
                             <select className="input-dark" value={adminCoachFilter} onChange={(e) => setAdminCoachFilter(e.target.value)}>
-                                <option value="">All coaches</option>
+                                <option value="">{txt.allCoaches}</option>
                                 {coachContacts.map((contact) => (
                                     <option key={contact.id} value={contact.id}>{contact.full_name || contact.email}</option>
                                 ))}
                             </select>
-                            <label className="text-xs text-muted-foreground block">Customer filter</label>
+                            <label className="text-xs text-muted-foreground block">{txt.customerFilter}</label>
                             <select className="input-dark" value={adminCustomerFilter} onChange={(e) => setAdminCustomerFilter(e.target.value)}>
-                                <option value="">All customers</option>
+                                <option value="">{txt.allCustomers}</option>
                                 {customerContacts.map((contact) => (
                                     <option key={contact.id} value={contact.id}>{contact.full_name || contact.email}</option>
                                 ))}
@@ -680,20 +716,20 @@ export default function ChatPage() {
                         </div>
                     )}
 
-                    <div className="space-y-1 max-h-[60vh] lg:max-h-[65vh] xl:max-h-[70vh] overflow-y-auto hide-scrollbar pr-1">
+                    <div className="space-y-1 max-h-[60vh] lg:max-h-[65vh] xl:max-h-[70vh] overflow-y-auto hide-scrollbar ltr:pr-1 rtl:pl-1">
                         {threads.map((thread) => (
                             <button
                                 key={thread.id}
                                 type="button"
                                 onClick={() => setSelectedThreadId(thread.id)}
-                                className={`w-full text-left border rounded-sm p-2 transition-colors ${selectedThreadId === thread.id ? 'border-primary bg-primary/10' : 'border-border hover:border-primary'
+                                className={`w-full text-start border rounded-sm p-2 transition-colors ${selectedThreadId === thread.id ? 'border-primary bg-primary/10' : 'border-border hover:border-primary'
                                     }`}
                             >
                                 <div className="flex items-center justify-between gap-2">
                                     <p className="text-sm font-semibold truncate min-w-0 flex-1">{counterpartName(thread)}</p>
                                     {!isAdmin && (thread.unread_count || 0) > 0 && (
                                         <span className="flex items-center gap-1.5 shrink-0">
-                                            <span className="h-2 w-2 rounded-full bg-red-500" aria-label="new conversation" />
+                                            <span className="h-2 w-2 rounded-full bg-red-500" aria-label={txt.newConversation} />
                                             <span className="inline-flex min-w-[20px] h-[20px] px-1.5 items-center justify-center rounded-full bg-black text-white text-xs font-bold">
                                                 {(thread.unread_count || 0) > 99 ? '99+' : thread.unread_count}
                                             </span>
@@ -701,7 +737,7 @@ export default function ChatPage() {
                                     )}
                                 </div>
                                 <p className="text-xs text-muted-foreground truncate mt-1">
-                                    {thread.last_message?.text_content || thread.last_message?.message_type || 'No messages yet'}
+                                    {thread.last_message?.text_content || thread.last_message?.message_type || txt.noMessages}
                                 </p>
                             </button>
                         ))}
@@ -712,12 +748,12 @@ export default function ChatPage() {
                     <div className="border-b border-border px-4 py-3 flex items-center gap-2">
                         <MessageCircle size={16} className="text-primary" />
                         <p className="font-semibold text-sm">
-                            {selectedThread ? counterpartName(selectedThread) : 'Select a conversation'}
+                            {selectedThread ? counterpartName(selectedThread) : txt.selectConversation}
                         </p>
                     </div>
 
                     <div ref={messageListRef} onScroll={handleMessageListScroll} className="flex-1 p-4 space-y-3 overflow-y-auto hide-scrollbar relative">
-                        {messages.length === 0 && <p className="text-sm text-muted-foreground">No messages yet.</p>}
+                        {messages.length === 0 && <p className="text-sm text-muted-foreground">{txt.noMessages}</p>}
                         {messages.map((message) => {
                             const mine = message.sender_id === user?.id;
                             return (
@@ -732,7 +768,7 @@ export default function ChatPage() {
                                         {message.media_url && message.media_mime?.startsWith('image/') && (
                                             <Image
                                                 src={resolveMediaUrl(message.media_url)}
-                                                alt="attachment"
+                                                alt={txt.attachment}
                                                 width={420}
                                                 height={320}
                                                 unoptimized
@@ -756,14 +792,14 @@ export default function ChatPage() {
                         <div ref={bottomRef} />
                     </div>
                     {showJumpToLatest && (
-                        <div className="absolute right-6 bottom-24 z-20">
+                        <div className="absolute ltr:right-6 rtl:left-6 bottom-24 z-20">
                             <button
                                 type="button"
                                 onClick={jumpToLatest}
                                 className="btn-primary !py-2 !px-3 shadow-sm"
                             >
                                 <ArrowDown size={14} />
-                                Latest
+                                {txt.latest}
                             </button>
                         </div>
                     )}
@@ -773,16 +809,16 @@ export default function ChatPage() {
                             {recording && (
                                 <div className="rounded-sm border border-red-500/40 bg-red-500/10 text-red-300 text-xs px-2 py-1 inline-flex items-center gap-2">
                                     <span className="h-2 w-2 rounded-full bg-red-500 animate-pulse" />
-                                    Recording voice note... {recordSeconds}s
+                                    {txt.recording} {recordSeconds}s
                                 </div>
                             )}
                             {pendingMediaUpload && (
                                 <div className="rounded-sm border border-border bg-muted/20 p-2 space-y-2">
-                                    <p className="text-xs text-muted-foreground">Preview before send</p>
+                                    <p className="text-xs text-muted-foreground">{txt.previewBeforeSend}</p>
                                     {pendingMediaUpload.kind === 'image' ? (
                                         <Image
                                             src={pendingMediaUpload.previewUrl}
-                                            alt="Pending upload preview"
+                                            alt={txt.pendingPreviewAlt}
                                             width={420}
                                             height={320}
                                             unoptimized
@@ -797,26 +833,26 @@ export default function ChatPage() {
                                     )}
                                     <div className="flex items-center gap-2">
                                         <button type="button" className="btn-primary !py-1.5 !px-3 text-xs" onClick={confirmPendingUpload}>
-                                            Confirm & Send
+                                            {txt.confirmSend}
                                         </button>
                                         <button type="button" className="btn-ghost !py-1.5 !px-3 text-xs" onClick={cancelPendingUpload}>
-                                            Cancel
+                                            {txt.cancel}
                                         </button>
                                     </div>
                                 </div>
                             )}
                             {pendingVoiceUpload && (
                                 <div className="rounded-sm border border-border bg-muted/20 p-2 space-y-2">
-                                    <p className="text-xs text-muted-foreground">Voice note preview</p>
+                                    <p className="text-xs text-muted-foreground">{txt.voicePreview}</p>
                                     <ChatAudioPlayer src={pendingVoiceUpload.previewUrl} initialDurationSeconds={pendingVoiceUpload.duration} />
                                     <div className="flex items-center gap-2">
                                         <button type="button" className="btn-primary !py-1.5 !px-3 text-xs" onClick={confirmPendingVoiceUpload}>
                                             <Check size={13} />
-                                            Accept & Send
+                                            {txt.acceptSend}
                                         </button>
                                         <button type="button" className="btn-ghost !py-1.5 !px-3 text-xs" onClick={cancelPendingVoiceUpload}>
                                             <X size={13} />
-                                            Discard
+                                            {txt.discard}
                                         </button>
                                     </div>
                                 </div>
@@ -826,7 +862,7 @@ export default function ChatPage() {
                                     type="text"
                                     value={text}
                                     onChange={(e) => setText(e.target.value)}
-                                    placeholder="Type a message..."
+                                    placeholder={txt.typeMessage}
                                     className="input-dark"
                                     disabled={recording}
                                 />
@@ -860,7 +896,7 @@ export default function ChatPage() {
                                         className="btn-primary !py-2 !px-3"
                                         onClick={stopAndSendVoiceRecording}
                                         disabled={uploading}
-                                        title="Stop and send voice note directly"
+                                        title={txt.stopAndSend}
                                     >
                                         <Check size={15} />
                                     </button>
@@ -869,7 +905,7 @@ export default function ChatPage() {
                                     <Send size={15} />
                                 </button>
                             </div>
-                            {uploading && <p className="text-xs text-muted-foreground">Uploading attachment...</p>}
+                            {uploading && <p className="text-xs text-muted-foreground">{txt.uploading}</p>}
                         </form>
                     )}
                 </section>
@@ -877,3 +913,4 @@ export default function ChatPage() {
         </div>
     );
 }
+

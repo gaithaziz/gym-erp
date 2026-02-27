@@ -53,6 +53,8 @@ const RULE_PRESETS = [
 ] as const;
 
 const MESSAGE_PLACEHOLDERS = ['{{member_name}}', '{{plan_name}}', '{{status}}', '{{scan_time}}', '{{kiosk_id}}'];
+const memberNameToken = '{{member_name}}';
+const templateKeyPlaceholder = 'template_key_name';
 
 export default function WhatsAppAutomationPage() {
     const { showToast } = useFeedback();
@@ -305,7 +307,7 @@ export default function WhatsAppAutomationPage() {
                     <div>
                         <p className="text-sm font-bold text-foreground">{txt.createNewRule}</p>
                         <p className="text-xs text-muted-foreground mt-1">
-                            {txt.createHelp} <code>Hi {'{{member_name}}'}, ...</code>
+                            {txt.createHelp} <code>{`Hi ${memberNameToken}, ...`}</code>
                         </p>
                     </div>
                     <div className="space-y-2">
@@ -347,7 +349,7 @@ export default function WhatsAppAutomationPage() {
                             <input
                                 value={newRule.template_key}
                                 className="input-dark"
-                                placeholder="template_key_name"
+                                placeholder={templateKeyPlaceholder}
                                 onChange={(e) => setNewRule((prev) => ({ ...prev, template_key: e.target.value }))}
                             />
                         </div>
@@ -442,7 +444,7 @@ export default function WhatsAppAutomationPage() {
                                 ))}
                             </div>
                             <p className="text-[11px] text-muted-foreground mt-1">
-                                {txt.example}: <code>Hi {'{{member_name}}'}, your subscription expires in 3 days.</code>
+                                {txt.example}: <code>{`Hi ${memberNameToken}, your subscription expires in 3 days.`}</code>
                             </p>
                         </div>
                         <div className="flex justify-end">
@@ -475,7 +477,7 @@ export default function WhatsAppAutomationPage() {
                     <p className="text-sm font-bold text-foreground">{txt.recentLogs}</p>
                 </div>
                 <div className="overflow-x-auto">
-                    <table className="w-full text-left table-dark min-w-[640px]">
+                    <table className="w-full text-start table-dark min-w-[640px]">
                         <thead>
                             <tr>
                                 <th>{txt.eventType}</th>
@@ -507,3 +509,4 @@ export default function WhatsAppAutomationPage() {
         </div>
     );
 }
+

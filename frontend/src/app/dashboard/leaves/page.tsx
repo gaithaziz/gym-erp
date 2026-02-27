@@ -5,6 +5,7 @@ import { api } from '@/lib/api';
 import { Plus } from 'lucide-react';
 import Modal from '@/components/Modal';
 import { useFeedback } from '@/components/FeedbackProvider';
+import { useLocale } from '@/context/LocaleContext';
 
 interface LeaveRequest {
     id: string;
@@ -17,6 +18,7 @@ interface LeaveRequest {
 
 export default function MyLeavesPage() {
     const { showToast } = useFeedback();
+    const { locale } = useLocale();
     const [leaves, setLeaves] = useState<LeaveRequest[]>([]);
     const [loading, setLoading] = useState(true);
     const [isAddOpen, setIsAddOpen] = useState(false);
@@ -74,28 +76,28 @@ export default function MyLeavesPage() {
         <div className="space-y-8 p-4 sm:p-0">
             <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
                 <div>
-                    <h1 className="text-2xl font-bold text-foreground font-mono">My Leaves</h1>
-                    <p className="text-sm text-muted-foreground mt-1">Request and track your time off</p>
+                    <h1 className="text-2xl font-bold text-foreground font-mono">{locale === 'ar' ? 'إجازاتي' : 'My Leaves'}</h1>
+                    <p className="text-sm text-muted-foreground mt-1">{locale === 'ar' ? 'قدّم طلبات الإجازة وتابع حالتها' : 'Request and track your time off'}</p>
                 </div>
                 <button onClick={() => setIsAddOpen(true)} className="btn-primary flex items-center gap-2">
-                    <Plus size={18} /> Request Leave
+                    <Plus size={18} /> {locale === 'ar' ? 'طلب إجازة' : 'Request Leave'}
                 </button>
             </div>
 
             <div className="chart-card overflow-hidden !p-0 border border-border">
                 <div className="overflow-x-auto">
-                    <table className="w-full text-left table-dark min-w-[600px]">
+                    <table className="w-full text-start table-dark min-w-[600px]">
                         <thead>
                             <tr>
-                                <th>Period</th>
-                                <th>Type</th>
-                                <th>Reason</th>
-                                <th>Status</th>
+                                <th>{locale === 'ar' ? 'الفترة' : 'Period'}</th>
+                                <th>{locale === 'ar' ? 'النوع' : 'Type'}</th>
+                                <th>{locale === 'ar' ? 'السبب' : 'Reason'}</th>
+                                <th>{locale === 'ar' ? 'الحالة' : 'Status'}</th>
                             </tr>
                         </thead>
                         <tbody>
                             {leaves.length === 0 && (
-                                <tr><td colSpan={4} className="text-center py-8 text-muted-foreground text-sm">No leave requests yet</td></tr>
+                                <tr><td colSpan={4} className="text-center py-8 text-muted-foreground text-sm">{locale === 'ar' ? 'لا توجد طلبات إجازة بعد' : 'No leave requests yet'}</td></tr>
                             )}
                             {leaves.map((l) => (
                                 <tr key={l.id}>
@@ -118,36 +120,37 @@ export default function MyLeavesPage() {
                 </div>
             </div>
 
-            <Modal isOpen={isAddOpen} onClose={() => setIsAddOpen(false)} title="Request Leave">
+            <Modal isOpen={isAddOpen} onClose={() => setIsAddOpen(false)} title={locale === 'ar' ? 'طلب إجازة' : 'Request Leave'}>
                 <form onSubmit={handleSubmit} className="space-y-4">
                     <div className="grid grid-cols-2 gap-4">
                         <div>
-                            <label className="block text-xs uppercase font-bold text-muted-foreground mb-1">Start Date</label>
+                            <label className="block text-xs uppercase font-bold text-muted-foreground mb-1">{locale === 'ar' ? 'تاريخ البداية' : 'Start Date'}</label>
                             <input type="date" required value={startDate} onChange={e => setStartDate(e.target.value)} className="input-dark w-full" />
                         </div>
                         <div>
-                            <label className="block text-xs uppercase font-bold text-muted-foreground mb-1">End Date</label>
+                            <label className="block text-xs uppercase font-bold text-muted-foreground mb-1">{locale === 'ar' ? 'تاريخ النهاية' : 'End Date'}</label>
                             <input type="date" required value={endDate} onChange={e => setEndDate(e.target.value)} className="input-dark w-full" />
                         </div>
                     </div>
                     <div>
-                        <label className="block text-xs uppercase font-bold text-muted-foreground mb-1">Leave Type</label>
+                        <label className="block text-xs uppercase font-bold text-muted-foreground mb-1">{locale === 'ar' ? 'نوع الإجازة' : 'Leave Type'}</label>
                         <select value={leaveType} onChange={e => setLeaveType(e.target.value)} className="input-dark w-full">
-                            <option value="SICK">Sick</option>
-                            <option value="VACATION">Vacation</option>
-                            <option value="OTHER">Other</option>
+                            <option value="SICK">{locale === 'ar' ? 'مرضية' : 'Sick'}</option>
+                            <option value="VACATION">{locale === 'ar' ? 'إجازة' : 'Vacation'}</option>
+                            <option value="OTHER">{locale === 'ar' ? 'أخرى' : 'Other'}</option>
                         </select>
                     </div>
                     <div>
-                        <label className="block text-xs uppercase font-bold text-muted-foreground mb-1">Reason (Optional)</label>
-                        <textarea value={reason} onChange={e => setReason(e.target.value)} className="input-dark w-full h-24 resize-none" placeholder="Brief reason..." />
+                        <label className="block text-xs uppercase font-bold text-muted-foreground mb-1">{locale === 'ar' ? 'السبب (اختياري)' : 'Reason (Optional)'}</label>
+                        <textarea value={reason} onChange={e => setReason(e.target.value)} className="input-dark w-full h-24 resize-none" placeholder={locale === 'ar' ? 'سبب مختصر...' : 'Brief reason...'} />
                     </div>
                     <div className="flex justify-end gap-3 mt-6">
-                        <button type="button" onClick={() => setIsAddOpen(false)} className="btn-ghost">Cancel</button>
-                        <button type="submit" className="btn-primary">Submit Request</button>
+                        <button type="button" onClick={() => setIsAddOpen(false)} className="btn-ghost">{locale === 'ar' ? 'إلغاء' : 'Cancel'}</button>
+                        <button type="submit" className="btn-primary">{locale === 'ar' ? 'إرسال الطلب' : 'Submit Request'}</button>
                     </div>
                 </form>
             </Modal>
         </div>
     );
 }
+

@@ -186,11 +186,11 @@ export default function InventoryPage() {
                     <table className="w-full text-sm">
                         <thead>
                             <tr className="border-b border-border bg-muted/30">
-                                <th className="text-left px-4 py-3 font-mono text-xs text-muted-foreground uppercase">{t('inventory.product')}</th>
-                                <th className="text-left px-4 py-3 font-mono text-xs text-muted-foreground uppercase">{t('inventory.category')}</th>
-                                <th className="text-right px-4 py-3 font-mono text-xs text-muted-foreground uppercase">{t('inventory.price')}</th>
-                                <th className="text-right px-4 py-3 font-mono text-xs text-muted-foreground uppercase">{t('inventory.stock')}</th>
-                                <th className="text-right px-4 py-3 font-mono text-xs text-muted-foreground uppercase">{t('inventory.actions')}</th>
+                                <th className="text-start px-4 py-3 font-mono text-xs text-muted-foreground uppercase">{t('inventory.product')}</th>
+                                <th className="text-start px-4 py-3 font-mono text-xs text-muted-foreground uppercase">{t('inventory.category')}</th>
+                                <th className="text-end px-4 py-3 font-mono text-xs text-muted-foreground uppercase">{t('inventory.price')}</th>
+                                <th className="text-end px-4 py-3 font-mono text-xs text-muted-foreground uppercase">{t('inventory.stock')}</th>
+                                <th className="text-end px-4 py-3 font-mono text-xs text-muted-foreground uppercase">{t('inventory.actions')}</th>
                             </tr>
                         </thead>
                         <tbody>
@@ -212,10 +212,10 @@ export default function InventoryPage() {
                                             {p.category}
                                         </span>
                                     </td>
-                                    <td className="px-4 py-3 text-right font-mono text-foreground">
+                                    <td className="px-4 py-3 text-end font-mono text-foreground">
                                         {formatNumber(p.price, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                                     </td>
-                                    <td className="px-4 py-3 text-right">
+                                    <td className="px-4 py-3 text-end">
                                         <span className={`font-mono font-bold ${p.stock_quantity <= p.low_stock_threshold
                                                 ? 'text-red-500'
                                                 : 'text-emerald-500'
@@ -223,7 +223,7 @@ export default function InventoryPage() {
                                             {p.stock_quantity}
                                         </span>
                                     </td>
-                                    <td className="px-4 py-3 text-right">
+                                    <td className="px-4 py-3 text-end">
                                         <div className="flex items-center justify-end gap-1">
                                             <button onClick={() => openEdit(p)} className="p-1.5 text-muted-foreground hover:text-foreground transition-colors">
                                                 <Edit size={14} />
@@ -303,3 +303,4 @@ export default function InventoryPage() {
         </div>
     );
 }
+

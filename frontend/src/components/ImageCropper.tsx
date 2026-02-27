@@ -60,6 +60,13 @@ export default function ImageCropper({ onCropComplete, currentImage, aspectData 
     const [previewImageFailed, setPreviewImageFailed] = useState(false);
 
     const fileInputRef = useRef<HTMLInputElement>(null);
+    const profileAlt = 'Profile';
+    const uploadLabel = 'Upload';
+    const modalTitle = 'Adjust Picture';
+    const cropShapeRound = 'round' as const;
+    const zoomLabel = 'Zoom';
+    const cancelLabel = 'Cancel';
+    const cropSaveLabel = 'Crop & Save';
 
     React.useEffect(() => {
         setPreviewImageFailed(false);
@@ -98,7 +105,7 @@ export default function ImageCropper({ onCropComplete, currentImage, aspectData 
             <div className="flex flex-col items-center gap-4">
                 <div className="relative group w-32 h-32 rounded-full overflow-hidden border-2 border-border bg-muted flex items-center justify-center">
                     {currentImage && !previewImageFailed ? (
-                        <Image src={currentImage} alt="Profile" fill className="object-cover" unoptimized onError={() => setPreviewImageFailed(true)} />
+                        <Image src={currentImage} alt={profileAlt} fill className="object-cover" unoptimized onError={() => setPreviewImageFailed(true)} />
                     ) : (
                         <UserPlaceholder />
                     )}
@@ -108,7 +115,7 @@ export default function ImageCropper({ onCropComplete, currentImage, aspectData 
                         className="absolute inset-0 bg-black/50 opacity-0 group-hover:opacity-100 transition-opacity flex flex-col items-center justify-center text-white cursor-pointer"
                     >
                         <Upload size={20} className="mb-1" />
-                        <span className="text-xs font-medium">Upload</span>
+                        <span className="text-xs font-medium">{uploadLabel}</span>
                     </button>
                     <input
                         type="file"
@@ -120,7 +127,7 @@ export default function ImageCropper({ onCropComplete, currentImage, aspectData 
                 </div>
             </div>
 
-            <Modal isOpen={isModalOpen} onClose={() => { setIsModalOpen(false); setImageSrc(null); }} title="Adjust Picture">
+            <Modal isOpen={isModalOpen} onClose={() => { setIsModalOpen(false); setImageSrc(null); }} title={modalTitle}>
                 <div className="space-y-4">
                     <div className="relative h-48 md:h-56 w-full bg-black rounded-sm overflow-hidden touch-none">
                         {imageSrc && (
@@ -132,27 +139,27 @@ export default function ImageCropper({ onCropComplete, currentImage, aspectData 
                                 onCropChange={setCrop}
                                 onCropComplete={handleCropComplete}
                                 onZoomChange={setZoom}
-                                cropShape="round"
+                                cropShape={cropShapeRound}
                                 showGrid={false}
                             />
                         )}
                     </div>
                     <div className="px-2">
-                        <label className="text-xs text-muted-foreground mb-2 block">Zoom</label>
+                        <label className="text-xs text-muted-foreground mb-2 block">{zoomLabel}</label>
                         <input
                             type="range"
                             value={zoom}
                             min={1}
                             max={3}
                             step={0.1}
-                            aria-labelledby="Zoom"
+                            aria-labelledby={zoomLabel}
                             onChange={(e) => setZoom(Number(e.target.value))}
                             className="w-full h-2 bg-muted rounded-lg appearance-none cursor-pointer accent-primary"
                         />
                     </div>
                     <div className="flex justify-end gap-3 pt-4 border-t border-border">
-                        <button type="button" onClick={() => setIsModalOpen(false)} className="btn-ghost">Cancel</button>
-                        <button type="button" onClick={processCrop} className="btn-primary"><CropIcon size={16} /> Crop & Save</button>
+                        <button type="button" onClick={() => setIsModalOpen(false)} className="btn-ghost">{cancelLabel}</button>
+                        <button type="button" onClick={processCrop} className="btn-primary"><CropIcon size={16} /> {cropSaveLabel}</button>
                     </div>
                 </div>
             </Modal>
@@ -161,9 +168,13 @@ export default function ImageCropper({ onCropComplete, currentImage, aspectData 
 }
 
 function UserPlaceholder() {
+    const svgXmlns = 'http://www.w3.org/2000/svg';
+    const fillRuleEvenOdd = 'evenodd';
+    const clipRuleEvenOdd = 'evenodd';
+    const avatarPath = 'M10 9a3 3 0 100-6 3 3 0 000 6zm-7 9a7 7 0 1114 0H3z';
     return (
-        <svg className="w-16 h-16 text-muted-foreground" fill="currentColor" viewBox="0 0 20 20" xmlns="http://www.w3.org/2000/svg">
-            <path fillRule="evenodd" d="M10 9a3 3 0 100-6 3 3 0 000 6zm-7 9a7 7 0 1114 0H3z" clipRule="evenodd" />
+        <svg className="w-16 h-16 text-muted-foreground" fill="currentColor" viewBox="0 0 20 20" xmlns={svgXmlns}>
+            <path fillRule={fillRuleEvenOdd} d={avatarPath} clipRule={clipRuleEvenOdd} />
         </svg>
     )
 }
