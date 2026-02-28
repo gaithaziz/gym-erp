@@ -26,6 +26,10 @@ jobs:
 
     steps:
     - uses: actions/checkout@v4
+    - name: Set up Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: "22"
     - name: Set up Python 3.11
       uses: actions/setup-python@v5
       with:
@@ -34,14 +38,57 @@ jobs:
       run: |
         python -m pip install --upgrade pip
         pip install -r requirements.txt
-    - name: Run Tests
+        pip install pip-audit
+    - name: Install frontend dependencies
+      working-directory: frontend
+      run: npm ci
+    - name: Generate security audit report
       env:
+        APP_ENV: test
         POSTGRES_HOST: localhost
         POSTGRES_USER: user
         POSTGRES_PASSWORD: password
         POSTGRES_DB: gym_test
         POSTGRES_PORT: 5432
-        SECRET_KEY: "supersecretkeyfortesting"
+        SECRET_KEY: "supersecretkeyfortesting123456"
+        KIOSK_SIGNING_KEY: "anotherlongtestsecret123456"
+        CI: true
+      run: |
+        python -m app.security_audit.cli
+    - name: Generate backend dependency audit report
+      run: |
+        mkdir -p reports
+        pip-audit -r requirements.txt -f json -o reports/backend-dependency-audit.json
+    - name: Generate frontend dependency audit report
+      working-directory: frontend
+      run: |
+        mkdir -p reports
+        set +e
+        npm audit --json --omit=dev > reports/dependency-audit.json
+        status=$?
+        set -e
+        if [ "$status" -gt 1 ]; then
+          exit "$status"
+        fi
+    - name: Run Tests
+      env:
+        APP_ENV: test
+        POSTGRES_HOST: localhost
+        POSTGRES_USER: user
+        POSTGRES_PASSWORD: password
+        POSTGRES_DB: gym_test
+        POSTGRES_PORT: 5432
+        SECRET_KEY: "supersecretkeyfortesting123456"
+        KIOSK_SIGNING_KEY: "anotherlongtestsecret123456"
         CI: true
       run: |
         pytest
+    - name: Upload security reports
+      if: always()
+      uses: actions/upload-artifact@v4
+      with:
+        name: security-reports
+        path: |
+          reports/security-audit.json
+          reports/backend-dependency-audit.json
+          frontend/reports/dependency-audit.json

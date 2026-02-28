@@ -17,6 +17,7 @@ from app.models.enums import Role
 from app.services.audit_service import AuditService
 from app.core.responses import StandardResponse
 from app.services.subscription_status_service import SubscriptionStatusService
+from app.core.rate_limit import rate_limit_dependency
 
 router = APIRouter()
 
@@ -114,7 +115,19 @@ async def register(
     
     return StandardResponse(data=user, message="User registered successfully")
 
-@router.post("/login", response_model=StandardResponse[schemas.Token])
+@router.post(
+    "/login",
+    response_model=StandardResponse[schemas.Token],
+    dependencies=[
+        rate_limit_dependency(
+            route_key="POST /api/v1/auth/login",
+            scope="auth_login",
+            limit=5,
+            window_seconds=60,
+            json_fields=("email",),
+        )
+    ],
+)
 async def login(
     login_data: schemas.LoginRequest,
     db: Annotated[AsyncSession, Depends(get_db)]
@@ -147,7 +160,11 @@ async def login(
         message="Login Successful"
     )
 
-@router.post("/refresh", response_model=StandardResponse[schemas.Token])
+@router.post(
+    "/refresh",
+    response_model=StandardResponse[schemas.Token],
+    dependencies=[rate_limit_dependency(route_key="POST /api/v1/auth/refresh", scope="auth_refresh", limit=10, window_seconds=60)],
+)
 async def refresh_token(
     token: Annotated[str, Depends(dependencies.oauth2_scheme)],
     db: Annotated[AsyncSession, Depends(get_db)]

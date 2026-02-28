@@ -6,9 +6,9 @@ services:
     container_name: gym_erp_db
     restart: always
     environment:
-      POSTGRES_USER: gym_admin
-      POSTGRES_PASSWORD: gym_password_secret
-      POSTGRES_DB: gym_erp_db
+      POSTGRES_USER: ${POSTGRES_USER:-gym_admin}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-change_me_local_password}
+      POSTGRES_DB: ${POSTGRES_DB:-gym_erp_db}
     ports:
       - "5432:5432"
     volumes:
@@ -30,8 +30,15 @@ services:
     env_file:
       - .env
     environment:
+      APP_ENV: ${APP_ENV:-development}
       POSTGRES_HOST: db
-      POSTGRES_PORT: 5432
+      POSTGRES_PORT: ${POSTGRES_PORT:-5432}
+      POSTGRES_USER: ${POSTGRES_USER:-gym_admin}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-change_me_local_password}
+      POSTGRES_DB: ${POSTGRES_DB:-gym_erp_db}
+      SECRET_KEY: ${SECRET_KEY:-change_me_local_secret_key_1234567890}
+      KIOSK_SIGNING_KEY: ${KIOSK_SIGNING_KEY:-change_me_local_kiosk_secret_1234567890}
+      BACKEND_CORS_ORIGINS: ${BACKEND_CORS_ORIGINS:-["http://localhost:3000","http://localhost:8000"]}
     volumes:
       - ./static:/app/static
     depends_on:

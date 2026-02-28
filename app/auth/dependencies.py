@@ -6,13 +6,17 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 
 from app.config import settings
-from app.database import get_db
+from app.database import get_db, set_rls_context
 from app.models.user import User
 from app.auth.schemas import TokenPayload
 from app.models.enums import Role
 from app.services.subscription_status_service import SubscriptionStatusService
 
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl=f"{settings.API_V1_STR}/auth/login")
+
+
+def _coerce_role(value: Role | str) -> Role:
+    return value if isinstance(value, Role) else Role(value)
 
 async def get_current_user(
     token: Annotated[str, Depends(oauth2_scheme)],
@@ -39,6 +43,8 @@ async def get_current_user(
     
     if user is None:
         raise credentials_exception
+    user.role = _coerce_role(user.role)
+    await set_rls_context(db, user_id=str(user.id), role=user.role.value)
     return user
 
 async def get_current_active_user(
@@ -53,6 +59,7 @@ class RoleChecker:
         self.allowed_roles = allowed_roles
 
     def __call__(self, user: Annotated[User, Depends(get_current_active_user)]):
+        user.role = _coerce_role(user.role)
         if user.role not in self.allowed_roles:
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN, 
@@ -73,6 +80,7 @@ async def require_active_customer_subscription(
     current_user: Annotated[User, Depends(get_current_active_user)],
     db: Annotated[AsyncSession, Depends(get_db)],
 ) -> User:
+    current_user.role = _coerce_role(current_user.role)
     if current_user.role != Role.CUSTOMER:
         return current_user
 

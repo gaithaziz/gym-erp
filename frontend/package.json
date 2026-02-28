@@ -7,6 +7,7 @@
     "build": "next build",
     "start": "next start",
     "lint": "eslint",
+    "audit:deps": "npm audit --json --omit=dev > reports/dependency-audit.json",
     "i18n:check": "node scripts/i18n-check.cjs",
     "i18n:check:strict": "node scripts/i18n-check.cjs --strict",
     "i18n:hardcoded": "node scripts/i18n-hardcoded-check.cjs",

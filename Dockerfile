@@ -12,6 +12,8 @@ RUN pip install --no-cache-dir -r requirements.txt
 COPY app/ ./app/
 COPY alembic/ ./alembic/
 COPY alembic.ini .
+COPY .env.example ./.env.example
+COPY frontend/reports/ ./frontend/reports/
 
 EXPOSE 8000
 

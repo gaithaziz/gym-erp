@@ -205,7 +205,7 @@ async def test_status_assign_and_acl(client: AsyncClient, db_session: AsyncSessi
         f"{settings.API_V1_STR}/lost-found/items/{item_id}",
         headers=other_headers,
     )
-    assert forbidden_view.status_code == 403
+    assert forbidden_view.status_code == 404
 
 
 @pytest.mark.asyncio
@@ -294,4 +294,4 @@ async def test_comments_and_media_validation(client: AsyncClient, db_session: As
         headers=viewer_headers,
         json={"text": "I think this is mine"},
     )
-    assert viewer_comment.status_code == 403
+    assert viewer_comment.status_code == 404

@@ -59,6 +59,7 @@ Then try running `npm run dev` again.
 
 
 # from: C:\Users\user\gym-erp
+copy .env.example .env
 docker compose up -d --build backend frontend
 docker exec gym_erp_backend alembic upgrade head
 docker compose stop

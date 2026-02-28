@@ -1,5 +1,5 @@
 from typing import Annotated
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, Query, Request
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 from pydantic import BaseModel
@@ -12,6 +12,8 @@ from app.models.user import User
 from app.models.enums import Role
 from app.models.audit import AuditLog
 from app.core.responses import StandardResponse
+from app.security_audit.models import SecurityAuditResponse
+from app.security_audit import collect_security_audit
 
 router = APIRouter()
 
@@ -41,3 +43,13 @@ async def get_audit_logs(
     logs = result.scalars().all()
     
     return StandardResponse(data=[AuditLogResponse.model_validate(log) for log in logs])
+
+
+@router.get("/security", response_model=StandardResponse[SecurityAuditResponse])
+async def get_security_audit(
+    request: Request,
+    current_user: Annotated[User, Depends(dependencies.RoleChecker([Role.ADMIN]))],
+):
+    del current_user
+    report = collect_security_audit(request.app)
+    return StandardResponse(data=report)

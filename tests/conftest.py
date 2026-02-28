@@ -1,9 +1,11 @@
 import pytest
 from typing import AsyncGenerator
 from httpx import AsyncClient
+from sqlalchemy import text
 from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession, async_sessionmaker
 from app.database import Base, get_db
 from app.main import app
+from app.core.rate_limit import reset_rate_limiter_state
 
 # Use an in-memory SQLite database for testing, or a separate test DB.
 # For async, sqlite+aiosqlite is good, but we configured Postgres.
@@ -42,6 +44,30 @@ async def db_engine():
 
 @pytest.fixture(scope="function")
 async def db_session(db_engine) -> AsyncGenerator[AsyncSession, None]:
+    async def _reset_postgres(session: AsyncSession) -> None:
+        if not session.bind or session.bind.dialect.name != "postgresql":
+            return
+        await session.rollback()
+        table_names = [
+            row[0]
+            for row in (
+                await session.execute(
+                    text(
+                        """
+                        SELECT tablename
+                        FROM pg_tables
+                        WHERE schemaname = 'public'
+                          AND tablename <> 'alembic_version'
+                        """
+                    )
+                )
+            ).all()
+        ]
+        if table_names:
+            joined = ", ".join(f'"public"."{name}"' for name in table_names)
+            await session.execute(text(f"TRUNCATE TABLE {joined} RESTART IDENTITY CASCADE"))
+            await session.commit()
+
     async_session = async_sessionmaker(
         bind=db_engine,
         class_=AsyncSession,
@@ -49,10 +75,14 @@ async def db_session(db_engine) -> AsyncGenerator[AsyncSession, None]:
         autoflush=False
     )
     async with async_session() as session:
+        await _reset_postgres(session)
         yield session
+        await _reset_postgres(session)
 
 @pytest.fixture(scope="function")
 async def client(db_session) -> AsyncGenerator[AsyncClient, None]:
+    await reset_rate_limiter_state()
+
     async def override_get_db():
         yield db_session
 
@@ -61,6 +91,7 @@ async def client(db_session) -> AsyncGenerator[AsyncClient, None]:
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as c:
         yield c
     app.dependency_overrides.clear()
+    await reset_rate_limiter_state()
 
 @pytest.fixture
 async def admin_token_headers(client, db_session):

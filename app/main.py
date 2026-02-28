@@ -54,14 +54,16 @@ default_origins = [
     "http://localhost:8000",
     "http://127.0.0.1:8000",
 ]
-allow_origins = list(dict.fromkeys([*default_origins, *configured_origins]))
+allow_origins = configured_origins if settings.APP_ENV == "production" else list(dict.fromkeys([*default_origins, *configured_origins]))
+allow_methods = ["*"] if settings.CORS_ALLOW_ALL_METHODS else settings.CORS_ALLOW_METHODS
+allow_headers = ["*"] if settings.CORS_ALLOW_ALL_HEADERS else settings.CORS_ALLOW_HEADERS
 
 app.add_middleware(
     CORSMiddleware,
     allow_origins=allow_origins,
     allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
+    allow_methods=allow_methods,
+    allow_headers=allow_headers,
 )
 
 
@@ -167,6 +169,7 @@ async def _payroll_scheduler_loop() -> None:
 @app.on_event("startup")
 async def startup_payroll_scheduler() -> None:
     global payroll_scheduler_task
+    _validate_security_settings()
     if not settings.PAYROLL_AUTO_ENABLED:
         logger.info("Payroll auto scheduler disabled by config")
         return
@@ -191,3 +194,19 @@ async def shutdown_payroll_scheduler() -> None:
         except asyncio.CancelledError:
             pass
     payroll_scheduler_task = None
+
+
+def _validate_security_settings() -> None:
+    if settings.APP_ENV != "production":
+        return
+
+    errors: list[str] = []
+    if len(settings.SECRET_KEY.strip()) < 24:
+        errors.append("SECRET_KEY must be at least 24 characters in production.")
+    if not settings.KIOSK_SIGNING_KEY or len(settings.KIOSK_SIGNING_KEY.strip()) < 24:
+        errors.append("KIOSK_SIGNING_KEY must be set to a strong value in production.")
+    if not settings.BACKEND_CORS_ORIGINS:
+        errors.append("BACKEND_CORS_ORIGINS must be explicitly configured in production.")
+
+    if errors:
+        raise RuntimeError("; ".join(errors))

@@ -8,6 +8,7 @@ from app.models.user import User
 from app.models.access import Subscription, SubscriptionStatus
 from app.auth.security import get_password_hash
 from app.services.access_service import AccessRateLimiter
+from app.database import set_rls_context
 from datetime import datetime, timedelta, timezone
 
 # Shared Fixture for populating test data?
@@ -49,6 +50,28 @@ async def _issue_kiosk_headers(client: AsyncClient, db_session: AsyncSession, ki
     token = login_resp.json()["data"]["access_token"]
     return await _issue_kiosk_headers_for_token(client, token, kiosk_id)
 
+
+async def _add_subscription_for_user(
+    db_session: AsyncSession,
+    *,
+    user_id,
+    plan_name: str,
+    start_date: datetime,
+    end_date: datetime,
+    status: SubscriptionStatus,
+) -> None:
+    await set_rls_context(db_session, user_id=str(user_id), role="CUSTOMER")
+    db_session.add(
+        Subscription(
+            user_id=user_id,
+            plan_name=plan_name,
+            start_date=start_date,
+            end_date=end_date,
+            status=status,
+        )
+    )
+    await db_session.flush()
+
 @pytest.mark.asyncio
 async def test_access_flow(client: AsyncClient, db_session: AsyncSession):
     # 1. Setup Data
@@ -60,28 +83,28 @@ async def test_access_flow(client: AsyncClient, db_session: AsyncSession):
     await db_session.flush() # get ID
     
     now = datetime.now(timezone.utc)
-    sub_active = Subscription(
+    await _add_subscription_for_user(
+        db_session,
         user_id=user_active.id,
         plan_name="Gold",
         start_date=now - timedelta(days=1),
         end_date=now + timedelta(days=30),
-        status=SubscriptionStatus.ACTIVE
+        status=SubscriptionStatus.ACTIVE,
     )
-    db_session.add(sub_active)
 
     # Expired User
     user_expired = User(email="test_expired@gym.com", hashed_password=hashed, role="CUSTOMER", full_name="Expired User")
     db_session.add(user_expired)
     await db_session.flush()
     
-    sub_expired = Subscription(
+    await _add_subscription_for_user(
+        db_session,
         user_id=user_expired.id,
         plan_name="Bronze",
         start_date=now - timedelta(days=60),
         end_date=now - timedelta(days=1),
-        status=SubscriptionStatus.EXPIRED # Date implies expired too
+        status=SubscriptionStatus.EXPIRED,
     )
-    db_session.add(sub_expired)
     
     await db_session.commit()
     
@@ -151,13 +174,14 @@ async def test_access_scan_rate_limited(client: AsyncClient, db_session: AsyncSe
     await db_session.flush()
 
     now = datetime.now(timezone.utc)
-    db_session.add(Subscription(
+    await _add_subscription_for_user(
+        db_session,
         user_id=user.id,
         plan_name="Basic",
         start_date=now - timedelta(days=1),
         end_date=now + timedelta(days=30),
-        status=SubscriptionStatus.ACTIVE
-    ))
+        status=SubscriptionStatus.ACTIVE,
+    )
     await db_session.commit()
 
     login_resp = await client.post(
@@ -226,13 +250,14 @@ async def test_duplicate_scan_returns_already_scanned(client: AsyncClient, db_se
     await db_session.flush()
 
     now = datetime.now(timezone.utc)
-    db_session.add(Subscription(
+    await _add_subscription_for_user(
+        db_session,
         user_id=user.id,
         plan_name="Gold",
         start_date=now - timedelta(days=1),
         end_date=now + timedelta(days=30),
         status=SubscriptionStatus.ACTIVE,
-    ))
+    )
     await db_session.commit()
 
     login_resp = await client.post(
@@ -306,13 +331,14 @@ async def test_authenticated_session_scan_flow(client: AsyncClient, db_session: 
     db_session.add(customer)
     await db_session.flush()
 
-    db_session.add(Subscription(
+    await _add_subscription_for_user(
+        db_session,
         user_id=customer.id,
         plan_name="Gold",
         start_date=now - timedelta(days=1),
         end_date=now + timedelta(days=30),
         status=SubscriptionStatus.ACTIVE,
-    ))
+    )
     await db_session.commit()
 
     login_resp = await client.post(
