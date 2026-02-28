@@ -3,6 +3,7 @@ import logging
 from datetime import datetime, timedelta, timezone, date
 from sqlalchemy import select
 from app.database import AsyncSessionLocal
+from app.database import set_rls_context
 from app.models.user import User
 from app.models.enums import Role
 from app.models.access import Subscription, SubscriptionStatus
@@ -94,6 +95,7 @@ USERS = [
 
 async def seed_data():
     async with AsyncSessionLocal() as session:
+        await set_rls_context(session, role=Role.ADMIN.value)
         for user_data in USERS:
             stmt = select(User).where(User.email == user_data["email"])
             result = await session.execute(stmt)

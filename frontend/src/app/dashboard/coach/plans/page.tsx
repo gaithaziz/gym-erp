@@ -98,10 +98,52 @@ const getErrorMessage = (error: unknown, fallback: string) => {
     return typeof detail === 'string' && detail.trim() ? detail : fallback;
 };
 
+async function loadWorkoutPlansData({
+    setRefreshing,
+    setPlans,
+    setPlanSummaries,
+    setAdherenceRows,
+    setMembers,
+    showToast,
+    loadingErrorText,
+    setLoading,
+}: {
+    setRefreshing: (value: boolean) => void;
+    setPlans: (value: Plan[]) => void;
+    setPlanSummaries: (value: PlanSummary[]) => void;
+    setAdherenceRows: (value: PlanAdherenceRow[]) => void;
+    setMembers: (value: Member[]) => void;
+    showToast: (message: string, type: 'success' | 'error' | 'info') => void;
+    loadingErrorText: string;
+    setLoading: (value: boolean) => void;
+}) {
+    setRefreshing(true);
+    try {
+        const [plansRes, summariesRes, adherenceRes] = await Promise.all([
+            api.get('/fitness/plans'),
+            api.get('/fitness/plan-summaries').catch(() => ({ data: { data: [] } })),
+            api.get('/fitness/plans/adherence', { params: { window_days: 30 } }).catch(() => ({ data: { data: [] } })),
+        ]);
+        setPlans(plansRes.data.data);
+        setPlanSummaries(summariesRes.data.data || []);
+        setAdherenceRows(adherenceRes.data.data || []);
+        try {
+            const membersRes = await api.get('/hr/members');
+            setMembers(membersRes.data.data || []);
+        } catch {
+            setMembers([]);
+        }
+    } catch {
+        showToast(loadingErrorText, 'error');
+    }
+    setLoading(false);
+    setRefreshing(false);
+}
+
 export default function WorkoutPlansPage() {
     const { locale } = useLocale();
     const { showToast, confirm: confirmAction } = useFeedback();
-    const txt = locale === 'ar'
+    const txt: Record<string, string> = locale === 'ar'
         ? {
             pageTitle: 'خطط التمرين',
             pageSubtitle: 'أنشئ تقسيمات تمرين حسب الأقسام مع تمارين وفيديوهات',
@@ -373,7 +415,7 @@ export default function WorkoutPlansPage() {
     };
 
     const getExerciseDisplayName = (exercise: WorkoutExerciseItem) => {
-        return exercise.exercise_name || exercise.exercise?.name || txt.fallbackExercise;
+        return exercise.exercise_name || exercise.exercise?.name || txt.fallbackExercise || 'Exercise';
     };
 
     const groupExercises = (exercises: WorkoutExerciseItem[]) => {
@@ -387,29 +429,20 @@ export default function WorkoutPlansPage() {
         return grouped;
     };
 
-    const fetchData = useCallback(async () => {
-        setRefreshing(true);
-        try {
-            const [plansRes, summariesRes, adherenceRes] = await Promise.all([
-                api.get('/fitness/plans'),
-                api.get('/fitness/plan-summaries').catch(() => ({ data: { data: [] } })),
-                api.get('/fitness/plans/adherence', { params: { window_days: 30 } }).catch(() => ({ data: { data: [] } })),
-            ]);
-            setPlans(plansRes.data.data);
-            setPlanSummaries(summariesRes.data.data || []);
-            setAdherenceRows(adherenceRes.data.data || []);
-            try {
-                const membersRes = await api.get('/hr/members');
-                setMembers(membersRes.data.data || []);
-            } catch {
-                setMembers([]);
-            }
-        } catch {
-            showToast(txt.loadingError, 'error');
-        }
-        setLoading(false);
-        setRefreshing(false);
-    }, [showToast]);
+    const loadingErrorText = txt.loadingError;
+
+    const fetchData = async () => {
+        await loadWorkoutPlansData({
+            setRefreshing,
+            setPlans,
+            setPlanSummaries,
+            setAdherenceRows,
+            setMembers,
+            showToast,
+            loadingErrorText,
+            setLoading,
+        });
+    };
 
     const fetchExerciseLibrary = useCallback(async (query?: string) => {
         try {
@@ -439,9 +472,20 @@ export default function WorkoutPlansPage() {
     };
 
     useEffect(() => {
-        setTimeout(() => fetchData(), 0);
-        return () => undefined;
-    }, [fetchData]);
+        const timer = setTimeout(() => {
+            void loadWorkoutPlansData({
+                setRefreshing,
+                setPlans,
+                setPlanSummaries,
+                setAdherenceRows,
+                setMembers,
+                showToast,
+                loadingErrorText,
+                setLoading,
+            });
+        }, 0);
+        return () => clearTimeout(timer);
+    }, [loadingErrorText, showToast]);
 
     const resetForm = () => {
         const defaultSection = { id: makeId(), name: txt.general, exercises: [] };
@@ -1308,4 +1352,3 @@ export default function WorkoutPlansPage() {
         </div>
     );
 }
-

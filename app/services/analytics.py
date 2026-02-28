@@ -2,6 +2,7 @@ from collections import defaultdict
 from datetime import date, datetime, timedelta, timezone
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func
+from app.config import settings
 from app.models.access import AccessLog, AttendanceLog, Subscription, SubscriptionStatus
 from app.models.hr import Payroll
 from app.services.timezone_service import get_gym_timezone
@@ -17,7 +18,7 @@ class AnalyticsService:
         now = datetime.now(timezone.utc)
         cache_key = f"{from_date.isoformat() if from_date else 'none'}:{to_date.isoformat() if to_date else 'none'}"
         bind = db.get_bind()
-        use_cache = bool(bind and bind.dialect.name != "sqlite")
+        use_cache = bool(bind and bind.dialect.name != "sqlite" and settings.APP_ENV == "production")
 
         if use_cache:
             cache_entry = AnalyticsService._dashboard_cache.get(cache_key)

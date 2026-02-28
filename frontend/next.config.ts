@@ -3,6 +3,7 @@ import type { NextConfig } from "next";
 const backendInternalUrl = (process.env.BACKEND_INTERNAL_URL || "http://localhost:8000").replace(/\/+$/, "");
 
 const nextConfig: NextConfig = {
+  output: "standalone",
   onDemandEntries: {
     // period (in ms) where the server will keep pages in the buffer
     maxInactiveAge: 60 * 1000,

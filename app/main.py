@@ -3,7 +3,7 @@ import logging
 from datetime import datetime, timedelta, timezone
 from zoneinfo import ZoneInfo
 
-from fastapi import FastAPI
+from fastapi import FastAPI, HTTPException, status
 from fastapi import Request
 from fastapi.exceptions import RequestValidationError
 from sqlalchemy.exc import IntegrityError
@@ -98,6 +98,20 @@ app.include_router(support_router, prefix=f"{settings.API_V1_STR}/support", tags
 @app.get("/health")
 async def health_check():
     return {"status": "ok"}
+
+
+@app.get("/healthz")
+async def healthz():
+    try:
+        async with AsyncSessionLocal() as db:
+            await db.execute(text("SELECT 1"))
+    except Exception as exc:
+        logger.exception("Health check failed")
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="database unavailable",
+        ) from exc
+    return {"status": "ok", "database": "ok"}
 
 @app.get("/")
 async def root():

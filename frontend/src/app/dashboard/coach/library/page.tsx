@@ -200,7 +200,7 @@ export default function WorkoutDietLibraryPage() {
             showToast(txt.loadFailed, 'error');
         }
         setLoading(false);
-    }, [fetchDietItems, fetchWorkoutItems, showToast]);
+    }, [fetchDietItems, fetchWorkoutItems, showToast, txt.loadFailed]);
 
     useEffect(() => {
         setTimeout(() => fetchData(), 0);

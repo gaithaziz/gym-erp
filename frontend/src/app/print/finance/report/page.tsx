@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
+import { Suspense, useEffect, useMemo, useState } from 'react';
 import { useSearchParams } from 'next/navigation';
 import { api } from '@/lib/api';
 import { isLocale } from '@/lib/i18n';
@@ -23,6 +23,14 @@ type FinanceSummary = {
 };
 
 export default function FinanceReportPrintPage() {
+    return (
+        <Suspense fallback={<PrintLoadingFallback />}>
+            <FinanceReportPrintPageContent />
+        </Suspense>
+    );
+}
+
+function FinanceReportPrintPageContent() {
     const searchParams = useSearchParams();
     const requestedLocale = searchParams.get('locale');
     const { locale, setLocale, direction, formatDate, formatNumber } = useLocale();
@@ -274,5 +282,15 @@ function PrintMeta({ label, value }: { label: string; value: string }) {
             <span className="mb-1 block text-[11px] font-bold uppercase tracking-[0.14em] text-slate-500">{label}</span>
             <span className="block text-sm text-slate-900 break-words">{value}</span>
         </div>
+    );
+}
+
+function PrintLoadingFallback() {
+    return (
+        <main className="min-h-screen bg-stone-100 p-6 text-slate-900 print:bg-white print:p-0">
+            <div className="mx-auto w-full max-w-5xl rounded-[28px] border border-stone-300 bg-white p-8 shadow-[0_18px_50px_rgba(15,23,42,0.08)] print:max-w-none print:rounded-none print:border-0 print:p-0 print:shadow-none">
+                <p className="text-sm text-slate-500">Preparing report...</p>
+            </div>
+        </main>
     );
 }

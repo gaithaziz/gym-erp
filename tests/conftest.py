@@ -1,52 +1,35 @@
 import pytest
+from alembic import command
+from alembic.config import Config
 from typing import AsyncGenerator
 from httpx import AsyncClient
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession, async_sessionmaker
-from app.database import Base, get_db
+from sqlalchemy.pool import NullPool
+from app.database import get_db, set_rls_context
+from app.config import settings
 from app.main import app
 from app.core.rate_limit import reset_rate_limiter_state
 
-# Use an in-memory SQLite database for testing, or a separate test DB.
-# For async, sqlite+aiosqlite is good, but we configured Postgres.
-# To allow testing without running a separate Postgres DB, we can use a different URL.
-# However, user's env has POSTGRES_HOST=db or localhost.
-# Let's try to use the same logic but maybe override the DB name if possible, OR just mock the session.
-# But integration tests usually need a real DB.
-# Let's assume the user wants us to run tests against the configured DB (or a test one).
-# I'll use the configured DB for now but handle the loop.
+@pytest.fixture(scope="session", autouse=True)
+def migrated_test_database():
+    alembic_cfg = Config("alembic.ini")
+    command.upgrade(alembic_cfg, "head")
+    yield
 
-# event_loop fixture removed as it is deprecated in pytest-asyncio
 
 @pytest.fixture(scope="function")
 async def db_engine():
-    import os
-    if os.getenv("CI"):
-        # Use Postgres in CI (provided by service container)
-        from app.config import settings
-        engine = create_async_engine(str(settings.SQLALCHEMY_DATABASE_URI))
-        yield engine
-        await engine.dispose()
-    else:
-        # Use SQLite for local testing
-        from sqlalchemy.pool import StaticPool
-        engine = create_async_engine(
-            "sqlite+aiosqlite:///:memory:",
-            connect_args={"check_same_thread": False},
-            poolclass=StaticPool,
-        )
-        async with engine.begin() as conn:
-            await conn.run_sync(Base.metadata.create_all)
-        yield engine
-        async with engine.begin() as conn:
-            await conn.run_sync(Base.metadata.drop_all)
-        await engine.dispose()
+    engine = create_async_engine(
+        str(settings.SQLALCHEMY_DATABASE_URI),
+        poolclass=NullPool,
+    )
+    yield engine
+    await engine.dispose()
 
 @pytest.fixture(scope="function")
-async def db_session(db_engine) -> AsyncGenerator[AsyncSession, None]:
+async def db_session(db_engine, migrated_test_database) -> AsyncGenerator[AsyncSession, None]:
     async def _reset_postgres(session: AsyncSession) -> None:
-        if not session.bind or session.bind.dialect.name != "postgresql":
-            return
         await session.rollback()
         table_names = [
             row[0]
@@ -75,7 +58,9 @@ async def db_session(db_engine) -> AsyncGenerator[AsyncSession, None]:
         autoflush=False
     )
     async with async_session() as session:
+        await set_rls_context(session, role="ADMIN")
         await _reset_postgres(session)
+        await set_rls_context(session, role="ADMIN")
         yield session
         await _reset_postgres(session)
 

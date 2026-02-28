@@ -350,9 +350,6 @@ async def create_contract(
     current_user: Annotated[User, Depends(dependencies.RoleChecker([Role.ADMIN]))],
     db: Annotated[AsyncSession, Depends(get_db)]
 ):
-    if contract_data.contract_type != ContractType.FULL_TIME:
-        raise HTTPException(status_code=400, detail="Only FULL_TIME contracts are supported")
-
     # Check if user exists
     user_stmt = select(User).where(User.id == contract_data.user_id)
     result = await db.execute(user_stmt)

@@ -195,7 +195,7 @@ const getPlanMealGroups = (plan: DietPlan): MealGroupDraft[] => {
 export default function DietPlansPage() {
     const { locale } = useLocale();
     const { showToast, confirm: confirmAction } = useFeedback();
-    const txt = locale === 'ar' ? {
+    const txt: Record<string, string> = locale === 'ar' ? {
         title: 'خطط التغذية',
         subtitle: 'إنشاء وإدارة برامج التغذية',
         refreshing: 'جارٍ التحديث...',
@@ -385,11 +385,11 @@ export default function DietPlansPage() {
             setPlans(plansRes.data.data || []);
             setMembers(membersRes.data.data || []);
         } catch {
-            showToast(txt.failedLoadPlans, 'error');
+            showToast(txt.failedLoadPlans ?? 'Failed to load diet plans.', 'error');
         }
         setLoading(false);
         setRefreshing(false);
-    }, [showToast]);
+    }, [showToast, txt.failedLoadPlans]);
 
     const fetchDietLibrary = useCallback(async (query?: string) => {
         setLibraryLoading(true);
@@ -403,10 +403,10 @@ export default function DietPlansPage() {
             setDietLibraryItems(response.data?.data || []);
         } catch {
             setDietLibraryItems([]);
-            showToast(txt.failedLoadLibrary, 'error');
+            showToast(txt.failedLoadLibrary ?? 'Failed to load diet library items.', 'error');
         }
         setLibraryLoading(false);
-    }, [showToast]);
+    }, [showToast, txt.failedLoadLibrary]);
 
     useEffect(() => {
         setTimeout(() => fetchData(), 0);
@@ -469,7 +469,7 @@ export default function DietPlansPage() {
                 const rootPlan = plans.find(plan => plan.id === rootId) || memberPlans[0];
                 return {
                     rootId,
-                    rootPlanName: rootPlan?.name || txt.assignedDietPlan,
+                    rootPlanName: rootPlan?.name || txt.assignedDietPlan || 'Assigned Diet Plan',
                     members: [...memberPlans].sort((a, b) => {
                         const aName = a.member_id ? (memberNameById[a.member_id] || '') : '';
                         const bName = b.member_id ? (memberNameById[b.member_id] || '') : '';
@@ -478,7 +478,7 @@ export default function DietPlansPage() {
                 };
             })
             .sort((a, b) => b.members.length - a.members.length || a.rootPlanName.localeCompare(b.rootPlanName));
-    }, [assignedPlans, memberNameById, plans]);
+    }, [assignedPlans, memberNameById, plans, txt.assignedDietPlan]);
 
     const handleOpenCreate = () => {
         resetForm();

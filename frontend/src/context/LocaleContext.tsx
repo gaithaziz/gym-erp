@@ -1,6 +1,6 @@
 "use client";
 
-import React, { createContext, useContext, useEffect, useMemo, useState } from "react";
+import React, { createContext, useContext, useEffect, useMemo, useSyncExternalStore } from "react";
 import {
   DEFAULT_LOCALE,
   getDirection,
@@ -26,6 +26,7 @@ type LocaleContextValue = {
 };
 
 const LocaleContext = createContext<LocaleContextValue | null>(null);
+const LOCALE_CHANGE_EVENT = "gym-locale-change";
 
 function resolveInitialLocale(): Locale {
   if (typeof window === "undefined") return DEFAULT_LOCALE;
@@ -33,30 +34,49 @@ function resolveInitialLocale(): Locale {
   return isLocale(stored) ? stored : DEFAULT_LOCALE;
 }
 
-export function LocaleProvider({ children }: { children: React.ReactNode }) {
-  // Hydration-safe: keep first client render aligned with SSR, then load persisted locale.
-  const [locale, setLocaleState] = useState<Locale>(DEFAULT_LOCALE);
-  const direction = getDirection(locale);
+function subscribeToLocale(onStoreChange: () => void) {
+  if (typeof window === "undefined") return () => undefined;
 
-  useEffect(() => {
-    const persisted = resolveInitialLocale();
-    if (persisted !== DEFAULT_LOCALE) {
-      setLocaleState(persisted);
+  const handleStorage = (event: StorageEvent) => {
+    if (event.key === null || event.key === LOCALE_STORAGE_KEY) {
+      onStoreChange();
     }
-  }, []);
+  };
+
+  window.addEventListener("storage", handleStorage);
+  window.addEventListener(LOCALE_CHANGE_EVENT, onStoreChange);
+
+  return () => {
+    window.removeEventListener("storage", handleStorage);
+    window.removeEventListener(LOCALE_CHANGE_EVENT, onStoreChange);
+  };
+}
+
+function persistLocale(locale: Locale) {
+  if (typeof window === "undefined") return;
+  window.localStorage.setItem(LOCALE_STORAGE_KEY, locale);
+  window.dispatchEvent(new Event(LOCALE_CHANGE_EVENT));
+}
+
+export function LocaleProvider({ children }: { children: React.ReactNode }) {
+  const locale = useSyncExternalStore(
+    subscribeToLocale,
+    resolveInitialLocale,
+    () => DEFAULT_LOCALE
+  );
+  const direction = getDirection(locale);
 
   useEffect(() => {
     document.documentElement.lang = locale;
     document.documentElement.dir = direction;
     document.documentElement.dataset.locale = locale;
-    window.localStorage.setItem(LOCALE_STORAGE_KEY, locale);
   }, [direction, locale]);
 
   const value = useMemo<LocaleContextValue>(
     () => ({
       locale,
       direction,
-      setLocale: setLocaleState,
+      setLocale: persistLocale,
       t: (key) => translate(locale, key),
       formatDate: (value, options) => formatDateByLocale(locale, value, options),
       formatNumber: (value, options) => formatNumberByLocale(locale, value, options),

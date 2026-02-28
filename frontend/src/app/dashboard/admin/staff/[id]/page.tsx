@@ -347,28 +347,7 @@ export default function StaffSummaryPage() {
         }));
         printWindow.document.close();
         return;
-        const metrics = type === 'attendance'
-            ? `<div class="metric"><b>${txt.daysPresent}</b><br/>${summary.attendance_summary.days_present}</div>
-               <div class="metric"><b>${txt.totalHours}</b><br/>${summary.attendance_summary.total_hours.toFixed(2)}</div>
-               <div class="metric"><b>${txt.avgDay}</b><br/>${summary.attendance_summary.avg_hours_per_day.toFixed(2)}</div>`
-            : `<div class="metric"><b>${txt.totalRequests}</b><br/>${summary.leave_summary.total_requests}</div>
-               <div class="metric"><b>${txt.approvedDays}</b><br/>${summary.leave_summary.approved_days}</div>
-               <div class="metric"><b>${txt.pending}</b><br/>${summary.leave_summary.pending_count}</div>`;
-
-        const rows = type === 'attendance'
-            ? attendanceRows.map((r) => `<tr><td>${r.check_in_time ? formatDate(r.check_in_time, { dateStyle: 'medium', timeStyle: 'short' }) : '-'}</td><td>${r.check_out_time ? formatDate(r.check_out_time, { dateStyle: 'medium', timeStyle: 'short' }) : '-'}</td><td style="text-align:right;">${r.hours_worked.toFixed(2)}</td></tr>`).join('')
-            : leaveRows.map((r) => `<tr><td>${formatDate(r.start_date, { dateStyle: 'medium' })}</td><td>${formatDate(r.end_date, { dateStyle: 'medium' })}</td><td>${leaveTypeLabel(r.leave_type)}</td><td>${leaveStatusLabel(r.status)}</td></tr>`).join('');
-        const tableHead = type === 'attendance'
-            ? `<tr><th>${txt.checkIn}</th><th>${txt.checkOut}</th><th style="text-align:right;">${txt.hours}</th></tr>`
-            : `<tr><th>${txt.start}</th><th>${txt.end}</th><th>${txt.type}</th><th>${txt.status}</th></tr>`;
-        const tableRows = rows || `<tr><td colspan="${type === 'attendance' ? 3 : 4}" style="text-align:center;">${txt.noRecords}</td></tr>`;
-
-        const w = window.open('', '_blank');
-        if (!w) {
-            showToast(txt.popupBlocked, 'error');
-            return;
-        }
-        w.document.write(`
+        /*
           <html><head><title>${title}</title>
             <style>
               body{font-family:Arial,sans-serif;background:#0b1220;color:#e5e7eb;padding:24px}
@@ -386,7 +365,7 @@ export default function StaffSummaryPage() {
             <script>window.onload=function(){window.print();window.close();}</script>
           </body></html>
         `);
-        w.document.close();
+        */
     };
 
     if (loading) return (

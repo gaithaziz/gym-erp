@@ -584,14 +584,6 @@ export default function ChatPage() {
         return () => window.clearInterval(interval);
     }, [socketConnected, selectedThreadId]); // eslint-disable-line react-hooks/exhaustive-deps
 
-    if (!isAllowedRole) {
-        return (
-            <div className="kpi-card">
-                <h1 className="text-xl font-bold">{txt.unavailable}</h1>
-            </div>
-        );
-    }
-
     const coachContacts = contacts.filter((contact) => contact.role === 'COACH');
     const customerContacts = contacts.filter((contact) => contact.role === 'CUSTOMER');
     const availableContacts = user?.role === 'CUSTOMER' ? coachContacts : customerContacts;
@@ -636,6 +628,13 @@ export default function ChatPage() {
         stopAndSend: locale === 'ar' ? 'إيقاف وإرسال الرسالة الصوتية مباشرة' : 'Stop and send voice note directly',
         uploading: locale === 'ar' ? 'جارٍ رفع المرفق...' : 'Uploading attachment...',
     };
+    if (!isAllowedRole) {
+        return (
+            <div className="kpi-card">
+                <h1 className="text-xl font-bold">{txt.unavailable}</h1>
+            </div>
+        );
+    }
     const ui = locale === 'ar' ? {
         playAudio: 'تشغيل الصوت',
         pauseAudio: 'إيقاف الصوت',
@@ -958,4 +957,3 @@ export default function ChatPage() {
         </div>
     );
 }
-

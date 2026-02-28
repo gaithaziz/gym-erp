@@ -944,7 +944,7 @@ function CustomerDashboard({
     subscriptionStatus?: 'ACTIVE' | 'FROZEN' | 'EXPIRED' | 'NONE';
     subscriptionPlanName?: string | null;
 }) {
-    const { t, formatDate, locale } = useLocale();
+    const { formatDate, locale } = useLocale();
     const customerTxt = locale === 'ar'
         ? {
             streak: 'سلسلة',
