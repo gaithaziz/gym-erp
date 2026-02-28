@@ -19,6 +19,7 @@ from app.models.enums import Role
 from app.models.user import User
 from app.services.access_service import AccessRateLimiter, AccessService
 from app.services.payroll_automation_service import PayrollAutomationService
+from app.core.rate_limit import rate_limit_dependency
 
 router = APIRouter()
 
@@ -97,7 +98,11 @@ def _verify_kiosk_token(kiosk_token: str, expected_kiosk_id: str) -> None:
         )
 
 
-@router.post("/kiosk/auth", response_model=StandardResponse[KioskAuthResponse])
+@router.post(
+    "/kiosk/auth",
+    response_model=StandardResponse[KioskAuthResponse],
+    dependencies=[rate_limit_dependency(route_key="POST /api/v1/access/kiosk/auth", scope="kiosk_auth", limit=10, window_seconds=60)],
+)
 async def create_kiosk_auth(
     auth_request: KioskAuthRequest,
     _current_user: Annotated[User, Depends(dependencies.RoleChecker([Role.ADMIN, Role.EMPLOYEE, Role.RECEPTION, Role.FRONT_DESK]))],
@@ -119,7 +124,11 @@ async def generate_qr(
     )
 
 
-@router.post("/scan", response_model=StandardResponse[AccessScanResponse])
+@router.post(
+    "/scan",
+    response_model=StandardResponse[AccessScanResponse],
+    dependencies=[rate_limit_dependency(route_key="POST /api/v1/access/scan", scope="access_scan", limit=60, window_seconds=60)],
+)
 async def scan_qr(
     scan_request: AccessScanRequest,
     db: Annotated[AsyncSession, Depends(get_db)],
@@ -138,7 +147,11 @@ async def scan_qr(
     return StandardResponse(data=AccessScanResponse(**result))
 
 
-@router.post("/scan-session", response_model=StandardResponse[AccessScanResponse])
+@router.post(
+    "/scan-session",
+    response_model=StandardResponse[AccessScanResponse],
+    dependencies=[rate_limit_dependency(route_key="POST /api/v1/access/scan-session", scope="access_session_scan", limit=60, window_seconds=60)],
+)
 async def scan_from_authenticated_session(
     request: SessionCheckInRequest,
     current_user: Annotated[User, Depends(dependencies.RoleChecker([Role.ADMIN, Role.COACH, Role.EMPLOYEE, Role.CASHIER, Role.RECEPTION, Role.FRONT_DESK, Role.CUSTOMER]))],

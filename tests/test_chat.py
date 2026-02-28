@@ -6,6 +6,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.auth.security import get_password_hash
 from app.config import settings
+from app.database import set_rls_context
 from app.models.access import Subscription, SubscriptionStatus
 from app.models.enums import Role
 from app.models.user import User
@@ -20,6 +21,12 @@ def _active_subscription(user_id):
         end_date=now + timedelta(days=30),
         status=SubscriptionStatus.ACTIVE,
     )
+
+
+async def _add_active_subscription(db_session: AsyncSession, user_id) -> None:
+    await set_rls_context(db_session, user_id=str(user_id), role=Role.CUSTOMER.value)
+    db_session.add(_active_subscription(user_id))
+    await db_session.flush()
 
 
 async def _login(client: AsyncClient, email: str, password: str = "password123") -> dict[str, str]:
@@ -42,7 +49,7 @@ async def test_admin_can_list_and_read_threads_but_cannot_send(client: AsyncClie
     customer = User(email="customer_chat@gym.com", hashed_password=hashed, role=Role.CUSTOMER, full_name="Customer Chat")
     db_session.add_all([admin, coach, customer])
     await db_session.flush()
-    db_session.add(_active_subscription(customer.id))
+    await _add_active_subscription(db_session, customer.id)
     await db_session.commit()
 
     customer_headers = await _login(client, customer.email, password)
@@ -114,7 +121,8 @@ async def test_participant_visibility_is_restricted(client: AsyncClient, db_sess
     customer_2 = User(email="customer2_chat_acl@gym.com", hashed_password=hashed, role=Role.CUSTOMER, full_name="Customer Two")
     db_session.add_all([coach, customer_1, customer_2])
     await db_session.flush()
-    db_session.add_all([_active_subscription(customer_1.id), _active_subscription(customer_2.id)])
+    await _add_active_subscription(db_session, customer_1.id)
+    await _add_active_subscription(db_session, customer_2.id)
     await db_session.commit()
 
     customer_1_headers = await _login(client, customer_1.email, password)

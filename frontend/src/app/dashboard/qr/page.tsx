@@ -5,6 +5,7 @@ import { api } from '@/lib/api';
 import { useAuth } from '@/context/AuthContext';
 import { Camera, CameraOff, CheckCircle, RefreshCw, ScanLine, XCircle } from 'lucide-react';
 import jsQR from 'jsqr';
+import { useLocale } from '@/context/LocaleContext';
 
 const KIOSK_ID_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._:-]*$/;
 const STAFF_ROLES = new Set(['ADMIN', 'COACH', 'EMPLOYEE', 'CASHIER', 'RECEPTION', 'FRONT_DESK']);
@@ -54,14 +55,86 @@ const parseQrPayload = (rawValue: string): ParsedQrPayload | null => {
     return null;
 };
 
-const headingByKind: Record<ScanKind, string> = {
-    client_entry: 'Client Entrance Check-In',
-    staff_check_in: 'Staff Clock In',
-    staff_check_out: 'Staff Clock Out',
-};
-
 export default function QRCodePage() {
     const { user } = useAuth();
+    const { locale } = useLocale();
+    const txt = locale === 'ar' ? {
+        subtitle: 'امسح رمز QR وأكّد الإجراء. دخول العميل يمنح الوصول، ورموز الموظفين تسجل الحضور/الانصراف.',
+        cameraReady: 'الكاميرا جاهزة',
+        cameraNotReady: 'الكاميرا غير جاهزة',
+        restartCamera: 'إعادة تشغيل الكاميرا',
+        detectedQr: 'رمز QR المكتشف',
+        scanAutofill: 'امسح لملء معرف الكشك تلقائيًا',
+        processing: 'جارٍ المعالجة...',
+        confirmDetected: 'تأكيد الإجراء المكتشف',
+        supportedPayloads: 'المدخلات المدعومة: kiosk_id خام، gymerp://kiosk/{id}، أو JSON typed.',
+        manualFallback: 'إدخال يدوي بديل',
+        enterKioskManually: 'أدخل معرف الكشك يدويًا',
+        submitManual: 'إرسال الإجراء اليدوي',
+        actionRecorded: 'تم تسجيل الإجراء.',
+        clientEntry: 'دخول عميل',
+        staffIn: 'تسجيل حضور موظف',
+        staffOut: 'تسجيل انصراف موظف',
+    } : {
+        subtitle: 'Scan a QR and confirm the action. Client entry grants access, staff QR codes clock in/out.',
+        cameraReady: 'Camera ready',
+        cameraNotReady: 'Camera not ready',
+        restartCamera: 'Restart Camera',
+        detectedQr: 'Detected QR',
+        scanAutofill: 'Scan to auto-fill kiosk ID',
+        processing: 'Processing...',
+        confirmDetected: 'Confirm Detected Action',
+        supportedPayloads: 'Supported payloads: raw kiosk_id, gymerp://kiosk/{id}, or typed JSON.',
+        manualFallback: 'Manual Fallback',
+        enterKioskManually: 'Enter kiosk ID manually',
+        submitManual: 'Submit Manual Action',
+        actionRecorded: 'Action recorded.',
+        clientEntry: 'client_entry',
+        staffIn: 'staff_check_in',
+        staffOut: 'staff_check_out',
+        cameraUnsupported: 'Camera scanning is not supported on this device.',
+        compatibilityMode: 'Using compatibility scanner mode for this browser.',
+        cameraAccessError: 'Unable to access camera. Check browser permissions.',
+        staffOnlyQr: 'This QR is for staff attendance only.',
+        staffModeHint: 'Use staff start/end QR for attendance.',
+        roleDenied: 'Your role is not allowed to record staff attendance.',
+        invalidQr: 'Invalid kiosk QR format.',
+        checkInSuccess: 'Clocked in successfully.',
+        checkOutSuccess: 'Clocked out successfully.',
+        actionFailed: 'Action failed.',
+        granted: 'Granted',
+        denied: 'Denied',
+        alreadyScanned: 'Already scanned',
+    };
+    const ui = locale === 'ar' ? {
+        cameraUnsupported: 'المسح بالكاميرا غير مدعوم على هذا الجهاز.',
+        compatibilityMode: 'يتم استخدام وضع متوافق للمسح في هذا المتصفح.',
+        cameraAccessError: 'تعذر الوصول إلى الكاميرا. تحقق من أذونات المتصفح.',
+        staffOnlyQr: 'هذا الرمز مخصص لتسجيل حضور الموظفين فقط.',
+        staffModeHint: 'استخدم رمز بدء/إنهاء الدوام للحضور.',
+        roleDenied: 'دورك غير مسموح له بتسجيل حضور الموظفين.',
+        invalidQr: 'تنسيق رمز الكشك غير صالح.',
+        checkInSuccess: 'تم تسجيل الحضور بنجاح.',
+        checkOutSuccess: 'تم تسجيل الانصراف بنجاح.',
+        actionFailed: 'فشل تنفيذ الإجراء.',
+        granted: 'مسموح',
+        denied: 'مرفوض',
+        alreadyScanned: 'مسجل مسبقًا',
+    } : {
+        cameraUnsupported: 'Camera scanning is not supported on this device.',
+        compatibilityMode: 'Using compatibility scanner mode for this browser.',
+        cameraAccessError: 'Unable to access camera. Check browser permissions.',
+        staffOnlyQr: 'This QR is for staff attendance only.',
+        staffModeHint: 'Use staff start/end QR for attendance.',
+        roleDenied: 'Your role is not allowed to record staff attendance.',
+        invalidQr: 'Invalid kiosk QR format.',
+        checkInSuccess: 'Clocked in successfully.',
+        checkOutSuccess: 'Clocked out successfully.',
+        actionFailed: 'Action failed.',
+        granted: 'Granted',
+        denied: 'Denied',
+        alreadyScanned: 'Already scanned',
+    };
     const videoRef = useRef<HTMLVideoElement | null>(null);
     const canvasRef = useRef<HTMLCanvasElement | null>(null);
     const streamRef = useRef<MediaStream | null>(null);
@@ -97,7 +170,7 @@ export default function QRCodePage() {
         setDetectedScan(null);
 
         if (typeof window === 'undefined' || !navigator.mediaDevices?.getUserMedia) {
-            setCameraError('Camera scanning is not supported on this device.');
+            setCameraError(ui.cameraUnsupported);
             return;
         }
 
@@ -121,7 +194,7 @@ export default function QRCodePage() {
                 : null;
 
             if (!hasBarcodeDetector) {
-                setCameraError('Using compatibility scanner mode for this browser.');
+                setCameraError(ui.compatibilityMode);
             }
 
             scanIntervalRef.current = setInterval(async () => {
@@ -161,27 +234,27 @@ export default function QRCodePage() {
                 }
             }, 350);
         } catch {
-            setCameraError('Unable to access camera. Check browser permissions.');
+            setCameraError(ui.cameraAccessError);
         }
-    }, [detectedScan, stopScanner, submitting]);
+    }, [detectedScan, stopScanner, submitting, ui.cameraAccessError, ui.cameraUnsupported, ui.compatibilityMode]);
 
     const validateRoleAndMode = useCallback((kind: ScanKind): string | null => {
         const role = user?.role || '';
         if (role === 'CUSTOMER' && kind !== 'client_entry') {
-            return 'This QR is for staff attendance only.';
+            return ui.staffOnlyQr;
         }
         if (role !== 'CUSTOMER' && kind === 'client_entry') {
-            return 'Use staff start/end QR for attendance.';
+            return ui.staffModeHint;
         }
         if (kind !== 'client_entry' && !STAFF_ROLES.has(role)) {
-            return 'Your role is not allowed to record staff attendance.';
+            return ui.roleDenied;
         }
         return null;
-    }, [user?.role]);
+    }, [ui.roleDenied, ui.staffModeHint, ui.staffOnlyQr, user?.role]);
 
     const submitAction = useCallback(async (payload: ParsedQrPayload) => {
         if (!KIOSK_ID_PATTERN.test(payload.kioskId)) {
-            setScanResult({ status: 'DENIED', reason: 'Invalid kiosk QR format.' });
+            setScanResult({ status: 'DENIED', reason: ui.invalidQr });
             return;
         }
 
@@ -199,18 +272,18 @@ export default function QRCodePage() {
                 setScanResult(res.data.data as ScanResult);
             } else if (payload.kind === 'staff_check_in') {
                 const res = await api.post('/access/check-in');
-                setScanResult({ status: 'GRANTED', reason: res.data?.message || 'Clocked in successfully.' });
+                setScanResult({ status: 'GRANTED', reason: res.data?.message || ui.checkInSuccess });
             } else {
                 const res = await api.post('/access/check-out');
-                setScanResult({ status: 'GRANTED', reason: res.data?.message || 'Clocked out successfully.' });
+                setScanResult({ status: 'GRANTED', reason: res.data?.message || ui.checkOutSuccess });
             }
         } catch (error: unknown) {
             const detail = (error as { response?: { data?: { detail?: string } } })?.response?.data?.detail;
-            setScanResult({ status: 'DENIED', reason: detail || 'Action failed.' });
+            setScanResult({ status: 'DENIED', reason: detail || ui.actionFailed });
         } finally {
             setSubmitting(false);
         }
-    }, [validateRoleAndMode]);
+    }, [ui.actionFailed, ui.checkInSuccess, ui.checkOutSuccess, ui.invalidQr, validateRoleAndMode]);
 
     useEffect(() => {
         startScanner();
@@ -218,13 +291,25 @@ export default function QRCodePage() {
     }, [startScanner, stopScanner]);
 
     const currentKind = detectedScan?.kind || manualMode;
+    const currentHeading =
+        currentKind === 'client_entry'
+            ? txt.clientEntry
+            : currentKind === 'staff_check_in'
+                ? txt.staffIn
+                : txt.staffOut;
+    const scanStatusLabel =
+        scanResult?.status === 'GRANTED'
+            ? ui.granted
+            : scanResult?.status === 'ALREADY_SCANNED'
+                ? ui.alreadyScanned
+                : ui.denied;
 
     return (
         <div className="max-w-xl mx-auto space-y-6 py-8">
             <div>
-                <h1 className="text-2xl font-bold text-foreground">{headingByKind[currentKind]}</h1>
+                <h1 className="text-2xl font-bold text-foreground">{currentHeading}</h1>
                 <p className="text-sm text-muted-foreground mt-1">
-                    Scan a QR and confirm the action. Client entry grants access, staff QR codes clock in/out.
+                    {txt.subtitle}
                 </p>
             </div>
 
@@ -237,11 +322,11 @@ export default function QRCodePage() {
                 <div className="flex items-center justify-between gap-3 text-sm">
                     <div className="flex items-center gap-2 text-muted-foreground">
                         {cameraReady ? <Camera className="h-4 w-4 text-primary" /> : <CameraOff className="h-4 w-4" />}
-                        {cameraReady ? 'Camera ready' : 'Camera not ready'}
+                        {cameraReady ? txt.cameraReady : txt.cameraNotReady}
                     </div>
                     <button onClick={startScanner} type="button" className="btn-ghost px-3 py-1.5 text-xs">
                         <RefreshCw size={14} />
-                        Restart Camera
+                        {txt.restartCamera}
                     </button>
                 </div>
 
@@ -251,12 +336,12 @@ export default function QRCodePage() {
             </div>
 
             <div className="kpi-card p-4 space-y-3">
-                <label className="block text-xs font-bold uppercase tracking-wider text-muted-foreground">Detected QR</label>
+                <label className="block text-xs font-bold uppercase tracking-wider text-muted-foreground">{txt.detectedQr}</label>
                 <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
                     <input
                         value={detectedScan?.kioskId || ''}
                         onChange={(e) => setDetectedScan((prev) => (prev ? { ...prev, kioskId: e.target.value } : prev))}
-                        placeholder="Scan to auto-fill kiosk ID"
+                        placeholder={txt.scanAutofill}
                         className="input-dark sm:col-span-2 font-mono"
                     />
                     <select
@@ -265,9 +350,9 @@ export default function QRCodePage() {
                         onChange={(e) => setDetectedScan((prev) => (prev ? { ...prev, kind: e.target.value as ScanKind } : prev))}
                         disabled={!detectedScan}
                     >
-                        <option value="client_entry">client_entry</option>
-                        <option value="staff_check_in">staff_check_in</option>
-                        <option value="staff_check_out">staff_check_out</option>
+                        <option value="client_entry">{txt.clientEntry}</option>
+                        <option value="staff_check_in">{txt.staffIn}</option>
+                        <option value="staff_check_out">{txt.staffOut}</option>
                     </select>
                 </div>
                 <button
@@ -277,26 +362,26 @@ export default function QRCodePage() {
                     className="btn-primary w-full"
                 >
                     <ScanLine size={14} />
-                    {submitting ? 'Processing...' : 'Confirm Detected Action'}
+                    {submitting ? txt.processing : txt.confirmDetected}
                 </button>
                 <p className="text-xs text-muted-foreground">
-                    Supported payloads: raw `kiosk_id`, `gymerp://kiosk/{'{id}'}`, `{`"kiosk_id":"id"`}`, or typed JSON `{`"type":"staff_check_in","kiosk_id":"id"`}`.
+                    {txt.supportedPayloads}
                 </p>
             </div>
 
             <div className="kpi-card p-4 space-y-3">
-                <label className="block text-xs font-bold uppercase tracking-wider text-muted-foreground">Manual Fallback</label>
+                <label className="block text-xs font-bold uppercase tracking-wider text-muted-foreground">{txt.manualFallback}</label>
                 <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
                     <input
                         value={manualKioskId}
                         onChange={(e) => setManualKioskId(e.target.value)}
-                        placeholder="Enter kiosk ID manually"
+                        placeholder={txt.enterKioskManually}
                         className="input-dark sm:col-span-2 font-mono"
                     />
                     <select className="input-dark font-mono" value={manualMode} onChange={(e) => setManualMode(e.target.value as ScanKind)}>
-                        <option value="client_entry">client_entry</option>
-                        <option value="staff_check_in">staff_check_in</option>
-                        <option value="staff_check_out">staff_check_out</option>
+                        <option value="client_entry">{txt.clientEntry}</option>
+                        <option value="staff_check_in">{txt.staffIn}</option>
+                        <option value="staff_check_out">{txt.staffOut}</option>
                     </select>
                 </div>
                 <button
@@ -305,12 +390,12 @@ export default function QRCodePage() {
                     disabled={!manualKioskId.trim() || submitting}
                     className="btn-ghost w-full"
                 >
-                    Submit Manual Action
+                    {txt.submitManual}
                 </button>
             </div>
 
             {scanResult && (
-                <div className={`kpi-card p-4 border-l-4 ${scanResult.status === 'GRANTED' || scanResult.status === 'ALREADY_SCANNED' ? 'border-l-primary' : 'border-l-destructive'}`}>
+                <div className={`kpi-card p-4 ltr:border-l-4 rtl:border-r-4 ${scanResult.status === 'GRANTED' || scanResult.status === 'ALREADY_SCANNED' ? 'ltr:border-l-primary rtl:border-r-primary' : 'ltr:border-l-destructive rtl:border-r-destructive'}`}>
                     <div className="flex items-start gap-3">
                         {scanResult.status === 'GRANTED' || scanResult.status === 'ALREADY_SCANNED' ? (
                             <CheckCircle className="h-6 w-6 text-primary mt-0.5" />
@@ -318,8 +403,8 @@ export default function QRCodePage() {
                             <XCircle className="h-6 w-6 text-destructive mt-0.5" />
                         )}
                         <div>
-                            <p className="text-sm font-bold text-foreground">{scanResult.status}</p>
-                            <p className="text-sm text-muted-foreground">{scanResult.reason || 'Action recorded.'}</p>
+                            <p className="text-sm font-bold text-foreground">{scanStatusLabel}</p>
+                            <p className="text-sm text-muted-foreground">{scanResult.reason || txt.actionRecorded}</p>
                             {scanResult.user_name && (
                                 <p className="text-sm text-foreground mt-1">{scanResult.user_name}</p>
                             )}

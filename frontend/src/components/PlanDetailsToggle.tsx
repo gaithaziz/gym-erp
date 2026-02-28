@@ -6,9 +6,17 @@ interface PlanDetailsToggleProps {
     expanded: boolean;
     onClick: () => void;
     size?: 'sm' | 'md';
+    expandLabel?: string;
+    collapseLabel?: string;
 }
 
-export default function PlanDetailsToggle({ expanded, onClick, size = 'md' }: PlanDetailsToggleProps) {
+export default function PlanDetailsToggle({
+    expanded,
+    onClick,
+    size = 'md',
+    expandLabel = 'View Details',
+    collapseLabel = 'Collapse',
+}: PlanDetailsToggleProps) {
     const iconSize = size === 'sm' ? 14 : 16;
     const textSize = size === 'sm' ? 'text-xs' : 'text-sm';
 
@@ -19,7 +27,7 @@ export default function PlanDetailsToggle({ expanded, onClick, size = 'md' }: Pl
             className={`text-primary ${textSize} font-medium hover:text-primary/80 transition-colors flex items-center gap-1`}
         >
             {expanded ? <ChevronUp size={iconSize} /> : <ChevronDown size={iconSize} />}
-            {expanded ? 'Collapse' : 'View Details'}
+            {expanded ? collapseLabel : expandLabel}
         </button>
     );
 }

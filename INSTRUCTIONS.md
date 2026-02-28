@@ -16,6 +16,8 @@ git push origin main
 
 # OR simply (if upstream is already set):
 git push
+
+git push -u origin Gaith
 ```
 
 ## 2. Running the Application
@@ -57,12 +59,38 @@ Then try running `npm run dev` again.
 
 
 # from: C:\Users\user\gym-erp
+copy .env.example .env
+docker compose up -d db
+docker compose run --rm backend alembic upgrade head
 docker compose up -d --build backend frontend
-docker exec gym_erp_backend alembic upgrade head
 docker compose stop
 
 # removing lock
 Object.keys(localStorage)
   .filter(k => k.startsWith('blocked_request_lock_'))
   .forEach(k => localStorage.removeItem(k));
+
+## 5. EN/AR Localization Verification (Fast)
+From `frontend/`:
+```bash
+npm run i18n:check
+```
+- Validates EN/AR key parity, empty values, placeholder token consistency, and suspicious Arabic values with no Arabic letters.
+
+```bash
+npm run i18n:hardcoded
+```
+- Scans JSX for hardcoded user-facing literals and writes:
+  - `frontend/reports/i18n-hardcoded-report.json`
+
+```bash
+npm run i18n:rtl
+```
+- Scans for RTL-risky Tailwind/class tokens (`ml-*`, `mr-*`, `left-*`, `text-left`, `rounded-tr`, etc.) and writes:
+  - `frontend/reports/rtl-risk-report.json`
+
+Strict gate (for CI):
+```bash
+npm run i18n:verify:strict
+```
 

@@ -1,23 +1,21 @@
-version: '3.8'
-
 services:
   db:
     image: postgres:15-alpine
     container_name: gym_erp_db
     restart: always
     environment:
-      POSTGRES_USER: gym_admin
-      POSTGRES_PASSWORD: gym_password_secret
-      POSTGRES_DB: gym_erp_db
+      POSTGRES_USER: ${POSTGRES_USER:-gym_admin}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-change_me_local_password}
+      POSTGRES_DB: ${POSTGRES_DB:-gym_erp_db}
     ports:
       - "5432:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
     healthcheck:
-      test: [ "CMD-SHELL", "pg_isready -U gym_admin -d gym_erp_db" ]
+      test: [ "CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-gym_admin} -d ${POSTGRES_DB:-gym_erp_db}" ]
       interval: 5s
       timeout: 3s
-      retries: 5
+      retries: 10
 
   backend:
     build:
@@ -30,13 +28,26 @@ services:
     env_file:
       - .env
     environment:
+      APP_ENV: ${APP_ENV:-development}
       POSTGRES_HOST: db
-      POSTGRES_PORT: 5432
+      POSTGRES_PORT: ${POSTGRES_PORT:-5432}
+      POSTGRES_USER: ${POSTGRES_USER:-gym_admin}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-change_me_local_password}
+      POSTGRES_DB: ${POSTGRES_DB:-gym_erp_db}
+      SECRET_KEY: ${SECRET_KEY:-change_me_local_secret_key_1234567890}
+      KIOSK_SIGNING_KEY: ${KIOSK_SIGNING_KEY:-change_me_local_kiosk_secret_1234567890}
+      BACKEND_CORS_ORIGINS: ${BACKEND_CORS_ORIGINS:-["http://localhost:3000","http://localhost:8000"]}
     volumes:
       - ./static:/app/static
     depends_on:
       db:
         condition: service_healthy
+    healthcheck:
+      test: [ "CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/healthz')" ]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 10s
 
   frontend:
     build:
@@ -51,7 +62,14 @@ services:
       BACKEND_INTERNAL_URL: http://backend:8000
       NEXT_PUBLIC_KIOSK_ID: ${NEXT_PUBLIC_KIOSK_ID:-kiosk-01}
     depends_on:
-      - backend
+      backend:
+        condition: service_healthy
+    healthcheck:
+      test: [ "CMD", "node", "-e", "fetch('http://127.0.0.1:3000/login').then((res) => { if (!res.ok) process.exit(1); }).catch(() => process.exit(1));" ]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 15s
 
 volumes:
   postgres_data:

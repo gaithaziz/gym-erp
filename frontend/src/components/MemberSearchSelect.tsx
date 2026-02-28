@@ -15,6 +15,8 @@ interface MemberSearchSelectProps {
     placeholder?: string;
     allowClear?: boolean;
     clearLabel?: string;
+    noClientsLabel?: string;
+    noMatchesLabel?: string;
     disabled?: boolean;
     required?: boolean;
     className?: string;
@@ -27,6 +29,8 @@ export default function MemberSearchSelect({
     placeholder = 'Search clients...',
     allowClear = false,
     clearLabel = 'Clear selection',
+    noClientsLabel = 'No clients',
+    noMatchesLabel = 'No matches found',
     disabled = false,
     required = false,
     className = '',
@@ -36,6 +40,7 @@ export default function MemberSearchSelect({
     const [query, setQuery] = useState('');
     const [open, setOpen] = useState(false);
     const [activeIndex, setActiveIndex] = useState(-1);
+    const ariaAutocompleteList = 'list';
 
     const normalizedQuery = query.trim().toLowerCase();
     const filteredMembers = useMemo(() => {
@@ -121,7 +126,7 @@ export default function MemberSearchSelect({
                 aria-controls={listboxId}
                 aria-activedescendant={activeIndex >= 0 ? `${listboxId}-option-${activeIndex}` : undefined}
                 aria-required={required}
-                aria-autocomplete="list"
+                aria-autocomplete={ariaAutocompleteList}
                 onFocus={() => {
                     setOpen(true);
                     setQuery(selectedMember?.full_name || '');
@@ -164,11 +169,11 @@ export default function MemberSearchSelect({
                     )}
 
                     {showNoClients && (
-                        <li className="px-3 py-2 text-sm text-muted-foreground">No clients</li>
+                        <li className="px-3 py-2 text-sm text-muted-foreground">{noClientsLabel}</li>
                     )}
 
                     {showNoMatches && (
-                        <li className="px-3 py-2 text-sm text-muted-foreground">No matches found</li>
+                        <li className="px-3 py-2 text-sm text-muted-foreground">{noMatchesLabel}</li>
                     )}
 
                     {!showNoClients && filteredMembers.map((member, idx) => {

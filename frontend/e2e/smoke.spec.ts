@@ -3,7 +3,7 @@ import { APIRequestContext, expect, test } from '@playwright/test';
 const apiBase = (process.env.NEXT_PUBLIC_API_URL || 'http://127.0.0.1:8000').replace(/\/+$/, '');
 const apiV1 = apiBase.endsWith('/api/v1') ? apiBase : `${apiBase}/api/v1`;
 
-const adminEmail = process.env.E2E_ADMIN_EMAIL || 'admin@gym.com';
+const adminEmail = process.env.E2E_ADMIN_EMAIL || 'admin@gym-erp.com';
 const adminPassword = process.env.E2E_ADMIN_PASSWORD || 'password123';
 
 async function loginToken(request: APIRequestContext, email: string, password: string): Promise<string> {
@@ -17,8 +17,15 @@ test('login page allows sign in', async ({ page }) => {
     await page.goto('/login');
     await page.fill('#email-address', adminEmail);
     await page.fill('#password', adminPassword);
-    await page.getByRole('button', { name: 'SIGN IN' }).click();
+    await page.getByTestId('login-submit').click();
     await expect(page).toHaveURL(/\/dashboard/);
+});
+
+test('language toggle switches document direction', async ({ page }) => {
+    await page.goto('/login');
+    await expect(page.locator('html')).toHaveAttribute('dir', 'ltr');
+    await page.locator('[data-testid="locale-ar"]:visible').first().click();
+    await expect(page.locator('html')).toHaveAttribute('dir', 'rtl');
 });
 
 test('member create flow (API smoke)', async ({ request }) => {

@@ -6,6 +6,7 @@ __pycache__
 *.md
 frontend/node_modules
 frontend/.next
+frontend/test-results
 alembic/__pycache__
 alembic/versions/__pycache__
 tests

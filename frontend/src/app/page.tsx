@@ -1,8 +1,59 @@
+'use client';
+
 import Link from "next/link";
 import { ArrowRight, Dumbbell, ShieldCheck, Users, Zap, BarChart3, CreditCard } from "lucide-react";
 import { ThemeToggle } from "@/components/ThemeToggle";
+import { LanguageToggle } from "@/components/LanguageToggle";
+import { useLocale } from "@/context/LocaleContext";
 
 export default function Home() {
+  const { locale } = useLocale();
+  const txt = locale === "ar" ? {
+    brandName: "GymERP",
+    navFeatures: "المزايا",
+    navAbout: "حول",
+    signInLabel: "تسجيل الدخول",
+    builtForGyms: "مصمم للأندية الحديثة",
+    heroLine1: "أدر ناديك",
+    heroLine2: "بدقة آلة",
+    heroSubtitle: "الاشتراكات. الرواتب. التحكم بالدخول. خطط التمرين. نظام واحد بلا تعقيد.",
+    getStartedLabel: "ابدأ الآن",
+    seeFeaturesLabel: "استعرض المزايا",
+    everythingOneRoof: "كل شيء تحت سقف واحد",
+    operationsSubtitle: "توقف عن إدارة الجداول اليدوية. أدر تشغيل النادي بالكامل من لوحة واحدة.",
+    footerText: "© 2026 أنظمة Gym ERP. برمجيات تشغيلية قوية.",
+    features: [
+      { title: "الأعضاء والاشتراكات", desc: "تابع الاشتراكات والتجديدات وصلاحيات الدخول. جمّد أو ألغِ بضغطة واحدة." },
+      { title: "الدخول عبر QR", desc: "نظام دخول آمن برموز QR مع متابعة لحظية، ويعمل حتى عند ضعف الاتصال." },
+      { title: "الرواتب والمالية", desc: "حسابات رواتب تلقائية مع الإضافي والعمولات الهجينة." },
+      { title: "خطط التمرين", desc: "أنشئ برامج مخصصة، وعيّنها للأعضاء، وتابع التغذية الراجعة." },
+      { title: "تحليلات مباشرة", desc: "عدد الحضور، الإيرادات، واتجاهات الزيارات بشكل لحظي." },
+      { title: "إدارة الموظفين", desc: "العقود والحضور والأداء في مكان واحد." },
+    ],
+  } : {
+    brandName: "GymERP",
+    navFeatures: "Features",
+    navAbout: "About",
+    signInLabel: "Sign In",
+    builtForGyms: "Built for modern gyms",
+    heroLine1: "Run Your Gym",
+    heroLine2: "Like a Machine",
+    heroSubtitle: "Memberships. Payroll. Access control. Workout plans. One system, zero friction.",
+    getStartedLabel: "Get Started",
+    seeFeaturesLabel: "See Features",
+    everythingOneRoof: "Everything under one roof",
+    operationsSubtitle: "Stop juggling spreadsheets. Manage your entire gym operation from a single dashboard.",
+    footerText: "© 2026 Gym ERP Systems. Industrial Strength Software.",
+    features: [
+      { title: "Members & Subscriptions", desc: "Track memberships, renewals, and access rights. Freeze or cancel with one click." },
+      { title: "QR Access Control", desc: "Secure QR-code entry system with real-time monitoring. Works offline too." },
+      { title: "Payroll & Finance", desc: "Automated salary calculations with overtime and hybrid commission support." },
+      { title: "Workout Plans", desc: "Create tailored workout programs. Assign to members. Track feedback." },
+      { title: "Live Analytics", desc: "Real-time headcount, revenue tracking, and attendance trends." },
+      { title: "Staff Management", desc: "Contracts, attendance, and performance in one place." },
+    ],
+  };
+
   return (
     <div className="flex min-h-screen flex-col bg-background font-sans">
       <header className="sticky top-0 z-50 w-full border-b border-border bg-background/95 backdrop-blur-sm">
@@ -11,64 +62,63 @@ export default function Home() {
             <div className="h-9 w-9 bg-primary flex items-center justify-center rounded-md">
               <Dumbbell className="h-5 w-5 text-primary-foreground" />
             </div>
-            <span className="text-lg font-bold text-foreground tracking-tight font-serif">GymERP</span>
+            <span className="text-lg font-bold text-foreground tracking-tight font-serif">{txt.brandName}</span>
           </div>
           <nav className="hidden md:flex gap-8 items-center">
-            <Link href="#features" className="text-sm font-medium text-muted-foreground hover:text-foreground transition-colors">Features</Link>
-            <Link href="#about" className="text-sm font-medium text-muted-foreground hover:text-foreground transition-colors">About</Link>
+            <Link href="#features" className="text-sm font-medium text-muted-foreground hover:text-foreground transition-colors">{txt.navFeatures}</Link>
+            <Link href="#about" className="text-sm font-medium text-muted-foreground hover:text-foreground transition-colors">{txt.navAbout}</Link>
+            <LanguageToggle />
             <ThemeToggle />
           </nav>
           <Link href="/login" className="btn-primary text-sm px-5 py-2 rounded-md">
-            Sign In
+            {txt.signInLabel}
           </Link>
         </div>
       </header>
 
       <main className="flex-1">
-        {/* Hero */}
         <section className="relative py-28 sm:py-36 border-b border-border bg-background">
           <div className="container mx-auto px-6 text-center relative z-10">
             <div className="inline-flex items-center gap-2 px-4 py-1.5 border border-border bg-muted/30 mb-8 rounded-md">
               <Zap size={14} className="text-primary" />
-              <span className="text-xs font-bold text-muted-foreground uppercase tracking-wider font-mono">Built for modern gyms</span>
+              <span className="text-xs font-bold text-muted-foreground uppercase tracking-wider font-mono">{txt.builtForGyms}</span>
             </div>
             <h1 className="mb-6 text-4xl sm:text-6xl font-bold tracking-tight text-foreground leading-tight font-serif">
-              Run Your Gym<br />
-              <span className="text-primary">Like a Machine</span>
+              {txt.heroLine1}<br />
+              <span className="text-primary">{txt.heroLine2}</span>
             </h1>
             <p className="mb-10 mx-auto max-w-xl text-lg text-muted-foreground leading-relaxed">
-              Memberships. Payroll. Access control. Workout plans. One system, zero friction.
+              {txt.heroSubtitle}
             </p>
             <div className="flex flex-col sm:flex-row justify-center gap-4">
               <Link href="/login" className="btn-primary px-8 py-3 text-base rounded-md">
-                Get Started <ArrowRight className="h-4 w-4" />
+                {txt.getStartedLabel} <ArrowRight className="h-4 w-4" />
               </Link>
               <Link href="#features" className="inline-flex items-center justify-center gap-2 px-8 py-3 text-base border border-border text-foreground hover:bg-muted/30 transition-colors font-semibold rounded-md">
-                See Features
+                {txt.seeFeaturesLabel}
               </Link>
             </div>
           </div>
         </section>
 
-        {/* Features */}
         <section id="features" className="py-24 bg-card">
           <div className="container mx-auto px-6">
             <div className="mb-16 text-center">
               <h2 className="text-3xl sm:text-4xl font-bold text-foreground tracking-tight font-serif">
-                Everything under one roof
+                {txt.everythingOneRoof}
               </h2>
               <p className="mt-4 text-muted-foreground max-w-lg mx-auto">
-                Stop juggling spreadsheets. Manage your entire gym operation from a single dashboard.
+                {txt.operationsSubtitle}
               </p>
             </div>
             <div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-3">
               {[
-                { icon: Users, title: "Members & Subscriptions", desc: "Track memberships, renewals, and access rights. Freeze or cancel with one click." },
-                { icon: ShieldCheck, title: "QR Access Control", desc: "Secure QR-code entry system with real-time monitoring. Works offline too." },
-                { icon: CreditCard, title: "Payroll & Finance", desc: "Automated salary calculations with overtime and hybrid commission support." },
-                { icon: Dumbbell, title: "Workout Plans", desc: "Create tailored workout programs. Assign to members. Track feedback." },
-                { icon: BarChart3, title: "Live Analytics", desc: "Real-time headcount, revenue tracking, and attendance trends." },
-                { icon: Zap, title: "Staff Management", desc: "Contracts, attendance, and performance — all in one place." }
+                { icon: Users, ...txt.features[0] },
+                { icon: ShieldCheck, ...txt.features[1] },
+                { icon: CreditCard, ...txt.features[2] },
+                { icon: Dumbbell, ...txt.features[3] },
+                { icon: BarChart3, ...txt.features[4] },
+                { icon: Zap, ...txt.features[5] },
               ].map((f, i) => (
                 <div key={i} className="group p-6 border border-border bg-background hover:border-primary transition-colors rounded-md">
                   <div className="mb-5 h-12 w-12 flex items-center justify-center bg-muted/30 border border-border text-primary rounded-md">
@@ -85,10 +135,9 @@ export default function Home() {
 
       <footer className="border-t border-border py-10 bg-background">
         <div className="container mx-auto px-6 text-center text-muted-foreground text-sm font-mono">
-          <p>&copy; 2026 Gym ERP Systems. Industrial Strength Software.</p>
+          <p>{txt.footerText}</p>
         </div>
       </footer>
     </div>
   );
 }
-

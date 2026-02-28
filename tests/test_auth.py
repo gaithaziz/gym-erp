@@ -107,6 +107,39 @@ async def test_refresh_token_invalid(client: AsyncClient):
 
 
 @pytest.mark.asyncio
+async def test_login_rate_limit_triggers(client: AsyncClient):
+    for _ in range(5):
+        response = await client.post(
+            f"{settings.API_V1_STR}/auth/login",
+            json={"email": "wrong@example.com", "password": "wrongpassword"},
+        )
+        assert response.status_code == 401
+
+    blocked = await client.post(
+        f"{settings.API_V1_STR}/auth/login",
+        json={"email": "wrong@example.com", "password": "wrongpassword"},
+    )
+    assert blocked.status_code == 429
+    assert "retry" in blocked.json()["detail"].lower()
+
+
+@pytest.mark.asyncio
+async def test_refresh_rate_limit_triggers(client: AsyncClient):
+    for _ in range(10):
+        response = await client.post(
+            f"{settings.API_V1_STR}/auth/refresh",
+            headers={"Authorization": "Bearer invalid_token"},
+        )
+        assert response.status_code == 401
+
+    blocked = await client.post(
+        f"{settings.API_V1_STR}/auth/refresh",
+        headers={"Authorization": "Bearer invalid_token"},
+    )
+    assert blocked.status_code == 429
+
+
+@pytest.mark.asyncio
 async def test_update_me_profile_validation(client: AsyncClient, db_session: AsyncSession):
     email = "validate@example.com"
     password = "password123"

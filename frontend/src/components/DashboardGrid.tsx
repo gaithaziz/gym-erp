@@ -1,9 +1,10 @@
 'use client';
 
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { Responsive, WidthProvider } from 'react-grid-layout/legacy';
 import 'react-grid-layout/css/styles.css';
 import 'react-resizable/css/styles.css';
+import { useLocale } from '@/context/LocaleContext';
 
 const ResponsiveGridLayout = WidthProvider(Responsive);
 
@@ -43,29 +44,148 @@ const defaultLayouts = {
     ]
 };
 
+const COLS = { lg: 12, md: 10, sm: 6, xs: 4, xxs: 2 } as const;
+
+type GridItem = { i: string; x: number; y: number; w: number; h: number };
+type GridLayouts = Partial<Record<keyof typeof COLS, GridItem[]>>;
+
+function mirrorLayoutItems(items: GridItem[], cols: number): GridItem[] {
+    return items.map((item) => ({
+        ...item,
+        x: Math.max(0, cols - item.x - item.w),
+    }));
+}
+
+function mirrorLayoutsForRtl(layouts: GridLayouts): GridLayouts {
+    const mirrored: GridLayouts = {};
+    const breakpoints = Object.keys(COLS) as Array<keyof typeof COLS>;
+
+    for (const bp of breakpoints) {
+        const source = layouts[bp] ?? [];
+        mirrored[bp] = mirrorLayoutItems(source, COLS[bp]);
+    }
+
+    return mirrored;
+}
+
+function minSizeForKey(key: string): { w: number; h: number } {
+    // Prevent important cards/charts from collapsing to near-zero size.
+    if (key.startsWith('stats-')) return { w: 2, h: 3 };
+    if (key === 'chart-visits' || key === 'chart-revenue') return { w: 4, h: 8 };
+    if (key === 'activity') return { w: 4, h: 6 };
+    return { w: 1, h: 2 };
+}
+
+function normalizeItem(item: GridItem, cols: number): GridItem {
+    const min = minSizeForKey(item.i);
+    const w = Math.max(min.w, Math.min(cols, Number.isFinite(item.w) ? item.w : min.w));
+    const h = Math.max(min.h, Number.isFinite(item.h) ? item.h : min.h);
+    const xRaw = Number.isFinite(item.x) ? item.x : 0;
+    const x = Math.max(0, Math.min(cols - w, xRaw));
+    const y = Math.max(0, Number.isFinite(item.y) ? item.y : 0);
+    return { i: item.i, x, y, w, h };
+}
+
+function sanitizeLayouts(stored: unknown, requiredKeys: string[], fallbackLayouts: GridLayouts = defaultLayouts): GridLayouts {
+    if (!stored || typeof stored !== 'object') return fallbackLayouts;
+    const parsed = stored as GridLayouts;
+    const normalized: GridLayouts = {};
+    const breakpoints = Object.keys(COLS) as Array<keyof typeof COLS>;
+
+    for (const bp of breakpoints) {
+        const cols = COLS[bp];
+        const fallback = fallbackLayouts[bp] ?? fallbackLayouts.sm ?? [];
+        const fallbackByKey = new Map(fallback.map((item) => [item.i, item]));
+        const sourceRaw = Array.isArray(parsed[bp]) ? parsed[bp]! : [];
+        const sourceByKey = new Map<string, GridItem>();
+
+        sourceRaw.forEach((item) => {
+            if (!item || typeof item !== 'object') return;
+            const next = item as GridItem;
+            if (typeof next.i !== 'string') return;
+            if (!requiredKeys.includes(next.i)) return;
+            sourceByKey.set(next.i, normalizeItem(next, cols));
+        });
+
+        normalized[bp] = requiredKeys.map((key, index) => {
+            const fromSource = sourceByKey.get(key);
+            if (fromSource) return fromSource;
+            const fromFallback = fallbackByKey.get(key);
+            if (fromFallback) return normalizeItem(fromFallback, cols);
+            const min = minSizeForKey(key);
+            return {
+                i: key,
+                x: 0,
+                y: index * 4,
+                w: Math.min(cols, Math.max(min.w, cols >= 6 ? 3 : cols)),
+                h: Math.max(min.h, 4),
+            };
+        });
+    }
+
+    return normalized;
+}
+
 export function DashboardGrid({ children, layoutId }: DashboardGridProps) {
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const [layouts, setLayouts] = useState<any>(defaultLayouts);
+    const { direction } = useLocale();
+    const isRtl = direction === 'rtl';
+    const useSafeStaticGrid = true;
+    const [layouts, setLayouts] = useState<GridLayouts>(defaultLayouts);
     const [mounted, setMounted] = useState(false);
+    const storageKey = `dashboard_layout_v4_${layoutId}_${direction}`;
+    const politeLive = 'polite';
+    const compactType = 'vertical' as const;
+    const baseDefaults = useMemo<GridLayouts>(
+        () => (isRtl ? mirrorLayoutsForRtl(defaultLayouts) : defaultLayouts),
+        [isRtl]
+    );
+    const childKeys = useMemo(
+        () =>
+            React.Children.toArray(children)
+                .map((child) => {
+                    if (!React.isValidElement(child)) return null;
+                    const rawKey = child.key;
+                    if (rawKey == null) return null;
+                    return String(rawKey).replace(/^\.\$?/, '');
+                })
+                .filter((key): key is string => Boolean(key)),
+        [children]
+    );
+    const directionalChildren = useMemo(
+        () =>
+            React.Children.map(children, (child) => {
+                if (!React.isValidElement(child)) return child;
+                return React.cloneElement(
+                    child as React.ReactElement<Record<string, unknown>>,
+                    { dir: direction } as Record<string, unknown>
+                );
+            }),
+        [children, direction]
+    );
 
     useEffect(() => {
-        const storedLayout = localStorage.getItem(`dashboard_layout_${layoutId}`);
+        const storedLayout = localStorage.getItem(storageKey);
         setTimeout(() => {
             setMounted(true);
             if (storedLayout) {
                 try {
-                    setLayouts(JSON.parse(storedLayout));
+                    const parsed = JSON.parse(storedLayout);
+                    const safe = sanitizeLayouts(parsed, childKeys, baseDefaults);
+                    setLayouts(safe);
                 } catch {
                     console.error("Failed to parse stored layout");
+                    setLayouts(sanitizeLayouts(baseDefaults, childKeys, baseDefaults));
                 }
+                return;
             }
+            setLayouts(sanitizeLayouts(baseDefaults, childKeys, baseDefaults));
         }, 0);
-    }, [layoutId]);
+    }, [baseDefaults, childKeys, storageKey]);
 
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const handleLayoutChange = (layout: any, allLayouts: any) => {
-        setLayouts(allLayouts);
-        localStorage.setItem(`dashboard_layout_${layoutId}`, JSON.stringify(allLayouts));
+    const handleLayoutChange = (_layout: unknown, allLayouts: unknown) => {
+        const safeLayouts = sanitizeLayouts(allLayouts, childKeys, baseDefaults);
+        setLayouts(safeLayouts);
+        localStorage.setItem(storageKey, JSON.stringify(safeLayouts));
     };
 
     if (!mounted) {
@@ -75,7 +195,7 @@ export function DashboardGrid({ children, layoutId }: DashboardGridProps) {
             <div
                 className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-12 gap-4 animate-pulse"
                 aria-busy="true"
-                aria-live="polite"
+                aria-live={politeLive}
             >
                 {Array.from({ length: childCount }).map((_, idx) => {
                     const blockClass =
@@ -100,21 +220,42 @@ export function DashboardGrid({ children, layoutId }: DashboardGridProps) {
         );
     }
 
+    if (useSafeStaticGrid) {
+        return (
+            <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-12 gap-4">
+                {React.Children.toArray(directionalChildren).map((child, idx) => {
+                    const blockClass =
+                        idx < 4
+                            ? 'xl:col-span-3 min-h-[130px]'
+                            : idx < 6
+                                ? 'xl:col-span-6 min-h-[320px]'
+                                : 'xl:col-span-12 min-h-[220px]';
+
+                    return (
+                        <div key={`rtl-grid-${idx}`} className={blockClass}>
+                            {child}
+                        </div>
+                    );
+                })}
+            </div>
+        );
+    }
+
     return (
         <ResponsiveGridLayout
             className="layout"
             layouts={layouts}
             breakpoints={{ lg: 1200, md: 996, sm: 768, xs: 480, xxs: 0 }}
-            cols={{ lg: 12, md: 10, sm: 6, xs: 4, xxs: 2 }}
+            cols={COLS}
             rowHeight={30}
             onLayoutChange={handleLayoutChange}
-            compactType="vertical"
+            compactType={compactType}
             preventCollision={false}
-            isDraggable
-            isResizable
-            draggableHandle=".drag-handle"
+            isDraggable={false}
+            isResizable={false}
+            style={{ direction: 'ltr' }}
         >
-            {children}
+            {directionalChildren}
         </ResponsiveGridLayout>
     );
 }

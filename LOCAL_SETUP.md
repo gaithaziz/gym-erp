@@ -39,3 +39,26 @@ NEXT_PUBLIC_KIOSK_ID=kiosk-01
 ```
 
 For multiple kiosk deployments, assign a unique `NEXT_PUBLIC_KIOSK_ID` per deployment and restart the frontend process for the change to take effect.
+
+## 3. PostgreSQL-Backed Test Workflow
+Backend integration tests now require PostgreSQL in all environments.
+
+Start the database:
+
+```bash
+docker compose up -d db
+```
+
+Run migrations:
+
+```bash
+docker compose run --rm backend alembic upgrade head
+```
+
+Run tests from the repo root:
+
+```bash
+pytest -q
+```
+
+If you want a separate test database locally, point `.env` to it before running `pytest`.

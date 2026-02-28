@@ -1,5 +1,5 @@
-from typing import List, cast
-from pydantic import AnyHttpUrl, PostgresDsn, computed_field
+from typing import List, Literal, cast
+from pydantic import AnyHttpUrl, PostgresDsn, computed_field, field_validator
 from pydantic_core import MultiHostUrl
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
@@ -8,6 +8,7 @@ class Settings(BaseSettings):
     PROJECT_NAME: str = "Gym ERP"
     VERSION: str = "1.0.0"
     API_V1_STR: str = "/api/v1"
+    APP_ENV: Literal["development", "test", "production"] = "development"
     
     # Security
     SECRET_KEY: str
@@ -23,6 +24,10 @@ class Settings(BaseSettings):
 
     # Validation
     BACKEND_CORS_ORIGINS: List[AnyHttpUrl] = []
+    CORS_ALLOW_ALL_METHODS: bool = False
+    CORS_ALLOW_METHODS: List[str] = ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"]
+    CORS_ALLOW_ALL_HEADERS: bool = False
+    CORS_ALLOW_HEADERS: List[str] = ["Authorization", "Content-Type", "X-Kiosk-Id", "X-Kiosk-Token", "X-Request-ID"]
 
     # Notifications
     WHATSAPP_ENABLED: bool = False
@@ -50,6 +55,18 @@ class Settings(BaseSettings):
             port=self.POSTGRES_PORT,
             path=self.POSTGRES_DB,
         ))
+
+    @field_validator("SECRET_KEY")
+    @classmethod
+    def validate_secret_key(cls, value: str) -> str:
+        if not value.strip():
+            raise ValueError("SECRET_KEY must not be empty")
+        return value
+
+    @field_validator("KIOSK_SIGNING_KEY")
+    @classmethod
+    def validate_kiosk_signing_key(cls, value: str | None) -> str | None:
+        return value.strip() if isinstance(value, str) and value.strip() else None
 
     model_config = SettingsConfigDict(env_file=".env", case_sensitive=True, extra="ignore")
 

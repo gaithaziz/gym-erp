@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react';
 import { api } from '@/lib/api';
 import { Trophy, Flame, Star, Calendar, TrendingUp, Medal, Sunrise, MoonStar } from 'lucide-react';
+import { useLocale } from '@/context/LocaleContext';
 
 interface Badge {
     id: string;
@@ -45,6 +46,7 @@ const getBadgeSticker = (badgeType: string) => {
 };
 
 export default function AchievementsPage() {
+    const { locale, formatDate } = useLocale();
     const [stats, setStats] = useState<GamificationStats | null>(null);
     const [loading, setLoading] = useState(true);
 
@@ -79,12 +81,27 @@ export default function AchievementsPage() {
     }
 
     const earnedTypes = new Set(stats?.badges.map((b) => b.badge_type) || []);
+    const badgeCatalog = locale === 'ar'
+        ? [
+            { type: 'STREAK_3', name: 'سلسلة 3 أيام', desc: 'زر النادي 3 أيام متتالية' },
+            { type: 'STREAK_7', name: 'مقاتل الأسبوع', desc: 'زر النادي 7 أيام متتالية' },
+            { type: 'STREAK_14', name: 'قوة الأسبوعين', desc: 'زر النادي 14 يومًا متتاليًا' },
+            { type: 'STREAK_30', name: 'آلة الشهر', desc: 'زر النادي 30 يومًا متتاليًا' },
+            { type: 'VISITS_10', name: '10 زيارات للنادي', desc: 'سجّل دخول 10 مرات' },
+            { type: 'VISITS_25', name: '25 زيارة للنادي', desc: 'سجّل دخول 25 مرة' },
+            { type: 'VISITS_50', name: '50 زيارة للنادي', desc: 'سجّل دخول 50 مرة' },
+            { type: 'VISITS_100', name: 'نادي الـ100', desc: 'سجّل دخول 100 مرة' },
+            { type: 'VISITS_250', name: 'أسطورة الـ250', desc: 'سجّل دخول 250 مرة' },
+            { type: 'EARLY_BIRD', name: 'الطائر المبكر', desc: 'سجّل دخول قبل 7 صباحًا' },
+            { type: 'NIGHT_OWL', name: 'بومة الليل', desc: 'سجّل دخول بعد 9 مساءً' },
+        ]
+        : ALL_BADGES;
 
     return (
         <div className="max-w-4xl mx-auto space-y-8">
             <div>
-                <h1 className="text-2xl font-bold text-foreground font-serif tracking-tight">Achievements</h1>
-                <p className="text-sm text-muted-foreground mt-1">Your gym milestones and badges</p>
+                <h1 className="text-2xl font-bold text-foreground font-serif tracking-tight">{locale === 'ar' ? 'الإنجازات' : 'Achievements'}</h1>
+                <p className="text-sm text-muted-foreground mt-1">{locale === 'ar' ? 'إنجازاتك وشاراتك في النادي' : 'Your gym milestones and badges'}</p>
             </div>
 
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
@@ -94,8 +111,8 @@ export default function AchievementsPage() {
                             <Flame size={20} className="text-primary" />
                         </div>
                         <div>
-                            <p className="text-xs font-mono text-muted-foreground uppercase tracking-wider">Current Streak</p>
-                            <p className="text-2xl font-bold text-foreground font-mono">{stats?.streak.current_streak || 0} <span className="text-sm text-muted-foreground">days</span></p>
+                            <p className="text-xs font-mono text-muted-foreground uppercase tracking-wider">{locale === 'ar' ? 'السلسلة الحالية' : 'Current Streak'}</p>
+                            <p className="text-2xl font-bold text-foreground font-mono">{stats?.streak.current_streak || 0} <span className="text-sm text-muted-foreground">{locale === 'ar' ? 'أيام' : 'days'}</span></p>
                         </div>
                     </div>
                 </div>
@@ -105,8 +122,8 @@ export default function AchievementsPage() {
                             <TrendingUp size={20} className="text-emerald-500" />
                         </div>
                         <div>
-                            <p className="text-xs font-mono text-muted-foreground uppercase tracking-wider">Best Streak</p>
-                            <p className="text-2xl font-bold text-foreground font-mono">{stats?.streak.best_streak || 0} <span className="text-sm text-muted-foreground">days</span></p>
+                            <p className="text-xs font-mono text-muted-foreground uppercase tracking-wider">{locale === 'ar' ? 'أفضل سلسلة' : 'Best Streak'}</p>
+                            <p className="text-2xl font-bold text-foreground font-mono">{stats?.streak.best_streak || 0} <span className="text-sm text-muted-foreground">{locale === 'ar' ? 'أيام' : 'days'}</span></p>
                         </div>
                     </div>
                 </div>
@@ -116,7 +133,7 @@ export default function AchievementsPage() {
                             <Calendar size={20} className="text-blue-500" />
                         </div>
                         <div>
-                            <p className="text-xs font-mono text-muted-foreground uppercase tracking-wider">Total Visits</p>
+                            <p className="text-xs font-mono text-muted-foreground uppercase tracking-wider">{locale === 'ar' ? 'إجمالي الزيارات' : 'Total Visits'}</p>
                             <p className="text-2xl font-bold text-foreground font-mono">{stats?.total_visits || 0}</p>
                         </div>
                     </div>
@@ -125,13 +142,13 @@ export default function AchievementsPage() {
 
             <div>
                 <h2 className="text-lg font-bold text-foreground font-serif mb-4 flex items-center gap-2">
-                    <Trophy size={18} className="text-primary" /> Badges
-                    <span className="text-xs font-mono text-muted-foreground ml-2">
-                        {earnedTypes.size}/{ALL_BADGES.length} unlocked
+                    <Trophy size={18} className="text-primary" /> {locale === 'ar' ? 'الشارات' : 'Badges'}
+                    <span className="text-xs font-mono text-muted-foreground ltr:ml-2 rtl:mr-2">
+                        {earnedTypes.size}/{badgeCatalog.length} {locale === 'ar' ? 'مفتوحة' : 'unlocked'}
                     </span>
                 </h2>
                 <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
-                    {ALL_BADGES.map((badge) => {
+                    {badgeCatalog.map((badge) => {
                         const earned = earnedTypes.has(badge.type);
                         const earnedBadge = stats?.badges.find((b) => b.badge_type === badge.type);
                         return (
@@ -147,11 +164,11 @@ export default function AchievementsPage() {
                                 {earned && earnedBadge && (
                                     <p className="text-[0.6rem] text-primary font-mono mt-2 flex items-center justify-center gap-1">
                                         <Star size={10} />
-                                        {new Date(earnedBadge.earned_at).toLocaleDateString()}
+                                        {formatDate(earnedBadge.earned_at, { year: 'numeric', month: 'short', day: 'numeric' })}
                                     </p>
                                 )}
                                 {!earned && (
-                                    <p className="text-[0.6rem] text-muted-foreground font-mono mt-2 uppercase">Locked</p>
+                                    <p className="text-[0.6rem] text-muted-foreground font-mono mt-2 uppercase">{locale === 'ar' ? 'مقفلة' : 'Locked'}</p>
                                 )}
                             </div>
                         );

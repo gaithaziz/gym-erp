@@ -7,10 +7,113 @@ import { User, Lock, Save, AlertCircle, CheckCircle, Eye, EyeOff } from 'lucide-
 import ImageCropper from '@/components/ImageCropper';
 import { useFeedback } from '@/components/FeedbackProvider';
 import { resolveProfileImageUrl } from '@/lib/profileImage';
+import { useLocale } from '@/context/LocaleContext';
 
 export default function ProfilePage() {
     const { user, updateUser } = useAuth();
+    const { locale } = useLocale();
     const { showToast } = useFeedback();
+    const txt = locale === 'ar' ? {
+        profileUpdated: 'تم تحديث الملف الشخصي بنجاح',
+        profileUpdateFailed: 'فشل تحديث الملف الشخصي',
+        passwordsNoMatch: 'كلمات المرور الجديدة غير متطابقة',
+        passwordChanged: 'تم تغيير كلمة المرور بنجاح',
+        passwordChangeFailed: 'فشل تغيير كلمة المرور',
+        uploadPictureFailed: 'فشل رفع الصورة. يرجى المحاولة مرة أخرى.',
+        bioSaved: 'تم حفظ بيانات الجسم وتتبعها بنجاح',
+        bioSaveFailed: 'فشل حفظ بيانات الجسم',
+        title: 'ملفي الشخصي',
+        subtitle: 'إدارة إعدادات حسابك',
+        security: 'الأمان',
+        passwordFields: 'حقول كلمة المرور',
+        hidePasswords: 'إخفاء كلمات المرور',
+        showPasswords: 'إظهار كلمات المرور',
+        currentPassword: 'كلمة المرور الحالية',
+        newPassword: 'كلمة المرور الجديدة',
+        confirmPassword: 'تأكيد كلمة المرور',
+        updating: 'جارٍ التحديث...',
+        updatePassword: 'تحديث كلمة المرور',
+        personalDetails: 'البيانات الشخصية',
+        fullName: 'الاسم الكامل',
+        readOnlyEmail: 'البريد الإلكتروني (للقراءة فقط)',
+        phoneNumber: 'رقم الهاتف',
+        dateOfBirth: 'تاريخ الميلاد',
+        ageAuto: 'العمر (تلقائي)',
+        emergencyContact: 'جهة اتصال الطوارئ',
+        emergencyPlaceholder: 'الاسم - +962 7X XXX XXXX',
+        bioNotes: 'نبذة / ملاحظات',
+        bioPlaceholder: 'حدثنا قليلًا عن نفسك وأهدافك الرياضية...',
+        saving: 'جارٍ الحفظ...',
+        saveProfile: 'حفظ الملف الشخصي',
+        bodyMetrics: 'قياسات الجسم',
+        heightCm: 'الطول (سم)',
+        weightKg: 'الوزن (كجم)',
+        bodyFat: 'دهون الجسم (%)',
+        muscleMassKg: 'الكتلة العضلية (كجم)',
+        eg175: 'مثال: 175',
+        eg75: 'مثال: 75',
+        eg18: 'مثال: 18',
+        eg32: 'مثال: 32',
+        saveBodyMetrics: 'حفظ قياسات الجسم',
+        na: 'غير متاح',
+        adminRole: 'مدير',
+        coachRole: 'مدرب',
+        customerRole: 'عضو',
+        employeeRole: 'موظف',
+        cashierRole: 'كاشير',
+        receptionRole: 'استقبال',
+        frontDeskRole: 'مكتب أمامي',
+    } : {
+        profileUpdated: 'Profile updated successfully',
+        profileUpdateFailed: 'Failed to update profile',
+        passwordsNoMatch: 'New passwords do not match',
+        passwordChanged: 'Password changed successfully',
+        passwordChangeFailed: 'Failed to change password',
+        uploadPictureFailed: 'Failed to upload picture. Please try again.',
+        bioSaved: 'Bio data saved and tracked successfully',
+        bioSaveFailed: 'Failed to save bio data',
+        title: 'My Profile',
+        subtitle: 'Manage your account settings',
+        security: 'Security',
+        passwordFields: 'Password Fields',
+        hidePasswords: 'Hide Passwords',
+        showPasswords: 'Show Passwords',
+        currentPassword: 'Current Password',
+        newPassword: 'New Password',
+        confirmPassword: 'Confirm Password',
+        updating: 'Updating...',
+        updatePassword: 'Update Password',
+        personalDetails: 'Personal Details',
+        fullName: 'Full Name',
+        readOnlyEmail: 'EMAIL ADDRESS (READ ONLY)',
+        phoneNumber: 'Phone Number',
+        dateOfBirth: 'Date of Birth',
+        ageAuto: 'Age (Auto)',
+        emergencyContact: 'Emergency Contact',
+        emergencyPlaceholder: 'Jane Doe - +1 (555) 123-4567',
+        bioNotes: 'Bio / Notes',
+        bioPlaceholder: 'Tell us a little bit about yourself and your fitness goals...',
+        saving: 'Saving...',
+        saveProfile: 'Save Profile',
+        bodyMetrics: 'Body Metrics',
+        heightCm: 'Height (cm)',
+        weightKg: 'Weight (kg)',
+        bodyFat: 'Body Fat (%)',
+        muscleMassKg: 'Muscle Mass (kg)',
+        eg175: 'e.g. 175',
+        eg75: 'e.g. 75',
+        eg18: 'e.g. 18',
+        eg32: 'e.g. 32',
+        saveBodyMetrics: 'Save Body Metrics',
+        na: 'N/A',
+        adminRole: 'Admin',
+        coachRole: 'Coach',
+        customerRole: 'Member',
+        employeeRole: 'Employee',
+        cashierRole: 'Cashier',
+        receptionRole: 'Reception',
+        frontDeskRole: 'Front Desk',
+    };
 
     const [fullName, setFullName] = useState(user?.full_name || '');
     const [phoneNumber, setPhoneNumber] = useState(user?.phone_number || '');
@@ -89,13 +192,13 @@ export default function ProfilePage() {
                 emergency_contact: emergencyContact || null,
                 bio: bio || null,
             });
-            setProfileMsg({ type: 'success', text: 'Profile updated successfully' });
+            setProfileMsg({ type: 'success', text: txt.profileUpdated });
             if (res.data?.data) {
                 updateUser(res.data.data);
             }
         } catch (err: unknown) {
             const error = err as { response?: { data?: { detail?: string } } };
-            setProfileMsg({ type: 'error', text: error.response?.data?.detail || 'Failed to update profile' });
+            setProfileMsg({ type: 'error', text: error.response?.data?.detail || txt.profileUpdateFailed });
         } finally {
             setLoadingProfile(false);
         }
@@ -104,7 +207,7 @@ export default function ProfilePage() {
     const handlePasswordChange = async (e: React.FormEvent) => {
         e.preventDefault();
         if (passwords.new !== passwords.confirm) {
-            setPassMsg({ type: 'error', text: 'New passwords do not match' });
+            setPassMsg({ type: 'error', text: txt.passwordsNoMatch });
             return;
         }
         setLoadingPass(true);
@@ -114,11 +217,11 @@ export default function ProfilePage() {
                 current_password: passwords.current,
                 new_password: passwords.new
             });
-            setPassMsg({ type: 'success', text: 'Password changed successfully' });
+            setPassMsg({ type: 'success', text: txt.passwordChanged });
             setPasswords({ current: '', new: '', confirm: '' });
         } catch (err: unknown) {
             const error = err as { response?: { data?: { detail?: string } } };
-            setPassMsg({ type: 'error', text: error.response?.data?.detail || 'Failed to change password' });
+            setPassMsg({ type: 'error', text: error.response?.data?.detail || txt.passwordChangeFailed });
         } finally {
             setLoadingPass(false);
         }
@@ -138,7 +241,7 @@ export default function ProfilePage() {
             }
         } catch (err) {
             console.error('Failed to upload profile picture', err);
-            showToast('Failed to upload picture. Please try again.', 'error');
+            showToast(txt.uploadPictureFailed, 'error');
         }
     };
 
@@ -153,22 +256,32 @@ export default function ProfilePage() {
                 body_fat_pct: bioData.body_fat_pct ? parseFloat(bioData.body_fat_pct) : null,
                 muscle_mass_kg: bioData.muscle_mass_kg ? parseFloat(bioData.muscle_mass_kg) : null,
             });
-            setBioDataMsg({ type: 'success', text: 'Bio data saved and tracked successfully' });
+            setBioDataMsg({ type: 'success', text: txt.bioSaved });
         } catch (err: unknown) {
             const error = err as { response?: { data?: { detail?: string } } };
-            setBioDataMsg({ type: 'error', text: error.response?.data?.detail || 'Failed to save bio data' });
+            setBioDataMsg({ type: 'error', text: error.response?.data?.detail || txt.bioSaveFailed });
         } finally {
             setLoadingBioData(false);
         }
     };
 
     const currentProfileImage = resolveProfileImageUrl(user?.profile_picture_url);
+    const roleLabelMap: Record<string, string> = {
+        ADMIN: txt.adminRole,
+        COACH: txt.coachRole,
+        CUSTOMER: txt.customerRole,
+        EMPLOYEE: txt.employeeRole,
+        CASHIER: txt.cashierRole,
+        RECEPTION: txt.receptionRole,
+        FRONT_DESK: txt.frontDeskRole,
+    };
+    const roleLabel = roleLabelMap[user?.role || ''] || (user?.role || '');
 
     return (
         <div className="max-w-4xl mx-auto space-y-8 pb-12">
             <div>
-                <h1 className="text-2xl font-bold text-foreground font-serif tracking-tight">My Profile</h1>
-                <p className="text-sm text-muted-foreground mt-1">Manage your account settings</p>
+                <h1 className="text-2xl font-bold text-foreground font-serif tracking-tight">{txt.title}</h1>
+                <p className="text-sm text-muted-foreground mt-1">{txt.subtitle}</p>
             </div>
 
             <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
@@ -183,7 +296,7 @@ export default function ProfilePage() {
                         />
                         <div>
                             <p className="font-bold text-foreground font-serif">{user?.full_name}</p>
-                            <p className="text-sm font-mono text-muted-foreground mt-1">{user?.role}</p>
+                            <p className="text-sm font-mono text-muted-foreground mt-1">{roleLabel}</p>
                         </div>
                     </div>
 
@@ -191,23 +304,23 @@ export default function ProfilePage() {
                     <div className="kpi-card p-6 space-y-6">
                         <div className="flex items-center gap-3 border-b border-border pb-4">
                             <Lock className="text-primary" size={20} />
-                            <h2 className="text-lg font-bold text-foreground font-serif">Security</h2>
+                            <h2 className="text-lg font-bold text-foreground font-serif">{txt.security}</h2>
                         </div>
 
                         <form onSubmit={handlePasswordChange} className="space-y-4">
                             <div className="flex items-center justify-between">
-                                <span className="text-xs font-mono text-muted-foreground uppercase">Password Fields</span>
+                                <span className="text-xs font-mono text-muted-foreground uppercase">{txt.passwordFields}</span>
                                 <button
                                     type="button"
                                     onClick={() => setShowPasswords((prev) => !prev)}
                                     className="text-xs font-mono text-primary hover:text-primary/80 flex items-center gap-1"
                                 >
                                     {showPasswords ? <EyeOff size={14} /> : <Eye size={14} />}
-                                    {showPasswords ? 'Hide Passwords' : 'Show Passwords'}
+                                    {showPasswords ? txt.hidePasswords : txt.showPasswords}
                                 </button>
                             </div>
                             <div>
-                                <label className="block text-xs font-mono text-muted-foreground mb-1 uppercase">Current Password</label>
+                                <label className="block text-xs font-mono text-muted-foreground mb-1 uppercase">{txt.currentPassword}</label>
                                 <input
                                     type={showPasswords ? 'text' : 'password'}
                                     value={passwords.current}
@@ -217,7 +330,7 @@ export default function ProfilePage() {
                                 />
                             </div>
                             <div>
-                                <label className="block text-xs font-mono text-muted-foreground mb-1 uppercase">New Password</label>
+                                <label className="block text-xs font-mono text-muted-foreground mb-1 uppercase">{txt.newPassword}</label>
                                 <input
                                     type={showPasswords ? 'text' : 'password'}
                                     value={passwords.new}
@@ -228,7 +341,7 @@ export default function ProfilePage() {
                                 />
                             </div>
                             <div>
-                                <label className="block text-xs font-mono text-muted-foreground mb-1 uppercase">Confirm Password</label>
+                                <label className="block text-xs font-mono text-muted-foreground mb-1 uppercase">{txt.confirmPassword}</label>
                                 <input
                                     type={showPasswords ? 'text' : 'password'}
                                     value={passwords.confirm}
@@ -250,7 +363,7 @@ export default function ProfilePage() {
                                 disabled={loadingPass}
                                 className="w-full py-2 border border-foreground text-foreground font-bold uppercase tracking-wider text-xs hover:bg-muted transition-colors disabled:opacity-50 flex items-center justify-center gap-2"
                             >
-                                {loadingPass ? 'Updating...' : 'Update Password'}
+                                {loadingPass ? txt.updating : txt.updatePassword}
                             </button>
                         </form>
                     </div>
@@ -261,13 +374,13 @@ export default function ProfilePage() {
                     <div className="kpi-card p-6 space-y-6">
                         <div className="flex items-center gap-3 border-b border-border pb-4">
                             <User className="text-primary" size={20} />
-                            <h2 className="text-lg font-bold text-foreground font-serif">Personal Details</h2>
+                            <h2 className="text-lg font-bold text-foreground font-serif">{txt.personalDetails}</h2>
                         </div>
 
                         <form onSubmit={handleProfileUpdate} className="space-y-4">
                             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                                 <div>
-                                    <label className="block text-xs font-mono text-muted-foreground mb-1 uppercase">Full Name</label>
+                                    <label className="block text-xs font-mono text-muted-foreground mb-1 uppercase">{txt.fullName}</label>
                                     <input
                                         type="text"
                                         value={fullName}
@@ -277,7 +390,7 @@ export default function ProfilePage() {
                                     />
                                 </div>
                                 <div>
-                                    <label className="block text-xs font-mono text-muted-foreground mb-1">EMAIL ADDRESS (READ ONLY)</label>
+                                    <label className="block text-xs font-mono text-muted-foreground mb-1">{txt.readOnlyEmail}</label>
                                     <input
                                         type="email"
                                         value={user?.email || ''}
@@ -289,7 +402,7 @@ export default function ProfilePage() {
 
                             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                                 <div>
-                                    <label className="block text-xs font-mono text-muted-foreground mb-1 uppercase">Phone Number</label>
+                                    <label className="block text-xs font-mono text-muted-foreground mb-1 uppercase">{txt.phoneNumber}</label>
                                     <input
                                         type="text"
                                         value={phoneNumber}
@@ -299,7 +412,7 @@ export default function ProfilePage() {
                                     />
                                 </div>
                                 <div>
-                                    <label className="block text-xs font-mono text-muted-foreground mb-1 uppercase">Date of Birth</label>
+                                    <label className="block text-xs font-mono text-muted-foreground mb-1 uppercase">{txt.dateOfBirth}</label>
                                     <input
                                         type="date"
                                         value={dateOfBirth}
@@ -310,10 +423,10 @@ export default function ProfilePage() {
                             </div>
                             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                                 <div>
-                                    <label className="block text-xs font-mono text-muted-foreground mb-1 uppercase">Age (Auto)</label>
+                                    <label className="block text-xs font-mono text-muted-foreground mb-1 uppercase">{txt.ageAuto}</label>
                                     <input
                                         type="text"
-                                        value={age !== null ? `${age}` : 'N/A'}
+                                        value={age !== null ? `${age}` : txt.na}
                                         disabled
                                         className="w-full p-2 bg-muted/50 border border-border text-muted-foreground font-mono text-sm cursor-not-allowed"
                                     />
@@ -321,22 +434,22 @@ export default function ProfilePage() {
                             </div>
 
                             <div>
-                                <label className="block text-xs font-mono text-muted-foreground mb-1 uppercase">Emergency Contact</label>
+                                <label className="block text-xs font-mono text-muted-foreground mb-1 uppercase">{txt.emergencyContact}</label>
                                 <input
                                     type="text"
                                     value={emergencyContact}
                                     onChange={(e) => setEmergencyContact(e.target.value)}
-                                    placeholder="Jane Doe - +1 (555) 123-4567"
+                                    placeholder={txt.emergencyPlaceholder}
                                     className="w-full p-2 bg-background border border-border focus:border-primary focus:ring-1 focus:ring-primary outline-none transition-all"
                                 />
                             </div>
 
                             <div>
-                                <label className="block text-xs font-mono text-muted-foreground mb-1 uppercase">Bio / Notes</label>
+                                <label className="block text-xs font-mono text-muted-foreground mb-1 uppercase">{txt.bioNotes}</label>
                                 <textarea
                                     value={bio}
                                     onChange={(e) => setBio(e.target.value)}
-                                    placeholder="Tell us a little bit about yourself and your fitness goals..."
+                                    placeholder={txt.bioPlaceholder}
                                     className="w-full p-2 bg-background border border-border focus:border-primary focus:ring-1 focus:ring-primary outline-none transition-all min-h-[100px] resize-y"
                                 ></textarea>
                             </div>
@@ -354,7 +467,7 @@ export default function ProfilePage() {
                                     disabled={loadingProfile}
                                     className="btn-primary"
                                 >
-                                    {loadingProfile ? 'Saving...' : <><Save size={16} /> Save Profile</>}
+                                    {loadingProfile ? txt.saving : <><Save size={16} /> {txt.saveProfile}</>}
                                 </button>
                             </div>
                         </form>
@@ -363,54 +476,54 @@ export default function ProfilePage() {
                     <div className="kpi-card p-6 space-y-6 mt-8">
                         <div className="flex items-center gap-3 border-b border-border pb-4">
                             <User className="text-primary" size={20} />
-                            <h2 className="text-lg font-bold text-foreground font-serif">Body Metrics</h2>
+                            <h2 className="text-lg font-bold text-foreground font-serif">{txt.bodyMetrics}</h2>
                         </div>
                         <form onSubmit={handleBioDataUpdate} className="space-y-4">
                             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                                 <div>
-                                    <label className="block text-xs font-mono text-muted-foreground mb-1 uppercase">Height (cm)</label>
+                                    <label className="block text-xs font-mono text-muted-foreground mb-1 uppercase">{txt.heightCm}</label>
                                     <input
                                         type="number"
                                         step="0.1"
                                         className="w-full p-2 bg-background border border-border focus:border-primary focus:ring-1 focus:ring-primary outline-none transition-all"
                                         value={bioData.height_cm}
                                         onChange={e => setBioData({ ...bioData, height_cm: e.target.value })}
-                                        placeholder="e.g. 175"
+                                        placeholder={txt.eg175}
                                     />
                                 </div>
                                 <div>
-                                    <label className="block text-xs font-mono text-muted-foreground mb-1 uppercase">Weight (kg)</label>
+                                    <label className="block text-xs font-mono text-muted-foreground mb-1 uppercase">{txt.weightKg}</label>
                                     <input
                                         type="number"
                                         step="0.1"
                                         className="w-full p-2 bg-background border border-border focus:border-primary focus:ring-1 focus:ring-primary outline-none transition-all"
                                         value={bioData.weight_kg}
                                         onChange={e => setBioData({ ...bioData, weight_kg: e.target.value })}
-                                        placeholder="e.g. 75"
+                                        placeholder={txt.eg75}
                                     />
                                 </div>
                             </div>
                             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                                 <div>
-                                    <label className="block text-xs font-mono text-muted-foreground mb-1 uppercase">Body Fat (%)</label>
+                                    <label className="block text-xs font-mono text-muted-foreground mb-1 uppercase">{txt.bodyFat}</label>
                                     <input
                                         type="number"
                                         step="0.1"
                                         className="w-full p-2 bg-background border border-border focus:border-primary focus:ring-1 focus:ring-primary outline-none transition-all"
                                         value={bioData.body_fat_pct}
                                         onChange={e => setBioData({ ...bioData, body_fat_pct: e.target.value })}
-                                        placeholder="e.g. 18"
+                                        placeholder={txt.eg18}
                                     />
                                 </div>
                                 <div>
-                                    <label className="block text-xs font-mono text-muted-foreground mb-1 uppercase">Muscle Mass (kg)</label>
+                                    <label className="block text-xs font-mono text-muted-foreground mb-1 uppercase">{txt.muscleMassKg}</label>
                                     <input
                                         type="number"
                                         step="0.1"
                                         className="w-full p-2 bg-background border border-border focus:border-primary focus:ring-1 focus:ring-primary outline-none transition-all"
                                         value={bioData.muscle_mass_kg}
                                         onChange={e => setBioData({ ...bioData, muscle_mass_kg: e.target.value })}
-                                        placeholder="e.g. 32"
+                                        placeholder={txt.eg32}
                                     />
                                 </div>
                             </div>
@@ -428,7 +541,7 @@ export default function ProfilePage() {
                                     disabled={loadingBioData}
                                     className="btn-primary"
                                 >
-                                    {loadingBioData ? 'Saving...' : <><Save size={16} /> Save Body Metrics</>}
+                                    {loadingBioData ? txt.saving : <><Save size={16} /> {txt.saveBodyMetrics}</>}
                                 </button>
                             </div>
                         </form>

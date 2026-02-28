@@ -8,7 +8,7 @@ from sqlalchemy import delete, select
 from sqlalchemy.orm import selectinload
 
 from app.auth.security import get_password_hash
-from app.database import AsyncSessionLocal
+from app.database import AsyncSessionLocal, reset_rls_context, set_rls_context
 from app.models.access import AccessLog, AttendanceLog, Subscription
 from app.models.audit import AuditLog
 from app.models.enums import Role
@@ -42,8 +42,22 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 DEMO_PASSWORD = "DemoPass123!"
+LOCAL_DEFAULT_PASSWORD = "GymPass123!"
 DEMO_KIOSK_ID = "demo-seed-kiosk-01"
 DEMO_TAG = "[DEMO]"
+
+LOCAL_DEFAULT_USERS = [
+    {"email": "admin@gym-erp.com", "full_name": "System Administrator", "role": Role.ADMIN, "password": LOCAL_DEFAULT_PASSWORD},
+    {"email": "gaithdiabat11@gmail.com", "full_name": "Gaith Diabat", "role": Role.ADMIN, "password": LOCAL_DEFAULT_PASSWORD},
+    {"email": "coach.mike@gym-erp.com", "full_name": "Coach Mike", "role": Role.COACH, "password": LOCAL_DEFAULT_PASSWORD},
+    {"email": "alice@client.com", "full_name": "Alice Customer", "role": Role.CUSTOMER, "password": LOCAL_DEFAULT_PASSWORD},
+    {"email": "cashier.demo@gym-erp.com", "full_name": "Cashier Demo", "role": Role.CASHIER, "password": LOCAL_DEFAULT_PASSWORD},
+    {"email": "reception.demo@gym-erp.com", "full_name": "Reception Demo", "role": Role.RECEPTION, "password": LOCAL_DEFAULT_PASSWORD},
+]
+
+LOCAL_DEFAULT_SUBSCRIPTIONS_BY_EMAIL = {
+    "alice@client.com": ("Gold Membership", SubscriptionStatus.ACTIVE, -30, 30),
+}
 
 
 DEMO_USERS = [
@@ -134,7 +148,7 @@ async def _upsert_user(session, payload: dict) -> User:
     if not user:
         user = User(
             email=payload["email"],
-            hashed_password=get_password_hash(DEMO_PASSWORD),
+            hashed_password=get_password_hash(payload.get("password", DEMO_PASSWORD)),
             full_name=payload["full_name"],
             role=payload["role"],
             is_active=True,
@@ -144,7 +158,7 @@ async def _upsert_user(session, payload: dict) -> User:
     else:
         user.full_name = payload["full_name"]
         user.role = payload["role"]
-        user.hashed_password = get_password_hash(DEMO_PASSWORD)
+        user.hashed_password = get_password_hash(payload.get("password", DEMO_PASSWORD))
         user.is_active = True
 
     user.phone_number = payload.get("phone_number")
@@ -185,6 +199,10 @@ async def _upsert_subscription(
         sub.start_date = start_date
         sub.end_date = end_date
         sub.status = status
+
+
+async def _act_as(session, user: User) -> None:
+    await set_rls_context(session, user_id=str(user.id), role=user.role.value)
 
 
 async def _upsert_contract(
@@ -266,14 +284,30 @@ async def _upsert_transaction(
 
 async def seed_demo_data():
     async with AsyncSessionLocal() as session:
+        await reset_rls_context(session)
         logger.info("Seeding demo users...")
         users_by_email: dict[str, User] = {}
+        for payload in LOCAL_DEFAULT_USERS:
+            user = await _upsert_user(session, payload)
+            users_by_email[user.email] = user
         for payload in DEMO_USERS:
             user = await _upsert_user(session, payload)
             users_by_email[user.email] = user
         await session.commit()
 
         logger.info("Seeding subscriptions...")
+        admin_actor = users_by_email["admin.demo@gym-erp.com"]
+        await _act_as(session, admin_actor)
+        for email, (plan, status, start_offset, end_offset) in LOCAL_DEFAULT_SUBSCRIPTIONS_BY_EMAIL.items():
+            user = users_by_email[email]
+            await _upsert_subscription(
+                session,
+                user=user,
+                plan_name=plan,
+                status=status,
+                start_offset_days=start_offset,
+                end_offset_days=end_offset,
+            )
         for email, (plan, status, start_offset, end_offset) in SUBSCRIPTIONS_BY_EMAIL.items():
             user = users_by_email[email]
             await _upsert_subscription(
@@ -492,7 +526,11 @@ async def seed_demo_data():
                 if existing:
                     continue
 
-                _, status, _, end_offset = SUBSCRIPTIONS_BY_EMAIL[email]
+                _, status, _, end_offset = (
+                    LOCAL_DEFAULT_SUBSCRIPTIONS_BY_EMAIL.get(email)
+                    or SUBSCRIPTIONS_BY_EMAIL.get(email)
+                    or ("Manual", SubscriptionStatus.ACTIVE, -30, 30)
+                )
                 reason = None
                 decision = "GRANTED"
                 if status == SubscriptionStatus.FROZEN:
@@ -893,6 +931,7 @@ Pre-workout: Espresso + dates""",
         ]
 
         for idx, item in enumerate(support_defs):
+            await _act_as(session, admin_actor)
             ticket_stmt = select(SupportTicket).where(
                 SupportTicket.customer_id == item["customer"].id,
                 SupportTicket.subject == item["subject"],
@@ -916,6 +955,7 @@ Pre-workout: Espresso + dates""",
                 ticket.updated_at = now_ts
 
             for msg_idx, (sender, text) in enumerate(item["messages"]):
+                await _act_as(session, sender)
                 msg_stmt = select(SupportMessage).where(
                     SupportMessage.ticket_id == ticket.id,
                     SupportMessage.sender_id == sender.id,
@@ -932,6 +972,7 @@ Pre-workout: Espresso + dates""",
                         created_at=now_ts + timedelta(minutes=(msg_idx + 1) * 7),
                     )
                 )
+                await session.flush()
         await session.commit()
 
         logger.info("Seeding chat threads, messages, and read receipts...")
@@ -1053,6 +1094,7 @@ Pre-workout: Espresso + dates""",
             ),
         ]
         for idx, (reporter, assignee, status_value, title, description, category, found_date, location) in enumerate(lost_found_defs):
+            await _act_as(session, reporter)
             item_stmt = select(LostFoundItem).where(
                 LostFoundItem.reporter_id == reporter.id,
                 LostFoundItem.title == title,
@@ -1082,6 +1124,7 @@ Pre-workout: Espresso + dates""",
                 item.updated_at = created_at
                 item.closed_at = created_at + timedelta(days=2) if status_value in {LostFoundStatus.CLOSED, LostFoundStatus.REJECTED, LostFoundStatus.DISPOSED} else None
 
+            await _act_as(session, reporter)
             media_stmt = select(LostFoundMedia).where(
                 LostFoundMedia.item_id == item.id,
                 LostFoundMedia.media_url == f"/static/lost_found_media/{item.id}/demo-proof-{idx + 1}.jpg",
@@ -1098,12 +1141,14 @@ Pre-workout: Espresso + dates""",
                         created_at=created_at + timedelta(minutes=5),
                     )
                 )
+                await session.flush()
 
             comments = [
                 (reporter.id, f"{DEMO_TAG} Reported by member."),
                 (assignee.id, f"{DEMO_TAG} Reviewed by handler."),
             ]
             for comment_author_id, text in comments:
+                await _act_as(session, reporter if comment_author_id == reporter.id else assignee)
                 comment_stmt = select(LostFoundComment).where(
                     LostFoundComment.item_id == item.id,
                     LostFoundComment.author_id == comment_author_id,
@@ -1120,6 +1165,7 @@ Pre-workout: Espresso + dates""",
                         created_at=created_at + timedelta(minutes=12),
                     )
                 )
+                await session.flush()
         await session.commit()
 
         logger.info("Seeding WhatsApp automation and delivery logs...")
@@ -1280,6 +1326,7 @@ Pre-workout: Espresso + dates""",
 
         logger.info("Seeding audit logs...")
         admin_user = users_by_email["admin.demo@gym-erp.com"]
+        await _act_as(session, admin_user)
         for i in range(6):
             ts = datetime.now(timezone.utc) - timedelta(hours=i * 6)
             details = f"{DEMO_TAG} Demo admin action #{i + 1}"
@@ -1304,6 +1351,13 @@ Pre-workout: Espresso + dates""",
 
         logger.info("Demo data seeding complete.")
         logger.info("Login credentials:")
+        logger.info("  Local defaults password: %s", LOCAL_DEFAULT_PASSWORD)
+        logger.info("  Admin: admin@gym-erp.com / %s", LOCAL_DEFAULT_PASSWORD)
+        logger.info("  Owner: gaithdiabat11@gmail.com / %s", LOCAL_DEFAULT_PASSWORD)
+        logger.info("  Coach: coach.mike@gym-erp.com / %s", LOCAL_DEFAULT_PASSWORD)
+        logger.info("  Customer: alice@client.com / %s", LOCAL_DEFAULT_PASSWORD)
+        logger.info("  Cashier: cashier.demo@gym-erp.com / %s", LOCAL_DEFAULT_PASSWORD)
+        logger.info("  Reception: reception.demo@gym-erp.com / %s", LOCAL_DEFAULT_PASSWORD)
         logger.info("  Admin: admin.demo@gym-erp.com / %s", DEMO_PASSWORD)
         logger.info("  Coach: coach.demo@gym-erp.com / %s", DEMO_PASSWORD)
         logger.info("  Member: member.anna.demo@gym-erp.com / %s", DEMO_PASSWORD)

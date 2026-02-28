@@ -16,6 +16,7 @@ export default function Modal({ isOpen, onClose, title, children, maxWidthClassN
     const modalRef = useRef<HTMLDivElement>(null);
     const onCloseRef = useRef(onClose);
     const titleId = useId();
+    const closeLabel = 'Close modal';
 
     useEffect(() => {
         onCloseRef.current = onClose;
@@ -76,7 +77,7 @@ export default function Modal({ isOpen, onClose, title, children, maxWidthClassN
                         onClick={onClose}
                         onMouseDown={(e) => e.preventDefault()}
                         tabIndex={-1}
-                        aria-label="Close modal"
+                        aria-label={closeLabel}
                         className="p-2 hover:bg-muted text-muted-foreground hover:text-foreground transition-colors rounded-sm"
                     >
                         <X size={18} />

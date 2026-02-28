@@ -18,13 +18,14 @@ import {
     ArrowLeft,
     ImagePlus
 } from 'lucide-react';
-import { format } from 'date-fns';
 import { useSearchParams } from 'next/navigation';
 import { SupportTicket, SupportTicketWithMessages, TicketCategory, TicketStatus } from '@/features/support/types';
 import { useSupportTickets } from '@/features/support/useSupportTickets';
+import { useLocale } from '@/context/LocaleContext';
 
 export default function CustomerSupportPage() {
     const { user } = useAuth();
+    const { t, direction, formatDate } = useLocale();
     const { showToast, confirm: confirmAction } = useFeedback();
     const searchParams = useSearchParams();
     const defaultType = searchParams?.get('type');
@@ -58,6 +59,16 @@ export default function CustomerSupportPage() {
     const photoInputRef = useRef<HTMLInputElement>(null);
     const messageListRef = useRef<HTMLDivElement>(null);
 
+    const refreshTickets = useCallback(
+        () =>
+            fetchTickets({
+                isActive: true,
+                page: ticketsPage,
+                pageSize: TICKETS_PAGE_SIZE,
+            }),
+        [fetchTickets, ticketsPage]
+    );
+
     useEffect(() => {
         if (defaultType) {
             setIsNewTicketModalOpen(true);
@@ -69,9 +80,9 @@ export default function CustomerSupportPage() {
                 }
             }
         }
-        fetchTickets({ isActive: true, page: ticketsPage, pageSize: TICKETS_PAGE_SIZE });
+        refreshTickets();
         // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [defaultType, isSubscriptionType, ticketsPage]);
+    }, [defaultType, isSubscriptionType, ticketsPage, refreshTickets]);
 
     const fetchTicketDetails = useCallback(async (id: string) => {
         try {
@@ -83,9 +94,9 @@ export default function CustomerSupportPage() {
                 }
             }, 50);
         } catch {
-            showToast('Failed to fetch ticket details.', 'error');
+            showToast(t('support.customer.failedFetchDetails'), 'error');
         }
-    }, [showToast]);
+    }, [showToast, t]);
 
     useEffect(() => {
         if (selectedTicketId) {
@@ -112,10 +123,10 @@ export default function CustomerSupportPage() {
             setIsNewTicketModalOpen(false);
             setNewSubject('');
             setNewMessage('');
-            await fetchTickets();
+            await refreshTickets();
         } catch (err) {
             const error = err as { response?: { data?: { detail?: string } } };
-            showToast(error.response?.data?.detail || 'Failed to create ticket', 'error');
+            showToast(error.response?.data?.detail || t('support.customer.failedCreate'), 'error');
         } finally {
             setIsSubmitting(false);
         }
@@ -133,7 +144,7 @@ export default function CustomerSupportPage() {
             await fetchTicketDetails(selectedTicketId);
         } catch (err) {
             const error = err as { response?: { data?: { detail?: string } } };
-            showToast(error.response?.data?.detail || 'Failed to send message', 'error');
+            showToast(error.response?.data?.detail || t('support.customer.failedReply'), 'error');
         } finally {
             setIsReplying(false);
         }
@@ -144,20 +155,20 @@ export default function CustomerSupportPage() {
     const handleCloseTicket = async () => {
         if (!selectedTicketId) return;
         const approved = await confirmAction({
-            title: 'Resolve Ticket',
-            description: 'Are you sure you want to close this ticket?',
-            confirmText: 'Yes, Resolve',
-            cancelText: 'Cancel',
+            title: t('support.customer.resolveTitle'),
+            description: t('support.customer.resolveDescription'),
+            confirmText: t('support.customer.resolveConfirm'),
+            cancelText: t('support.customer.cancel'),
             destructive: true,
         });
         if (!approved) return;
         try {
             await api.patch(`/support/tickets/${selectedTicketId}/status`, { status: 'CLOSED' });
             setSelectedTicketId(null);
-            fetchTickets();
+            refreshTickets();
         } catch (err) {
             const error = err as { response?: { data?: { detail?: string } } };
-            showToast(error.response?.data?.detail || 'Failed to close ticket', 'error');
+            showToast(error.response?.data?.detail || t('support.customer.failedClose'), 'error');
         }
     };
 
@@ -167,7 +178,7 @@ export default function CustomerSupportPage() {
 
         const contentType = (file.type || '').toLowerCase();
         if (!contentType.startsWith('image/')) {
-            showToast('Only image files are supported.', 'error');
+            showToast(t('support.customer.imageOnly'), 'error');
             event.target.value = '';
             return;
         }
@@ -181,7 +192,7 @@ export default function CustomerSupportPage() {
             await fetchTicketDetails(selectedTicketId);
         } catch (err) {
             const error = err as { response?: { data?: { detail?: string } } };
-            showToast(error.response?.data?.detail || 'Failed to upload photo', 'error');
+            showToast(error.response?.data?.detail || t('support.customer.failedUpload'), 'error');
         } finally {
             setIsUploadingPhoto(false);
             event.target.value = '';
@@ -196,9 +207,16 @@ export default function CustomerSupportPage() {
             case 'CLOSED': return <CheckCircle2 size={14} className="text-gray-500" />;
         }
     };
+    const statusLabel = (status: TicketStatus) => t(`support.status.${status}`);
+    const categoryLabel = (category: TicketCategory) => t(`support.category.${category}`);
+    const supportAttachmentAlt = t('support.customer.attachmentAlt');
+    const pageLabel = (page: number, total: number) =>
+        t('support.customer.pageOf')
+            .replace('{{page}}', String(page))
+            .replace('{{total}}', String(total));
 
     if (loading && tickets.length === 0) {
-        return <div className="p-8 text-center text-muted-foreground">Loading support tickets...</div>;
+        return <div className="p-8 text-center text-muted-foreground">{t('support.customer.loading')}</div>;
     }
 
     if (selectedTicketId && ticketDetails) {
@@ -209,13 +227,13 @@ export default function CustomerSupportPage() {
                         onClick={() => setSelectedTicketId(null)}
                         className="btn-ghost !px-2 flex items-center gap-2"
                     >
-                        <ArrowLeft size={18} /> Back to Tickets
+                        <ArrowLeft size={18} className={direction === 'rtl' ? 'rotate-180' : ''} /> {t('support.customer.backToTickets')}
                     </button>
                     <button
                         onClick={handleCloseTicket}
                         className="btn-secondary border border-green-500/30 text-green-300 hover:bg-green-500/15 justify-center"
                     >
-                        Mark Resolved
+                        {t('support.customer.markResolved')}
                     </button>
                 </div>
 
@@ -225,15 +243,15 @@ export default function CustomerSupportPage() {
                             <h1 className="text-xl font-bold mb-2">{ticketDetails.subject}</h1>
                             <div className="flex items-center gap-4 text-xs font-semibold">
                                 <span className="flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-primary/10 text-primary">
-                                    <Tag size={12} /> {ticketDetails.category}
+                                    <Tag size={12} /> {categoryLabel(ticketDetails.category)}
                                 </span>
                                 <span className="flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-muted text-muted-foreground">
-                                    {getStatusIcon(ticketDetails.status)} {ticketDetails.status.replace('_', ' ')}
+                                    {getStatusIcon(ticketDetails.status)} {statusLabel(ticketDetails.status)}
                                 </span>
                             </div>
                         </div>
-                        <div className="text-right text-xs text-muted-foreground">
-                            <div>Opened: {format(new Date(ticketDetails.created_at), 'MMM d, yyyy h:mm a')}</div>
+                        <div className={`${direction === 'rtl' ? 'text-start' : 'text-end'} text-xs text-muted-foreground`}>
+                            <div>{t('support.customer.opened')}: {formatDate(ticketDetails.created_at, { month: 'short', day: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit' })}</div>
                         </div>
                     </div>
                 </div>
@@ -242,24 +260,25 @@ export default function CustomerSupportPage() {
                     <div ref={messageListRef} className="flex-1 overflow-y-auto p-4 space-y-4">
                         {ticketDetails.messages.map((msg) => {
                             const isMe = msg.sender_id === user?.id;
+                            const mediaUrl = resolveProfileImageUrl(msg.media_url);
                             return (
                                 <div key={msg.id} className={`flex ${isMe ? 'justify-end' : 'justify-start'}`}>
-                                    <div className={`max-w-[80%] rounded-2xl p-4 ${isMe ? 'bg-primary text-primary-foreground rounded-tr-sm' : 'bg-muted rounded-tl-sm'}`}>
+                                    <div className={`max-w-[80%] rounded-2xl p-4 ${isMe ? 'bg-primary text-primary-foreground ltr:rounded-tr-sm rtl:rounded-tl-sm' : 'bg-muted ltr:rounded-tl-sm rtl:rounded-tr-sm'}`}>
                                         <div className="text-xs font-semibold mb-1 opacity-70 flex justify-between gap-4">
-                                            <span>{isMe ? 'You' : 'Support Staff'}</span>
-                                            <span>{format(new Date(msg.created_at), 'h:mm a')}</span>
+                                            <span>{isMe ? t('support.customer.you') : t('support.customer.supportStaff')}</span>
+                                            <span>{formatDate(msg.created_at, { hour: 'numeric', minute: '2-digit' })}</span>
                                         </div>
                                         <div className="whitespace-pre-wrap text-sm leading-relaxed">{msg.message}</div>
-                                        {msg.media_url && msg.media_mime?.startsWith('image/') && (
+                                        {mediaUrl && msg.media_mime?.startsWith('image/') && (
                                             <a
-                                                href={resolveProfileImageUrl(msg.media_url)}
+                                                href={mediaUrl}
                                                 target="_blank"
                                                 rel="noreferrer"
                                                 className="block mt-2"
                                             >
                                                 <Image
-                                                    src={resolveProfileImageUrl(msg.media_url)}
-                                                    alt="Support attachment"
+                                                    src={mediaUrl}
+                                                    alt={supportAttachmentAlt}
                                                     width={640}
                                                     height={480}
                                                     className="max-h-64 rounded-lg border border-border/50"
@@ -288,8 +307,8 @@ export default function CustomerSupportPage() {
                                     className="btn-secondary !px-3 hover:text-primary hover:border-primary cursor-pointer"
                                     onClick={() => photoInputRef.current?.click()}
                                     disabled={isUploadingPhoto || isReplying}
-                                    title="Attach photo"
-                                    aria-label="Attach photo"
+                                    title={t('support.customer.attachPhoto')}
+                                    aria-label={t('support.customer.attachPhoto')}
                                 >
                                     <ImagePlus size={18} />
                                 </button>
@@ -297,7 +316,7 @@ export default function CustomerSupportPage() {
                                     type="text"
                                     value={replyText}
                                     onChange={(e) => setReplyText(e.target.value)}
-                                    placeholder="Type your reply to support..."
+                                    placeholder={t('support.customer.replyPlaceholder')}
                                     className="input-dark flex-1"
                                     disabled={isReplying || isUploadingPhoto}
                                 />
@@ -307,7 +326,7 @@ export default function CustomerSupportPage() {
                                     className="btn-primary"
                                 >
                                     <Send size={18} />
-                                    <span>Send</span>
+                                    <span>{t('support.customer.send')}</span>
                                 </button>
                             </form>
                         </div>
@@ -322,16 +341,16 @@ export default function CustomerSupportPage() {
             <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
                 <div>
                     <h1 className="text-2xl font-bold text-foreground flex items-center gap-2">
-                        <LifeBuoy className="text-primary" /> Support Tickets
+                        <LifeBuoy className="text-primary" /> {t('support.customer.title')}
                     </h1>
-                    <p className="text-sm text-muted-foreground mt-1">Manage your active support sessions</p>
+                    <p className="text-sm text-muted-foreground mt-1">{t('support.customer.subtitle')}</p>
                 </div>
                 <button
                     onClick={() => setIsNewTicketModalOpen(true)}
                     className="btn-primary"
                 >
                     <PlusCircle size={18} />
-                    Open New Session
+                    {t('support.customer.openNewSession')}
                 </button>
             </div>
 
@@ -345,8 +364,8 @@ export default function CustomerSupportPage() {
                 {tickets.length === 0 && !loading ? (
                     <div className="col-span-1 kpi-card py-16 text-center text-muted-foreground">
                         <AlertCircle size={32} className="mx-auto mb-3 opacity-20" />
-                        <p>No active support sessions found.</p>
-                        <p className="text-xs mt-1">If you have an issue, please open a new session.</p>
+                        <p>{t('support.customer.noActive')}</p>
+                        <p className="text-xs mt-1">{t('support.customer.noActiveHint')}</p>
                     </div>
                 ) : (
                     tickets.map((ticket) => (
@@ -359,38 +378,38 @@ export default function CustomerSupportPage() {
                                 <h3 className="font-bold text-lg mb-1 group-hover:text-primary transition-colors">{ticket.subject}</h3>
                                 <div className="flex items-center gap-3 text-xs font-semibold">
                                     <span className="flex items-center gap-1 text-primary bg-primary/10 px-2 py-0.5 rounded">
-                                        <Tag size={12} /> {ticket.category}
+                                        <Tag size={12} /> {categoryLabel(ticket.category)}
                                     </span>
                                     <span className="flex items-center gap-1 text-muted-foreground bg-muted px-2 py-0.5 rounded">
-                                        {getStatusIcon(ticket.status)} {ticket.status.replace('_', ' ')}
+                                        {getStatusIcon(ticket.status)} {statusLabel(ticket.status)}
                                     </span>
                                 </div>
                             </div>
-                            <div className="text-sm text-muted-foreground text-left sm:text-right">
-                                <div className="text-xs uppercase tracking-wider mb-1 opacity-70">Last Updated</div>
-                                <div className="font-medium text-foreground">{format(new Date(ticket.updated_at), 'MMM d, yyyy')}</div>
-                                <div className="text-xs">{format(new Date(ticket.updated_at), 'h:mm a')}</div>
+                            <div className={`text-sm text-muted-foreground text-start ${direction === 'rtl' ? 'sm:text-start' : 'sm:text-end'}`}>
+                                <div className="text-xs uppercase tracking-wider mb-1 opacity-70">{t('support.customer.lastUpdated')}</div>
+                                <div className="font-medium text-foreground">{formatDate(ticket.updated_at, { month: 'short', day: 'numeric', year: 'numeric' })}</div>
+                                <div className="text-xs">{formatDate(ticket.updated_at, { hour: 'numeric', minute: '2-digit' })}</div>
                             </div>
                         </div>
                     ))
                 )}
             </div>
             <div className="flex items-center justify-between">
-                <span className="text-xs text-muted-foreground">Page {ticketsPage} of {totalTicketPages}</span>
+                <span className="text-xs text-muted-foreground">{pageLabel(ticketsPage, totalTicketPages)}</span>
                 <div className="flex gap-2">
                     <button
                         className="btn-ghost !px-2 !py-1 text-xs"
                         disabled={ticketsPage <= 1}
                         onClick={() => setTicketsPage((prev) => Math.max(1, prev - 1))}
                     >
-                        Previous
+                        {t('support.customer.previous')}
                     </button>
                     <button
                         className="btn-ghost !px-2 !py-1 text-xs"
                         disabled={ticketsPage >= totalTicketPages}
                         onClick={() => setTicketsPage((prev) => Math.min(totalTicketPages, prev + 1))}
                     >
-                        Next
+                        {t('support.customer.next')}
                     </button>
                 </div>
             </div>
@@ -400,29 +419,29 @@ export default function CustomerSupportPage() {
                     <div className="bg-card w-full max-w-md rounded-xl border border-border shadow-2xl p-6 relative animate-in fade-in zoom-in-95 duration-200">
                         <button
                             onClick={() => setIsNewTicketModalOpen(false)}
-                            className="absolute right-4 top-4 text-muted-foreground hover:text-foreground transition-colors"
+                            className={`absolute top-4 ${direction === 'rtl' ? 'rtl:left-4' : 'ltr:right-4'} text-muted-foreground hover:text-foreground transition-colors`}
                         >
                             <X size={20} />
                         </button>
 
-                        <h2 className="text-2xl font-semibold mb-6">Open Support Session</h2>
+                        <h2 className="text-2xl font-semibold mb-6">{t('support.customer.modalTitle')}</h2>
 
                         <form onSubmit={handleCreateTicket} className="space-y-4">
                             <div>
-                                <label className="block text-sm font-medium text-muted-foreground mb-1.5">Subject</label>
+                                <label className="block text-sm font-medium text-muted-foreground mb-1.5">{t('support.customer.subject')}</label>
                                 <input
                                     type="text"
                                     required
                                     value={newSubject}
                                     onChange={(e) => setNewSubject(e.target.value)}
-                                    placeholder="Brief summary of your issue"
+                                    placeholder={t('support.customer.subjectPlaceholder')}
                                     className="input-dark w-full"
                                     disabled={isSubmitting}
                                 />
                             </div>
 
                             <div>
-                                <label className="block text-sm font-medium text-muted-foreground mb-1.5">Category</label>
+                                <label className="block text-sm font-medium text-muted-foreground mb-1.5">{t('support.customer.categoryLabel')}</label>
                                 <select
                                     required
                                     value={newCategory}
@@ -430,21 +449,21 @@ export default function CustomerSupportPage() {
                                     className="input-dark w-full"
                                     disabled={isSubmitting}
                                 >
-                                    <option value="GENERAL">General Inquiry</option>
-                                    <option value="TECHNICAL">Technical Issue (App/Website)</option>
-                                    <option value="BILLING">Billing/Payment</option>
-                                    <option value="SUBSCRIPTION">Subscription (Renew/Freeze)</option>
+                                    <option value="GENERAL">{t('support.category.GENERAL')}</option>
+                                    <option value="TECHNICAL">{t('support.category.TECHNICAL')}</option>
+                                    <option value="BILLING">{t('support.category.BILLING')}</option>
+                                    <option value="SUBSCRIPTION">{t('support.category.SUBSCRIPTION')}</option>
                                 </select>
                             </div>
 
                             <div>
-                                <label className="block text-sm font-medium text-muted-foreground mb-1.5">Message</label>
+                                <label className="block text-sm font-medium text-muted-foreground mb-1.5">{t('support.customer.message')}</label>
                                 <textarea
                                     required
                                     rows={5}
                                     value={newMessage}
                                     onChange={(e) => setNewMessage(e.target.value)}
-                                    placeholder="Please describe your issue in detail..."
+                                    placeholder={t('support.customer.messagePlaceholder')}
                                     className="input-dark w-full resize-none min-h-[120px]"
                                     disabled={isSubmitting}
                                 />
@@ -457,14 +476,14 @@ export default function CustomerSupportPage() {
                                     className="btn-secondary flex-1"
                                     disabled={isSubmitting}
                                 >
-                                    Cancel
+                                    {t('support.customer.cancel')}
                                 </button>
                                 <button
                                     type="submit"
                                     className="btn-primary flex-1 justify-center"
                                     disabled={isSubmitting}
                                 >
-                                    {isSubmitting ? 'Opening...' : 'Start Session'}
+                                    {isSubmitting ? t('support.customer.opening') : t('support.customer.startSession')}
                                 </button>
                             </div>
                         </form>
@@ -474,3 +493,4 @@ export default function CustomerSupportPage() {
         </div>
     );
 }
+
