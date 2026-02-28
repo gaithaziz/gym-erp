@@ -19,9 +19,13 @@ branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 
 
+def _quoted_role_name() -> str:
+    return '"' + settings.POSTGRES_USER.replace('"', '""') + '"'
+
+
 def upgrade() -> None:
-    op.execute(f"ALTER ROLE {settings.POSTGRES_USER} NOSUPERUSER NOBYPASSRLS")
+    op.execute(f"ALTER ROLE {_quoted_role_name()} NOSUPERUSER NOBYPASSRLS")
 
 
 def downgrade() -> None:
-    op.execute(f"ALTER ROLE {settings.POSTGRES_USER} SUPERUSER BYPASSRLS")
+    op.execute(f"ALTER ROLE {_quoted_role_name()} SUPERUSER BYPASSRLS")

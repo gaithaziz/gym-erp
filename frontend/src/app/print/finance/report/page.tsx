@@ -33,7 +33,7 @@ export default function FinanceReportPrintPage() {
 function FinanceReportPrintPageContent() {
     const searchParams = useSearchParams();
     const requestedLocale = searchParams.get('locale');
-    const { locale, setLocale, direction, formatDate, formatNumber } = useLocale();
+    const { locale, setLocale, formatDate, formatNumber } = useLocale();
     const [rows, setRows] = useState<Transaction[]>([]);
     const [summary, setSummary] = useState<FinanceSummary>({
         total_income: 0,
@@ -104,6 +104,7 @@ function FinanceReportPrintPageContent() {
 
     const txt = locale === 'ar'
         ? {
+            brand: 'Gym ERP',
             title: 'التقرير المالي',
             subtitle: 'تقرير مالي منسق للحفظ أو الطباعة',
             filters: 'الفلاتر',
@@ -138,6 +139,7 @@ function FinanceReportPrintPageContent() {
             otherExpense: 'مصروف آخر',
         }
         : {
+            brand: 'Gym ERP',
             title: 'Financial Report',
             subtitle: 'Printable finance report',
             filters: 'Filters',
@@ -215,7 +217,7 @@ function FinanceReportPrintPageContent() {
                     <>
                         <section className="mb-6 flex items-start justify-between gap-4 border-b-2 border-stone-200 pb-5">
                             <div>
-                                <p className="mb-2 text-[11px] font-bold uppercase tracking-[0.24em] text-amber-600">Gym ERP</p>
+                                <p className="mb-2 text-[11px] font-bold uppercase tracking-[0.24em] text-amber-600">{txt.brand}</p>
                                 <h1 className="text-3xl font-bold">{txt.title}</h1>
                                 <p className="mt-2 text-sm text-slate-500">{txt.subtitle}</p>
                             </div>
@@ -245,12 +247,12 @@ function FinanceReportPrintPageContent() {
                             <table className="w-full border-collapse text-sm">
                                 <thead>
                                     <tr className="border-b border-stone-200 text-xs uppercase tracking-[0.14em] text-slate-500">
-                                        <th className={`py-3 ${direction === 'rtl' ? 'text-right' : 'text-left'}`}>{txt.date}</th>
-                                        <th className={`py-3 ${direction === 'rtl' ? 'text-right' : 'text-left'}`}>{txt.description}</th>
-                                        <th className={`py-3 ${direction === 'rtl' ? 'text-right' : 'text-left'}`}>{txt.category}</th>
-                                        <th className={`py-3 ${direction === 'rtl' ? 'text-right' : 'text-left'}`}>{txt.type}</th>
-                                        <th className={`py-3 ${direction === 'rtl' ? 'text-right' : 'text-left'}`}>{txt.paymentMethod}</th>
-                                        <th className={`py-3 ${direction === 'rtl' ? 'text-left' : 'text-right'}`}>{txt.amount}</th>
+                                        <th className="py-3 ltr:text-left rtl:text-right">{txt.date}</th>
+                                        <th className="py-3 ltr:text-left rtl:text-right">{txt.description}</th>
+                                        <th className="py-3 ltr:text-left rtl:text-right">{txt.category}</th>
+                                        <th className="py-3 ltr:text-left rtl:text-right">{txt.type}</th>
+                                        <th className="py-3 ltr:text-left rtl:text-right">{txt.paymentMethod}</th>
+                                        <th className="py-3 ltr:text-right rtl:text-left">{txt.amount}</th>
                                     </tr>
                                 </thead>
                                 <tbody>
@@ -261,7 +263,7 @@ function FinanceReportPrintPageContent() {
                                             <td className="py-3">{categoryLabelMap[row.category] || row.category}</td>
                                             <td className="py-3">{getTypeLabel(row.type)}</td>
                                             <td className="py-3">{paymentMethodLabelMap[row.payment_method] || row.payment_method}</td>
-                                            <td className={`py-3 font-mono ${direction === 'rtl' ? 'text-left' : 'text-right'}`}>
+                                            <td className="py-3 font-mono ltr:text-right rtl:text-left">
                                                 {formatNumber(row.amount, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                                             </td>
                                         </tr>
@@ -286,10 +288,11 @@ function PrintMeta({ label, value }: { label: string; value: string }) {
 }
 
 function PrintLoadingFallback() {
+    const loadingText = 'Preparing report...';
     return (
         <main className="min-h-screen bg-stone-100 p-6 text-slate-900 print:bg-white print:p-0">
             <div className="mx-auto w-full max-w-5xl rounded-[28px] border border-stone-300 bg-white p-8 shadow-[0_18px_50px_rgba(15,23,42,0.08)] print:max-w-none print:rounded-none print:border-0 print:p-0 print:shadow-none">
-                <p className="text-sm text-slate-500">Preparing report...</p>
+                <p className="text-sm text-slate-500">{loadingText}</p>
             </div>
         </main>
     );

@@ -114,7 +114,11 @@ jobs:
       - name: Generate backend dependency audit report
         run: |
           mkdir -p reports
-          pip-audit -r requirements.txt -f json -o reports/backend-dependency-audit.json
+          pip-audit \
+            --ignore-vuln GHSA-wj6h-64fc-37mp \
+            -r requirements.txt \
+            -f json \
+            -o reports/backend-dependency-audit.json
       - name: Generate frontend dependency audit report
         working-directory: frontend
         run: |

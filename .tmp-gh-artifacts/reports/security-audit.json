@@ -1,0 +1,102 @@
+{
+  "summary": {
+    "overall_status": "pass",
+    "passed": 7,
+    "warnings": 0,
+    "failed": 0,
+    "not_applicable": 0
+  },
+  "checks": [
+    {
+      "id": "sensitive-route-rate-limits",
+      "category": "rate_limits",
+      "title": "Sensitive route rate limits",
+      "status": "pass",
+      "summary": "Required sensitive routes are rate limited.",
+      "details": [
+        "Protected routes: 5"
+      ],
+      "evidence": [
+        "Protected route registry entries: POST /api/v1/access/kiosk/auth, POST /api/v1/access/scan, POST /api/v1/access/scan-session, POST /api/v1/auth/login, POST /api/v1/auth/refresh"
+      ],
+      "recommended_action": null
+    },
+    {
+      "id": "postgres-rls",
+      "category": "row_level_security",
+      "title": "PostgreSQL Row Level Security",
+      "status": "pass",
+      "summary": "RLS policies with FORCE enforcement were found in migrations.",
+      "details": [],
+      "evidence": [
+        "Detected ENABLE/FORCE RLS and CREATE POLICY statements in Alembic migrations."
+      ],
+      "recommended_action": null
+    },
+    {
+      "id": "server-side-validation",
+      "category": "server_validation",
+      "title": "Server-side validation",
+      "status": "pass",
+      "summary": "All inspected mutating routes use validated inputs.",
+      "details": [
+        "Inspected mutating routes: 72"
+      ],
+      "evidence": [
+        "Route inspection based on FastAPI dependency metadata."
+      ],
+      "recommended_action": null
+    },
+    {
+      "id": "api-key-handling",
+      "category": "api_keys",
+      "title": "API keys and secrets",
+      "status": "pass",
+      "summary": "No obvious secret-handling issues were detected.",
+      "details": [],
+      "evidence": [
+        "Static scan executed over tracked source files."
+      ],
+      "recommended_action": null
+    },
+    {
+      "id": "env-var-configuration",
+      "category": "env_vars",
+      "title": "Environment variables",
+      "status": "pass",
+      "summary": "Environment configuration is documented and looks valid.",
+      "details": [],
+      "evidence": [
+        "Env example present: .env.example"
+      ],
+      "recommended_action": null
+    },
+    {
+      "id": "cors-policy",
+      "category": "cors",
+      "title": "CORS restrictions",
+      "status": "pass",
+      "summary": "CORS policy is explicitly restricted for the current environment.",
+      "details": [],
+      "evidence": [
+        "Configured explicit origins: 0"
+      ],
+      "recommended_action": null
+    },
+    {
+      "id": "dependency-audit-reports",
+      "category": "dependencies",
+      "title": "Dependency audit reports",
+      "status": "pass",
+      "summary": "Dependency audit reports show no known vulnerabilities.",
+      "details": [
+        "Frontend dependency findings: 0"
+      ],
+      "evidence": [
+        "Frontend report present: frontend/reports/dependency-audit.json"
+      ],
+      "recommended_action": null
+    }
+  ],
+  "generated_at": "2026-02-28T06:45:34.371136Z"
+}

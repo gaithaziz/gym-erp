@@ -24,7 +24,7 @@ export default function FinanceReceiptPrintPage() {
     const idParam = params?.id;
     const id = Array.isArray(idParam) ? idParam[0] : idParam;
     const requestedLocale = searchParams.get('locale');
-    const { locale, setLocale, direction, formatDate, formatNumber } = useLocale();
+    const { locale, setLocale, formatDate, formatNumber } = useLocale();
     const [data, setData] = useState<ReceiptData | null>(null);
     const [loading, setLoading] = useState(true);
 
@@ -60,6 +60,7 @@ export default function FinanceReceiptPrintPage() {
 
     const txt = locale === 'ar'
         ? {
+            brand: 'Gym ERP',
             title: 'إيصال مالي',
             subtitle: 'مستند مالي جاهز للحفظ أو الطباعة',
             receiptNo: 'رقم الإيصال',
@@ -89,6 +90,7 @@ export default function FinanceReceiptPrintPage() {
             otherExpense: 'مصروف آخر',
         }
         : {
+            brand: 'Gym ERP',
             title: 'Finance Receipt',
             subtitle: 'Printable financial document',
             receiptNo: 'Receipt No',
@@ -152,7 +154,7 @@ export default function FinanceReceiptPrintPage() {
                     <>
                         <section className="mb-6 flex items-start justify-between gap-4 border-b-2 border-stone-200 pb-5">
                             <div>
-                                <p className="mb-2 text-[11px] font-bold uppercase tracking-[0.24em] text-amber-600">Gym ERP</p>
+                                <p className="mb-2 text-[11px] font-bold uppercase tracking-[0.24em] text-amber-600">{txt.brand}</p>
                                 <h1 className="text-3xl font-bold">{txt.title}</h1>
                                 <p className="mt-2 text-sm text-slate-500">{txt.subtitle}</p>
                             </div>
@@ -177,14 +179,14 @@ export default function FinanceReceiptPrintPage() {
                             <table className="w-full border-collapse text-sm">
                                 <thead>
                                     <tr className="border-b border-stone-200 text-xs uppercase tracking-[0.14em] text-slate-500">
-                                        <th className={`py-3 ${direction === 'rtl' ? 'text-right' : 'text-left'}`}>{txt.description}</th>
-                                        <th className={`py-3 ${direction === 'rtl' ? 'text-left' : 'text-right'}`}>{txt.amount}</th>
+                                        <th className="py-3 ltr:text-left rtl:text-right">{txt.description}</th>
+                                        <th className="py-3 ltr:text-right rtl:text-left">{txt.amount}</th>
                                     </tr>
                                 </thead>
                                 <tbody>
                                     <tr className="border-b border-stone-200">
                                         <td className="py-4">{data.description}</td>
-                                        <td className={`py-4 font-mono ${direction === 'rtl' ? 'text-left' : 'text-right'}`}>{formatNumber(data.amount, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
+                                        <td className="py-4 font-mono ltr:text-right rtl:text-left">{formatNumber(data.amount, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
                                     </tr>
                                 </tbody>
                             </table>
