@@ -38,6 +38,20 @@ export default function InventoryPage() {
         stock_quantity: '', low_stock_threshold: '5', image_url: ''
     });
     const [saving, setSaving] = useState(false);
+    const categoryLabel = (value: string) => {
+        switch (value) {
+            case 'SUPPLEMENT':
+                return t('inventory.categorySupplement');
+            case 'DRINK':
+                return t('inventory.categoryDrink');
+            case 'MERCHANDISE':
+                return t('inventory.categoryMerchandise');
+            case 'SNACK':
+                return t('inventory.categorySnack');
+            default:
+                return t('inventory.categoryOther');
+        }
+    };
 
     useEffect(() => {
         const timer = setTimeout(() => {
@@ -172,7 +186,7 @@ export default function InventoryPage() {
                     className="input-dark text-sm w-full sm:w-44"
                 >
                     <option value="">{t('inventory.allCategories')}</option>
-                    {CATEGORIES.map(c => <option key={c} value={c}>{c}</option>)}
+                    {CATEGORIES.map(c => <option key={c} value={c}>{categoryLabel(c)}</option>)}
                 </select>
             </div>
 
@@ -209,7 +223,7 @@ export default function InventoryPage() {
                                     </td>
                                     <td className="px-4 py-3">
                                         <span className="text-xs font-mono px-2 py-0.5 bg-muted/30 border border-border">
-                                            {p.category}
+                                            {categoryLabel(p.category)}
                                         </span>
                                     </td>
                                     <td className="px-4 py-3 text-end font-mono text-foreground">
@@ -265,7 +279,7 @@ export default function InventoryPage() {
                                 <div>
                                     <label className="block text-xs font-bold text-muted-foreground uppercase mb-1 font-mono">{t('inventory.category')}</label>
                                     <select value={form.category} onChange={e => setForm({ ...form, category: e.target.value })} className="input-dark text-sm">
-                                        {CATEGORIES.map(c => <option key={c} value={c}>{c}</option>)}
+                                        {CATEGORIES.map(c => <option key={c} value={c}>{categoryLabel(c)}</option>)}
                                     </select>
                                 </div>
                             </div>

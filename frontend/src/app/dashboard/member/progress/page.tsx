@@ -24,7 +24,7 @@ import type { BiometricLogResponse, WorkoutSessionLog } from '../_shared/types';
 type MetricKey = keyof Pick<BiometricLogResponse, 'weight_kg' | 'body_fat_pct' | 'muscle_mass_kg'>;
 
 export default function MemberProgressPage() {
-    const { locale } = useLocale();
+    const { locale, formatDate } = useLocale();
     const { showToast } = useFeedback();
     const txt = locale === 'ar' ? {
         metricsLogged: 'تم تسجيل قياسات الجسم.',
@@ -286,7 +286,7 @@ export default function MemberProgressPage() {
 
         return (
             <div className="border border-border bg-card px-3 py-2 text-xs">
-                <p className="font-semibold text-foreground">{new Date(parsedLabel).toLocaleDateString()}</p>
+                <p className="font-semibold text-foreground">{formatDate(parsedLabel, { year: 'numeric', month: 'short', day: 'numeric' })}</p>
                 <p className="text-foreground mt-1">{metricLabel}: {point.value.toFixed(1)} {unit}</p>
                 <p className={`mt-1 ${deltaClass}`}>{deltaText}</p>
             </div>
@@ -336,7 +336,7 @@ export default function MemberProgressPage() {
                                         <Tooltip
                                             cursor={{ fill: 'var(--muted)' }}
                                             contentStyle={{ background: 'var(--card)', border: '1px solid var(--border)', borderRadius: '0px', fontSize: '0.8rem', color: 'var(--foreground)' }}
-                                            labelFormatter={(label) => new Date(label as string).toLocaleDateString()}
+                                            labelFormatter={(label) => formatDate(String(label), { year: 'numeric', month: 'short', day: 'numeric' })}
                                         />
                                         <Bar dataKey="workouts" fill="var(--primary)" barSize={16} name={txt.workoutsLogged} radius={[2, 2, 0, 0]} />
                                     </BarChart>
@@ -504,7 +504,7 @@ export default function MemberProgressPage() {
                                 />
                                 <Tooltip
                                     contentStyle={{ background: 'var(--card)', border: '1px solid var(--border)', borderRadius: '0px', fontSize: '0.8rem', color: 'var(--foreground)' }}
-                                    labelFormatter={(label) => new Date(label as string).toLocaleDateString()}
+                                    labelFormatter={(label) => formatDate(String(label), { year: 'numeric', month: 'short', day: 'numeric' })}
                                 />
                                 <Line type="monotone" dataKey="volume" stroke="var(--primary)" strokeWidth={2} name="Volume (kg)" dot={{ r: 2, fill: 'var(--primary)' }} />
                             </LineChart>

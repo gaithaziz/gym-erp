@@ -117,7 +117,7 @@ export default function AuditLogsPage() {
                                         <td className="font-mono text-xs text-muted-foreground" title={log.user_id || t('audit.system')}>
                                             {log.user_id ? log.user_id.split('-')[0] + '...' : t('audit.system')}
                                         </td>
-                                        <td className="font-mono text-xs text-muted-foreground" title={log.target_id || 'N/A'}>
+                                        <td className="font-mono text-xs text-muted-foreground" title={log.target_id || '-'}>
                                             {log.target_id ? log.target_id.split('-')[0] + '...' : '-'}
                                         </td>
                                         <td className="text-sm max-w-md truncate" title={log.details || ''}>

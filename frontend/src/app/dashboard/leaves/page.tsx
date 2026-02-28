@@ -18,7 +18,7 @@ interface LeaveRequest {
 
 export default function MyLeavesPage() {
     const { showToast } = useFeedback();
-    const { locale } = useLocale();
+    const { locale, formatDate } = useLocale();
     const [leaves, setLeaves] = useState<LeaveRequest[]>([]);
     const [loading, setLoading] = useState(true);
     const [isAddOpen, setIsAddOpen] = useState(false);
@@ -102,15 +102,15 @@ export default function MyLeavesPage() {
                             {leaves.map((l) => (
                                 <tr key={l.id}>
                                     <td className="font-medium text-foreground">
-                                        {new Date(l.start_date).toLocaleDateString()} - {new Date(l.end_date).toLocaleDateString()}
+                                        {formatDate(l.start_date, { year: 'numeric', month: 'short', day: 'numeric' })} - {formatDate(l.end_date, { year: 'numeric', month: 'short', day: 'numeric' })}
                                     </td>
-                                    <td><span className="badge badge-gray">{l.leave_type}</span></td>
+                                    <td><span className="badge badge-gray">{l.leave_type === 'SICK' ? (locale === 'ar' ? 'مرضية' : 'Sick') : l.leave_type === 'VACATION' ? (locale === 'ar' ? 'إجازة' : 'Vacation') : (locale === 'ar' ? 'أخرى' : 'Other')}</span></td>
                                     <td className="text-muted-foreground">{l.reason || '-'}</td>
                                     <td>
                                         <span className={`badge ${l.status === 'APPROVED' ? 'badge-green' :
                                             l.status === 'DENIED' ? 'badge-red' : 'badge-amber'
                                             }`}>
-                                            {l.status}
+                                            {l.status === 'APPROVED' ? (locale === 'ar' ? 'مقبولة' : 'Approved') : l.status === 'DENIED' ? (locale === 'ar' ? 'مرفوضة' : 'Denied') : (locale === 'ar' ? 'قيد المراجعة' : 'Pending')}
                                         </span>
                                     </td>
                                 </tr>

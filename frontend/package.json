@@ -18,8 +18,12 @@
     "test:e2e": "npm run test:e2e:fast",
     "test:e2e:fast": "playwright test e2e/smoke.spec.ts && playwright test e2e/i18n-rtl-visual.spec.ts --grep \"@fast\"",
     "test:e2e:full": "playwright test e2e/smoke.spec.ts && playwright test e2e/i18n-rtl-visual.spec.ts --grep \"@full\"",
+    "test:e2e:admin-states": "playwright test e2e/admin-state-visual.spec.ts",
+    "test:e2e:customer-states": "playwright test e2e/customer-state-visual.spec.ts",
     "test:e2e:visual:fast:update": "playwright test e2e/i18n-rtl-visual.spec.ts --grep \"@fast\" --update-snapshots",
     "test:e2e:visual:full:update": "playwright test e2e/i18n-rtl-visual.spec.ts --grep \"@full\" --update-snapshots",
+    "test:e2e:admin-states:update": "playwright test e2e/admin-state-visual.spec.ts --update-snapshots",
+    "test:e2e:customer-states:update": "playwright test e2e/customer-state-visual.spec.ts --update-snapshots",
     "test:e2e:ui": "playwright test --ui"
   },
   "dependencies": {

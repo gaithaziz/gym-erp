@@ -157,6 +157,28 @@ export default function FinancePage() {
     const jodCode = 'JOD';
     const paymentHistoryLabel = locale === 'ar' ? 'سجل المدفوعات' : 'Payment History';
     const noPaymentsRecordedLabel = locale === 'ar' ? 'لا توجد مدفوعات مسجلة.' : 'No payments recorded.';
+    const descriptionPlaceholder = locale === 'ar' ? 'مثال: اشتراك شهري للنادي' : 'e.g. Monthly gym subscription';
+    const salaryPaymentDefault = locale === 'ar' ? 'دفعة راتب' : 'Salary payment';
+    const reportFileName = locale === 'ar' ? 'financial_report_ar.pdf' : 'financial_report_en.pdf';
+    const categoryLabelMap: Record<string, string> = {
+        SUBSCRIPTION: txt.categorySubscription,
+        POS_SALE: txt.categoryPosSale,
+        OTHER_INCOME: txt.categoryOtherIncome,
+        SALARY: txt.categorySalary,
+        RENT: txt.categoryRent,
+        UTILITIES: txt.categoryUtilities,
+        MAINTENANCE: txt.categoryMaintenance,
+        EQUIPMENT: txt.categoryEquipment,
+        OTHER_EXPENSE: txt.categoryOtherExpense,
+    };
+    const paymentMethodLabelMap: Record<string, string> = {
+        CASH: txt.cash,
+        CARD: txt.card,
+        TRANSFER: txt.transfer,
+        BANK_TRANSFER: txt.bankTransfer,
+    };
+    const getCategoryLabel = (category: string) => categoryLabelMap[category] || category.replace(/_/g, ' ');
+    const getPaymentMethodLabel = (method: string) => paymentMethodLabelMap[method] || method;
 
     const fetchTransactions = useCallback(async () => {
         const params: Record<string, string | number> = {
@@ -264,7 +286,7 @@ export default function FinancePage() {
                 params.set('end_date', endDate);
             }
             const response = await api.get(`/finance/transactions/report.pdf?${params.toString()}`, { responseType: 'blob' });
-            downloadBlob(response.data as Blob, 'financial_report.pdf');
+            downloadBlob(response.data as Blob, reportFileName);
         } catch {
             showToast(t('finance.downloadReportError'), 'error');
         }
@@ -426,7 +448,7 @@ export default function FinancePage() {
                             <table className="w-full text-start table-dark min-w-[550px]"><thead><tr><th>{t('finance.date')}</th><th>{t('finance.description')}</th><th>{t('finance.category')}</th><th>{t('finance.type')}</th><th className="text-end">{t('finance.amount')}</th><th className="text-end">{t('finance.action')}</th></tr></thead>
                                 <tbody>
                                     {filteredTransactions.length === 0 && (<tr><td colSpan={6} className="text-center py-8 text-muted-foreground text-sm">{t('finance.noTransactions')}</td></tr>)}
-                                    {filteredTransactions.map((tx) => (<tr key={tx.id}><td>{formatDate(tx.date, { year: 'numeric', month: '2-digit', day: '2-digit' })}</td><td className="!text-foreground font-medium">{tx.description || '-'}</td><td className="text-xs">{tx.category.replace(/_/g, ' ')}</td><td><span className={`badge ${tx.type === 'INCOME' ? 'badge-green' : 'badge-red'}`}>{tx.type === 'INCOME' ? t('finance.income') : t('finance.expense')}</span></td><td className={`text-end font-mono text-sm font-semibold ${tx.type === 'INCOME' ? 'text-emerald-500' : 'text-red-500'}`}>{tx.type === 'INCOME' ? '+' : '-'}{formatNumber(tx.amount, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td><td className="text-end"><button onClick={() => handlePrintReceipt(tx)} className="text-muted-foreground hover:text-primary transition-colors p-1" title={t('finance.printReport')}><Printer size={16} /></button></td></tr>))}
+                                    {filteredTransactions.map((tx) => (<tr key={tx.id}><td>{formatDate(tx.date, { year: 'numeric', month: '2-digit', day: '2-digit' })}</td><td className="!text-foreground font-medium">{tx.description || '-'}</td><td className="text-xs">{getCategoryLabel(tx.category)}</td><td><span className={`badge ${tx.type === 'INCOME' ? 'badge-green' : 'badge-red'}`}>{tx.type === 'INCOME' ? t('finance.income') : t('finance.expense')}</span></td><td className={`text-end font-mono text-sm font-semibold ${tx.type === 'INCOME' ? 'text-emerald-500' : 'text-red-500'}`}>{tx.type === 'INCOME' ? '+' : '-'}{formatNumber(tx.amount, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td><td className="text-end"><button onClick={() => handlePrintReceipt(tx)} className="text-muted-foreground hover:text-primary transition-colors p-1" title={t('finance.printReport')}><Printer size={16} /></button></td></tr>))}
                                 </tbody>
                             </table>
                         </div>
@@ -529,7 +551,7 @@ export default function FinancePage() {
                             <div><label className="block text-xs font-medium text-muted-foreground mb-1.5">{t('finance.type')}</label><select className="input-dark" value={formData.type} onChange={e => setFormData({ ...formData, type: e.target.value })}><option value="INCOME">{t('finance.income')}</option><option value="EXPENSE">{t('finance.expense')}</option></select></div>
                             <div><label className="block text-xs font-medium text-muted-foreground mb-1.5">{t('finance.category')}</label><select className="input-dark" value={formData.category} onChange={e => setFormData({ ...formData, category: e.target.value })}><option value="OTHER_INCOME">{txt.categoryOtherIncome}</option><option value="SUBSCRIPTION">{txt.categorySubscription}</option><option value="POS_SALE">{txt.categoryPosSale}</option><option value="RENT">{txt.categoryRent}</option><option value="SALARY">{txt.categorySalary}</option><option value="UTILITIES">{txt.categoryUtilities}</option><option value="MAINTENANCE">{txt.categoryMaintenance}</option><option value="EQUIPMENT">{txt.categoryEquipment}</option><option value="OTHER_EXPENSE">{txt.categoryOtherExpense}</option></select></div>
                             <div><label className="block text-xs font-medium text-muted-foreground mb-1.5">{`${t('finance.amount')} (${jodCode})`}</label><input type="number" step="0.01" required className="input-dark" value={formData.amount} onChange={e => setFormData({ ...formData, amount: e.target.value })} /></div>
-                            <div><label className="block text-xs font-medium text-muted-foreground mb-1.5">{t('finance.description')}</label><input type="text" className="input-dark" value={formData.description} onChange={e => setFormData({ ...formData, description: e.target.value })} placeholder={locale === 'ar' ? 'مثال: اشتراك شهري للنادي' : 'e.g. Monthly gym subscription'} /></div>
+                            <div><label className="block text-xs font-medium text-muted-foreground mb-1.5">{t('finance.description')}</label><input type="text" className="input-dark" value={formData.description} onChange={e => setFormData({ ...formData, description: e.target.value })} placeholder={descriptionPlaceholder} /></div>
                             <div><label className="block text-xs font-medium text-muted-foreground mb-1.5">{txt.paymentMethod}</label><select className="input-dark" value={formData.payment_method} onChange={e => setFormData({ ...formData, payment_method: e.target.value })}><option value="CASH">{txt.cash}</option><option value="CARD">{txt.card}</option><option value="TRANSFER">{txt.bankTransfer}</option></select></div>
                             <div className="flex justify-end gap-3 pt-4 border-t border-border"><button type="button" onClick={() => setShowModal(false)} className="btn-ghost">{t('finance.close')}</button><button type="submit" className="btn-primary">{t('finance.logTransaction')}</button></div>
                         </form>
@@ -575,8 +597,8 @@ export default function FinancePage() {
                             {(selectedPayroll.payments || []).map((payment) => (
                                 <div key={payment.id} className="flex items-center justify-between text-xs border-b border-border/60 pb-1 last:border-0 last:pb-0">
                                     <div>
-                                        <p className="text-foreground font-medium">{`${payment.amount.toFixed(2)} ${jodCode} - ${payment.payment_method}`}</p>
-                                        <p className="text-muted-foreground">{payment.description || 'Salary payment'}</p>
+                                        <p className="text-foreground font-medium">{`${payment.amount.toFixed(2)} ${jodCode} - ${getPaymentMethodLabel(payment.payment_method)}`}</p>
+                                        <p className="text-muted-foreground">{payment.description || salaryPaymentDefault}</p>
                                     </div>
                                     <p className="text-muted-foreground">{new Date(payment.paid_at).toLocaleString()}</p>
                                 </div>

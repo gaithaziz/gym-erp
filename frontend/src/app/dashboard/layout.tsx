@@ -274,12 +274,17 @@ export default function DashboardLayout({
             {/* Sidebar */}
             <aside
                 className={`
-                    fixed md:static z-50 top-0 ${direction === 'rtl' ? 'right-0' : 'left-0'} h-dvh md:h-auto w-64 flex flex-col
-                    transform transition-transform duration-300 ease-in-out
-                    bg-card ${direction === 'rtl' ? 'border-l' : 'border-r'} border-border
-                    ${sidebarOpen ? 'translate-x-0' : direction === 'rtl' ? 'translate-x-full' : '-translate-x-full'}
-                    md:translate-x-0
+                    fixed md:static z-50 top-0 h-dvh md:h-auto w-64 flex flex-col
+                    transform [transform:var(--sidebar-transform)] md:[transform:translateX(0)]
+                    transition-transform duration-300 ease-in-out
+                    bg-card
                 `}
+                style={{
+                    insetInlineStart: 0,
+                    borderInlineStart: direction === 'rtl' ? '1px solid hsl(var(--border))' : undefined,
+                    borderInlineEnd: direction === 'rtl' ? undefined : '1px solid hsl(var(--border))',
+                    ['--sidebar-transform' as string]: sidebarOpen ? 'translateX(0)' : direction === 'rtl' ? 'translateX(100%)' : 'translateX(-100%)',
+                }}
             >
                 <div className="p-5 pb-4 border-b border-border relative">
                     <div className={`mb-3 flex items-center gap-2 ${direction === 'rtl' ? 'justify-start' : 'justify-end'}`}>
@@ -362,12 +367,16 @@ export default function DashboardLayout({
                     <button
                         type="button"
                         onClick={() => setChatOpen(true)}
-                        className={`fixed bottom-6 ${direction === 'rtl' ? 'left-6' : 'right-6'} z-50 flex h-14 w-14 items-center justify-center rounded-full bg-primary text-primary-foreground shadow-lg hover:bg-primary/90 hover:scale-105 active:scale-95 transition-all duration-200`}
+                        className="fixed bottom-6 z-50 flex h-14 w-14 items-center justify-center rounded-full bg-primary text-primary-foreground shadow-lg hover:bg-primary/90 hover:scale-105 active:scale-95 transition-all duration-200"
+                        style={{ insetInlineEnd: '1.5rem' }}
                         aria-label={t('dashboard.openChat')}
                     >
                         <MessageCircle size={24} />
                         {chatNewConversations > 0 && (
-                            <span className={`absolute -top-1 ${direction === 'rtl' ? '-left-1' : '-right-1'} flex min-w-[20px] h-[20px] px-1.5 items-center justify-center rounded-full bg-black text-white text-xs font-bold border-2 border-background shadow-sm`}>
+                            <span
+                                className="absolute -top-1 flex min-w-[20px] h-[20px] px-1.5 items-center justify-center rounded-full bg-black text-white text-xs font-bold border-2 border-background shadow-sm"
+                                style={{ insetInlineEnd: '-0.25rem' }}
+                            >
                                 {chatNewConversations > 99 ? '99+' : chatNewConversations}
                             </span>
                         )}

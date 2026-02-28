@@ -1,4 +1,4 @@
-'use client';
+﻿'use client';
 
 import { FormEvent, useEffect, useMemo, useRef, useState } from 'react';
 import { useSearchParams } from 'next/navigation';
@@ -69,7 +69,17 @@ function formatSeconds(totalSeconds: number): string {
     return `${minutes}:${String(seconds).padStart(2, '0')}`;
 }
 
-function ChatAudioPlayer({ src, initialDurationSeconds }: { src: string; initialDurationSeconds?: number | null }) {
+function ChatAudioPlayer({
+    src,
+    initialDurationSeconds,
+    playLabel,
+    pauseLabel,
+}: {
+    src: string;
+    initialDurationSeconds?: number | null;
+    playLabel: string;
+    pauseLabel: string;
+}) {
     const audioRef = useRef<HTMLAudioElement | null>(null);
     const [playing, setPlaying] = useState(false);
     const [currentTime, setCurrentTime] = useState(0);
@@ -135,7 +145,7 @@ function ChatAudioPlayer({ src, initialDurationSeconds }: { src: string; initial
                     type="button"
                     onClick={togglePlay}
                     className="h-8 w-8 rounded-full bg-primary/20 text-primary inline-flex items-center justify-center hover:bg-primary/30 transition-colors"
-                    aria-label={playing ? 'Pause audio' : 'Play audio'}
+                    aria-label={playing ? pauseLabel : playLabel}
                 >
                     {playing ? <Pause size={14} /> : <Play size={14} className="ltr:ml-0.5 rtl:mr-0.5" />}
                 </button>
@@ -161,7 +171,7 @@ function ChatAudioPlayer({ src, initialDurationSeconds }: { src: string; initial
 
 export default function ChatPage() {
     const { user } = useAuth();
-    const { locale } = useLocale();
+    const { locale, formatDate } = useLocale();
     const { showToast, confirm: confirmAction } = useFeedback();
     const searchParams = useSearchParams();
     const initialThread = searchParams.get('thread');
@@ -286,7 +296,7 @@ export default function ChatPage() {
             setContactSearch('');
             setNewChatOpen(false);
         } catch {
-            showToast('Could not open chat.', 'error');
+            showToast(ui.openChatFailed, 'error');
         } finally {
             setCreatingThread(false);
         }
@@ -304,9 +314,9 @@ export default function ChatPage() {
             const detail = (err as { response?: { data?: { detail?: string } } })?.response?.data?.detail;
             const isNetworkError = (err as { message?: string })?.message === 'Network Error';
             if (isNetworkError) {
-                showToast('Cannot reach server. Check backend is running on http://127.0.0.1:8000.', 'error');
+                showToast(ui.backendUnavailable, 'error');
             } else {
-                showToast(typeof detail === 'string' && detail ? detail : 'Failed to send message.', 'error');
+                showToast(typeof detail === 'string' && detail ? detail : ui.sendFailed, 'error');
             }
         }
     };
@@ -328,9 +338,9 @@ export default function ChatPage() {
             const detail = (err as { response?: { data?: { detail?: string } } })?.response?.data?.detail;
             const isNetworkError = (err as { message?: string })?.message === 'Network Error';
             if (isNetworkError) {
-                showToast('Cannot reach server. Check backend is running on http://127.0.0.1:8000.', 'error');
+                showToast(ui.backendUnavailable, 'error');
             } else {
-                showToast(typeof detail === 'string' && detail ? detail : 'Attachment upload failed.', 'error');
+                showToast(typeof detail === 'string' && detail ? detail : ui.uploadFailed, 'error');
             }
         } finally {
             setUploading(false);
@@ -364,10 +374,10 @@ export default function ChatPage() {
         const { file, previewUrl } = pendingMediaUpload;
         const sizeMb = (file.size / (1024 * 1024)).toFixed(2);
         const approved = await confirmAction({
-            title: 'Send Media',
-            description: `Send "${file.name}" (${sizeMb} MB)?`,
-            confirmText: 'Send',
-            cancelText: 'Cancel',
+            title: ui.sendMediaTitle,
+            description: `${ui.sendFilePromptPrefix} "${file.name}" (${sizeMb} MB)?`,
+            confirmText: ui.send,
+            cancelText: txt.cancel,
         });
         if (approved) {
             await uploadAttachment(file);
@@ -379,7 +389,7 @@ export default function ChatPage() {
     const startVoiceRecording = async () => {
         if (recording || isAdmin || !selectedThreadId) return;
         if (typeof navigator === 'undefined' || !navigator.mediaDevices?.getUserMedia) {
-            showToast('Voice recording is not supported on this browser.', 'error');
+            showToast(ui.voiceUnsupported, 'error');
             return;
         }
         try {
@@ -431,7 +441,7 @@ export default function ChatPage() {
             }, 1000);
         } catch {
             setRecording(false);
-            showToast('Unable to access microphone.', 'error');
+            showToast(ui.microphoneUnavailable, 'error');
         }
     };
 
@@ -515,10 +525,10 @@ export default function ChatPage() {
     const confirmPendingVoiceUpload = async () => {
         if (!pendingVoiceUpload) return;
         const approved = await confirmAction({
-            title: 'Send Voice Note',
-            description: `Send this voice note (${formatSeconds(pendingVoiceUpload.duration)})?`,
-            confirmText: 'Send',
-            cancelText: 'Cancel',
+            title: ui.sendVoiceTitle,
+            description: `${ui.sendVoicePromptPrefix} (${formatSeconds(pendingVoiceUpload.duration)})?`,
+            confirmText: ui.send,
+            cancelText: txt.cancel,
         });
         if (!approved) return;
         await uploadAttachment(pendingVoiceUpload.file, pendingVoiceUpload.duration);
@@ -594,37 +604,70 @@ export default function ChatPage() {
     });
 
     const txt = {
-        unavailable: locale === 'ar' ? 'المحادثة غير متاحة لدورك.' : 'Chat is unavailable for your role.',
-        title: locale === 'ar' ? 'المحادثة' : 'Chat',
-        adminMonitor: locale === 'ar' ? 'مراقبة محادثات المشرف (قراءة فقط)' : 'Admin chat monitor (read-only)',
-        directMessaging: locale === 'ar' ? 'مراسلة مباشرة مع دعم الوسائط' : 'Direct messaging with media support',
-        readOnly: locale === 'ar' ? 'قراءة فقط' : 'Read-only',
-        newChat: locale === 'ar' ? 'محادثة جديدة' : 'New Chat',
-        searchCoaches: locale === 'ar' ? 'ابحث عن المدربين' : 'Search coaches',
-        searchClients: locale === 'ar' ? 'ابحث عن العملاء' : 'Search clients',
-        typeCoach: locale === 'ar' ? 'اكتب اسم/بريد المدرب...' : 'Type coach name/email...',
-        typeClient: locale === 'ar' ? 'اكتب اسم/بريد العميل...' : 'Type client name/email...',
-        noContacts: locale === 'ar' ? 'لا توجد جهات اتصال.' : 'No contacts found.',
-        coachFilter: locale === 'ar' ? 'تصفية المدرب' : 'Coach filter',
-        allCoaches: locale === 'ar' ? 'كل المدربين' : 'All coaches',
-        customerFilter: locale === 'ar' ? 'تصفية العميل' : 'Customer filter',
-        allCustomers: locale === 'ar' ? 'كل العملاء' : 'All customers',
-        newConversation: locale === 'ar' ? 'محادثة جديدة' : 'new conversation',
-        noMessages: locale === 'ar' ? 'لا توجد رسائل بعد.' : 'No messages yet.',
-        attachment: locale === 'ar' ? 'مرفق' : 'attachment',
-        selectConversation: locale === 'ar' ? 'اختر محادثة' : 'Select a conversation',
-        latest: locale === 'ar' ? 'الأحدث' : 'Latest',
-        recording: locale === 'ar' ? 'جارٍ تسجيل رسالة صوتية...' : 'Recording voice note...',
-        previewBeforeSend: locale === 'ar' ? 'معاينة قبل الإرسال' : 'Preview before send',
-        pendingPreviewAlt: locale === 'ar' ? 'معاينة قبل الرفع' : 'Pending upload preview',
-        confirmSend: locale === 'ar' ? 'تأكيد وإرسال' : 'Confirm & Send',
-        cancel: locale === 'ar' ? 'إلغاء' : 'Cancel',
-        voicePreview: locale === 'ar' ? 'معاينة الرسالة الصوتية' : 'Voice note preview',
-        acceptSend: locale === 'ar' ? 'قبول وإرسال' : 'Accept & Send',
-        discard: locale === 'ar' ? 'تجاهل' : 'Discard',
-        typeMessage: locale === 'ar' ? 'اكتب رسالة...' : 'Type a message...',
-        stopAndSend: locale === 'ar' ? 'إيقاف وإرسال الرسالة الصوتية مباشرة' : 'Stop and send voice note directly',
-        uploading: locale === 'ar' ? 'جارٍ رفع المرفق...' : 'Uploading attachment...',
+        unavailable: locale === 'ar' ? 'Ø§Ù„Ù…Ø­Ø§Ø¯Ø«Ø© ØºÙŠØ± Ù…ØªØ§Ø­Ø© Ù„Ø¯ÙˆØ±Ùƒ.' : 'Chat is unavailable for your role.',
+        title: locale === 'ar' ? 'Ø§Ù„Ù…Ø­Ø§Ø¯Ø«Ø©' : 'Chat',
+        adminMonitor: locale === 'ar' ? 'Ù…Ø±Ø§Ù‚Ø¨Ø© Ù…Ø­Ø§Ø¯Ø«Ø§Øª Ø§Ù„Ù…Ø´Ø±Ù (Ù‚Ø±Ø§Ø¡Ø© ÙÙ‚Ø·)' : 'Admin chat monitor (read-only)',
+        directMessaging: locale === 'ar' ? 'Ù…Ø±Ø§Ø³Ù„Ø© Ù…Ø¨Ø§Ø´Ø±Ø© Ù…Ø¹ Ø¯Ø¹Ù… Ø§Ù„ÙˆØ³Ø§Ø¦Ø·' : 'Direct messaging with media support',
+        readOnly: locale === 'ar' ? 'Ù‚Ø±Ø§Ø¡Ø© ÙÙ‚Ø·' : 'Read-only',
+        newChat: locale === 'ar' ? 'Ù…Ø­Ø§Ø¯Ø«Ø© Ø¬Ø¯ÙŠØ¯Ø©' : 'New Chat',
+        searchCoaches: locale === 'ar' ? 'Ø§Ø¨Ø­Ø« Ø¹Ù† Ø§Ù„Ù…Ø¯Ø±Ø¨ÙŠÙ†' : 'Search coaches',
+        searchClients: locale === 'ar' ? 'Ø§Ø¨Ø­Ø« Ø¹Ù† Ø§Ù„Ø¹Ù…Ù„Ø§Ø¡' : 'Search clients',
+        typeCoach: locale === 'ar' ? 'Ø§ÙƒØªØ¨ Ø§Ø³Ù…/Ø¨Ø±ÙŠØ¯ Ø§Ù„Ù…Ø¯Ø±Ø¨...' : 'Type coach name/email...',
+        typeClient: locale === 'ar' ? 'Ø§ÙƒØªØ¨ Ø§Ø³Ù…/Ø¨Ø±ÙŠØ¯ Ø§Ù„Ø¹Ù…ÙŠÙ„...' : 'Type client name/email...',
+        noContacts: locale === 'ar' ? 'Ù„Ø§ ØªÙˆØ¬Ø¯ Ø¬Ù‡Ø§Øª Ø§ØªØµØ§Ù„.' : 'No contacts found.',
+        coachFilter: locale === 'ar' ? 'ØªØµÙÙŠØ© Ø§Ù„Ù…Ø¯Ø±Ø¨' : 'Coach filter',
+        allCoaches: locale === 'ar' ? 'ÙƒÙ„ Ø§Ù„Ù…Ø¯Ø±Ø¨ÙŠÙ†' : 'All coaches',
+        customerFilter: locale === 'ar' ? 'ØªØµÙÙŠØ© Ø§Ù„Ø¹Ù…ÙŠÙ„' : 'Customer filter',
+        allCustomers: locale === 'ar' ? 'ÙƒÙ„ Ø§Ù„Ø¹Ù…Ù„Ø§Ø¡' : 'All customers',
+        newConversation: locale === 'ar' ? 'Ù…Ø­Ø§Ø¯Ø«Ø© Ø¬Ø¯ÙŠØ¯Ø©' : 'new conversation',
+        noMessages: locale === 'ar' ? 'Ù„Ø§ ØªÙˆØ¬Ø¯ Ø±Ø³Ø§Ø¦Ù„ Ø¨Ø¹Ø¯.' : 'No messages yet.',
+        attachment: locale === 'ar' ? 'Ù…Ø±ÙÙ‚' : 'attachment',
+        selectConversation: locale === 'ar' ? 'Ø§Ø®ØªØ± Ù…Ø­Ø§Ø¯Ø«Ø©' : 'Select a conversation',
+        latest: locale === 'ar' ? 'Ø§Ù„Ø£Ø­Ø¯Ø«' : 'Latest',
+        recording: locale === 'ar' ? 'Ø¬Ø§Ø±Ù ØªØ³Ø¬ÙŠÙ„ Ø±Ø³Ø§Ù„Ø© ØµÙˆØªÙŠØ©...' : 'Recording voice note...',
+        previewBeforeSend: locale === 'ar' ? 'Ù…Ø¹Ø§ÙŠÙ†Ø© Ù‚Ø¨Ù„ Ø§Ù„Ø¥Ø±Ø³Ø§Ù„' : 'Preview before send',
+        pendingPreviewAlt: locale === 'ar' ? 'Ù…Ø¹Ø§ÙŠÙ†Ø© Ù‚Ø¨Ù„ Ø§Ù„Ø±ÙØ¹' : 'Pending upload preview',
+        confirmSend: locale === 'ar' ? 'ØªØ£ÙƒÙŠØ¯ ÙˆØ¥Ø±Ø³Ø§Ù„' : 'Confirm & Send',
+        cancel: locale === 'ar' ? 'Ø¥Ù„ØºØ§Ø¡' : 'Cancel',
+        voicePreview: locale === 'ar' ? 'Ù…Ø¹Ø§ÙŠÙ†Ø© Ø§Ù„Ø±Ø³Ø§Ù„Ø© Ø§Ù„ØµÙˆØªÙŠØ©' : 'Voice note preview',
+        acceptSend: locale === 'ar' ? 'Ù‚Ø¨ÙˆÙ„ ÙˆØ¥Ø±Ø³Ø§Ù„' : 'Accept & Send',
+        discard: locale === 'ar' ? 'ØªØ¬Ø§Ù‡Ù„' : 'Discard',
+        typeMessage: locale === 'ar' ? 'Ø§ÙƒØªØ¨ Ø±Ø³Ø§Ù„Ø©...' : 'Type a message...',
+        stopAndSend: locale === 'ar' ? 'Ø¥ÙŠÙ‚Ø§Ù ÙˆØ¥Ø±Ø³Ø§Ù„ Ø§Ù„Ø±Ø³Ø§Ù„Ø© Ø§Ù„ØµÙˆØªÙŠØ© Ù…Ø¨Ø§Ø´Ø±Ø©' : 'Stop and send voice note directly',
+        uploading: locale === 'ar' ? 'Ø¬Ø§Ø±Ù Ø±ÙØ¹ Ø§Ù„Ù…Ø±ÙÙ‚...' : 'Uploading attachment...',
+    };
+    const ui = locale === 'ar' ? {
+        playAudio: 'ØªØ´ØºÙŠÙ„ Ø§Ù„ØµÙˆØª',
+        pauseAudio: 'Ø¥ÙŠÙ‚Ø§Ù Ø§Ù„ØµÙˆØª',
+        openChatFailed: 'ØªØ¹Ø°Ø± ÙØªØ­ Ø§Ù„Ù…Ø­Ø§Ø¯Ø«Ø©.',
+        backendUnavailable: 'ØªØ¹Ø°Ø± Ø§Ù„Ø§ØªØµØ§Ù„ Ø¨Ø§Ù„Ø®Ø§Ø¯Ù…. ØªØ­Ù‚Ù‚ Ù…Ù† ØªØ´ØºÙŠÙ„ Ø§Ù„Ø®Ù„ÙÙŠØ© Ø¹Ù„Ù‰ http://127.0.0.1:8000.',
+        sendFailed: 'ÙØ´Ù„ Ø¥Ø±Ø³Ø§Ù„ Ø§Ù„Ø±Ø³Ø§Ù„Ø©.',
+        uploadFailed: 'ÙØ´Ù„ Ø±ÙØ¹ Ø§Ù„Ù…Ø±ÙÙ‚.',
+        sendMediaTitle: 'Ø¥Ø±Ø³Ø§Ù„ Ù…Ø±ÙÙ‚',
+        sendVoiceTitle: 'Ø¥Ø±Ø³Ø§Ù„ Ø±Ø³Ø§Ù„Ø© ØµÙˆØªÙŠØ©',
+        sendFilePromptPrefix: 'Ø¥Ø±Ø³Ø§Ù„ Ø§Ù„Ù…Ù„Ù',
+        sendVoicePromptPrefix: 'Ø¥Ø±Ø³Ø§Ù„ Ù‡Ø°Ù‡ Ø§Ù„Ø±Ø³Ø§Ù„Ø© Ø§Ù„ØµÙˆØªÙŠØ©',
+        send: 'Ø¥Ø±Ø³Ø§Ù„',
+        voiceUnsupported: 'ØªØ³Ø¬ÙŠÙ„ Ø§Ù„Ø±Ø³Ø§Ø¦Ù„ Ø§Ù„ØµÙˆØªÙŠØ© ØºÙŠØ± Ù…Ø¯Ø¹ÙˆÙ… ÙÙŠ Ù‡Ø°Ø§ Ø§Ù„Ù…ØªØµÙØ­.',
+        microphoneUnavailable: 'ØªØ¹Ø°Ø± Ø§Ù„ÙˆØµÙˆÙ„ Ø¥Ù„Ù‰ Ø§Ù„Ù…ÙŠÙƒØ±ÙˆÙÙˆÙ†.',
+        stopRecordingPreview: 'Ø¥ÙŠÙ‚Ø§Ù Ø§Ù„ØªØ³Ø¬ÙŠÙ„ Ù„Ù„Ù…Ø¹Ø§ÙŠÙ†Ø©',
+        recordVoice: 'ØªØ³Ø¬ÙŠÙ„ Ø±Ø³Ø§Ù„Ø© ØµÙˆØªÙŠØ©',
+    } : {
+        playAudio: 'Play audio',
+        pauseAudio: 'Pause audio',
+        openChatFailed: 'Could not open chat.',
+        backendUnavailable: 'Cannot reach server. Check backend is running on http://127.0.0.1:8000.',
+        sendFailed: 'Failed to send message.',
+        uploadFailed: 'Attachment upload failed.',
+        sendMediaTitle: 'Send Media',
+        sendVoiceTitle: 'Send Voice Note',
+        sendFilePromptPrefix: 'Send',
+        sendVoicePromptPrefix: 'Send this voice note',
+        send: 'Send',
+        voiceUnsupported: 'Voice recording is not supported on this browser.',
+        microphoneUnavailable: 'Unable to access microphone.',
+        stopRecordingPreview: 'Stop recording for preview',
+        recordVoice: 'Record voice note',
     };
 
     return (
@@ -782,9 +825,11 @@ export default function ChatPage() {
                                             <ChatAudioPlayer
                                                 src={resolveMediaUrl(message.media_url)}
                                                 initialDurationSeconds={message.voice_duration_seconds}
+                                                playLabel={ui.playAudio}
+                                                pauseLabel={ui.pauseAudio}
                                             />
                                         )}
-                                        <p className="text-[10px] text-muted-foreground mt-1">{new Date(message.created_at).toLocaleString()}</p>
+                                        <p className="text-[10px] text-muted-foreground mt-1">{formatDate(message.created_at, { year: 'numeric', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })}</p>
                                     </div>
                                 </div>
                             );
@@ -844,7 +889,7 @@ export default function ChatPage() {
                             {pendingVoiceUpload && (
                                 <div className="rounded-sm border border-border bg-muted/20 p-2 space-y-2">
                                     <p className="text-xs text-muted-foreground">{txt.voicePreview}</p>
-                                    <ChatAudioPlayer src={pendingVoiceUpload.previewUrl} initialDurationSeconds={pendingVoiceUpload.duration} />
+                                    <ChatAudioPlayer src={pendingVoiceUpload.previewUrl} initialDurationSeconds={pendingVoiceUpload.duration} playLabel={ui.playAudio} pauseLabel={ui.pauseAudio} />
                                     <div className="flex items-center gap-2">
                                         <button type="button" className="btn-primary !py-1.5 !px-3 text-xs" onClick={confirmPendingVoiceUpload}>
                                             <Check size={13} />
@@ -886,7 +931,7 @@ export default function ChatPage() {
                                     className={`btn-ghost !p-2 border border-border rounded-sm ${recording ? 'text-red-400' : ''}`}
                                     onClick={recording ? stopVoiceRecording : startVoiceRecording}
                                     disabled={uploading || !!pendingVoiceUpload}
-                                    title={recording ? 'Stop recording for preview' : 'Record voice note'}
+                                    title={recording ? ui.stopRecordingPreview : ui.recordVoice}
                                 >
                                     {recording ? <Square size={16} /> : <Mic size={16} />}
                                 </button>
@@ -913,4 +958,5 @@ export default function ChatPage() {
         </div>
     );
 }
+
 

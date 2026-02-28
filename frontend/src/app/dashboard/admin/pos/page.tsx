@@ -108,6 +108,22 @@ export default function POSPage() {
     };
 
     const categories = [...new Set(products.map(p => p.category))];
+    const categoryLabel = (category: string) => {
+        switch (category) {
+            case 'SUPPLEMENT':
+                return t('inventory.categorySupplement');
+            case 'DRINK':
+                return t('inventory.categoryDrink');
+            case 'MERCHANDISE':
+                return t('inventory.categoryMerchandise');
+            case 'SNACK':
+                return t('inventory.categorySnack');
+            case 'OTHER':
+                return t('inventory.categoryOther');
+            default:
+                return category;
+        }
+    };
     const filteredProducts = categoryFilter
         ? products.filter(p => p.category === categoryFilter)
         : products;
@@ -137,7 +153,7 @@ export default function POSPage() {
                             className={`px-3 py-1.5 text-xs font-mono uppercase border transition-colors shrink-0 ${categoryFilter === c ? 'bg-primary text-primary-foreground border-primary' : 'border-border text-muted-foreground hover:text-foreground'
                                 }`}
                         >
-                            {c}
+                            {categoryLabel(c)}
                         </button>
                     ))}
                 </div>
@@ -166,7 +182,7 @@ export default function POSPage() {
                                         }`}
                                 >
                                     <p className="text-sm font-bold text-foreground truncate">{p.name}</p>
-                                    <p className="text-xs text-muted-foreground font-mono mt-1">{p.category}</p>
+                                    <p className="text-xs text-muted-foreground font-mono mt-1">{categoryLabel(p.category)}</p>
                                     <div className="flex items-end justify-between mt-3">
                                         <span className="text-lg font-bold text-foreground font-mono">${p.price.toFixed(2)}</span>
                                         <span className={`text-xs font-mono ${p.stock_quantity <= 5 ? 'text-red-500' : 'text-muted-foreground'}`}>

@@ -68,9 +68,15 @@ export default function StaffSummaryPage() {
             totalRequests: 'إجمالي الطلبات',
             approvedDays: 'الأيام المعتمدة',
             pending: 'قيد الانتظار',
+            approved: 'معتمد',
+            denied: 'مرفوض',
+            sick: 'مرضي',
+            vacation: 'إجازة',
+            other: 'أخرى',
             checkIn: 'تسجيل الدخول',
             checkOut: 'تسجيل الخروج',
             hours: 'الساعات',
+            to: 'إلى',
             start: 'البداية',
             end: 'النهاية',
             type: 'النوع',
@@ -108,9 +114,15 @@ export default function StaffSummaryPage() {
             totalRequests: 'Total Requests',
             approvedDays: 'Approved Days',
             pending: 'Pending',
+            approved: 'Approved',
+            denied: 'Denied',
+            sick: 'Sick',
+            vacation: 'Vacation',
+            other: 'Other',
             checkIn: 'Check In',
             checkOut: 'Check Out',
             hours: 'Hours',
+            to: 'to',
             start: 'Start',
             end: 'End',
             type: 'Type',
@@ -203,6 +215,30 @@ export default function StaffSummaryPage() {
 
     const attendanceRows = useMemo(() => summary?.attendance_summary.records ?? [], [summary]);
     const leaveRows = useMemo(() => summary?.leave_summary.records ?? [], [summary]);
+    const leaveTypeLabel = (type: string) => {
+        switch (type) {
+            case 'SICK':
+                return txt.sick;
+            case 'VACATION':
+                return txt.vacation;
+            case 'OTHER':
+                return txt.other;
+            default:
+                return type;
+        }
+    };
+    const leaveStatusLabel = (status: string) => {
+        switch (status) {
+            case 'PENDING':
+                return txt.pending;
+            case 'APPROVED':
+                return txt.approved;
+            case 'DENIED':
+                return txt.denied;
+            default:
+                return status;
+        }
+    };
 
     const printSection = (type: 'attendance' | 'leaves') => {
         if (!summary) return;
@@ -218,7 +254,7 @@ export default function StaffSummaryPage() {
 
         const rows = type === 'attendance'
             ? attendanceRows.map((r) => `<tr><td>${r.check_in_time ? formatDate(r.check_in_time, { dateStyle: 'medium', timeStyle: 'short' }) : '-'}</td><td>${r.check_out_time ? formatDate(r.check_out_time, { dateStyle: 'medium', timeStyle: 'short' }) : '-'}</td><td style="text-align:right;">${r.hours_worked.toFixed(2)}</td></tr>`).join('')
-            : leaveRows.map((r) => `<tr><td>${formatDate(r.start_date, { dateStyle: 'medium' })}</td><td>${formatDate(r.end_date, { dateStyle: 'medium' })}</td><td>${r.leave_type}</td><td>${r.status}</td></tr>`).join('');
+            : leaveRows.map((r) => `<tr><td>${formatDate(r.start_date, { dateStyle: 'medium' })}</td><td>${formatDate(r.end_date, { dateStyle: 'medium' })}</td><td>${leaveTypeLabel(r.leave_type)}</td><td>${leaveStatusLabel(r.status)}</td></tr>`).join('');
         const tableHead = type === 'attendance'
             ? `<tr><th>${txt.checkIn}</th><th>${txt.checkOut}</th><th style="text-align:right;">${txt.hours}</th></tr>`
             : `<tr><th>${txt.start}</th><th>${txt.end}</th><th>${txt.type}</th><th>${txt.status}</th></tr>`;
@@ -241,7 +277,7 @@ export default function StaffSummaryPage() {
               th{background:#182033}
             </style>
           </head><body>
-            <div class="card"><h2>${title}</h2><div class="meta">${employee.full_name} • ${employee.email} • ${startDate} to ${endDate}</div></div>
+            <div class="card"><h2>${title}</h2><div class="meta">${employee.full_name} • ${employee.email} • ${startDate} ${txt.to} ${endDate}</div></div>
             <div class="card"><div class="metrics">${metrics}</div></div>
             <div class="card"><table><thead>${tableHead}</thead><tbody>${tableRows}</tbody></table></div>
             <script>window.onload=function(){window.print();window.close();}</script>
@@ -299,7 +335,7 @@ export default function StaffSummaryPage() {
             <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                 <div className="kpi-card border border-border"><p className="text-xs text-muted-foreground">{txt.daysPresent}</p><p className="text-xl font-bold text-foreground">{summary.attendance_summary.days_present}</p></div>
                 <div className="kpi-card border border-border"><p className="text-xs text-muted-foreground">{txt.totalHours}</p><p className="text-xl font-bold text-foreground">{summary.attendance_summary.total_hours.toFixed(2)}</p></div>
-                <div className="kpi-card border border-border"><p className="text-xs text-muted-foreground">{locale === 'ar' ? 'متوسط الساعات / اليوم' : 'Avg Hours / Day'}</p><p className="text-xl font-bold text-foreground">{summary.attendance_summary.avg_hours_per_day.toFixed(2)}</p></div>
+                <div className="kpi-card border border-border"><p className="text-xs text-muted-foreground">{txt.avgDay}</p><p className="text-xl font-bold text-foreground">{summary.attendance_summary.avg_hours_per_day.toFixed(2)}</p></div>
             </div>
 
             <div className="chart-card overflow-hidden !p-0 border border-border">
@@ -314,8 +350,8 @@ export default function StaffSummaryPage() {
                             {attendanceRows.length === 0 && <tr><td colSpan={3} className="text-center py-8 text-muted-foreground text-sm">{txt.noAttendance}</td></tr>}
                             {attendanceRows.map((r) => (
                                 <tr key={r.id}>
-                                    <td>{r.check_in_time ? new Date(r.check_in_time).toLocaleString() : '-'}</td>
-                                    <td>{r.check_out_time ? new Date(r.check_out_time).toLocaleString() : '-'}</td>
+                                    <td>{r.check_in_time ? formatDate(r.check_in_time, { dateStyle: 'medium', timeStyle: 'short' }) : '-'}</td>
+                                    <td>{r.check_out_time ? formatDate(r.check_out_time, { dateStyle: 'medium', timeStyle: 'short' }) : '-'}</td>
                                     <td className="text-end font-mono">{r.hours_worked.toFixed(2)}</td>
                                 </tr>
                             ))}
@@ -342,10 +378,10 @@ export default function StaffSummaryPage() {
                             {leaveRows.length === 0 && <tr><td colSpan={4} className="text-center py-8 text-muted-foreground text-sm">{txt.noLeaves}</td></tr>}
                             {leaveRows.map((r) => (
                                 <tr key={r.id}>
-                                    <td>{new Date(r.start_date).toLocaleDateString()}</td>
-                                    <td>{new Date(r.end_date).toLocaleDateString()}</td>
-                                    <td>{r.leave_type}</td>
-                                    <td><span className={`badge ${r.status === 'APPROVED' ? 'badge-green' : r.status === 'DENIED' ? 'badge-red' : 'badge-amber'}`}>{r.status}</span></td>
+                                    <td>{formatDate(r.start_date, { dateStyle: 'medium' })}</td>
+                                    <td>{formatDate(r.end_date, { dateStyle: 'medium' })}</td>
+                                    <td>{leaveTypeLabel(r.leave_type)}</td>
+                                    <td><span className={`badge ${r.status === 'APPROVED' ? 'badge-green' : r.status === 'DENIED' ? 'badge-red' : 'badge-amber'}`}>{leaveStatusLabel(r.status)}</span></td>
                                 </tr>
                             ))}
                         </tbody>

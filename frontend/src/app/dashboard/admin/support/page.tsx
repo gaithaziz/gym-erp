@@ -173,7 +173,7 @@ export default function AdminSupportPage() {
     });
     const statusLabel = (status: TicketStatus) => t(`support.status.${status}`);
     const categoryLabel = (category: TicketCategory) => t(`support.category.${category}`);
-    const supportAttachmentAlt = 'Support attachment';
+    const supportAttachmentAlt = t('support.admin.attachmentAlt');
     const pageLabel = (page: number, total: number) =>
         t('support.admin.pageOf')
             .replace('{{page}}', String(page))

@@ -1,4 +1,4 @@
-'use client';
+﻿'use client';
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { api } from '@/lib/api';
@@ -58,39 +58,39 @@ export default function WorkoutDietLibraryPage() {
     const { user } = useAuth();
     const { showToast, confirm: confirmAction } = useFeedback();
     const txt = locale === 'ar' ? {
-        title: 'مكتبة التمارين والتغذية',
-        subtitle: 'قوالب قابلة لإعادة الاستخدام للمدربين والإداريين',
-        addItem: 'إضافة عنصر',
-        workoutLibrary: 'مكتبة التمارين',
-        dietLibrary: 'مكتبة التغذية',
-        searchPlaceholder: 'ابحث في المكتبة...',
-        itemsCount: 'عنصر',
-        noMetadata: 'لا توجد بيانات إضافية',
-        global: 'عام',
-        mine: 'خاص بي',
-        tags: 'الوسوم:',
-        edit: 'تعديل',
-        delete: 'حذف',
-        noWorkoutItems: 'لم يتم العثور على عناصر في مكتبة التمارين.',
-        noDietItems: 'لم يتم العثور على عناصر في مكتبة التغذية.',
-        noDescription: 'بدون وصف',
-        toPlan: 'إلى خطة',
-        editWorkoutTitle: 'تعديل عنصر مكتبة تمرين',
-        addWorkoutTitle: 'إضافة عنصر مكتبة تمرين',
-        namePlaceholder: 'الاسم',
-        categoryPlaceholder: 'الفئة',
-        muscleGroupPlaceholder: 'المجموعة العضلية',
-        equipmentPlaceholder: 'المعدات',
-        tagsPlaceholder: 'الوسوم (مفصولة بفواصل)',
-        defaultVideoPlaceholder: 'رابط فيديو افتراضي (اختياري)',
-        makeGlobal: 'اجعل هذا عامًا',
-        cancel: 'إلغاء',
-        save: 'حفظ',
-        editDietTitle: 'تعديل عنصر مكتبة تغذية',
-        addDietTitle: 'إضافة عنصر مكتبة تغذية',
-        descriptionPlaceholder: 'الوصف',
-        contentPlaceholder: 'محتوى التغذية',
-        infoText: 'استخدم هذه الصفحة لإضافة وتعديل وتنظيم عناصر مكتبة التمارين والتغذية، ثم اخترها من منشئي الخطط عند إنشاء البرامج.',
+        title: 'Ù…ÙƒØªØ¨Ø© Ø§Ù„ØªÙ…Ø§Ø±ÙŠÙ† ÙˆØ§Ù„ØªØºØ°ÙŠØ©',
+        subtitle: 'Ù‚ÙˆØ§Ù„Ø¨ Ù‚Ø§Ø¨Ù„Ø© Ù„Ø¥Ø¹Ø§Ø¯Ø© Ø§Ù„Ø§Ø³ØªØ®Ø¯Ø§Ù… Ù„Ù„Ù…Ø¯Ø±Ø¨ÙŠÙ† ÙˆØ§Ù„Ø¥Ø¯Ø§Ø±ÙŠÙŠÙ†',
+        addItem: 'Ø¥Ø¶Ø§ÙØ© Ø¹Ù†ØµØ±',
+        workoutLibrary: 'Ù…ÙƒØªØ¨Ø© Ø§Ù„ØªÙ…Ø§Ø±ÙŠÙ†',
+        dietLibrary: 'Ù…ÙƒØªØ¨Ø© Ø§Ù„ØªØºØ°ÙŠØ©',
+        searchPlaceholder: 'Ø§Ø¨Ø­Ø« ÙÙŠ Ø§Ù„Ù…ÙƒØªØ¨Ø©...',
+        itemsCount: 'Ø¹Ù†ØµØ±',
+        noMetadata: 'Ù„Ø§ ØªÙˆØ¬Ø¯ Ø¨ÙŠØ§Ù†Ø§Øª Ø¥Ø¶Ø§ÙÙŠØ©',
+        global: 'Ø¹Ø§Ù…',
+        mine: 'Ø®Ø§Øµ Ø¨ÙŠ',
+        tags: 'Ø§Ù„ÙˆØ³ÙˆÙ…:',
+        edit: 'ØªØ¹Ø¯ÙŠÙ„',
+        delete: 'Ø­Ø°Ù',
+        noWorkoutItems: 'Ù„Ù… ÙŠØªÙ… Ø§Ù„Ø¹Ø«ÙˆØ± Ø¹Ù„Ù‰ Ø¹Ù†Ø§ØµØ± ÙÙŠ Ù…ÙƒØªØ¨Ø© Ø§Ù„ØªÙ…Ø§Ø±ÙŠÙ†.',
+        noDietItems: 'Ù„Ù… ÙŠØªÙ… Ø§Ù„Ø¹Ø«ÙˆØ± Ø¹Ù„Ù‰ Ø¹Ù†Ø§ØµØ± ÙÙŠ Ù…ÙƒØªØ¨Ø© Ø§Ù„ØªØºØ°ÙŠØ©.',
+        noDescription: 'Ø¨Ø¯ÙˆÙ† ÙˆØµÙ',
+        toPlan: 'Ø¥Ù„Ù‰ Ø®Ø·Ø©',
+        editWorkoutTitle: 'ØªØ¹Ø¯ÙŠÙ„ Ø¹Ù†ØµØ± Ù…ÙƒØªØ¨Ø© ØªÙ…Ø±ÙŠÙ†',
+        addWorkoutTitle: 'Ø¥Ø¶Ø§ÙØ© Ø¹Ù†ØµØ± Ù…ÙƒØªØ¨Ø© ØªÙ…Ø±ÙŠÙ†',
+        namePlaceholder: 'Ø§Ù„Ø§Ø³Ù…',
+        categoryPlaceholder: 'Ø§Ù„ÙØ¦Ø©',
+        muscleGroupPlaceholder: 'Ø§Ù„Ù…Ø¬Ù…ÙˆØ¹Ø© Ø§Ù„Ø¹Ø¶Ù„ÙŠØ©',
+        equipmentPlaceholder: 'Ø§Ù„Ù…Ø¹Ø¯Ø§Øª',
+        tagsPlaceholder: 'Ø§Ù„ÙˆØ³ÙˆÙ… (Ù…ÙØµÙˆÙ„Ø© Ø¨ÙÙˆØ§ØµÙ„)',
+        defaultVideoPlaceholder: 'Ø±Ø§Ø¨Ø· ÙÙŠØ¯ÙŠÙˆ Ø§ÙØªØ±Ø§Ø¶ÙŠ (Ø§Ø®ØªÙŠØ§Ø±ÙŠ)',
+        makeGlobal: 'Ø§Ø¬Ø¹Ù„ Ù‡Ø°Ø§ Ø¹Ø§Ù…Ù‹Ø§',
+        cancel: 'Ø¥Ù„ØºØ§Ø¡',
+        save: 'Ø­ÙØ¸',
+        editDietTitle: 'ØªØ¹Ø¯ÙŠÙ„ Ø¹Ù†ØµØ± Ù…ÙƒØªØ¨Ø© ØªØºØ°ÙŠØ©',
+        addDietTitle: 'Ø¥Ø¶Ø§ÙØ© Ø¹Ù†ØµØ± Ù…ÙƒØªØ¨Ø© ØªØºØ°ÙŠØ©',
+        descriptionPlaceholder: 'Ø§Ù„ÙˆØµÙ',
+        contentPlaceholder: 'Ù…Ø­ØªÙˆÙ‰ Ø§Ù„ØªØºØ°ÙŠØ©',
+        infoText: 'Ø§Ø³ØªØ®Ø¯Ù… Ù‡Ø°Ù‡ Ø§Ù„ØµÙØ­Ø© Ù„Ø¥Ø¶Ø§ÙØ© ÙˆØªØ¹Ø¯ÙŠÙ„ ÙˆØªÙ†Ø¸ÙŠÙ… Ø¹Ù†Ø§ØµØ± Ù…ÙƒØªØ¨Ø© Ø§Ù„ØªÙ…Ø§Ø±ÙŠÙ† ÙˆØ§Ù„ØªØºØ°ÙŠØ©ØŒ Ø«Ù… Ø§Ø®ØªØ±Ù‡Ø§ Ù…Ù† Ù…Ù†Ø´Ø¦ÙŠ Ø§Ù„Ø®Ø·Ø· Ø¹Ù†Ø¯ Ø¥Ù†Ø´Ø§Ø¡ Ø§Ù„Ø¨Ø±Ø§Ù…Ø¬.',
     } : {
         title: 'Workout & Diet Library',
         subtitle: 'Reusable templates for coaches and admins',
@@ -125,6 +125,24 @@ export default function WorkoutDietLibraryPage() {
         descriptionPlaceholder: 'Description',
         contentPlaceholder: 'Diet content',
         infoText: 'Use this page to add, edit, and organize workout and diet library items. Then pick them from plan builders when creating programs.',
+        allScope: 'ALL',
+        globalScope: 'GLOBAL',
+        mineScope: 'MINE',
+        loadFailed: 'Failed to load library items.',
+        workoutSaved: 'Workout library item saved.',
+        workoutSaveFailed: 'Failed to save workout library item.',
+        dietSaved: 'Diet library item saved.',
+        dietSaveFailed: 'Failed to save diet library item.',
+        deleteWorkoutTitle: 'Delete Workout Library Item',
+        deleteWorkoutDescription: 'Delete this workout library item?',
+        deleteDietTitle: 'Delete Diet Library Item',
+        deleteDietDescription: 'Delete this diet library item?',
+        workoutDeleted: 'Workout library item deleted.',
+        workoutDeleteFailed: 'Failed to delete workout library item.',
+        dietDeleted: 'Diet library item deleted.',
+        dietDeleteFailed: 'Failed to delete diet library item.',
+        toPlanSuccess: 'Diet plan created from template.',
+        toPlanFailed: 'Failed to create diet plan from template.',
     };
 
     const [activeTab, setActiveTab] = useState<ActiveTab>('WORKOUT');
@@ -161,7 +179,7 @@ export default function WorkoutDietLibraryPage() {
         try {
             await Promise.all([fetchWorkoutItems(), fetchDietItems()]);
         } catch {
-            showToast('Failed to load library items.', 'error');
+            showToast(txt.loadFailed, 'error');
         }
         setLoading(false);
     }, [fetchDietItems, fetchWorkoutItems, showToast]);
@@ -228,9 +246,9 @@ export default function WorkoutDietLibraryPage() {
             setShowWorkoutModal(false);
             setWorkoutForm(emptyWorkoutForm);
             fetchWorkoutItems();
-            showToast(`Workout library item ${workoutForm.id ? 'updated' : 'created'}.`, 'success');
+            showToast(txt.workoutSaved, 'success');
         } catch {
-            showToast('Failed to save workout library item.', 'error');
+            showToast(txt.workoutSaveFailed, 'error');
         }
     };
 
@@ -251,52 +269,52 @@ export default function WorkoutDietLibraryPage() {
             setShowDietModal(false);
             setDietForm(emptyDietForm);
             fetchDietItems();
-            showToast(`Diet library item ${dietForm.id ? 'updated' : 'created'}.`, 'success');
+            showToast(txt.dietSaved, 'success');
         } catch {
-            showToast('Failed to save diet library item.', 'error');
+            showToast(txt.dietSaveFailed, 'error');
         }
     };
 
     const deleteWorkoutItem = async (id: string) => {
         const confirmed = await confirmAction({
-            title: 'Delete Workout Library Item',
-            description: 'Delete this workout library item?',
-            confirmText: 'Delete',
+            title: txt.deleteWorkoutTitle,
+            description: txt.deleteWorkoutDescription,
+            confirmText: txt.delete,
             destructive: true,
         });
         if (!confirmed) return;
         try {
             await api.delete(`/fitness/exercise-library/${id}`);
             fetchWorkoutItems();
-            showToast('Workout library item deleted.', 'success');
+            showToast(txt.workoutDeleted, 'success');
         } catch {
-            showToast('Failed to delete workout library item.', 'error');
+            showToast(txt.workoutDeleteFailed, 'error');
         }
     };
 
     const deleteDietItem = async (id: string) => {
         const confirmed = await confirmAction({
-            title: 'Delete Diet Library Item',
-            description: 'Delete this diet library item?',
-            confirmText: 'Delete',
+            title: txt.deleteDietTitle,
+            description: txt.deleteDietDescription,
+            confirmText: txt.delete,
             destructive: true,
         });
         if (!confirmed) return;
         try {
             await api.delete(`/fitness/diet-library/${id}`);
             fetchDietItems();
-            showToast('Diet library item deleted.', 'success');
+            showToast(txt.dietDeleted, 'success');
         } catch {
-            showToast('Failed to delete diet library item.', 'error');
+            showToast(txt.dietDeleteFailed, 'error');
         }
     };
 
     const createPlanFromDietItem = async (id: string) => {
         try {
             await api.post(`/fitness/diet-library/${id}/to-plan`);
-            showToast('Diet plan created from template.', 'success');
+            showToast(txt.toPlanSuccess, 'success');
         } catch {
-            showToast('Failed to create diet plan from template.', 'error');
+            showToast(txt.toPlanFailed, 'error');
         }
     };
 
@@ -342,7 +360,7 @@ export default function WorkoutDietLibraryPage() {
                             onClick={() => setScope(nextScope)}
                             className={`min-h-11 rounded-sm border px-3 py-2 text-xs font-medium ${scope === nextScope ? 'border-primary bg-primary/10 text-primary' : 'border-border text-muted-foreground'}`}
                         >
-                            {nextScope.toUpperCase()}
+                            {nextScope === 'all' ? txt.allScope : nextScope === 'global' ? txt.globalScope : txt.mineScope}
                         </button>
                     ))}
                 </div>
@@ -484,3 +502,4 @@ export default function WorkoutDietLibraryPage() {
         </div>
     );
 }
+

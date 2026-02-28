@@ -16,6 +16,8 @@ git push origin main
 
 # OR simply (if upstream is already set):
 git push
+
+git push -u origin Gaith
 ```
 
 ## 2. Running the Application

@@ -131,6 +131,7 @@ function AdminDashboard({ userName }: { userName: string }) {
             date: 'التاريخ',
             uniqueVisitors: 'الزوار الفريدون',
             noRows: 'لا توجد صفوف',
+            csvFileName: 'daily_visitors_report_ar.csv',
         }
         : {
             justNow: 'Just now',
@@ -144,6 +145,7 @@ function AdminDashboard({ userName }: { userName: string }) {
             date: 'Date',
             uniqueVisitors: 'Unique Visitors',
             noRows: 'No rows',
+            csvFileName: 'daily_visitors_report_en.csv',
         };
     const [stats, setStats] = useState<DashboardStats | null>(null);
     const [attendanceData, setAttendanceData] = useState<AttendanceData[]>([]);
@@ -287,7 +289,7 @@ function AdminDashboard({ userName }: { userName: string }) {
             const url = window.URL.createObjectURL(blob);
             const a = document.createElement('a');
             a.href = url;
-            a.download = 'daily_visitors_report.csv';
+            a.download = adminTxt.csvFileName;
             document.body.appendChild(a);
             a.click();
             a.remove();
@@ -302,7 +304,7 @@ function AdminDashboard({ userName }: { userName: string }) {
             <div className={`flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 mb-6 ${direction === 'rtl' ? 'md:pl-28' : 'md:pr-28'}`}>
                 <div>
                     <h1 className="text-2xl font-bold text-foreground font-serif tracking-tight">{t('dashboard.home.title')}</h1>
-                    <p className="text-sm text-muted-foreground mt-1">{t('dashboard.home.operationsCenter')} • {userName}</p>
+                    <p className="text-sm text-muted-foreground mt-1">{t('dashboard.home.operationsCenter')} | {userName}</p>
                 </div>
                 <div className="flex items-center gap-2 mt-1 md:mt-2">
                     <DateRangePicker date={dateRange} setDate={setDateRange} className="z-10" />
@@ -416,10 +418,16 @@ function AdminDashboard({ userName }: { userName: string }) {
                                     />
                                     <YAxis tick={{ fontSize: 11, fill: 'var(--muted-foreground)', fontFamily: 'var(--font-mono)' }} axisLine={false} tickLine={false} />
                                     <Tooltip
-                                        formatter={(value, name) => [
-                                            formatCurrency(Number(value ?? 0), 'JOD', { currencyDisplay: 'code' }),
-                                            String(name) === 'Revenue' ? t('dashboard.home.revenue') : t('dashboard.home.expenses'),
-                                        ]}
+                                        formatter={(value, _name, entry) => {
+                                            const dataKey = String((entry as { dataKey?: string } | undefined)?.dataKey || '');
+                                            const metricLabel = dataKey === 'revenue'
+                                                ? t('dashboard.home.revenue')
+                                                : t('dashboard.home.expenses');
+                                            return [
+                                                formatCurrency(Number(value ?? 0), 'JOD', { currencyDisplay: 'code' }),
+                                                metricLabel,
+                                            ];
+                                        }}
                                         contentStyle={{ background: 'var(--card)', border: '1px solid var(--border)', borderRadius: '0px', fontSize: '0.8rem', color: 'var(--foreground)' }}
                                     />
                                     <Bar dataKey="revenue" name={t('dashboard.home.revenue')} fill={revenueBarColor} maxBarSize={22} radius={[2, 2, 0, 0]}>

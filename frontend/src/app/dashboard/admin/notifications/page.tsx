@@ -93,6 +93,7 @@ export default function WhatsAppAutomationPage() {
                     refresh: 'تحديث',
                     createNewRule: 'إنشاء قاعدة جديدة',
                     createHelp: 'عرّف المشغل والرسالة. مثال استخدام اسم العميل:',
+                    memberExample: 'مرحباً',
                     quickPresets: 'نماذج سريعة',
                     eventType: 'نوع الحدث',
                     triggerName: 'اسم المشغل',
@@ -115,6 +116,7 @@ export default function WhatsAppAutomationPage() {
                     noLogs: 'لا توجد سجلات تسليم بعد.',
                     humanReadableTrigger: 'اسم واضح للمشغل',
                     ruleNamePlaceholder: 'EVENT_TYPE_EXAMPLE',
+                    messageTemplateExample: 'مرحباً {{member_name}}، ينتهي اشتراكك خلال 3 أيام.',
                 }
                 : {
                     loadFailed: 'Failed to load WhatsApp automation settings.',
@@ -133,6 +135,7 @@ export default function WhatsAppAutomationPage() {
                     refresh: 'Refresh',
                     createNewRule: 'Create New Rule',
                     createHelp: 'Define a trigger and message. Example client-name usage:',
+                    memberExample: 'Hi',
                     quickPresets: 'Quick Presets',
                     eventType: 'Event Type',
                     triggerName: 'Trigger Name',
@@ -155,6 +158,7 @@ export default function WhatsAppAutomationPage() {
                     noLogs: 'No delivery logs yet.',
                     humanReadableTrigger: 'Human readable trigger',
                     ruleNamePlaceholder: 'EVENT_TYPE_EXAMPLE',
+                    messageTemplateExample: 'Hi {{member_name}}, your subscription expires in 3 days.',
                 },
         [locale]
     );
@@ -307,7 +311,7 @@ export default function WhatsAppAutomationPage() {
                     <div>
                         <p className="text-sm font-bold text-foreground">{txt.createNewRule}</p>
                         <p className="text-xs text-muted-foreground mt-1">
-                            {txt.createHelp} <code>{`Hi ${memberNameToken}, ...`}</code>
+                            {txt.createHelp} <code>{`${txt.memberExample} ${memberNameToken}, ...`}</code>
                         </p>
                     </div>
                     <div className="space-y-2">
@@ -444,7 +448,7 @@ export default function WhatsAppAutomationPage() {
                                 ))}
                             </div>
                             <p className="text-[11px] text-muted-foreground mt-1">
-                                {txt.example}: <code>{`Hi ${memberNameToken}, your subscription expires in 3 days.`}</code>
+                                {txt.example}: <code>{txt.messageTemplateExample}</code>
                             </p>
                         </div>
                         <div className="flex justify-end">

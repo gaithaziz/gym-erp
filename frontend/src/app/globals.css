@@ -134,6 +134,9 @@ body {
 }
 
 html[lang="ar"] body {
+  --font-sans: var(--font-arabic);
+  --font-serif: var(--font-arabic);
+  --font-mono: var(--font-arabic);
   font-family: var(--font-arabic);
 }
 

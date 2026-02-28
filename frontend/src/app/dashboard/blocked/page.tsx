@@ -8,54 +8,66 @@ import { useLocale } from '@/context/LocaleContext';
 
 export default function SubscriptionBlockedPage() {
     const { user, logout } = useAuth();
-    const { locale } = useLocale();
+    const { locale, formatDate } = useLocale();
     const router = useRouter();
 
     const reason = user?.block_reason;
-    const statusLabel = user?.subscription_status || 'NONE';
-    const planName = user?.subscription_plan_name || 'No active plan';
+    const txt = {
+        noActivePlan: locale === 'ar' ? '?? ???? ??? ????' : 'No active plan',
+        statusNone: locale === 'ar' ? '?? ????' : 'None',
+        statusActive: locale === 'ar' ? '???' : 'Active',
+        statusFrozen: locale === 'ar' ? '?????' : 'Frozen',
+        statusExpired: locale === 'ar' ? '?????' : 'Expired',
+        accessRestricted: locale === 'ar' ? '?????? ?????' : 'Access Restricted',
+        accountBlocked: locale === 'ar' ? '?????? ????? ??????' : 'Account Temporarily Blocked',
+        status: locale === 'ar' ? '??????' : 'Status',
+        plan: locale === 'ar' ? '?????' : 'Plan',
+        endDate: locale === 'ar' ? '????? ????????' : 'End Date',
+        na: locale === 'ar' ? '??? ????' : 'N/A',
+        requestRenewal: locale === 'ar' ? '??? ?????' : 'Request Renewal',
+        requestUnfreeze: locale === 'ar' ? '??? ????? ???????' : 'Request Unfreeze',
+        lockedPrefix: locale === 'ar' ? '??????? ????? ?????? ????' : 'Requests are temporarily locked for',
+        lockedSuffix: locale === 'ar' ? '???? ??????.' : 'more hour(s).',
+        logout: locale === 'ar' ? '????? ??????' : 'Logout',
+    };
+
+    const statusCode = user?.subscription_status || 'NONE';
+    const statusLabelMap: Record<string, string> = {
+        NONE: txt.statusNone,
+        ACTIVE: txt.statusActive,
+        FROZEN: txt.statusFrozen,
+        EXPIRED: txt.statusExpired,
+    };
+    const statusLabel = statusLabelMap[statusCode] || statusCode;
+    const planName = user?.subscription_plan_name || txt.noActivePlan;
     const endDate = user?.subscription_end_date
-        ? new Date(user.subscription_end_date).toLocaleDateString()
+        ? formatDate(user.subscription_end_date, { year: 'numeric', month: 'long', day: 'numeric' })
         : null;
 
     const reasonMeta =
         reason === 'SUBSCRIPTION_EXPIRED'
             ? {
-                title: locale === 'ar' ? 'انتهى الاشتراك' : 'Subscription Expired',
+                title: locale === 'ar' ? '????? ????????' : 'Subscription Expired',
                 description: locale === 'ar'
-                    ? 'انتهى اشتراكك. اطلب التجديد لاستعادة الوصول إلى التطبيق.'
+                    ? '????? ???????. ???? ??????? ???????? ?????? ??? ???????.'
                     : 'Your subscription expired. Request renewal to regain access to the app.',
                 icon: CalendarX,
             }
             : reason === 'SUBSCRIPTION_FROZEN'
                 ? {
-                    title: locale === 'ar' ? 'الاشتراك مجمّد' : 'Subscription Frozen',
+                    title: locale === 'ar' ? '???????? ?????' : 'Subscription Frozen',
                     description: locale === 'ar'
-                        ? 'اشتراكك مجمّد حالياً. اطلب إلغاء التجميد للمتابعة.'
+                        ? '??????? ????? ??????. ???? ????? ??????? ????????.'
                         : 'Your subscription is currently frozen. Request unfreeze to continue.',
                     icon: Snowflake,
                 }
                 : {
-                    title: locale === 'ar' ? 'لا يوجد اشتراك فعّال' : 'No Active Subscription',
+                    title: locale === 'ar' ? '?? ???? ?????? ?????' : 'No Active Subscription',
                     description: locale === 'ar'
-                        ? 'لم يتم العثور على اشتراك فعّال. اطلب التفعيل للمتابعة.'
+                        ? '?? ??? ?????? ??? ?????? ?????. ???? ??????? ????????.'
                         : 'No active subscription was found. Request activation to continue using the app.',
                     icon: Lock,
                 };
-
-    const txt = {
-        accessRestricted: locale === 'ar' ? 'الوصول مقيّد' : 'Access Restricted',
-        accountBlocked: locale === 'ar' ? 'الحساب محجوب مؤقتاً' : 'Account Temporarily Blocked',
-        status: locale === 'ar' ? 'الحالة' : 'Status',
-        plan: locale === 'ar' ? 'الخطة' : 'Plan',
-        endDate: locale === 'ar' ? 'تاريخ الانتهاء' : 'End Date',
-        na: locale === 'ar' ? 'غير متاح' : 'N/A',
-        requestRenewal: locale === 'ar' ? 'طلب تجديد' : 'Request Renewal',
-        requestUnfreeze: locale === 'ar' ? 'طلب إلغاء التجميد' : 'Request Unfreeze',
-        lockedPrefix: locale === 'ar' ? 'الطلبات مقفلة مؤقتاً لمدة' : 'Requests are temporarily locked for',
-        lockedSuffix: locale === 'ar' ? 'ساعة إضافية.' : 'more hour(s).',
-        logout: locale === 'ar' ? 'تسجيل الخروج' : 'Logout',
-    };
 
     const ReasonIcon = reasonMeta.icon;
     const lockKey = `blocked_request_lock_${user?.id || 'anon'}`;

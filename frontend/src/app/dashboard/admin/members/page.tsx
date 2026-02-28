@@ -383,6 +383,26 @@ export default function MembersPage() {
                 return text.none;
         }
     };
+    const roleLabel = (role?: string | null) => {
+        switch (role) {
+            case 'ADMIN':
+                return locale === 'ar' ? 'مشرف' : 'Admin';
+            case 'COACH':
+                return locale === 'ar' ? 'مدرب' : 'Coach';
+            case 'CUSTOMER':
+                return locale === 'ar' ? 'عميل' : 'Customer';
+            case 'EMPLOYEE':
+                return locale === 'ar' ? 'موظف' : 'Employee';
+            case 'CASHIER':
+                return locale === 'ar' ? 'كاشير' : 'Cashier';
+            case 'RECEPTION':
+                return locale === 'ar' ? 'استقبال' : 'Reception';
+            case 'FRONT_DESK':
+                return locale === 'ar' ? 'مكتب الاستقبال' : 'Front Desk';
+            default:
+                return role || text.na;
+        }
+    };
 
     const openView = (member: Member) => {
         setViewMember(member);
@@ -1301,7 +1321,7 @@ export default function MembersPage() {
                                 <h3 className="text-xl font-bold text-foreground">{viewMember.full_name}</h3>
                                 <p className="text-sm text-muted-foreground">{viewMember.email}</p>
                                 <span className="inline-block px-2 py-0.5 mt-1 rounded text-[10px] font-bold tracking-wider bg-zinc-800 text-zinc-300">
-                                    {viewMember.role}
+                                    {roleLabel(viewMember.role)}
                                 </span>
                             </div>
                         </div>

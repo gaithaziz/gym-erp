@@ -1,4 +1,4 @@
-'use client';
+﻿'use client';
 
 import { useState, useEffect } from 'react';
 import { useAuth } from '@/context/AuthContext';
@@ -14,48 +14,55 @@ export default function ProfilePage() {
     const { locale } = useLocale();
     const { showToast } = useFeedback();
     const txt = locale === 'ar' ? {
-        profileUpdated: 'تم تحديث الملف الشخصي بنجاح',
-        profileUpdateFailed: 'فشل تحديث الملف الشخصي',
-        passwordsNoMatch: 'كلمات المرور الجديدة غير متطابقة',
-        passwordChanged: 'تم تغيير كلمة المرور بنجاح',
-        passwordChangeFailed: 'فشل تغيير كلمة المرور',
-        uploadPictureFailed: 'فشل رفع الصورة. يرجى المحاولة مرة أخرى.',
-        bioSaved: 'تم حفظ بيانات الجسم وتتبعها بنجاح',
-        bioSaveFailed: 'فشل حفظ بيانات الجسم',
-        title: 'ملفي الشخصي',
-        subtitle: 'إدارة إعدادات حسابك',
-        security: 'الأمان',
-        passwordFields: 'حقول كلمة المرور',
-        hidePasswords: 'إخفاء كلمات المرور',
-        showPasswords: 'إظهار كلمات المرور',
-        currentPassword: 'كلمة المرور الحالية',
-        newPassword: 'كلمة المرور الجديدة',
-        confirmPassword: 'تأكيد كلمة المرور',
-        updating: 'جارٍ التحديث...',
-        updatePassword: 'تحديث كلمة المرور',
-        personalDetails: 'البيانات الشخصية',
-        fullName: 'الاسم الكامل',
-        readOnlyEmail: 'البريد الإلكتروني (للقراءة فقط)',
-        phoneNumber: 'رقم الهاتف',
-        dateOfBirth: 'تاريخ الميلاد',
-        ageAuto: 'العمر (تلقائي)',
-        emergencyContact: 'جهة اتصال الطوارئ',
-        emergencyPlaceholder: 'Jane Doe - +1 (555) 123-4567',
-        bioNotes: 'نبذة / ملاحظات',
-        bioPlaceholder: 'حدثنا قليلًا عن نفسك وأهدافك الرياضية...',
-        saving: 'جارٍ الحفظ...',
-        saveProfile: 'حفظ الملف الشخصي',
-        bodyMetrics: 'قياسات الجسم',
-        heightCm: 'الطول (سم)',
-        weightKg: 'الوزن (كجم)',
-        bodyFat: 'دهون الجسم (%)',
-        muscleMassKg: 'الكتلة العضلية (كجم)',
-        eg175: 'مثال: 175',
-        eg75: 'مثال: 75',
-        eg18: 'مثال: 18',
-        eg32: 'مثال: 32',
-        saveBodyMetrics: 'حفظ قياسات الجسم',
-        na: 'غير متاح',
+        profileUpdated: 'ØªÙ… ØªØ­Ø¯ÙŠØ« Ø§Ù„Ù…Ù„Ù Ø§Ù„Ø´Ø®ØµÙŠ Ø¨Ù†Ø¬Ø§Ø­',
+        profileUpdateFailed: 'ÙØ´Ù„ ØªØ­Ø¯ÙŠØ« Ø§Ù„Ù…Ù„Ù Ø§Ù„Ø´Ø®ØµÙŠ',
+        passwordsNoMatch: 'ÙƒÙ„Ù…Ø§Øª Ø§Ù„Ù…Ø±ÙˆØ± Ø§Ù„Ø¬Ø¯ÙŠØ¯Ø© ØºÙŠØ± Ù…ØªØ·Ø§Ø¨Ù‚Ø©',
+        passwordChanged: 'ØªÙ… ØªØºÙŠÙŠØ± ÙƒÙ„Ù…Ø© Ø§Ù„Ù…Ø±ÙˆØ± Ø¨Ù†Ø¬Ø§Ø­',
+        passwordChangeFailed: 'ÙØ´Ù„ ØªØºÙŠÙŠØ± ÙƒÙ„Ù…Ø© Ø§Ù„Ù…Ø±ÙˆØ±',
+        uploadPictureFailed: 'ÙØ´Ù„ Ø±ÙØ¹ Ø§Ù„ØµÙˆØ±Ø©. ÙŠØ±Ø¬Ù‰ Ø§Ù„Ù…Ø­Ø§ÙˆÙ„Ø© Ù…Ø±Ø© Ø£Ø®Ø±Ù‰.',
+        bioSaved: 'ØªÙ… Ø­ÙØ¸ Ø¨ÙŠØ§Ù†Ø§Øª Ø§Ù„Ø¬Ø³Ù… ÙˆØªØªØ¨Ø¹Ù‡Ø§ Ø¨Ù†Ø¬Ø§Ø­',
+        bioSaveFailed: 'ÙØ´Ù„ Ø­ÙØ¸ Ø¨ÙŠØ§Ù†Ø§Øª Ø§Ù„Ø¬Ø³Ù…',
+        title: 'Ù…Ù„ÙÙŠ Ø§Ù„Ø´Ø®ØµÙŠ',
+        subtitle: 'Ø¥Ø¯Ø§Ø±Ø© Ø¥Ø¹Ø¯Ø§Ø¯Ø§Øª Ø­Ø³Ø§Ø¨Ùƒ',
+        security: 'Ø§Ù„Ø£Ù…Ø§Ù†',
+        passwordFields: 'Ø­Ù‚ÙˆÙ„ ÙƒÙ„Ù…Ø© Ø§Ù„Ù…Ø±ÙˆØ±',
+        hidePasswords: 'Ø¥Ø®ÙØ§Ø¡ ÙƒÙ„Ù…Ø§Øª Ø§Ù„Ù…Ø±ÙˆØ±',
+        showPasswords: 'Ø¥Ø¸Ù‡Ø§Ø± ÙƒÙ„Ù…Ø§Øª Ø§Ù„Ù…Ø±ÙˆØ±',
+        currentPassword: 'ÙƒÙ„Ù…Ø© Ø§Ù„Ù…Ø±ÙˆØ± Ø§Ù„Ø­Ø§Ù„ÙŠØ©',
+        newPassword: 'ÙƒÙ„Ù…Ø© Ø§Ù„Ù…Ø±ÙˆØ± Ø§Ù„Ø¬Ø¯ÙŠØ¯Ø©',
+        confirmPassword: 'ØªØ£ÙƒÙŠØ¯ ÙƒÙ„Ù…Ø© Ø§Ù„Ù…Ø±ÙˆØ±',
+        updating: 'Ø¬Ø§Ø±Ù Ø§Ù„ØªØ­Ø¯ÙŠØ«...',
+        updatePassword: 'ØªØ­Ø¯ÙŠØ« ÙƒÙ„Ù…Ø© Ø§Ù„Ù…Ø±ÙˆØ±',
+        personalDetails: 'Ø§Ù„Ø¨ÙŠØ§Ù†Ø§Øª Ø§Ù„Ø´Ø®ØµÙŠØ©',
+        fullName: 'Ø§Ù„Ø§Ø³Ù… Ø§Ù„ÙƒØ§Ù…Ù„',
+        readOnlyEmail: 'Ø§Ù„Ø¨Ø±ÙŠØ¯ Ø§Ù„Ø¥Ù„ÙƒØªØ±ÙˆÙ†ÙŠ (Ù„Ù„Ù‚Ø±Ø§Ø¡Ø© ÙÙ‚Ø·)',
+        phoneNumber: 'Ø±Ù‚Ù… Ø§Ù„Ù‡Ø§ØªÙ',
+        dateOfBirth: 'ØªØ§Ø±ÙŠØ® Ø§Ù„Ù…ÙŠÙ„Ø§Ø¯',
+        ageAuto: 'Ø§Ù„Ø¹Ù…Ø± (ØªÙ„Ù‚Ø§Ø¦ÙŠ)',
+        emergencyContact: 'Ø¬Ù‡Ø© Ø§ØªØµØ§Ù„ Ø§Ù„Ø·ÙˆØ§Ø±Ø¦',
+        emergencyPlaceholder: '\u0627\u0644\u0627\u0633\u0645 - +962 7X XXX XXXX',
+        bioNotes: 'Ù†Ø¨Ø°Ø© / Ù…Ù„Ø§Ø­Ø¸Ø§Øª',
+        bioPlaceholder: 'Ø­Ø¯Ø«Ù†Ø§ Ù‚Ù„ÙŠÙ„Ù‹Ø§ Ø¹Ù† Ù†ÙØ³Ùƒ ÙˆØ£Ù‡Ø¯Ø§ÙÙƒ Ø§Ù„Ø±ÙŠØ§Ø¶ÙŠØ©...',
+        saving: 'Ø¬Ø§Ø±Ù Ø§Ù„Ø­ÙØ¸...',
+        saveProfile: 'Ø­ÙØ¸ Ø§Ù„Ù…Ù„Ù Ø§Ù„Ø´Ø®ØµÙŠ',
+        bodyMetrics: 'Ù‚ÙŠØ§Ø³Ø§Øª Ø§Ù„Ø¬Ø³Ù…',
+        heightCm: 'Ø§Ù„Ø·ÙˆÙ„ (Ø³Ù…)',
+        weightKg: 'Ø§Ù„ÙˆØ²Ù† (ÙƒØ¬Ù…)',
+        bodyFat: 'Ø¯Ù‡ÙˆÙ† Ø§Ù„Ø¬Ø³Ù… (%)',
+        muscleMassKg: 'Ø§Ù„ÙƒØªÙ„Ø© Ø§Ù„Ø¹Ø¶Ù„ÙŠØ© (ÙƒØ¬Ù…)',
+        eg175: 'Ù…Ø«Ø§Ù„: 175',
+        eg75: 'Ù…Ø«Ø§Ù„: 75',
+        eg18: 'Ù…Ø«Ø§Ù„: 18',
+        eg32: 'Ù…Ø«Ø§Ù„: 32',
+        saveBodyMetrics: 'Ø­ÙØ¸ Ù‚ÙŠØ§Ø³Ø§Øª Ø§Ù„Ø¬Ø³Ù…',
+        na: 'ØºÙŠØ± Ù…ØªØ§Ø­',
+        adminRole: '\u0645\u062f\u064a\u0631',
+        coachRole: '\u0645\u062f\u0631\u0628',
+        customerRole: '\u0639\u0636\u0648',
+        employeeRole: '\u0645\u0648\u0638\u0641',
+        cashierRole: '\u0643\u0627\u0634\u064a\u0631',
+        receptionRole: '\u0627\u0633\u062a\u0642\u0628\u0627\u0644',
+        frontDeskRole: '\u0645\u0643\u062a\u0628 \u0623\u0645\u0627\u0645\u064a',
     } : {
         profileUpdated: 'Profile updated successfully',
         profileUpdateFailed: 'Failed to update profile',
@@ -99,6 +106,13 @@ export default function ProfilePage() {
         eg32: 'e.g. 32',
         saveBodyMetrics: 'Save Body Metrics',
         na: 'N/A',
+        adminRole: 'Admin',
+        coachRole: 'Coach',
+        customerRole: 'Member',
+        employeeRole: 'Employee',
+        cashierRole: 'Cashier',
+        receptionRole: 'Reception',
+        frontDeskRole: 'Front Desk',
     };
 
     const [fullName, setFullName] = useState(user?.full_name || '');
@@ -252,6 +266,16 @@ export default function ProfilePage() {
     };
 
     const currentProfileImage = resolveProfileImageUrl(user?.profile_picture_url);
+    const roleLabelMap: Record<string, string> = {
+        ADMIN: txt.adminRole,
+        COACH: txt.coachRole,
+        CUSTOMER: txt.customerRole,
+        EMPLOYEE: txt.employeeRole,
+        CASHIER: txt.cashierRole,
+        RECEPTION: txt.receptionRole,
+        FRONT_DESK: txt.frontDeskRole,
+    };
+    const roleLabel = roleLabelMap[user?.role || ''] || (user?.role || '');
 
     return (
         <div className="max-w-4xl mx-auto space-y-8 pb-12">
@@ -272,7 +296,7 @@ export default function ProfilePage() {
                         />
                         <div>
                             <p className="font-bold text-foreground font-serif">{user?.full_name}</p>
-                            <p className="text-sm font-mono text-muted-foreground mt-1">{user?.role}</p>
+                            <p className="text-sm font-mono text-muted-foreground mt-1">{roleLabel}</p>
                         </div>
                     </div>
 
@@ -527,3 +551,4 @@ export default function ProfilePage() {
         </div>
     );
 }
+

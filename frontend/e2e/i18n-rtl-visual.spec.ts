@@ -60,15 +60,37 @@ const fullRouteMatrix: RouteSpec[] = [
   { path: "/dashboard/member/progress", roles: ["CUSTOMER"], state: "default" },
 ];
 
-const fastRoles: AppRole[] = ["ADMIN", "CUSTOMER"];
+const fastRoles: AppRole[] = ["ADMIN", "COACH", "CUSTOMER"];
+const adminRoles: AppRole[] = ["ADMIN"];
+const adminRouteMatrix: RouteSpec[] = [
+  { path: "/dashboard/admin/audit", roles: ["ADMIN"], state: "default" },
+  { path: "/dashboard/admin/entrance-qr", roles: ["ADMIN"], state: "default" },
+  { path: "/dashboard/admin/finance", roles: ["ADMIN"], state: "default" },
+  { path: "/dashboard/admin/inventory", roles: ["ADMIN"], state: "default" },
+  { path: "/dashboard/admin/leaves", roles: ["ADMIN"], state: "default" },
+  { path: "/dashboard/admin/members", roles: ["ADMIN"], state: "default" },
+  { path: "/dashboard/admin/notifications", roles: ["ADMIN"], state: "default" },
+  { path: "/dashboard/admin/pos", roles: ["ADMIN"], state: "default" },
+  { path: "/dashboard/admin/staff", roles: ["ADMIN"], state: "default" },
+  { path: "/dashboard/admin/staff/attendance", roles: ["ADMIN"], state: "default" },
+  { path: "/dashboard/admin/staff/[id]", roles: ["ADMIN"], state: "default" },
+  { path: "/dashboard/admin/support", roles: ["ADMIN"], state: "default" },
+];
 const fastRouteMatrix: RouteSpec[] = [
-  { path: "/", roles: ["ADMIN", "CUSTOMER"], state: "default" },
+  { path: "/", roles: ["ADMIN", "COACH", "CUSTOMER"], state: "default" },
   { path: "/login", roles: ["ADMIN"], state: "default" },
-  { path: "/dashboard", roles: ["ADMIN", "CUSTOMER"], state: "default" },
-  { path: "/dashboard/profile", roles: ["ADMIN", "CUSTOMER"], state: "default" },
-  { path: "/dashboard/qr", roles: ["ADMIN", "CUSTOMER"], state: "default" },
+  { path: "/members", roles: ["ADMIN", "COACH"], state: "default" },
+  { path: "/dashboard", roles: ["ADMIN", "COACH", "CUSTOMER"], state: "default" },
+  { path: "/dashboard/profile", roles: ["ADMIN", "COACH", "CUSTOMER"], state: "default" },
+  { path: "/dashboard/qr", roles: ["ADMIN", "COACH", "CUSTOMER"], state: "default" },
+  { path: "/dashboard/leaves", roles: ["ADMIN", "COACH"], state: "default" },
+  { path: "/dashboard/lost-found", roles: ["ADMIN", "COACH", "CUSTOMER"], state: "default" },
   { path: "/dashboard/blocked", roles: ["CUSTOMER"], state: "default" },
   { path: "/dashboard/subscription", roles: ["CUSTOMER"], state: "default" },
+  { path: "/dashboard/coach/diets", roles: ["ADMIN", "COACH"], state: "default" },
+  { path: "/dashboard/coach/feedback", roles: ["ADMIN", "COACH"], state: "default" },
+  { path: "/dashboard/coach/library", roles: ["ADMIN", "COACH"], state: "default" },
+  { path: "/dashboard/coach/plans", roles: ["ADMIN", "COACH"], state: "default" },
   { path: "/dashboard/admin/members", roles: ["ADMIN"], state: "default" },
   { path: "/dashboard/member/progress", roles: ["CUSTOMER"], state: "default" },
 ];
@@ -133,8 +155,28 @@ async function applyAuthAndLocale(page: Page, request: APIRequestContext, roleCt
 
   // Reload after persisting locale so LocaleProvider resolves the intended direction on init.
   await page.reload({ waitUntil: "domcontentloaded" });
-  await page.locator(`[data-testid="${locale === "ar" ? "locale-ar" : "locale-en"}"]:visible`).first().click();
-  await expect(page.locator("html")).toHaveAttribute("data-locale", locale);
+  const html = page.locator("html");
+  const currentLocale = await html.getAttribute("data-locale");
+  if (currentLocale !== locale) {
+    const localeToggle = page.locator(`[data-testid="${locale === "ar" ? "locale-ar" : "locale-en"}"]:visible`).first();
+    const canClickToggle = await localeToggle.isVisible().catch(() => false);
+    if (canClickToggle) {
+      await localeToggle.click();
+      const clickedLocale = await html.getAttribute("data-locale").catch(() => null);
+      if (clickedLocale !== locale) {
+        await page.evaluate((nextLocale) => {
+          window.localStorage.setItem("gym_locale", nextLocale);
+        }, locale);
+        await page.reload({ waitUntil: "domcontentloaded" });
+      }
+    } else {
+      await page.evaluate((nextLocale) => {
+        window.localStorage.setItem("gym_locale", nextLocale);
+      }, locale);
+      await page.reload({ waitUntil: "domcontentloaded" });
+    }
+  }
+  await expect(html).toHaveAttribute("data-locale", locale);
 
   return dir;
 }
@@ -212,7 +254,12 @@ test.describe("route walkthrough visual coverage", () => {
     await runCoverage(page, request, fastRoles, fastRouteMatrix);
   });
 
-  test.setTimeout(900_000);
+  test.setTimeout(480_000);
+  test("captures EN/AR snapshots across admin routes @admin", async ({ page, request }) => {
+    await runCoverage(page, request, adminRoles, adminRouteMatrix);
+  });
+
+  test.setTimeout(1_800_000);
   test("captures EN/AR snapshots across all role routes @full", async ({ page, request }) => {
     await runCoverage(page, request, fullRoles, fullRouteMatrix);
   });

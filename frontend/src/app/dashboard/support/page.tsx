@@ -209,7 +209,7 @@ export default function CustomerSupportPage() {
     };
     const statusLabel = (status: TicketStatus) => t(`support.status.${status}`);
     const categoryLabel = (category: TicketCategory) => t(`support.category.${category}`);
-    const supportAttachmentAlt = 'Support attachment';
+    const supportAttachmentAlt = t('support.customer.attachmentAlt');
     const pageLabel = (page: number, total: number) =>
         t('support.customer.pageOf')
             .replace('{{page}}', String(page))

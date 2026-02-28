@@ -46,7 +46,7 @@ const getBadgeSticker = (badgeType: string) => {
 };
 
 export default function AchievementsPage() {
-    const { locale } = useLocale();
+    const { locale, formatDate } = useLocale();
     const [stats, setStats] = useState<GamificationStats | null>(null);
     const [loading, setLoading] = useState(true);
 
@@ -81,6 +81,21 @@ export default function AchievementsPage() {
     }
 
     const earnedTypes = new Set(stats?.badges.map((b) => b.badge_type) || []);
+    const badgeCatalog = locale === 'ar'
+        ? [
+            { type: 'STREAK_3', name: 'سلسلة 3 أيام', desc: 'زر النادي 3 أيام متتالية' },
+            { type: 'STREAK_7', name: 'مقاتل الأسبوع', desc: 'زر النادي 7 أيام متتالية' },
+            { type: 'STREAK_14', name: 'قوة الأسبوعين', desc: 'زر النادي 14 يومًا متتاليًا' },
+            { type: 'STREAK_30', name: 'آلة الشهر', desc: 'زر النادي 30 يومًا متتاليًا' },
+            { type: 'VISITS_10', name: '10 زيارات للنادي', desc: 'سجّل دخول 10 مرات' },
+            { type: 'VISITS_25', name: '25 زيارة للنادي', desc: 'سجّل دخول 25 مرة' },
+            { type: 'VISITS_50', name: '50 زيارة للنادي', desc: 'سجّل دخول 50 مرة' },
+            { type: 'VISITS_100', name: 'نادي الـ100', desc: 'سجّل دخول 100 مرة' },
+            { type: 'VISITS_250', name: 'أسطورة الـ250', desc: 'سجّل دخول 250 مرة' },
+            { type: 'EARLY_BIRD', name: 'الطائر المبكر', desc: 'سجّل دخول قبل 7 صباحًا' },
+            { type: 'NIGHT_OWL', name: 'بومة الليل', desc: 'سجّل دخول بعد 9 مساءً' },
+        ]
+        : ALL_BADGES;
 
     return (
         <div className="max-w-4xl mx-auto space-y-8">
@@ -129,11 +144,11 @@ export default function AchievementsPage() {
                 <h2 className="text-lg font-bold text-foreground font-serif mb-4 flex items-center gap-2">
                     <Trophy size={18} className="text-primary" /> {locale === 'ar' ? 'الشارات' : 'Badges'}
                     <span className="text-xs font-mono text-muted-foreground ltr:ml-2 rtl:mr-2">
-                        {earnedTypes.size}/{ALL_BADGES.length} {locale === 'ar' ? 'مفتوحة' : 'unlocked'}
+                        {earnedTypes.size}/{badgeCatalog.length} {locale === 'ar' ? 'مفتوحة' : 'unlocked'}
                     </span>
                 </h2>
                 <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
-                    {ALL_BADGES.map((badge) => {
+                    {badgeCatalog.map((badge) => {
                         const earned = earnedTypes.has(badge.type);
                         const earnedBadge = stats?.badges.find((b) => b.badge_type === badge.type);
                         return (
@@ -149,7 +164,7 @@ export default function AchievementsPage() {
                                 {earned && earnedBadge && (
                                     <p className="text-[0.6rem] text-primary font-mono mt-2 flex items-center justify-center gap-1">
                                         <Star size={10} />
-                                        {new Date(earnedBadge.earned_at).toLocaleDateString()}
+                                        {formatDate(earnedBadge.earned_at, { year: 'numeric', month: 'short', day: 'numeric' })}
                                     </p>
                                 )}
                                 {!earned && (

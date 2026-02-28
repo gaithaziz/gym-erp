@@ -92,6 +92,48 @@ export default function QRCodePage() {
         clientEntry: 'client_entry',
         staffIn: 'staff_check_in',
         staffOut: 'staff_check_out',
+        cameraUnsupported: 'Camera scanning is not supported on this device.',
+        compatibilityMode: 'Using compatibility scanner mode for this browser.',
+        cameraAccessError: 'Unable to access camera. Check browser permissions.',
+        staffOnlyQr: 'This QR is for staff attendance only.',
+        staffModeHint: 'Use staff start/end QR for attendance.',
+        roleDenied: 'Your role is not allowed to record staff attendance.',
+        invalidQr: 'Invalid kiosk QR format.',
+        checkInSuccess: 'Clocked in successfully.',
+        checkOutSuccess: 'Clocked out successfully.',
+        actionFailed: 'Action failed.',
+        granted: 'Granted',
+        denied: 'Denied',
+        alreadyScanned: 'Already scanned',
+    };
+    const ui = locale === 'ar' ? {
+        cameraUnsupported: 'المسح بالكاميرا غير مدعوم على هذا الجهاز.',
+        compatibilityMode: 'يتم استخدام وضع متوافق للمسح في هذا المتصفح.',
+        cameraAccessError: 'تعذر الوصول إلى الكاميرا. تحقق من أذونات المتصفح.',
+        staffOnlyQr: 'هذا الرمز مخصص لتسجيل حضور الموظفين فقط.',
+        staffModeHint: 'استخدم رمز بدء/إنهاء الدوام للحضور.',
+        roleDenied: 'دورك غير مسموح له بتسجيل حضور الموظفين.',
+        invalidQr: 'تنسيق رمز الكشك غير صالح.',
+        checkInSuccess: 'تم تسجيل الحضور بنجاح.',
+        checkOutSuccess: 'تم تسجيل الانصراف بنجاح.',
+        actionFailed: 'فشل تنفيذ الإجراء.',
+        granted: 'مسموح',
+        denied: 'مرفوض',
+        alreadyScanned: 'مسجل مسبقًا',
+    } : {
+        cameraUnsupported: 'Camera scanning is not supported on this device.',
+        compatibilityMode: 'Using compatibility scanner mode for this browser.',
+        cameraAccessError: 'Unable to access camera. Check browser permissions.',
+        staffOnlyQr: 'This QR is for staff attendance only.',
+        staffModeHint: 'Use staff start/end QR for attendance.',
+        roleDenied: 'Your role is not allowed to record staff attendance.',
+        invalidQr: 'Invalid kiosk QR format.',
+        checkInSuccess: 'Clocked in successfully.',
+        checkOutSuccess: 'Clocked out successfully.',
+        actionFailed: 'Action failed.',
+        granted: 'Granted',
+        denied: 'Denied',
+        alreadyScanned: 'Already scanned',
     };
     const videoRef = useRef<HTMLVideoElement | null>(null);
     const canvasRef = useRef<HTMLCanvasElement | null>(null);
@@ -128,7 +170,7 @@ export default function QRCodePage() {
         setDetectedScan(null);
 
         if (typeof window === 'undefined' || !navigator.mediaDevices?.getUserMedia) {
-            setCameraError('Camera scanning is not supported on this device.');
+            setCameraError(ui.cameraUnsupported);
             return;
         }
 
@@ -152,7 +194,7 @@ export default function QRCodePage() {
                 : null;
 
             if (!hasBarcodeDetector) {
-                setCameraError('Using compatibility scanner mode for this browser.');
+                setCameraError(ui.compatibilityMode);
             }
 
             scanIntervalRef.current = setInterval(async () => {
@@ -192,27 +234,27 @@ export default function QRCodePage() {
                 }
             }, 350);
         } catch {
-            setCameraError('Unable to access camera. Check browser permissions.');
+            setCameraError(ui.cameraAccessError);
         }
-    }, [detectedScan, stopScanner, submitting]);
+    }, [detectedScan, stopScanner, submitting, ui.cameraAccessError, ui.cameraUnsupported, ui.compatibilityMode]);
 
     const validateRoleAndMode = useCallback((kind: ScanKind): string | null => {
         const role = user?.role || '';
         if (role === 'CUSTOMER' && kind !== 'client_entry') {
-            return 'This QR is for staff attendance only.';
+            return ui.staffOnlyQr;
         }
         if (role !== 'CUSTOMER' && kind === 'client_entry') {
-            return 'Use staff start/end QR for attendance.';
+            return ui.staffModeHint;
         }
         if (kind !== 'client_entry' && !STAFF_ROLES.has(role)) {
-            return 'Your role is not allowed to record staff attendance.';
+            return ui.roleDenied;
         }
         return null;
-    }, [user?.role]);
+    }, [ui.roleDenied, ui.staffModeHint, ui.staffOnlyQr, user?.role]);
 
     const submitAction = useCallback(async (payload: ParsedQrPayload) => {
         if (!KIOSK_ID_PATTERN.test(payload.kioskId)) {
-            setScanResult({ status: 'DENIED', reason: 'Invalid kiosk QR format.' });
+            setScanResult({ status: 'DENIED', reason: ui.invalidQr });
             return;
         }
 
@@ -230,18 +272,18 @@ export default function QRCodePage() {
                 setScanResult(res.data.data as ScanResult);
             } else if (payload.kind === 'staff_check_in') {
                 const res = await api.post('/access/check-in');
-                setScanResult({ status: 'GRANTED', reason: res.data?.message || 'Clocked in successfully.' });
+                setScanResult({ status: 'GRANTED', reason: res.data?.message || ui.checkInSuccess });
             } else {
                 const res = await api.post('/access/check-out');
-                setScanResult({ status: 'GRANTED', reason: res.data?.message || 'Clocked out successfully.' });
+                setScanResult({ status: 'GRANTED', reason: res.data?.message || ui.checkOutSuccess });
             }
         } catch (error: unknown) {
             const detail = (error as { response?: { data?: { detail?: string } } })?.response?.data?.detail;
-            setScanResult({ status: 'DENIED', reason: detail || 'Action failed.' });
+            setScanResult({ status: 'DENIED', reason: detail || ui.actionFailed });
         } finally {
             setSubmitting(false);
         }
-    }, [validateRoleAndMode]);
+    }, [ui.actionFailed, ui.checkInSuccess, ui.checkOutSuccess, ui.invalidQr, validateRoleAndMode]);
 
     useEffect(() => {
         startScanner();
@@ -255,6 +297,12 @@ export default function QRCodePage() {
             : currentKind === 'staff_check_in'
                 ? txt.staffIn
                 : txt.staffOut;
+    const scanStatusLabel =
+        scanResult?.status === 'GRANTED'
+            ? ui.granted
+            : scanResult?.status === 'ALREADY_SCANNED'
+                ? ui.alreadyScanned
+                : ui.denied;
 
     return (
         <div className="max-w-xl mx-auto space-y-6 py-8">
@@ -355,7 +403,7 @@ export default function QRCodePage() {
                             <XCircle className="h-6 w-6 text-destructive mt-0.5" />
                         )}
                         <div>
-                            <p className="text-sm font-bold text-foreground">{scanResult.status}</p>
+                            <p className="text-sm font-bold text-foreground">{scanStatusLabel}</p>
                             <p className="text-sm text-muted-foreground">{scanResult.reason || txt.actionRecorded}</p>
                             {scanResult.user_name && (
                                 <p className="text-sm text-foreground mt-1">{scanResult.user_name}</p>

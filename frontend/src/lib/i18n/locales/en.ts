@@ -156,6 +156,7 @@ export const enMessages = {
       failedClose: "Failed to close ticket",
       imageOnly: "Only image files are supported.",
       failedUpload: "Failed to upload photo",
+      attachmentAlt: "Support attachment",
     },
     admin: {
       title: "Support Desk",
@@ -188,6 +189,7 @@ export const enMessages = {
       failedStatus: "Failed to update ticket status",
       imageOnly: "Only image files are supported.",
       failedUpload: "Failed to upload photo",
+      attachmentAlt: "Support attachment",
     },
   },
   finance: {
@@ -270,6 +272,11 @@ export const enMessages = {
     lowStockSuffix: "left",
     searchProducts: "Search products...",
     allCategories: "All Categories",
+    categorySupplement: "Supplement",
+    categoryDrink: "Drink",
+    categoryMerchandise: "Merchandise",
+    categorySnack: "Snack",
+    categoryOther: "Other",
     product: "Product",
     category: "Category",
     price: "Price",

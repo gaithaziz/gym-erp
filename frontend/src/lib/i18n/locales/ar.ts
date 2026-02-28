@@ -156,6 +156,7 @@ export const arMessages = {
       failedClose: "فشل في إغلاق التذكرة",
       imageOnly: "يتم دعم ملفات الصور فقط.",
       failedUpload: "فشل في رفع الصورة",
+      attachmentAlt: "مرفق الدعم",
     },
     admin: {
       title: "مكتب الدعم",
@@ -188,6 +189,7 @@ export const arMessages = {
       failedStatus: "فشل في تحديث حالة التذكرة",
       imageOnly: "يتم دعم ملفات الصور فقط.",
       failedUpload: "فشل في رفع الصورة",
+      attachmentAlt: "مرفق الدعم",
     },
   },
   finance: {
@@ -270,6 +272,11 @@ export const arMessages = {
     lowStockSuffix: "متبقي",
     searchProducts: "ابحث عن منتجات...",
     allCategories: "كل الفئات",
+    categorySupplement: "المكملات",
+    categoryDrink: "مشروبات",
+    categoryMerchandise: "منتجات متنوعة",
+    categorySnack: "وجبات خفيفة",
+    categoryOther: "أخرى",
     product: "المنتج",
     category: "الفئة",
     price: "السعر",
