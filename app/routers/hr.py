@@ -1,6 +1,7 @@
 from datetime import date, datetime, timedelta, timezone
 from typing import Annotated, Literal, Optional
 from decimal import Decimal
+from html import escape
 import logging
 from fastapi import APIRouter, Depends, HTTPException, Query, Response
 from fastapi.responses import HTMLResponse, Response
@@ -63,6 +64,167 @@ def _pdf_bytes(title: str, lines: list[str]) -> bytes:
     content = buffer.getvalue()
     buffer.close()
     return content
+
+
+def _format_money(amount: float | Decimal | None) -> str:
+    return f"{float(amount or 0):,.2f}"
+
+
+def _render_print_document(
+    *,
+    title: str,
+    subtitle: str,
+    badge: str,
+    lang: str = "en",
+    direction: str = "ltr",
+    details_heading: str,
+    details_rows: list[tuple[str, str]],
+    sections: list[tuple[str, str]],
+) -> str:
+    align = "right" if direction == "rtl" else "left"
+    reverse_align = "left" if direction == "rtl" else "right"
+    details_html = "".join(
+        f"""
+        <div class="meta-item">
+          <span class="label">{escape(label)}</span>
+          <span class="value">{escape(value)}</span>
+        </div>
+        """
+        for label, value in details_rows
+    )
+    sections_html = "".join(
+        f"""
+        <section class="section">
+          <h2>{escape(section_title)}</h2>
+          {section_body}
+        </section>
+        """
+        for section_title, section_body in sections
+    )
+    return f"""
+    <!DOCTYPE html>
+    <html lang="{escape(lang)}" dir="{escape(direction)}">
+      <head>
+        <meta charset="utf-8" />
+        <meta name="viewport" content="width=device-width, initial-scale=1" />
+        <title>{escape(title)}</title>
+        <style>
+          :root {{
+            color-scheme: light;
+            --page-bg: #f5f1e8;
+            --sheet-bg: #ffffff;
+            --ink: #1f2937;
+            --muted: #6b7280;
+            --line: #d6d3d1;
+            --accent: #d97706;
+            --accent-soft: #fff7ed;
+          }}
+          * {{ box-sizing: border-box; }}
+          html, body {{ margin: 0; padding: 0; background: var(--page-bg); color: var(--ink); }}
+          body {{ font-family: Arial, sans-serif; padding: 24px; direction: {direction}; text-align: {align}; }}
+          .sheet {{
+            width: min(100%, 920px);
+            margin: 0 auto;
+            background: var(--sheet-bg);
+            border: 1px solid rgba(156, 163, 175, 0.35);
+            border-radius: 24px;
+            padding: 28px;
+            box-shadow: 0 18px 50px rgba(15, 23, 42, 0.08);
+          }}
+          .header {{
+            display: flex;
+            justify-content: space-between;
+            gap: 16px;
+            align-items: flex-start;
+            border-bottom: 2px solid var(--line);
+            padding-bottom: 18px;
+            margin-bottom: 18px;
+          }}
+          .eyebrow {{
+            margin: 0 0 6px;
+            color: var(--accent);
+            font-size: 11px;
+            font-weight: 700;
+            letter-spacing: 0.08em;
+            text-transform: uppercase;
+          }}
+          h1 {{ margin: 0; font-size: 28px; }}
+          .subtitle {{ margin: 8px 0 0; color: var(--muted); font-size: 13px; }}
+          .badge {{
+            border: 1px solid rgba(217, 119, 6, 0.25);
+            background: var(--accent-soft);
+            color: #9a3412;
+            border-radius: 999px;
+            padding: 8px 14px;
+            font-size: 12px;
+            font-weight: 700;
+            white-space: nowrap;
+          }}
+          .section {{
+            margin-top: 18px;
+            padding: 18px;
+            border: 1px solid var(--line);
+            border-radius: 18px;
+          }}
+          .section h2 {{ margin: 0 0 14px; font-size: 16px; }}
+          .meta-grid, .stats-grid {{
+            display: grid;
+            gap: 12px;
+          }}
+          .meta-grid {{
+            grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+          }}
+          .stats-grid {{
+            grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+          }}
+          .meta-item, .stat-item {{
+            border: 1px solid var(--line);
+            border-radius: 14px;
+            padding: 12px 14px;
+            background: #fcfcfc;
+          }}
+          .label {{
+            display: block;
+            color: var(--muted);
+            font-size: 11px;
+            font-weight: 700;
+            letter-spacing: 0.05em;
+            text-transform: uppercase;
+            margin-bottom: 6px;
+          }}
+          .value {{ font-size: 14px; line-height: 1.45; }}
+          table {{ width: 100%; border-collapse: collapse; font-size: 13px; }}
+          th, td {{ padding: 11px 12px; border-bottom: 1px solid var(--line); text-align: {align}; vertical-align: top; }}
+          th {{ color: var(--muted); font-size: 11px; font-weight: 700; letter-spacing: 0.05em; text-transform: uppercase; }}
+          tbody tr:last-child td {{ border-bottom: none; }}
+          .num {{ text-align: {reverse_align}; font-variant-numeric: tabular-nums; white-space: nowrap; }}
+          .center {{ text-align: center; }}
+          @page {{ size: A4; margin: 12mm; }}
+          @media print {{
+            body {{ background: #fff; padding: 0; }}
+            .sheet {{ width: 100%; margin: 0; border: none; border-radius: 0; padding: 0; box-shadow: none; }}
+          }}
+        </style>
+      </head>
+      <body>
+        <main class="sheet">
+          <section class="header">
+            <div>
+              <p class="eyebrow">Gym ERP</p>
+              <h1>{escape(title)}</h1>
+              <p class="subtitle">{escape(subtitle)}</p>
+            </div>
+            <div class="badge">{escape(badge)}</div>
+          </section>
+          <section class="section">
+            <h2>{escape(details_heading)}</h2>
+            <div class="meta-grid">{details_html}</div>
+          </section>
+          {sections_html}
+        </main>
+      </body>
+    </html>
+    """
 
 
 def _enum_value(value):
@@ -188,6 +350,9 @@ async def create_contract(
     current_user: Annotated[User, Depends(dependencies.RoleChecker([Role.ADMIN]))],
     db: Annotated[AsyncSession, Depends(get_db)]
 ):
+    if contract_data.contract_type != ContractType.FULL_TIME:
+        raise HTTPException(status_code=400, detail="Only FULL_TIME contracts are supported")
+
     # Check if user exists
     user_stmt = select(User).where(User.id == contract_data.user_id)
     result = await db.execute(user_stmt)
@@ -633,22 +798,44 @@ async def generate_payslip_printable(
     user_result = await db.execute(user_stmt)
     user = user_result.scalar_one_or_none()
 
-    html = f"""
-    <html>
-      <head><title>Payslip {str(payroll.id)[:8].upper()}</title></head>
-      <body style="font-family: Arial, sans-serif; padding: 24px;">
-        <h2>Gym ERP Payslip</h2>
-        <p><strong>Payslip ID:</strong> {str(payroll.id)[:8].upper()}</p>
-        <p><strong>Employee:</strong> {user.full_name if user else "Unknown"}</p>
-        <p><strong>Period:</strong> {payroll.month:02d}/{payroll.year}</p>
-        <p><strong>Base Pay:</strong> {payroll.base_pay:.2f}</p>
-        <p><strong>Overtime:</strong> {payroll.overtime_pay:.2f}</p>
-        <p><strong>Commission:</strong> {payroll.commission_pay:.2f}</p>
-        <p><strong>Deductions:</strong> {payroll.deductions:.2f}</p>
-        <h3>Total Pay: {payroll.total_pay:.2f}</h3>
-      </body>
-    </html>
-    """
+    payslip_id = str(payroll.id)[:8].upper()
+    employee_name = user.full_name if user else "Unknown"
+    breakdown_rows = "".join(
+        [
+            f'<tr><th>Base Pay</th><td class="num">{escape(_format_money(payroll.base_pay))}</td></tr>',
+            f'<tr><th>Overtime Pay</th><td class="num">{escape(_format_money(payroll.overtime_pay))}</td></tr>',
+            f'<tr><th>Commission</th><td class="num">{escape(_format_money(payroll.commission_pay))}</td></tr>',
+            f'<tr><th>Bonus</th><td class="num">{escape(_format_money(payroll.bonus_pay))}</td></tr>',
+            f'<tr><th>Deductions</th><td class="num">{escape(_format_money(payroll.deductions))}</td></tr>',
+            f'<tr><th>Status</th><td>{escape(_enum_value(payroll.status))}</td></tr>',
+        ]
+    )
+    html = _render_print_document(
+        title="Gym ERP Payslip",
+        subtitle=f"Payroll statement for {employee_name}",
+        badge=f"Payslip #{payslip_id}",
+        details_heading="Payroll Details",
+        details_rows=[
+            ("Payslip ID", payslip_id),
+            ("Employee", employee_name),
+            ("Period", f"{payroll.month:02d}/{payroll.year}"),
+            ("Generated On", datetime.now(timezone.utc).isoformat()),
+        ],
+        sections=[
+            (
+                "Pay Breakdown",
+                f"""
+                <table>
+                  <tbody>{breakdown_rows}</tbody>
+                </table>
+                <div class="stat-item" style="margin-top:14px;">
+                  <span class="label">Total Pay</span>
+                  <span class="value">{escape(_format_money(payroll.total_pay))}</span>
+                </div>
+                """,
+            )
+        ],
+    )
     return HTMLResponse(content=html)
 
 
@@ -672,22 +859,44 @@ async def export_payslip(
     user_result = await db.execute(user_stmt)
     user = user_result.scalar_one_or_none()
 
-    html = f"""
-    <html>
-      <head><title>Payslip {str(payroll.id)[:8].upper()}</title></head>
-      <body style="font-family: Arial, sans-serif; padding: 24px;">
-        <h2>Gym ERP Payslip</h2>
-        <p><strong>Payslip ID:</strong> {str(payroll.id)[:8].upper()}</p>
-        <p><strong>Employee:</strong> {user.full_name if user else "Unknown"}</p>
-        <p><strong>Period:</strong> {payroll.month:02d}/{payroll.year}</p>
-        <p><strong>Base Pay:</strong> {payroll.base_pay:.2f}</p>
-        <p><strong>Overtime:</strong> {payroll.overtime_pay:.2f}</p>
-        <p><strong>Commission:</strong> {payroll.commission_pay:.2f}</p>
-        <p><strong>Deductions:</strong> {payroll.deductions:.2f}</p>
-        <h3>Total Pay: {payroll.total_pay:.2f}</h3>
-      </body>
-    </html>
-    """
+    payslip_id = str(payroll.id)[:8].upper()
+    employee_name = user.full_name if user else "Unknown"
+    breakdown_rows = "".join(
+        [
+            f'<tr><th>Base Pay</th><td class="num">{escape(_format_money(payroll.base_pay))}</td></tr>',
+            f'<tr><th>Overtime Pay</th><td class="num">{escape(_format_money(payroll.overtime_pay))}</td></tr>',
+            f'<tr><th>Commission</th><td class="num">{escape(_format_money(payroll.commission_pay))}</td></tr>',
+            f'<tr><th>Bonus</th><td class="num">{escape(_format_money(payroll.bonus_pay))}</td></tr>',
+            f'<tr><th>Deductions</th><td class="num">{escape(_format_money(payroll.deductions))}</td></tr>',
+            f'<tr><th>Status</th><td>{escape(_enum_value(payroll.status))}</td></tr>',
+        ]
+    )
+    html = _render_print_document(
+        title="Gym ERP Payslip",
+        subtitle=f"Payroll statement for {employee_name}",
+        badge=f"Payslip #{payslip_id}",
+        details_heading="Payroll Details",
+        details_rows=[
+            ("Payslip ID", payslip_id),
+            ("Employee", employee_name),
+            ("Period", f"{payroll.month:02d}/{payroll.year}"),
+            ("Generated On", datetime.now(timezone.utc).isoformat()),
+        ],
+        sections=[
+            (
+                "Pay Breakdown",
+                f"""
+                <table>
+                  <tbody>{breakdown_rows}</tbody>
+                </table>
+                <div class="stat-item" style="margin-top:14px;">
+                  <span class="label">Total Pay</span>
+                  <span class="value">{escape(_format_money(payroll.total_pay))}</span>
+                </div>
+                """,
+            )
+        ],
+    )
     return Response(
         content=html,
         media_type="text/html; charset=utf-8",
@@ -950,6 +1159,62 @@ async def print_staff_summary(
     range_text = "All Dates"
     if data["range"]["start_date"] and data["range"]["end_date"]:
         range_text = f"{data['range']['start_date']} to {data['range']['end_date']}"
+    attendance_rows_html = "".join(
+        [
+            f"<tr><td>{escape(row['check_in_time'] or '-')}</td><td>{escape(row['check_out_time'] or '-')}</td><td class='num'>{row['hours_worked']:.2f}</td></tr>"
+            for row in attendance["records"]
+        ]
+    ) or "<tr><td colspan='3' class='center'>No attendance records</td></tr>"
+    leave_rows_html = "".join(
+        [
+            f"<tr><td>{escape(row['start_date'])}</td><td>{escape(row['end_date'])}</td><td>{escape(row['leave_type'])}</td><td>{escape(row['status'])}</td></tr>"
+            for row in leaves["records"]
+        ]
+    ) or "<tr><td colspan='4' class='center'>No leave records</td></tr>"
+    html = _render_print_document(
+        title=f"Employee Summary - {employee['full_name']}",
+        subtitle=f"{employee['email']} | {employee['role']}",
+        badge=range_text,
+        details_heading="Employee Details",
+        details_rows=[
+            ("Employee", employee["full_name"]),
+            ("Email", employee["email"]),
+            ("Role", employee["role"]),
+            ("Contract Type", employee["contract_type"] or "-"),
+            ("Range", range_text),
+        ],
+        sections=[
+            (
+                "Attendance Summary",
+                f"""
+                <div class="stats-grid">
+                  <div class="stat-item"><span class="label">Days Present</span><span class="value">{attendance['days_present']}</span></div>
+                  <div class="stat-item"><span class="label">Total Hours</span><span class="value">{attendance['total_hours']:.2f}</span></div>
+                  <div class="stat-item"><span class="label">Avg / Day</span><span class="value">{attendance['avg_hours_per_day']:.2f}</span></div>
+                </div>
+                <table style="margin-top:14px;">
+                  <thead><tr><th>Check In</th><th>Check Out</th><th class="num">Hours</th></tr></thead>
+                  <tbody>{attendance_rows_html}</tbody>
+                </table>
+                """,
+            ),
+            (
+                "Leaves Summary",
+                f"""
+                <div class="stats-grid">
+                  <div class="stat-item"><span class="label">Total Requests</span><span class="value">{leaves['total_requests']}</span></div>
+                  <div class="stat-item"><span class="label">Approved Days</span><span class="value">{leaves['approved_days']}</span></div>
+                  <div class="stat-item"><span class="label">Pending Requests</span><span class="value">{leaves['pending_count']}</span></div>
+                </div>
+                <table style="margin-top:14px;">
+                  <thead><tr><th>Start</th><th>End</th><th>Type</th><th>Status</th></tr></thead>
+                  <tbody>{leave_rows_html}</tbody>
+                </table>
+                """,
+            ),
+        ],
+    )
+    return HTMLResponse(content=html)
 
     attendance_rows = "".join([
         f"""

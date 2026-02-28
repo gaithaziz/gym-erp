@@ -243,7 +243,7 @@ export default function DashboardLayout({
         <div className="flex min-h-dvh bg-background">
             {/* Mobile top bar */}
             <div
-                className="fixed top-0 inset-x-0 z-40 flex items-center justify-between px-4 py-3 md:hidden bg-card"
+                className="fixed top-0 inset-x-0 z-[70] flex items-center justify-between px-4 py-3 md:hidden bg-card"
             >
                 <div className="flex items-center gap-3">
                     <button
@@ -266,7 +266,7 @@ export default function DashboardLayout({
             {/* Mobile overlay */}
             {sidebarOpen && (
                 <div
-                    className="fixed inset-0 z-40 bg-background/80 backdrop-blur-sm md:hidden"
+                    className="fixed inset-0 z-[60] bg-background/80 backdrop-blur-sm md:hidden"
                     onClick={() => setSidebarOpen(false)}
                 />
             )}
@@ -274,10 +274,12 @@ export default function DashboardLayout({
             {/* Sidebar */}
             <aside
                 className={`
-                    fixed md:static z-50 top-0 h-dvh md:h-auto w-64 flex flex-col
+                    fixed md:static z-[65] top-[60px] h-[calc(100dvh-60px)] md:top-0 md:h-auto w-64 overflow-y-auto
                     transform [transform:var(--sidebar-transform)] md:[transform:translateX(0)]
                     transition-transform duration-300 ease-in-out
                     bg-card
+                    ${sidebarOpen ? 'pointer-events-auto visible' : 'pointer-events-none invisible'}
+                    md:pointer-events-auto md:visible
                 `}
                 style={{
                     insetInlineStart: 0,
@@ -286,78 +288,80 @@ export default function DashboardLayout({
                     ['--sidebar-transform' as string]: sidebarOpen ? 'translateX(0)' : direction === 'rtl' ? 'translateX(100%)' : 'translateX(-100%)',
                 }}
             >
-                <div className="p-5 pb-4 border-b border-border relative">
-                    <div className={`mb-3 flex items-center gap-2 ${direction === 'rtl' ? 'justify-start' : 'justify-end'}`}>
-                        <LanguageToggle />
-                        <ThemeToggle />
-                    </div>
-                    <div className="flex flex-col items-center justify-center mt-1 group">
-                        <div className="h-16 w-16 bg-primary/20 rounded-full flex items-center justify-center text-primary text-xl font-bold shadow-sm ring-2 ring-background overflow-hidden relative mb-2 transition-transform group-hover:scale-105">
-                            {profileImageUrl && failedProfileImageUrl !== profileImageUrl ? (
-                                <Image
-                                    src={profileImageUrl}
-                                    alt={user.full_name}
-                                    fill
-                                    className="object-cover"
-                                    unoptimized
-                                    priority
-                                    onError={() => setFailedProfileImageUrl(profileImageUrl)}
-                                />
-                            ) : (
-                                user?.full_name?.[0] || 'U'
-                            )}
+                <div className="min-h-full">
+                    <div className="p-5 pb-4 border-b border-border relative">
+                        <div className={`mb-3 flex items-center gap-2 ${direction === 'rtl' ? 'justify-start' : 'justify-end'}`}>
+                            <LanguageToggle />
+                            <ThemeToggle />
                         </div>
-                        <div className="text-center">
-                            <p className="font-bold text-foreground text-sm mb-0.5">{user?.full_name}</p>
-                            <p className="text-[10px] font-semibold text-muted-foreground tracking-widest uppercase bg-muted/40 inline-block px-2 py-0.5 rounded-full">{user?.role}</p>
-                        </div>
-                    </div>
-                </div>
-
-                <nav className="flex-1 p-3 overflow-y-auto">
-                    {navSections.map((section) => {
-                        const sectionItems = filteredNav.filter((item) => item.section === section.key);
-                        if (sectionItems.length === 0) return null;
-
-                        return (
-                            <div key={section.key} className="mb-4 last:mb-0">
-                                <p className="px-3 pb-1 text-[10px] font-bold uppercase tracking-[0.14em] text-muted-foreground/70">
-                                    {t(section.labelKey)}
-                                </p>
-                                <div className="space-y-0.5">
-                                    {sectionItems.map((item) => {
-                                        const isActive = pathname === item.href;
-                                        const showDot =
-                                            (item.href === '/dashboard/lost-found' && lostFoundHasNew) ||
-                                            ((item.href === '/dashboard/admin/support' || item.href === '/dashboard/support') && supportHasNew);
-                                        return (
-                                            <Link
-                                                key={item.href}
-                                                href={item.href}
-                                                className={`nav-link ${isActive ? 'active' : ''}`}
-                                            >
-                                                <item.icon size={18} />
-                                                <span className="inline-flex items-center gap-2">
-                                                    {t(item.labelKey)}
-                                                    {showDot && <span className="h-2 w-2 rounded-full bg-red-500" aria-label={t('common.newActivity')} />}
-                                                </span>
-                                            </Link>
-                                        );
-                                    })}
-                                </div>
+                        <div className="flex flex-col items-center justify-center mt-1 group">
+                            <div className="h-16 w-16 bg-primary/20 rounded-full flex items-center justify-center text-primary text-xl font-bold shadow-sm ring-2 ring-background overflow-hidden relative mb-2 transition-transform group-hover:scale-105">
+                                {profileImageUrl && failedProfileImageUrl !== profileImageUrl ? (
+                                    <Image
+                                        src={profileImageUrl}
+                                        alt={user.full_name}
+                                        fill
+                                        className="object-cover"
+                                        unoptimized
+                                        priority
+                                        onError={() => setFailedProfileImageUrl(profileImageUrl)}
+                                    />
+                                ) : (
+                                    user?.full_name?.[0] || 'U'
+                                )}
                             </div>
-                        );
-                    })}
-                </nav>
+                            <div className="text-center">
+                                <p className="font-bold text-foreground text-sm mb-0.5">{user?.full_name}</p>
+                                <p className="text-[10px] font-semibold text-muted-foreground tracking-widest uppercase bg-muted/40 inline-block px-2 py-0.5 rounded-full">{user?.role}</p>
+                            </div>
+                        </div>
+                    </div>
 
-                <div className="p-4 border-t border-border">
-                    <button
-                        onClick={logout}
-                        className="nav-link w-full text-destructive hover:!text-destructive hover:!bg-destructive/10"
-                    >
-                        <LogOut size={18} />
-                        <span>{t('common.logout')}</span>
-                    </button>
+                    <nav className="p-3">
+                        {navSections.map((section) => {
+                            const sectionItems = filteredNav.filter((item) => item.section === section.key);
+                            if (sectionItems.length === 0) return null;
+
+                            return (
+                                <div key={section.key} className="mb-4 last:mb-0">
+                                    <p className="px-3 pb-1 text-[10px] font-bold uppercase tracking-[0.14em] text-muted-foreground/70">
+                                        {t(section.labelKey)}
+                                    </p>
+                                    <div className="space-y-0.5">
+                                        {sectionItems.map((item) => {
+                                            const isActive = pathname === item.href;
+                                            const showDot =
+                                                (item.href === '/dashboard/lost-found' && lostFoundHasNew) ||
+                                                ((item.href === '/dashboard/admin/support' || item.href === '/dashboard/support') && supportHasNew);
+                                            return (
+                                                <Link
+                                                    key={item.href}
+                                                    href={item.href}
+                                                    className={`nav-link ${isActive ? 'active' : ''}`}
+                                                >
+                                                    <item.icon size={18} />
+                                                    <span className="inline-flex items-center gap-2">
+                                                        {t(item.labelKey)}
+                                                        {showDot && <span className="h-2 w-2 rounded-full bg-red-500" aria-label={t('common.newActivity')} />}
+                                                    </span>
+                                                </Link>
+                                            );
+                                        })}
+                                    </div>
+                                </div>
+                            );
+                        })}
+                    </nav>
+
+                    <div className="px-3 pb-4">
+                        <button
+                            onClick={logout}
+                            className="nav-link w-full text-destructive hover:!text-destructive hover:!bg-destructive/10"
+                        >
+                            <LogOut size={18} />
+                            <span>{t('common.logout')}</span>
+                        </button>
+                    </div>
                 </div>
             </aside>
 

@@ -6,6 +6,21 @@ import { useAuth } from '@/context/AuthContext';
 import { useRouter } from 'next/navigation';
 import { useLocale } from '@/context/LocaleContext';
 
+const localizeSubscriptionPlanName = (planName: string | null | undefined, locale: string) => {
+    if (!planName) return '';
+    const normalized = planName.trim().toLowerCase();
+    const labels: Record<string, { en: string; ar: string }> = {
+        daily: { en: 'Daily', ar: 'يومي' },
+        weekly: { en: 'Weekly', ar: 'أسبوعي' },
+        monthly: { en: 'Monthly', ar: 'شهري' },
+        yearly: { en: 'Yearly', ar: 'سنوي' },
+        annual: { en: 'Annual', ar: 'سنوي' },
+    };
+    const direct = labels[normalized];
+    if (direct) return locale === 'ar' ? direct.ar : direct.en;
+    return planName;
+};
+
 export default function SubscriptionBlockedPage() {
     const { user, logout } = useAuth();
     const { locale, formatDate } = useLocale();
@@ -39,7 +54,7 @@ export default function SubscriptionBlockedPage() {
         EXPIRED: txt.statusExpired,
     };
     const statusLabel = statusLabelMap[statusCode] || statusCode;
-    const planName = user?.subscription_plan_name || txt.noActivePlan;
+    const planName = localizeSubscriptionPlanName(user?.subscription_plan_name, locale) || txt.noActivePlan;
     const endDate = user?.subscription_end_date
         ? formatDate(user.subscription_end_date, { year: 'numeric', month: 'long', day: 'numeric' })
         : null;

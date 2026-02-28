@@ -5,6 +5,7 @@ import { MessageSquare, RefreshCw, Save, Trash2 } from 'lucide-react';
 
 import { api } from '@/lib/api';
 import { useFeedback } from '@/components/FeedbackProvider';
+import TablePagination from '@/components/TablePagination';
 import { useLocale } from '@/context/LocaleContext';
 
 interface AutomationRule {
@@ -55,6 +56,7 @@ const RULE_PRESETS = [
 const MESSAGE_PLACEHOLDERS = ['{{member_name}}', '{{plan_name}}', '{{status}}', '{{scan_time}}', '{{kiosk_id}}'];
 const memberNameToken = '{{member_name}}';
 const templateKeyPlaceholder = 'template_key_name';
+const LOGS_PAGE_SIZE = 10;
 
 export default function WhatsAppAutomationPage() {
     const { showToast } = useFeedback();
@@ -65,6 +67,7 @@ export default function WhatsAppAutomationPage() {
     const [savingEventType, setSavingEventType] = useState<string | null>(null);
     const [deletingEventType, setDeletingEventType] = useState<string | null>(null);
     const [creating, setCreating] = useState(false);
+    const [logsPage, setLogsPage] = useState(1);
     const [newRule, setNewRule] = useState({
         event_type: '',
         trigger_name: '',
@@ -162,6 +165,12 @@ export default function WhatsAppAutomationPage() {
                 },
         [locale]
     );
+    const totalLogPages = Math.max(1, Math.ceil(logs.length / LOGS_PAGE_SIZE));
+    const visibleLogs = logs.slice((logsPage - 1) * LOGS_PAGE_SIZE, logsPage * LOGS_PAGE_SIZE);
+
+    useEffect(() => {
+        setLogsPage(1);
+    }, [logs.length]);
 
     const loadAll = useCallback(async () => {
         setLoading(true);
@@ -496,7 +505,7 @@ export default function WhatsAppAutomationPage() {
                                     <td colSpan={4} className="text-center py-6 text-sm text-muted-foreground">{txt.noLogs}</td>
                                 </tr>
                             )}
-                            {logs.map((log) => (
+                            {visibleLogs.map((log) => (
                                 <tr key={log.id}>
                                     <td className="font-mono text-xs text-foreground">{log.event_type}</td>
                                     <td className="font-mono text-xs text-muted-foreground">{log.status}</td>
@@ -509,6 +518,12 @@ export default function WhatsAppAutomationPage() {
                         </tbody>
                     </table>
                 </div>
+                <TablePagination
+                    page={logsPage}
+                    totalPages={totalLogPages}
+                    onPrevious={() => setLogsPage((prev) => Math.max(1, prev - 1))}
+                    onNext={() => setLogsPage((prev) => Math.min(totalLogPages, prev + 1))}
+                />
             </div>
         </div>
     );

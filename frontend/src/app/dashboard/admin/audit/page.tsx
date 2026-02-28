@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react';
 import { api } from '@/lib/api';
 import { ShieldAlert, RefreshCw, User, Activity, Clock, Target } from 'lucide-react';
+import TablePagination from '@/components/TablePagination';
 import { useLocale } from '@/context/LocaleContext';
 
 interface AuditLog {
@@ -13,11 +14,13 @@ interface AuditLog {
     timestamp: string;
     details: string | null;
 }
+const AUDIT_PAGE_SIZE = 10;
 
 export default function AuditLogsPage() {
     const { t, formatDate } = useLocale();
     const [logs, setLogs] = useState<AuditLog[]>([]);
     const [loading, setLoading] = useState(true);
+    const [page, setPage] = useState(1);
 
     const fetchLogs = async () => {
         setLoading(true);
@@ -34,6 +37,10 @@ export default function AuditLogsPage() {
     useEffect(() => {
         fetchLogs();
     }, []);
+
+    useEffect(() => {
+        setPage(1);
+    }, [logs.length]);
 
     const formatTime = (isoString: string) => {
         try {
@@ -56,6 +63,8 @@ export default function AuditLogsPage() {
         if (action.includes('SALE') || action.includes('TRANSACTION')) return 'text-amber-500 bg-amber-500/10 border-amber-500/20';
         return 'text-zinc-500 bg-zinc-500/10 border-zinc-500/20';
     };
+    const totalPages = Math.max(1, Math.ceil(logs.length / AUDIT_PAGE_SIZE));
+    const visibleLogs = logs.slice((page - 1) * AUDIT_PAGE_SIZE, page * AUDIT_PAGE_SIZE);
 
     return (
         <div className="space-y-6 max-w-7xl mx-auto">
@@ -104,7 +113,7 @@ export default function AuditLogsPage() {
                                     </td>
                                 </tr>
                             ) : (
-                                logs.map((log) => (
+                                visibleLogs.map((log) => (
                                     <tr key={log.id} className="hover:bg-muted/30 transition-colors">
                                         <td className="whitespace-nowrap font-mono text-xs text-muted-foreground">
                                             {formatTime(log.timestamp)}
@@ -129,6 +138,12 @@ export default function AuditLogsPage() {
                         </tbody>
                     </table>
                 </div>
+                <TablePagination
+                    page={page}
+                    totalPages={totalPages}
+                    onPrevious={() => setPage((prev) => Math.max(1, prev - 1))}
+                    onNext={() => setPage((prev) => Math.min(totalPages, prev + 1))}
+                />
             </div>
         </div>
     );

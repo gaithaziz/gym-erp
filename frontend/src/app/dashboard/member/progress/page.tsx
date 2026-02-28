@@ -15,6 +15,7 @@ import {
 } from 'recharts';
 
 import { useFeedback } from '@/components/FeedbackProvider';
+import TablePagination from '@/components/TablePagination';
 import { api } from '@/lib/api';
 import { useLocale } from '@/context/LocaleContext';
 
@@ -22,6 +23,7 @@ import { fetchMemberProgressData } from '../_shared/customerData';
 import type { BiometricLogResponse, WorkoutSessionLog } from '../_shared/types';
 
 type MetricKey = keyof Pick<BiometricLogResponse, 'weight_kg' | 'body_fat_pct' | 'muscle_mass_kg'>;
+const PR_TABLE_PAGE_SIZE = 10;
 
 export default function MemberProgressPage() {
     const { locale, formatDate } = useLocale();
@@ -106,6 +108,7 @@ export default function MemberProgressPage() {
     const [workoutStats, setWorkoutStats] = useState<{ date: string; workouts: number }[]>([]);
     const [sessionLogs, setSessionLogs] = useState<WorkoutSessionLog[]>([]);
     const [biometrics, setBiometrics] = useState<BiometricLogResponse[]>([]);
+    const [prTablePage, setPrTablePage] = useState(1);
     const [weight, setWeight] = useState('');
     const [height, setHeight] = useState('');
     const [bodyFat, setBodyFat] = useState('');
@@ -262,7 +265,13 @@ export default function MemberProgressPage() {
             .map(([exercise, record]) => ({ exercise, ...record }))
             .sort((a, b) => b.bestWeight - a.bestWeight)
             .slice(0, 12);
-    }, [filteredSessionLogs]);
+    }, [filteredSessionLogs, txt.fallbackExercise]);
+    const totalPrPages = Math.max(1, Math.ceil(exercisePrTable.length / PR_TABLE_PAGE_SIZE));
+    const visibleExercisePrTable = exercisePrTable.slice((prTablePage - 1) * PR_TABLE_PAGE_SIZE, prTablePage * PR_TABLE_PAGE_SIZE);
+
+    useEffect(() => {
+        setPrTablePage(1);
+    }, [exercisePrTable.length]);
 
     function MetricTooltipContent({
         active,
@@ -444,30 +453,38 @@ export default function MemberProgressPage() {
                             <p className="text-xs text-muted-foreground font-mono">{exercisePrTable.length}</p>
                         </div>
                         {exercisePrTable.length > 0 ? (
-                            <div className="overflow-x-auto">
-                                <table className="w-full text-start table-dark min-w-[420px]">
-                                    <thead>
-                                        <tr>
-                                            <th>{txt.exercise}</th>
-                                            <th>{txt.bestWeight}</th>
-                                            <th>{txt.bestReps}</th>
-                                        </tr>
-                                    </thead>
-                                    <tbody>
-                                        {exercisePrTable.map((row) => (
-                                            <tr key={row.exercise}>
-                                                <td className="font-medium text-foreground">{row.exercise}</td>
-                                                <td className="text-muted-foreground font-mono">
-                                                    {row.bestWeight > 0 ? `${row.bestWeight.toFixed(1)} kg x ${row.bestWeightReps}` : '-'}
-                                                </td>
-                                                <td className="text-muted-foreground font-mono">
-                                                    {`${row.bestReps} ${txt.repsAt} ${row.bestRepsWeight.toFixed(1)} ${txt.weightUnit}`}
-                                                </td>
+                            <>
+                                <div className="overflow-x-auto">
+                                    <table className="w-full text-start table-dark min-w-[420px]">
+                                        <thead>
+                                            <tr>
+                                                <th>{txt.exercise}</th>
+                                                <th>{txt.bestWeight}</th>
+                                                <th>{txt.bestReps}</th>
                                             </tr>
-                                        ))}
-                                    </tbody>
-                                </table>
-                            </div>
+                                        </thead>
+                                        <tbody>
+                                            {visibleExercisePrTable.map((row) => (
+                                                <tr key={row.exercise}>
+                                                    <td className="font-medium text-foreground">{row.exercise}</td>
+                                                    <td className="text-muted-foreground font-mono">
+                                                        {row.bestWeight > 0 ? `${row.bestWeight.toFixed(1)} kg x ${row.bestWeightReps}` : '-'}
+                                                    </td>
+                                                    <td className="text-muted-foreground font-mono">
+                                                        {`${row.bestReps} ${txt.repsAt} ${row.bestRepsWeight.toFixed(1)} ${txt.weightUnit}`}
+                                                    </td>
+                                                </tr>
+                                            ))}
+                                        </tbody>
+                                    </table>
+                                </div>
+                                <TablePagination
+                                    page={prTablePage}
+                                    totalPages={totalPrPages}
+                                    onPrevious={() => setPrTablePage((prev) => Math.max(1, prev - 1))}
+                                    onNext={() => setPrTablePage((prev) => Math.min(totalPrPages, prev + 1))}
+                                />
+                            </>
                         ) : (
                             <div className="h-24 flex items-center justify-center text-sm text-muted-foreground border border-dashed border-border">
                                 {txt.noPrData}

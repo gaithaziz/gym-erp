@@ -5,6 +5,7 @@ import Link from 'next/link';
 import { Plus, Utensils, Trash2, Pencil, Save, X, Send, Archive, RefreshCw, UserPlus, ChevronDown, ChevronUp } from 'lucide-react';
 import { api } from '@/lib/api';
 import Modal from '@/components/Modal';
+import PlanDetailsToggle from '@/components/PlanDetailsToggle';
 import { useFeedback } from '@/components/FeedbackProvider';
 import { useLocale } from '@/context/LocaleContext';
 
@@ -252,6 +253,35 @@ export default function DietPlansPage() {
         memberSearchPlaceholder: 'ابحث عن عضو بالاسم/البريد...',
         replaceActiveWarning: 'وضع استبدال النشط مفعّل: سيتم أرشفة الخطط النشطة الحالية للأعضاء المحددين.',
         assignPlan: 'تعيين الخطة',
+        failedLoadPlans: 'فشل تحميل خطط التغذية.',
+        failedLoadLibrary: 'فشل تحميل عناصر مكتبة التغذية.',
+        groupRequired: 'مطلوب مجموعة وجبات واحدة على الأقل.',
+        mealRequired: 'تحتاج مجموعة الوجبات إلى وجبة واحدة على الأقل.',
+        plannerLoaded: 'تم تحميل القالب إلى المخطط.',
+        publishedPlanTitle: 'خطة منشورة',
+        publishedPlanDescription: 'الخطط الغذائية المنشورة للقراءة فقط. هل تريد إنشاء مسودة للتعديل؟',
+        createDraft: 'إنشاء مسودة',
+        createdDraftFromPublished: 'تم إنشاء مسودة من الخطة الغذائية المنشورة.',
+        failedCreateDraft: 'فشل إنشاء المسودة.',
+        archivedEditBlocked: 'لا يمكن تعديل الخطط الغذائية المؤرشفة.',
+        failedSavePlan: 'فشل حفظ خطة التغذية.',
+        deletePlanTitle: 'حذف خطة التغذية',
+        deletePlanDescription: 'هل تريد حذف خطة التغذية هذه؟',
+        deletedPlan: 'تم حذف خطة التغذية.',
+        failedDeletePlan: 'فشل حذف خطة التغذية.',
+        saveNeedsMeal: 'أضف وجبة واحدة على الأقل قبل الحفظ.',
+        saveSuccess: 'تم حفظ خطة التغذية.',
+        publishSuccess: 'تم نشر خطة التغذية.',
+        archiveSuccess: 'تمت أرشفة خطة التغذية.',
+        assignArchivedBlocked: 'لا يمكن تعيين خطة غذائية مؤرشفة.',
+        failedPublishPlan: 'فشل نشر خطة التغذية.',
+        failedArchivePlan: 'فشل أرشفة خطة التغذية.',
+        createdDraftFork: 'تم إنشاء مسودة مشتقة.',
+        failedDraftFork: 'فشل إنشاء المسودة المشتقة.',
+        failedAssignPlan: 'فشل تعيين خطة التغذية.',
+        assignedDietPlan: 'خطة تغذية معيّنة',
+        mealGroup: 'مجموعة وجبات',
+        meal: 'وجبة',
     } : {
         title: 'Diet Plans',
         subtitle: 'Create and manage nutrition programs',
@@ -326,7 +356,7 @@ export default function DietPlansPage() {
     const [planStatus, setPlanStatus] = useState<DietPlan['status']>('DRAFT');
     const [isTemplate, setIsTemplate] = useState(true);
     const [assignedMemberId, setAssignedMemberId] = useState('');
-    const [mealGroups, setMealGroups] = useState<MealGroupDraft[]>([newMealGroup('Meal Group 1', [newMealItem('Meal 1')])]);
+    const [mealGroups, setMealGroups] = useState<MealGroupDraft[]>([newMealGroup(locale === 'ar' ? `${txt.mealGroup} 1` : 'Meal Group 1', [newMealItem(locale === 'ar' ? `${txt.meal} 1` : 'Meal 1')])]);
     const [newGroupName, setNewGroupName] = useState('');
     const [libraryOpen, setLibraryOpen] = useState(false);
     const [libraryQuery, setLibraryQuery] = useState('');
@@ -355,7 +385,7 @@ export default function DietPlansPage() {
             setPlans(plansRes.data.data || []);
             setMembers(membersRes.data.data || []);
         } catch {
-            showToast('Failed to load diet plans.', 'error');
+            showToast(txt.failedLoadPlans, 'error');
         }
         setLoading(false);
         setRefreshing(false);
@@ -373,7 +403,7 @@ export default function DietPlansPage() {
             setDietLibraryItems(response.data?.data || []);
         } catch {
             setDietLibraryItems([]);
-            showToast('Failed to load diet library items.', 'error');
+            showToast(txt.failedLoadLibrary, 'error');
         }
         setLibraryLoading(false);
     }, [showToast]);
@@ -389,7 +419,7 @@ export default function DietPlansPage() {
         setPlanStatus('DRAFT');
         setIsTemplate(true);
         setAssignedMemberId('');
-        setMealGroups([newMealGroup('Meal Group 1', [newMealItem('Meal 1')])]);
+        setMealGroups([newMealGroup(locale === 'ar' ? `${txt.mealGroup} 1` : 'Meal Group 1', [newMealItem(locale === 'ar' ? `${txt.meal} 1` : 'Meal 1')])]);
         setNewGroupName('');
         setLibraryOpen(false);
         setLibraryQuery('');
@@ -401,6 +431,12 @@ export default function DietPlansPage() {
         if (statusFilter === 'ALL') return templates;
         return templates.filter(plan => plan.status === statusFilter);
     }, [plans, statusFilter]);
+    const statusFilterLabel = (status: PlanStatusFilter) => {
+        if (status === 'ALL') return txt.all;
+        if (status === 'PUBLISHED') return txt.published;
+        if (status === 'DRAFT') return txt.draft;
+        return txt.archived;
+    };
 
     const assignedPlans = useMemo(() => {
         return plans.filter(plan => !!plan.member_id && plan.status !== 'ARCHIVED');
@@ -433,7 +469,7 @@ export default function DietPlansPage() {
                 const rootPlan = plans.find(plan => plan.id === rootId) || memberPlans[0];
                 return {
                     rootId,
-                    rootPlanName: rootPlan?.name || 'Assigned Diet Plan',
+                    rootPlanName: rootPlan?.name || txt.assignedDietPlan,
                     members: [...memberPlans].sort((a, b) => {
                         const aName = a.member_id ? (memberNameById[a.member_id] || '') : '';
                         const bName = b.member_id ? (memberNameById[b.member_id] || '') : '';
@@ -452,14 +488,14 @@ export default function DietPlansPage() {
 
     const addGroup = () => {
         const explicitName = newGroupName.trim();
-        const autoName = `Meal Group ${mealGroups.length + 1}`;
-        setMealGroups(prev => [...prev, newMealGroup(explicitName || autoName, [newMealItem('Meal 1')])]);
+        const autoName = locale === 'ar' ? `${txt.mealGroup} ${mealGroups.length + 1}` : `Meal Group ${mealGroups.length + 1}`;
+        setMealGroups(prev => [...prev, newMealGroup(explicitName || autoName, [newMealItem(locale === 'ar' ? `${txt.meal} 1` : 'Meal 1')])]);
         setNewGroupName('');
     };
 
     const removeGroup = (groupId: string) => {
         if (mealGroups.length === 1) {
-            showToast('At least one meal group is required.', 'error');
+            showToast(txt.groupRequired, 'error');
             return;
         }
         setMealGroups(prev => prev.filter(group => group.id !== groupId));
@@ -472,7 +508,7 @@ export default function DietPlansPage() {
     const addMealToGroup = (groupId: string) => {
         setMealGroups(prev => prev.map(group => (
             group.id === groupId
-                ? { ...group, meals: [...group.meals, newMealItem(`Meal ${group.meals.length + 1}`)] }
+                ? { ...group, meals: [...group.meals, newMealItem(locale === 'ar' ? `${txt.meal} ${group.meals.length + 1}` : `Meal ${group.meals.length + 1}`)] }
                 : group
         )));
     };
@@ -492,7 +528,7 @@ export default function DietPlansPage() {
         setMealGroups(prev => prev.map(group => {
             if (group.id !== groupId) return group;
             if (group.meals.length === 1) {
-                showToast('A meal group needs at least one meal.', 'error');
+                showToast(txt.mealRequired, 'error');
                 return group;
             }
             return {
@@ -508,28 +544,28 @@ export default function DietPlansPage() {
         if (!editingPlan && !planName.trim()) setPlanName(item.name);
         if (!planDesc.trim() && item.description) setPlanDesc(item.description);
         setLibraryOpen(false);
-        showToast(`Loaded "${item.name}" into planner.`, 'success');
+        showToast(txt.plannerLoaded, 'success');
     };
 
     const handleEditClick = async (plan: DietPlan) => {
         if (plan.status === 'PUBLISHED') {
             const confirmed = await confirmAction({
-                title: 'Published Plan',
-                description: 'Published diet plans are read-only. Create a draft copy to edit?',
-                confirmText: 'Create Draft',
+                title: txt.publishedPlanTitle,
+                description: txt.publishedPlanDescription,
+                confirmText: txt.createDraft,
             });
             if (!confirmed) return;
             try {
                 await api.post(`/fitness/diets/${plan.id}/fork-draft`);
-                showToast('Draft created from published diet plan.', 'success');
+                showToast(txt.createdDraftFromPublished, 'success');
                 fetchData();
             } catch (error) {
-                showToast(getErrorMessage(error, 'Failed to create draft.'), 'error');
+                showToast(getErrorMessage(error, txt.failedCreateDraft), 'error');
             }
             return;
         }
         if (plan.status === 'ARCHIVED') {
-            showToast('Archived diet plans cannot be edited.', 'error');
+            showToast(txt.archivedEditBlocked, 'error');
             return;
         }
 
@@ -554,7 +590,7 @@ export default function DietPlansPage() {
         const cleanedGroups = normalizeMealGroups(mealGroups);
         const hasAnyMeal = cleanedGroups.some(group => group.meals.some(meal => meal.name.trim().length > 0));
         if (!hasAnyMeal) {
-            showToast('Add at least one meal before saving.', 'error');
+            showToast(txt.saveNeedsMeal, 'error');
             return;
         }
 
@@ -580,62 +616,62 @@ export default function DietPlansPage() {
             setShowModal(false);
             resetForm();
             fetchData();
-            showToast(`Diet plan ${editingPlan ? 'updated' : 'created'}.`, 'success');
+            showToast(txt.saveSuccess, 'success');
         } catch (error) {
-            showToast(getErrorMessage(error, `Failed to ${editingPlan ? 'update' : 'create'} diet plan.`), 'error');
+            showToast(getErrorMessage(error, txt.failedSavePlan), 'error');
         }
     };
 
     const handleDelete = async (dietId: string) => {
         const confirmed = await confirmAction({
-            title: 'Delete Diet Plan',
-            description: 'Are you sure you want to delete this diet plan?',
-            confirmText: 'Delete',
+            title: txt.deletePlanTitle,
+            description: txt.deletePlanDescription,
+            confirmText: txt.delete,
             destructive: true,
         });
         if (!confirmed) return;
         try {
             await api.delete(`/fitness/diets/${dietId}`);
-            showToast('Diet plan deleted.', 'success');
+            showToast(txt.deletedPlan, 'success');
             fetchData();
         } catch (error) {
-            showToast(getErrorMessage(error, 'Failed to delete diet plan.'), 'error');
+            showToast(getErrorMessage(error, txt.failedDeletePlan), 'error');
         }
     };
 
     const handlePublish = async (dietId: string) => {
         try {
             await api.post(`/fitness/diets/${dietId}/publish`);
-            showToast('Diet plan published.', 'success');
+            showToast(txt.publishSuccess, 'success');
             fetchData();
         } catch (error) {
-            showToast(getErrorMessage(error, 'Failed to publish diet plan.'), 'error');
+            showToast(getErrorMessage(error, txt.failedPublishPlan), 'error');
         }
     };
 
     const handleArchive = async (dietId: string) => {
         try {
             await api.post(`/fitness/diets/${dietId}/archive`);
-            showToast('Diet plan archived.', 'success');
+            showToast(txt.archiveSuccess, 'success');
             fetchData();
         } catch (error) {
-            showToast(getErrorMessage(error, 'Failed to archive diet plan.'), 'error');
+            showToast(getErrorMessage(error, txt.failedArchivePlan), 'error');
         }
     };
 
     const handleForkDraft = async (dietId: string) => {
         try {
             await api.post(`/fitness/diets/${dietId}/fork-draft`);
-            showToast('Draft fork created.', 'success');
+            showToast(txt.createdDraftFork, 'success');
             fetchData();
         } catch (error) {
-            showToast(getErrorMessage(error, 'Failed to fork draft.'), 'error');
+            showToast(getErrorMessage(error, txt.failedDraftFork), 'error');
         }
     };
 
     const openAssign = (plan: DietPlan) => {
         if (plan.status === 'ARCHIVED') {
-            showToast('Cannot assign archived diet plan.', 'error');
+            showToast(txt.assignArchivedBlocked, 'error');
             return;
         }
         setAssigningPlan(plan);
@@ -660,7 +696,7 @@ export default function DietPlansPage() {
             showToast('Diet plan assigned successfully.', 'success');
             fetchData();
         } catch (error) {
-            showToast(getErrorMessage(error, 'Failed to assign diet plan.'), 'error');
+            showToast(getErrorMessage(error, txt.failedAssignPlan), 'error');
         }
     };
 
@@ -702,7 +738,7 @@ export default function DietPlansPage() {
                                     : 'border-border text-muted-foreground hover:text-foreground hover:bg-white/5'
                             }`}
                         >
-                            {status === 'ALL' ? txt.all : status} ({count})
+                            {statusFilterLabel(status)} ({count})
                         </button>
                     );
                 })}
@@ -717,7 +753,7 @@ export default function DietPlansPage() {
                                 <div className="h-11 w-11 rounded-sm bg-green-500/10 flex items-center justify-center border border-green-500/20">
                                     <Utensils size={20} className="text-green-500" />
                                 </div>
-                                <span className={`badge ${statusBadgeClass(plan.status)} rounded-sm`}>{plan.status}</span>
+                                <span className={`badge ${statusBadgeClass(plan.status)} rounded-sm`}>{statusFilterLabel(plan.status)}</span>
                             </div>
                             <h3 className="font-bold text-lg text-foreground mb-1 group-hover:text-primary transition-colors">
                                 {plan.name} <span className="text-xs text-muted-foreground">v{plan.version}</span>
@@ -776,7 +812,7 @@ export default function DietPlansPage() {
                             <div className="flex items-center justify-between gap-2 mb-3">
                                 <div>
                                     <p className="text-base font-semibold text-foreground">{group.rootPlanName}</p>
-                                    <p className="text-xs text-muted-foreground">{group.members.length} {txt.assignedMember}{group.members.length > 1 ? 's' : ''}</p>
+                                    <p className="text-xs text-muted-foreground">{group.members.length} {locale === 'ar' ? txt.assignedMember : `${txt.assignedMember}${group.members.length > 1 ? 's' : ''}`}</p>
                                 </div>
                             </div>
 
@@ -788,10 +824,12 @@ export default function DietPlansPage() {
                                                 <p className="text-sm font-semibold text-foreground">{plan.member_id ? (memberNameById[plan.member_id] || txt.unknownMember) : txt.unknownMember}</p>
                                                 <p className="text-[11px] text-muted-foreground">{plan.name}</p>
                                             </div>
-                                            <span className={`badge ${statusBadgeClass(plan.status)} rounded-sm`}>{plan.status}</span>
+                                            <span className={`badge ${statusBadgeClass(plan.status)} rounded-sm`}>{statusFilterLabel(plan.status)}</span>
                                         </div>
 
-                                        <div className="rounded-sm p-2 text-sm text-muted-foreground max-h-24 overflow-y-auto bg-muted/30 border border-border space-y-1.5">
+                                        <div className={`rounded-sm p-2 text-sm text-muted-foreground bg-muted/30 border border-border space-y-1.5 ${
+                                            expandedAssignedPlanId === plan.id ? '' : 'max-h-24 overflow-y-auto'
+                                        }`}>
                                             {(
                                                 expandedAssignedPlanId === plan.id
                                                     ? getPlanMealGroups(plan)
@@ -813,13 +851,13 @@ export default function DietPlansPage() {
                                             <button onClick={() => handleDelete(plan.id)} className="btn-ghost text-xs min-h-11 text-destructive hover:text-destructive/80"><Trash2 size={14} /> {txt.delete}</button>
                                         </div>
                                         <div className="border-t border-border pt-2 mt-2">
-                                            <button
-                                                type="button"
+                                            <PlanDetailsToggle
+                                                expanded={expandedAssignedPlanId === plan.id}
                                                 onClick={() => setExpandedAssignedPlanId(prev => prev === plan.id ? null : plan.id)}
-                                                className="text-primary text-xs font-medium hover:text-primary/80 transition-colors flex items-center gap-1"
-                                            >
-                                                {expandedAssignedPlanId === plan.id ? <><ChevronUp size={14} /> {txt.collapse}</> : <><ChevronDown size={14} /> {txt.viewDetails}</>}
-                                            </button>
+                                                expandLabel={txt.viewDetails}
+                                                collapseLabel={txt.collapse}
+                                                size="sm"
+                                            />
                                         </div>
                                     </div>
                                 ))}
@@ -897,7 +935,7 @@ export default function DietPlansPage() {
                                                     className="input-dark"
                                                     value={group.name}
                                                     onChange={e => renameGroup(group.id, e.target.value)}
-                                                    placeholder={`Meal Group ${groupIndex + 1}`}
+                                                    placeholder={locale === 'ar' ? `${txt.mealGroup} ${groupIndex + 1}` : `Meal Group ${groupIndex + 1}`}
                                                 />
                                                 <button type="button" className="btn-ghost text-xs min-h-11 text-destructive" onClick={() => removeGroup(group.id)}>
                                                     <Trash2 size={14} />
@@ -985,7 +1023,7 @@ export default function DietPlansPage() {
                         <div className="rounded-sm border border-border bg-muted/20 p-3 space-y-2">
                             <div className="flex items-center justify-between">
                                 <p className="text-sm font-semibold text-foreground">{assigningPlan.name}</p>
-                                <span className={`badge ${statusBadgeClass(assigningPlan.status)}`}>{assigningPlan.status}</span>
+                                <span className={`badge ${statusBadgeClass(assigningPlan.status)}`}>{statusFilterLabel(assigningPlan.status)}</span>
                             </div>
                             {assigningPlan.status === 'DRAFT' && <p className="text-xs text-yellow-400">{txt.warningDraftAssign}</p>}
                             {assigningPlan.status === 'ARCHIVED' && <p className="text-xs text-destructive">{txt.warningArchivedAssign}</p>}

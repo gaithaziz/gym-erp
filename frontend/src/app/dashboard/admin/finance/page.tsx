@@ -1,10 +1,9 @@
 'use client';
 
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { api } from '@/lib/api';
 import { Plus, ArrowUpCircle, ArrowDownCircle, Wallet, Printer, FileText, CircleDollarSign, RotateCcw, CheckCircle2, Search, Settings2 } from 'lucide-react';
 import { useFeedback } from '@/components/FeedbackProvider';
-import { downloadBlob } from '@/lib/download';
 import { useLocale } from '@/context/LocaleContext';
 
 interface Transaction {
@@ -50,12 +49,23 @@ interface PayrollItem {
     }>;
 }
 
+interface FinanceSummary {
+    total_income: number;
+    total_expenses: number;
+    net_profit: number;
+}
+
 export default function FinancePage() {
     const { t, formatDate, formatNumber, formatCurrency, locale } = useLocale();
     const { showToast } = useFeedback();
     const PAGE_SIZE = 50;
     const [transactions, setTransactions] = useState<Transaction[]>([]);
     const [payrolls, setPayrolls] = useState<PayrollItem[]>([]);
+    const [summary, setSummary] = useState<FinanceSummary>({
+        total_income: 0,
+        total_expenses: 0,
+        net_profit: 0,
+    });
     const [transactionsTotal, setTransactionsTotal] = useState(0);
     const [payrollsTotal, setPayrollsTotal] = useState(0);
     const [transactionsPage, setTransactionsPage] = useState(1);
@@ -159,7 +169,6 @@ export default function FinancePage() {
     const noPaymentsRecordedLabel = locale === 'ar' ? 'لا توجد مدفوعات مسجلة.' : 'No payments recorded.';
     const descriptionPlaceholder = locale === 'ar' ? 'مثال: اشتراك شهري للنادي' : 'e.g. Monthly gym subscription';
     const salaryPaymentDefault = locale === 'ar' ? 'دفعة راتب' : 'Salary payment';
-    const reportFileName = locale === 'ar' ? 'financial_report_ar.pdf' : 'financial_report_en.pdf';
     const categoryLabelMap: Record<string, string> = {
         SUBSCRIPTION: txt.categorySubscription,
         POS_SALE: txt.categoryPosSale,
@@ -196,6 +205,18 @@ export default function FinancePage() {
         setTransactionsTotal(Number(listRes.headers['x-total-count'] || 0));
     }, [PAGE_SIZE, categoryFilter, datePreset, endDate, startDate, transactionsPage, typeFilter]);
 
+    const fetchSummary = useCallback(async () => {
+        const params: Record<string, string | number> = {};
+        if (typeFilter !== 'ALL') params.tx_type = typeFilter;
+        if (categoryFilter !== 'ALL') params.category = categoryFilter;
+        if (datePreset !== 'all') {
+            params.start_date = startDate;
+            params.end_date = endDate;
+        }
+        const summaryRes = await api.get('/finance/summary', { params });
+        setSummary(summaryRes.data?.data || { total_income: 0, total_expenses: 0, net_profit: 0 });
+    }, [categoryFilter, datePreset, endDate, startDate, typeFilter]);
+
     const fetchPayrolls = useCallback(async () => {
         const params: Record<string, string | number> = {
             limit: PAGE_SIZE,
@@ -222,12 +243,12 @@ export default function FinancePage() {
         }
         setLoading(true);
         try {
-            await Promise.all([fetchTransactions(), fetchPayrolls(), fetchPayrollSettings()]);
+            await Promise.all([fetchTransactions(), fetchSummary(), fetchPayrolls(), fetchPayrollSettings()]);
         } catch {
             showToast(t('finance.loadingError'), 'error');
         }
         setLoading(false);
-    }, [endDate, fetchPayrollSettings, fetchPayrolls, fetchTransactions, showToast, startDate, t]);
+    }, [endDate, fetchPayrollSettings, fetchPayrolls, fetchSummary, fetchTransactions, showToast, startDate, t]);
 
     useEffect(() => { setTimeout(() => fetchData(), 0); }, [fetchData]);
 
@@ -246,16 +267,6 @@ export default function FinancePage() {
 
     const filteredTransactions = transactions;
 
-    const pageSummary = useMemo(() => {
-        const total_income = filteredTransactions.filter(tx => tx.type === 'INCOME').reduce((sum, tx) => sum + tx.amount, 0);
-        const total_expenses = filteredTransactions.filter(tx => tx.type === 'EXPENSE').reduce((sum, tx) => sum + tx.amount, 0);
-        return {
-            total_income,
-            total_expenses,
-            net_profit: total_income - total_expenses,
-        };
-    }, [filteredTransactions]);
-
     const totalTransactionPages = Math.max(1, Math.ceil(transactionsTotal / PAGE_SIZE));
     const totalPayrollPages = Math.max(1, Math.ceil(payrollsTotal / PAGE_SIZE));
 
@@ -269,8 +280,10 @@ export default function FinancePage() {
 
     const handlePrintReceipt = async (tx: Transaction) => {
         try {
-            const response = await api.get(`/finance/transactions/${tx.id}/receipt/export-pdf`, { responseType: 'blob' });
-            downloadBlob(response.data as Blob, `receipt_${tx.id.slice(0, 8).toUpperCase()}.pdf`);
+            const url = new URL(`/print/finance/receipt/${tx.id}`, window.location.origin);
+            url.searchParams.set('locale', locale);
+            const w = window.open(url.toString(), '_blank');
+            if (!w) throw new Error('popup-blocked');
         } catch {
             showToast(t('finance.downloadReceiptError'), 'error');
         }
@@ -285,8 +298,10 @@ export default function FinancePage() {
                 params.set('start_date', startDate);
                 params.set('end_date', endDate);
             }
-            const response = await api.get(`/finance/transactions/report.pdf?${params.toString()}`, { responseType: 'blob' });
-            downloadBlob(response.data as Blob, reportFileName);
+            params.set('locale', locale);
+            const url = new URL(`/print/finance/report?${params.toString()}`, window.location.origin);
+            const w = window.open(url.toString(), '_blank');
+            if (!w) throw new Error('popup-blocked');
         } catch {
             showToast(t('finance.downloadReportError'), 'error');
         }
@@ -434,9 +449,9 @@ export default function FinancePage() {
                     </div>
 
                     <div className="grid grid-cols-1 md:grid-cols-3 gap-5">
-                        <div className="kpi-card flex items-center gap-4 border border-border"><div className="h-12 w-12 rounded-xl flex items-center justify-center bg-emerald-500/10 border border-emerald-500/20"><ArrowUpCircle size={22} className="text-emerald-500" /></div><div><p className="text-[0.65rem] font-semibold text-muted-foreground uppercase tracking-wider">{txt.totalIncome}</p><p className="text-2xl font-bold text-foreground">{pageSummary.total_income.toFixed(2)} JOD</p></div></div>
-                        <div className="kpi-card flex items-center gap-4 border border-border"><div className="h-12 w-12 rounded-xl flex items-center justify-center bg-red-500/10 border border-red-500/20"><ArrowDownCircle size={22} className="text-red-500" /></div><div><p className="text-[0.65rem] font-semibold text-muted-foreground uppercase tracking-wider">{txt.totalExpenses}</p><p className="text-2xl font-bold text-foreground">{pageSummary.total_expenses.toFixed(2)} JOD</p></div></div>
-                        <div className="kpi-card flex items-center gap-4 border border-border"><div className="h-12 w-12 rounded-xl flex items-center justify-center bg-blue-500/10 border border-blue-500/20"><Wallet size={22} className="text-blue-500" /></div><div><p className="text-[0.65rem] font-semibold text-muted-foreground uppercase tracking-wider">{txt.netProfit}</p><p className={`text-2xl font-bold ${(pageSummary.net_profit ?? 0) >= 0 ? 'text-emerald-500' : 'text-red-500'}`}>{pageSummary.net_profit.toFixed(2)} JOD</p></div></div>
+                        <div className="kpi-card flex items-center gap-4 border border-border"><div className="h-12 w-12 rounded-xl flex items-center justify-center bg-emerald-500/10 border border-emerald-500/20"><ArrowUpCircle size={22} className="text-emerald-500" /></div><div><p className="text-[0.65rem] font-semibold text-muted-foreground uppercase tracking-wider">{txt.totalIncome}</p><p className="text-2xl font-bold text-foreground">{summary.total_income.toFixed(2)} JOD</p></div></div>
+                        <div className="kpi-card flex items-center gap-4 border border-border"><div className="h-12 w-12 rounded-xl flex items-center justify-center bg-red-500/10 border border-red-500/20"><ArrowDownCircle size={22} className="text-red-500" /></div><div><p className="text-[0.65rem] font-semibold text-muted-foreground uppercase tracking-wider">{txt.totalExpenses}</p><p className="text-2xl font-bold text-foreground">{summary.total_expenses.toFixed(2)} JOD</p></div></div>
+                        <div className="kpi-card flex items-center gap-4 border border-border"><div className="h-12 w-12 rounded-xl flex items-center justify-center bg-blue-500/10 border border-blue-500/20"><Wallet size={22} className="text-blue-500" /></div><div><p className="text-[0.65rem] font-semibold text-muted-foreground uppercase tracking-wider">{txt.netProfit}</p><p className={`text-2xl font-bold ${(summary.net_profit ?? 0) >= 0 ? 'text-emerald-500' : 'text-red-500'}`}>{summary.net_profit.toFixed(2)} JOD</p></div></div>
                     </div>
 
                     <div className="chart-card overflow-hidden !p-0 border border-border">

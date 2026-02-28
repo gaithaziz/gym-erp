@@ -1,4 +1,4 @@
-﻿'use client';
+'use client';
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { api } from '@/lib/api';
@@ -103,87 +103,95 @@ export default function WorkoutPlansPage() {
     const { showToast, confirm: confirmAction } = useFeedback();
     const txt = locale === 'ar'
         ? {
-            pageTitle: 'Ø®Ø·Ø· Ø§Ù„ØªÙ…Ø±ÙŠÙ†',
-            pageSubtitle: 'Ø£Ù†Ø´Ø¦ ØªÙ‚Ø³ÙŠÙ…Ø§Øª ØªÙ…Ø±ÙŠÙ† Ø­Ø³Ø¨ Ø§Ù„Ø£Ù‚Ø³Ø§Ù… Ù…Ø¹ ØªÙ…Ø§Ø±ÙŠÙ† ÙˆÙÙŠØ¯ÙŠÙˆÙ‡Ø§Øª',
-            openLibrary: 'ÙØªØ­ Ø§Ù„Ù…ÙƒØªØ¨Ø©',
-            refresh: 'ØªØ­Ø¯ÙŠØ«',
-            createPlan: 'Ø¥Ù†Ø´Ø§Ø¡ Ø®Ø·Ø©',
-            loadingError: 'ÙØ´Ù„ ØªØ­Ù…ÙŠÙ„ Ø®Ø·Ø· Ø§Ù„ØªÙ…Ø±ÙŠÙ†.',
-            minSectionError: 'ÙŠÙ„Ø²Ù… Ù‚Ø³Ù… ÙˆØ§Ø­Ø¯ Ø¹Ù„Ù‰ Ø§Ù„Ø£Ù‚Ù„.',
-            exerciseNameRequired: 'Ø§Ø³Ù… Ø§Ù„ØªÙ…Ø±ÙŠÙ† Ù…Ø·Ù„ÙˆØ¨.',
-            chooseVideo: 'Ø§Ø®ØªØ± Ù…Ù„Ù ÙÙŠØ¯ÙŠÙˆ Ù„Ù„Ø±ÙØ¹.',
-            uploadFail: 'ÙØ´Ù„ Ø±ÙØ¹ Ø§Ù„ÙÙŠØ¯ÙŠÙˆ.',
-            embedRequired: 'Ø±Ø§Ø¨Ø· Ø§Ù„ØªØ¶Ù…ÙŠÙ† Ù…Ø·Ù„ÙˆØ¨ Ø¹Ù†Ø¯ Ø§Ø®ØªÙŠØ§Ø± ØªØ¶Ù…ÙŠÙ†.',
-            savedReusable: 'ØªÙ… Ø§Ù„Ø­ÙØ¸ ÙÙŠ Ù…ÙƒØªØ¨ØªÙƒ Ø§Ù„Ù‚Ø§Ø¨Ù„Ø© Ù„Ø¥Ø¹Ø§Ø¯Ø© Ø§Ù„Ø§Ø³ØªØ®Ø¯Ø§Ù….',
-            saveReusableFail: 'ÙØ´Ù„ Ø­ÙØ¸ Ø§Ù„ØªÙ…Ø±ÙŠÙ† Ø§Ù„Ù‚Ø§Ø¨Ù„ Ù„Ø¥Ø¹Ø§Ø¯Ø© Ø§Ù„Ø§Ø³ØªØ®Ø¯Ø§Ù….',
-            deletePlan: 'Ø­Ø°Ù Ø®Ø·Ø© Ø§Ù„ØªÙ…Ø±ÙŠÙ†',
-            deleteConfirm: 'Ù‡Ù„ Ø£Ù†Øª Ù…ØªØ£ÙƒØ¯ Ø£Ù†Ùƒ ØªØ±ÙŠØ¯ Ø­Ø°Ù Ù‡Ø°Ù‡ Ø§Ù„Ø®Ø·Ø©ØŸ',
-            delete: 'Ø­Ø°Ù',
-            cancel: 'Ø¥Ù„ØºØ§Ø¡',
-            assignPlan: 'ØªØ¹ÙŠÙŠÙ† Ø§Ù„Ø®Ø·Ø©',
-            assignMembersLabel: 'Ø§Ù„Ø£Ø¹Ø¶Ø§Ø¡ (ÙŠØ¯Ø¹Ù… Ø§Ù„ØªØ¹ÙŠÙŠÙ† Ø§Ù„Ø¬Ù…Ø§Ø¹ÙŠ)',
-            searchMember: 'Ø§Ø¨Ø­Ø« Ø¹Ù† Ø¹Ø¶Ùˆ Ø¨Ø§Ù„Ø§Ø³Ù…/Ø§Ù„Ø¨Ø±ÙŠØ¯...',
-            noAssignedPlans: 'Ù„Ø§ ØªÙˆØ¬Ø¯ Ø®Ø·Ø· Ù†Ø´Ø·Ø© Ù…Ø¹ÙŠÙ‘Ù†Ø© Ù„Ù„Ø£Ø¹Ø¶Ø§Ø¡.',
-            noTemplates: 'Ù„Ø§ ØªÙˆØ¬Ø¯ Ù‚ÙˆØ§Ù„Ø¨ Ù„Ù„Ø­Ø§Ù„Ø© Ø§Ù„Ù…Ø­Ø¯Ø¯Ø©.',
-            noTemplatesYet: 'Ù„Ø§ ØªÙˆØ¬Ø¯ Ù‚ÙˆØ§Ù„Ø¨ Ø¨Ø¹Ø¯. Ø£Ù†Ø´Ø¦ Ø£ÙˆÙ„ Ù‚Ø§Ù„Ø¨ Ù„Ùƒ.',
-            watch: 'Ù…Ø´Ø§Ù‡Ø¯Ø©',
-            open: 'ÙØªØ­',
-            exercises: 'ØªÙ…Ø§Ø±ÙŠÙ†',
-            moreSections: 'Ø£Ù‚Ø³Ø§Ù… Ø¥Ø¶Ø§ÙÙŠØ©',
-            templates: 'Ø§Ù„Ù‚ÙˆØ§Ù„Ø¨',
-            templatesSubtitle: 'Ø®Ø·Ø· ØªÙ…Ø±ÙŠÙ† Ù‚Ø§Ø¨Ù„Ø© Ù„Ø¥Ø¹Ø§Ø¯Ø© Ø§Ù„Ø§Ø³ØªØ®Ø¯Ø§Ù… Ø­Ø³Ø¨ Ø§Ù„Ø­Ø§Ù„Ø©.',
-            assignedPlansTitle: 'Ø§Ù„Ø®Ø·Ø· Ø§Ù„Ù…Ø¹ÙŠÙ†Ø©',
-            assignedPlansSubtitle: 'Ø®Ø·Ø· ØªÙ…Ø±ÙŠÙ† Ù†Ø´Ø·Ø© Ù…Ø¹ÙŠÙ‘Ù†Ø© Ù„Ù„Ø£Ø¹Ø¶Ø§Ø¡.',
-            edit: 'ØªØ¹Ø¯ÙŠÙ„',
-            assign: 'ØªØ¹ÙŠÙŠÙ†',
-            publish: 'Ù†Ø´Ø±',
-            archive: 'Ø£Ø±Ø´ÙØ©',
-            unassign: 'Ø¥Ù„ØºØ§Ø¡ Ø§Ù„ØªØ¹ÙŠÙŠÙ†',
-            step1: 'Ø§Ù„Ø®Ø·ÙˆØ© 1: Ø£Ø³Ø§Ø³ÙŠØ§Øª Ø§Ù„Ø®Ø·Ø©',
-            step2: 'Ø§Ù„Ø®Ø·ÙˆØ© 2: Ù…Ù†Ø´Ø¦ Ø§Ù„ØªÙ…Ø±ÙŠÙ†',
-            planName: 'Ø§Ø³Ù… Ø§Ù„Ø®Ø·Ø©',
-            description: 'Ø§Ù„ÙˆØµÙ',
-            draft: 'Ù…Ø³ÙˆØ¯Ø©',
-            published: 'Ù…Ù†Ø´ÙˆØ±Ø©',
-            archived: 'Ù…Ø¤Ø±Ø´ÙØ©',
-            expectedSessions: 'Ø§Ù„Ø¬Ù„Ø³Ø§Øª Ø§Ù„Ù…ØªÙˆÙ‚Ø¹Ø© / 30 ÙŠÙˆÙ…',
-            unassignedTemplate: 'ØºÙŠØ± Ù…Ø¹ÙŠÙ‘Ù† (Ù‚Ø§Ù„Ø¨)',
-            searchMemberLong: 'Ø§Ø¨Ø­Ø« Ø¹Ù† Ø¹Ø¶Ùˆ Ø¨Ø§Ù„Ø§Ø³Ù… Ø£Ùˆ Ø§Ù„Ø¨Ø±ÙŠØ¯...',
-            sectionName: 'Ø§Ø³Ù… Ø§Ù„Ù‚Ø³Ù…',
-            addSection: 'Ø¥Ø¶Ø§ÙØ© Ù‚Ø³Ù…',
-            exerciseBuilder: 'Ù…Ù†Ø´Ø¦ Ø§Ù„ØªÙ…Ø§Ø±ÙŠÙ†',
-            hideLibrary: 'Ø¥Ø®ÙØ§Ø¡ Ø§Ù„Ù…ÙƒØªØ¨Ø©',
-            addFromLibrary: 'Ø£Ø¶Ù Ù…Ù† Ø§Ù„Ù…ÙƒØªØ¨Ø©',
-            fullLibraryQuestion: 'ØªØ­ØªØ§Ø¬ Ø¥Ø¯Ø§Ø±Ø© ÙƒØ§Ù…Ù„Ø© Ù„Ù„Ù…ÙƒØªØ¨Ø©ØŸ',
-            openWorkoutDietLibrary: 'Ø§ÙØªØ­ Ù…ÙƒØªØ¨Ø© Ø§Ù„ØªÙ…Ø§Ø±ÙŠÙ† ÙˆØ§Ù„ØªØºØ°ÙŠØ©',
-            searchLibrary: 'Ø§Ø¨Ø­Ø« Ø¨Ø§Ù„Ø§Ø³Ù… Ø£Ùˆ Ø§Ù„Ø¹Ø¶Ù„Ø© Ø£Ùˆ Ø§Ù„Ù…Ø¹Ø¯Ø©...',
-            search: 'Ø¨Ø­Ø«',
-            recent: 'Ø§Ù„Ø£Ø®ÙŠØ±Ø©',
-            noLibraryItems: 'Ù„Ø§ ØªÙˆØ¬Ø¯ Ø¹Ù†Ø§ØµØ± ÙÙŠ Ø§Ù„Ù…ÙƒØªØ¨Ø©.',
-            exerciseName: 'Ø§Ø³Ù… Ø§Ù„ØªÙ…Ø±ÙŠÙ†',
-            noVideo: 'Ø¨Ø¯ÙˆÙ† ÙÙŠØ¯ÙŠÙˆ',
-            embedUrl: 'Ø±Ø§Ø¨Ø· ØªØ¶Ù…ÙŠÙ†',
-            uploadVideo: 'Ø±ÙØ¹ ÙÙŠØ¯ÙŠÙˆ',
-            addExercise: 'Ø¥Ø¶Ø§ÙØ© ØªÙ…Ø±ÙŠÙ†',
-            noExercisesInSection: 'Ù„Ø§ ØªÙˆØ¬Ø¯ ØªÙ…Ø§Ø±ÙŠÙ† ÙÙŠ Ù‡Ø°Ø§ Ø§Ù„Ù‚Ø³Ù… Ø¨Ø¹Ø¯.',
-            added: 'ØªÙ…Øª Ø§Ù„Ø¥Ø¶Ø§ÙØ©',
-            saveReusable: 'Ø­ÙØ¸ ÙƒÙ‚Ø§Ø¨Ù„ Ù„Ø¥Ø¹Ø§Ø¯Ø© Ø§Ù„Ø§Ø³ØªØ®Ø¯Ø§Ù…',
-            back: 'Ø±Ø¬ÙˆØ¹',
-            next: 'Ø§Ù„ØªØ§Ù„ÙŠ',
-            closeVideo: 'Ø¥ØºÙ„Ø§Ù‚ Ø§Ù„ÙÙŠØ¯ÙŠÙˆ',
-            cannotPreview: 'ØªØ¹Ø°Ø± Ù…Ø¹Ø§ÙŠÙ†Ø© Ù‡Ø°Ø§ Ø§Ù„Ù…ØµØ¯Ø± ÙÙŠ Ø§Ù„Ù†Ø§ÙØ°Ø© Ø§Ù„Ù…Ù†Ø¨Ø«Ù‚Ø©.',
-            openSource: 'ÙØªØ­ Ø§Ù„Ù…ØµØ¯Ø±',
-            replaceActiveNote: 'ÙˆØ¶Ø¹ Ø§Ø³ØªØ¨Ø¯Ø§Ù„ Ø§Ù„Ù†Ø´Ø· Ù…ÙØ¹Ù‘Ù„: Ø³ÙŠØªÙ… Ø£Ø±Ø´ÙØ© Ø§Ù„Ø®Ø·Ø· Ø§Ù„Ù†Ø´Ø·Ø© Ø§Ù„Ø­Ø§Ù„ÙŠØ© Ù„Ù„Ø£Ø¹Ø¶Ø§Ø¡ Ø§Ù„Ù…Ø­Ø¯Ø¯ÙŠÙ†.',
-            assignPrefix: 'ØªØ¹ÙŠÙŠÙ†:',
-            adherent30d: 'Ù…Ù„ØªØ²Ù… (30 ÙŠÙˆÙ…)',
-            lastBulkAssignCheck: 'Ø¢Ø®Ø± ÙØ­Øµ ØªØ¹ÙŠÙŠÙ† Ø¬Ù…Ø§Ø¹ÙŠ',
-            assignedLabel: 'Ø§Ù„Ù…Ø¹ÙŠÙ†:',
-            adherentLabel: ' | Ø§Ù„Ù…Ù„ØªØ²Ù… (30 ÙŠÙˆÙ…):',
-            scoreLabel: ' | Ø§Ù„Ù†Ø³Ø¨Ø©:',
-            sections: 'Ø£Ù‚Ø³Ø§Ù…',
-            warningDraftAssign: 'ØªØ­Ø°ÙŠØ±: Ø£Ù†Øª ØªÙ‚ÙˆÙ… Ø¨ØªØ¹ÙŠÙŠÙ† Ø®Ø·Ø© Ù…Ø³ÙˆØ¯Ø©.',
-            archivedCannotAssign: 'Ù„Ø§ ÙŠÙ…ÙƒÙ† ØªØ¹ÙŠÙŠÙ† Ø§Ù„Ø®Ø·Ø· Ø§Ù„Ù…Ø¤Ø±Ø´ÙØ©.',
-            summarySectionsExercisesVideos: 'Ø£Ù‚Ø³Ø§Ù… | ØªÙ…Ø§Ø±ÙŠÙ† | ÙÙŠØ¯ÙŠÙˆÙ‡Ø§Øª',
+            pageTitle: 'خطط التمرين',
+            pageSubtitle: 'أنشئ تقسيمات تمرين حسب الأقسام مع تمارين وفيديوهات',
+            openLibrary: 'فتح المكتبة',
+            refresh: 'تحديث',
+            createPlan: 'إنشاء خطة',
+            loadingError: 'فشل تحميل خطط التمرين.',
+            minSectionError: 'مطلوب قسم واحد على الأقل.',
+            exerciseNameRequired: 'اسم التمرين مطلوب.',
+            chooseVideo: 'اختر ملف فيديو للرفع.',
+            uploadFail: 'فشل رفع الفيديو.',
+            embedRequired: 'رابط التضمين مطلوب عند اختيار التضمين.',
+            savedReusable: 'تم حفظ التمرين في مكتبتك القابلة لإعادة الاستخدام.',
+            saveReusableFail: 'فشل حفظ التمرين في المكتبة.',
+            deletePlan: 'حذف خطة التمرين',
+            deleteConfirm: 'هل أنت متأكد أنك تريد حذف هذه الخطة؟',
+            delete: 'حذف',
+            cancel: 'إلغاء',
+            assignPlan: 'تعيين الخطة',
+            assignMembersLabel: 'الأعضاء (يدعم التعيين الجماعي)',
+            searchMember: 'ابحث عن عضو بالاسم أو البريد...',
+            noAssignedPlans: 'لا توجد خطط نشطة معيّنة للأعضاء.',
+            noTemplates: 'لا توجد قوالب للحالة المحددة.',
+            noTemplatesYet: 'لا توجد قوالب تمرين بعد. أنشئ أول قالب الآن.',
+            watch: 'مشاهدة',
+            open: 'فتح',
+            exercises: 'تمارين',
+            moreSections: 'أقسام إضافية',
+            templates: 'القوالب',
+            templatesSubtitle: 'خطط تمرين قابلة لإعادة الاستخدام حسب الحالة.',
+            assignedPlansTitle: 'الخطط المعيّنة',
+            assignedPlansSubtitle: 'خطط تمرين نشطة معيّنة للأعضاء.',
+            edit: 'تعديل',
+            assign: 'تعيين',
+            publish: 'نشر',
+            archive: 'أرشفة',
+            unassign: 'إلغاء التعيين',
+            step1: 'الخطوة 1: أساسيات الخطة',
+            step2: 'الخطوة 2: بناء التمرين',
+            planName: 'اسم الخطة',
+            description: 'الوصف',
+            draft: 'مسودة',
+            published: 'منشورة',
+            archived: 'مؤرشفة',
+            expectedSessions: 'الجلسات المتوقعة / 30 يومًا',
+            unassignedTemplate: 'غير معيّنة (قالب)',
+            searchMemberLong: 'ابحث عن عضو بالاسم أو البريد الإلكتروني...',
+            sectionName: 'اسم القسم',
+            addSection: 'إضافة قسم',
+            exerciseBuilder: 'منشئ التمارين',
+            hideLibrary: 'إخفاء المكتبة',
+            addFromLibrary: 'إضافة من المكتبة',
+            fullLibraryQuestion: 'هل تحتاج إلى إدارة كاملة للمكتبة؟',
+            openWorkoutDietLibrary: 'افتح مكتبة التمارين والتغذية',
+            searchLibrary: 'ابحث بالاسم أو العضلة أو المعدة...',
+            search: 'بحث',
+            recent: 'الأخيرة',
+            noLibraryItems: 'لا توجد عناصر في المكتبة.',
+            exerciseName: 'اسم التمرين',
+            noVideo: 'بدون فيديو',
+            embedUrl: 'رابط التضمين',
+            uploadVideo: 'رفع فيديو',
+            addExercise: 'إضافة تمرين',
+            noExercisesInSection: 'لا توجد تمارين في هذا القسم بعد.',
+            added: 'تمت الإضافة',
+            saveReusable: 'حفظ كعنصر قابل لإعادة الاستخدام',
+            back: 'رجوع',
+            next: 'التالي',
+            closeVideo: 'إغلاق الفيديو',
+            cannotPreview: 'تعذر معاينة هذا المصدر في النافذة المنبثقة.',
+            openSource: 'فتح المصدر',
+            replaceActiveNote: 'وضع استبدال الخطط النشطة مفعّل: سيتم أرشفة الخطط النشطة الحالية للأعضاء المحددين.',
+            assignPrefix: 'تعيين:',
+            adherent30d: 'ملتزم (30 يومًا)',
+            lastBulkAssignCheck: 'آخر فحص للتعيين الجماعي',
+            assignedLabel: 'المعيّن:',
+            adherentLabel: ' | الملتزم (30 يومًا):',
+            scoreLabel: ' | النسبة:',
+            sections: 'أقسام',
+            warningDraftAssign: 'تحذير: أنت تعيّن خطة مسودة.',
+            archivedCannotAssign: 'لا يمكن تعيين الخطط المؤرشفة.',
+            summarySectionsExercisesVideos: 'أقسام | تمارين | فيديوهات',
+            general: 'عام',
+            publishedPlanTitle: 'خطة منشورة',
+            publishedPlanDescription: 'الخطط المنشورة للقراءة فقط. هل تريد إنشاء مسودة للتعديل؟',
+            createDraft: 'إنشاء مسودة',
+            createdDraftFromPublished: 'تم إنشاء مسودة من الخطة المنشورة.',
+            failedEditArchived: 'لا يمكن تعديل الخطط المؤرشفة.',
+            unknownMember: 'عضو غير معروف',
+            fallbackExercise: 'تمرين',
         }
         : {
             pageTitle: 'Workout Plans',
@@ -267,6 +275,7 @@ export default function WorkoutPlansPage() {
             warningDraftAssign: 'Warning: you are assigning a draft plan.',
             archivedCannotAssign: 'Archived plans cannot be assigned.',
             summarySectionsExercisesVideos: 'sections | exercises | videos',
+            general: 'General',
         };
     const [plans, setPlans] = useState<Plan[]>([]);
     const [planSummaries, setPlanSummaries] = useState<PlanSummary[]>([]);
@@ -364,7 +373,7 @@ export default function WorkoutPlansPage() {
     };
 
     const getExerciseDisplayName = (exercise: WorkoutExerciseItem) => {
-        return exercise.exercise_name || exercise.exercise?.name || 'Exercise';
+        return exercise.exercise_name || exercise.exercise?.name || txt.fallbackExercise;
     };
 
     const groupExercises = (exercises: WorkoutExerciseItem[]) => {
@@ -570,14 +579,14 @@ export default function WorkoutPlansPage() {
     const handleEditClick = async (plan: Plan) => {
         if (plan.status === 'PUBLISHED') {
             const confirmed = await confirmAction({
-                title: 'Published Plan',
-                description: 'Published plans are read-only. Create a draft copy to edit?',
-                confirmText: 'Create Draft',
+                title: txt.publishedPlanTitle,
+                description: txt.publishedPlanDescription,
+                confirmText: txt.createDraft,
             });
             if (!confirmed) return;
             try {
                 await api.post(`/fitness/plans/${plan.id}/fork-draft`);
-                showToast('Draft created from published plan.', 'success');
+                showToast(txt.createdDraftFromPublished, 'success');
                 fetchData();
             } catch {
                 showToast('Failed to create draft.', 'error');
@@ -585,7 +594,7 @@ export default function WorkoutPlansPage() {
             return;
         }
         if (plan.status === 'ARCHIVED') {
-            showToast('Archived plans cannot be edited.', 'error');
+            showToast(txt.failedEditArchived, 'error');
             return;
         }
         setEditingPlan(plan);
@@ -777,7 +786,7 @@ export default function WorkoutPlansPage() {
                                         externalUrl: videoUrl,
                                     })}
                                     className="inline-flex items-center gap-1 rounded-sm border border-primary/40 bg-primary/10 px-2 py-1 text-xs text-primary hover:bg-primary/20"
-                                    title={locale === 'ar' ? 'ØªØ´ØºÙŠÙ„ ÙÙŠØ¯ÙŠÙˆ Ø§Ù„ØªÙ…Ø±ÙŠÙ†' : 'Play exercise video'}
+                                    title={locale === 'ar' ? '\u062a\u0634\u063a\u064a\u0644 \u0641\u064a\u062f\u064a\u0648 \u0627\u0644\u062a\u0645\u0631\u064a\u0646' : 'Play exercise video'}
                                 >
                                     <PlayCircle size={14} />
                                     {txt.watch}
@@ -788,7 +797,7 @@ export default function WorkoutPlansPage() {
                                     target="_blank"
                                     rel="noreferrer"
                                     className="inline-flex items-center gap-1 rounded-sm border border-primary/40 bg-primary/10 px-2 py-1 text-xs text-primary hover:bg-primary/20"
-                                    title={locale === 'ar' ? 'ÙØªØ­ ÙÙŠØ¯ÙŠÙˆ Ø§Ù„ØªÙ…Ø±ÙŠÙ†' : 'Open exercise video'}
+                                    title={locale === 'ar' ? '\u0641\u062a\u062d \u0641\u064a\u062f\u064a\u0648 \u0627\u0644\u062a\u0645\u0631\u064a\u0646' : 'Open exercise video'}
                                 >
                                     <Video size={14} />
                                     {txt.open}
@@ -829,6 +838,12 @@ export default function WorkoutPlansPage() {
     const templatePlans = useMemo(() => plans.filter(p => !p.member_id), [plans]);
     const assignedPlans = useMemo(() => plans.filter(p => p.member_id), [plans]);
     const templateStatusFilters: Array<'ALL' | Plan['status']> = ['ALL', 'PUBLISHED', 'DRAFT', 'ARCHIVED'];
+    const templateStatusLabel = (status: 'ALL' | Plan['status']) => {
+        if (status === 'ALL') return locale === 'ar' ? 'الكل' : 'All Statuses';
+        if (status === 'PUBLISHED') return txt.published;
+        if (status === 'DRAFT') return txt.draft;
+        return txt.archived;
+    };
     const filteredTemplatePlans = useMemo(() => {
         if (selectedTemplateStatus === 'ALL') return templatePlans;
         return templatePlans.filter(plan => plan.status === selectedTemplateStatus);
@@ -925,7 +940,7 @@ export default function WorkoutPlansPage() {
                                     : 'border-border text-muted-foreground hover:text-foreground hover:bg-white/5'
                             }`}
                         >
-                            {status === 'ALL' ? 'All Statuses' : status}
+                            {templateStatusLabel(status)}
                         </button>
                     ))}
                 </div>
@@ -945,7 +960,7 @@ export default function WorkoutPlansPage() {
                                         <p className="text-muted-foreground text-sm line-clamp-2">{plan.description || 'No description'}</p>
                                     </div>
                                     <div className="flex flex-col items-end gap-1">
-                                        <span className={`badge ${statusBadgeClass(plan.status)} rounded-sm`}>{plan.status}</span>
+                                        <span className={`badge ${statusBadgeClass(plan.status)} rounded-sm`}>{templateStatusLabel(plan.status)}</span>
                                         <span className="badge badge-orange rounded-sm">{plan.exercises?.length || 0}</span>
                                     </div>
                                 </div>
@@ -989,22 +1004,24 @@ export default function WorkoutPlansPage() {
                             <div className="flex items-center justify-between gap-2 mb-3">
                                 <div>
                                     <p className="text-base font-semibold text-foreground">{group.rootPlanName}</p>
-                                    <p className="text-xs text-muted-foreground">{group.members.length} {locale === 'ar' ? 'Ø¹Ø¶Ùˆ Ù…Ø¹ÙŠÙ‘Ù†' : `assigned member${group.members.length > 1 ? 's' : ''}`}</p>
+                                    <p className="text-xs text-muted-foreground">{group.members.length} {locale === 'ar' ? '\u0639\u0636\u0648 \u0645\u0639\u064a\u0651\u0646' : `assigned member${group.members.length > 1 ? 's' : ''}`}</p>
                                 </div>
                             </div>
                             <div className="space-y-3">
                                 {group.members.map(plan => {
-                                    const memberName = members.find(m => m.id === plan.member_id)?.full_name || 'Unknown Member';
+                                    const memberName = members.find(m => m.id === plan.member_id)?.full_name || txt.unknownMember;
                                     return (
                                         <div key={plan.id} className="rounded-sm border border-border p-3 bg-muted/15">
                                             <div className="flex items-center justify-between gap-2 mb-2">
                                                 <div className="min-w-0">
                                                     <p className="text-sm font-semibold text-foreground truncate">{memberName}</p>
-                                                    <p className="text-[11px] text-muted-foreground">{plan.exercises?.length || 0} {txt.exercises} {locale === 'ar' ? '| Ø§Ù„Ø¥ØµØ¯Ø§Ø± ' : '| v'}{plan.version}</p>
+                                                    <p className="text-[11px] text-muted-foreground">{plan.exercises?.length || 0} {txt.exercises} {locale === 'ar' ? '| \u0627\u0644\u0625\u0635\u062f\u0627\u0631 ' : '| v'}{plan.version}</p>
                                                 </div>
-                                                <span className={`badge ${statusBadgeClass(plan.status)} rounded-sm`}>{plan.status}</span>
+                                                <span className={`badge ${statusBadgeClass(plan.status)} rounded-sm`}>{templateStatusLabel(plan.status)}</span>
                                             </div>
-                                            <div className="rounded-sm p-2 text-sm text-muted-foreground max-h-44 overflow-y-auto bg-muted/30 border border-border space-y-1.5">
+                                            <div className={`rounded-sm p-2 text-sm text-muted-foreground bg-muted/30 border border-border space-y-1.5 ${
+                                                expandedAssignedPlanId === plan.id ? '' : 'max-h-44 overflow-y-auto'
+                                            }`}>
                                                 {renderGroupedPreview(plan, expandedAssignedPlanId === plan.id)}
                                             </div>
                                             <div className="flex flex-wrap gap-2 mt-3 pt-2 border-t border-border">
@@ -1016,6 +1033,8 @@ export default function WorkoutPlansPage() {
                                                 <PlanDetailsToggle
                                                     expanded={expandedAssignedPlanId === plan.id}
                                                     onClick={() => setExpandedAssignedPlanId((prev) => (prev === plan.id ? null : plan.id))}
+                                                    expandLabel={txt.viewDetails}
+                                                    collapseLabel={txt.collapse}
                                                     size="sm"
                                                 />
                                             </div>
@@ -1032,7 +1051,7 @@ export default function WorkoutPlansPage() {
             <Modal
                 isOpen={showModal}
                 onClose={() => setShowModal(false)}
-                title={editingPlan ? (locale === 'ar' ? 'ØªØ¹Ø¯ÙŠÙ„ Ø®Ø·Ø© Ø§Ù„ØªÙ…Ø±ÙŠÙ†' : 'Edit Workout Plan') : (locale === 'ar' ? 'Ø¥Ù†Ø´Ø§Ø¡ Ø®Ø·Ø© ØªÙ…Ø±ÙŠÙ† Ø¬Ø¯ÙŠØ¯Ø©' : 'Create New Workout Plan')}
+                title={editingPlan ? (locale === 'ar' ? '\u062a\u0639\u062f\u064a\u0644 \u062e\u0637\u0629 \u0627\u0644\u062a\u0645\u0631\u064a\u0646' : 'Edit Workout Plan') : (locale === 'ar' ? '\u0625\u0646\u0634\u0627\u0621 \u062e\u0637\u0629 \u062a\u0645\u0631\u064a\u0646 \u062c\u062f\u064a\u062f\u0629' : 'Create New Workout Plan')}
                 maxWidthClassName="max-w-3xl"
             >
                 <form onSubmit={handleModalSubmit} className="space-y-5">
@@ -1175,7 +1194,7 @@ export default function WorkoutPlansPage() {
                         {modalStep === 1 ? (
                             <button type="submit" className="btn-primary min-h-11">{txt.next}</button>
                         ) : (
-                            <button type="submit" className="btn-primary min-h-11"><Save size={16} /> {editingPlan ? (locale === 'ar' ? 'ØªØ­Ø¯ÙŠØ« Ø§Ù„Ø®Ø·Ø©' : 'Update Plan') : (locale === 'ar' ? 'Ø­ÙØ¸ Ø§Ù„Ø®Ø·Ø©' : 'Save Plan')}</button>
+                            <button type="submit" className="btn-primary min-h-11"><Save size={16} /> {editingPlan ? (locale === 'ar' ? '\u062a\u062d\u062f\u064a\u062b \u0627\u0644\u062e\u0637\u0629' : 'Update Plan') : (locale === 'ar' ? '\u062d\u0641\u0638 \u0627\u0644\u062e\u0637\u0629' : 'Save Plan')}</button>
                         )}
                     </div>
                 </form>
@@ -1246,7 +1265,7 @@ export default function WorkoutPlansPage() {
                                 planName={assigningPlan.name}
                                 status={assigningPlan.status}
                                 statusBadgeClass={statusBadgeClass(assigningPlan.status)}
-                                summaryLine={summary ? `${summary.total_sections} ${txt.sections} | ${summary.total_exercises} ${txt.exercises} | ${summary.total_videos} ${locale === 'ar' ? 'ÙÙŠØ¯ÙŠÙˆÙ‡Ø§Øª' : 'videos'}` : `${assigningPlan.exercises.length} ${txt.exercises}`}
+                                summaryLine={summary ? `${summary.total_sections} ${txt.sections} | ${summary.total_exercises} ${txt.exercises} | ${summary.total_videos} ${locale === 'ar' ? 'فيديوهات' : 'videos'}` : `${assigningPlan.exercises.length} ${txt.exercises}`}
                                 previewSections={summary?.preview_sections || []}
                                 draftWarning={assigningPlan.status === 'DRAFT' ? txt.warningDraftAssign : undefined}
                                 archivedWarning={assigningPlan.status === 'ARCHIVED' ? txt.archivedCannotAssign : undefined}
@@ -1289,8 +1308,4 @@ export default function WorkoutPlansPage() {
         </div>
     );
 }
-
-
-
-
 

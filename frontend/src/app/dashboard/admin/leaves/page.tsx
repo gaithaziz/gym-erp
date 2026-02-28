@@ -4,7 +4,9 @@ import { useCallback, useEffect, useState } from 'react';
 import { api } from '@/lib/api';
 import { Check, X, Search, Printer } from 'lucide-react';
 import { useFeedback } from '@/components/FeedbackProvider';
+import TablePagination from '@/components/TablePagination';
 import { useLocale } from '@/context/LocaleContext';
+import { escapePrintHtml, renderPrintShell } from '@/lib/print';
 
 interface LeaveRequest {
     id: string;
@@ -16,9 +18,10 @@ interface LeaveRequest {
     status: string;
     reason: string | null;
 }
+const LEAVES_PAGE_SIZE = 10;
 
 export default function AdminLeavesPage() {
-    const { locale, formatDate } = useLocale();
+    const { locale, direction, formatDate } = useLocale();
     const { showToast } = useFeedback();
     const [leaves, setLeaves] = useState<LeaveRequest[]>([]);
     const [loading, setLoading] = useState(true);
@@ -27,6 +30,7 @@ export default function AdminLeavesPage() {
     const [search, setSearch] = useState('');
     const [startDate, setStartDate] = useState('');
     const [endDate, setEndDate] = useState('');
+    const [tablePage, setTablePage] = useState(1);
     const txt = locale === 'ar'
         ? {
             loadError: 'فشل في تحميل الإجازات',
@@ -146,6 +150,10 @@ export default function AdminLeavesPage() {
         setTimeout(() => fetchLeaves(), 0);
     }, [fetchLeaves]);
 
+    useEffect(() => {
+        setTablePage(1);
+    }, [leaves.length]);
+
     const updateStatus = async (id: string, status: string) => {
         try {
             await api.put(`/hr/leaves/${id}`, { status });
@@ -163,22 +171,68 @@ export default function AdminLeavesPage() {
             return;
         }
         const rows = leaves.map((l) => (
-            `<tr><td>${l.user_name}</td><td>${formatDate(l.start_date, { year: 'numeric', month: '2-digit', day: '2-digit' })}</td><td>${formatDate(l.end_date, { year: 'numeric', month: '2-digit', day: '2-digit' })}</td><td>${leaveTypeLabel(l.leave_type)}</td><td>${statusLabel(l.status)}</td></tr>`
-        )).join('') || `<tr><td colspan="5" style="text-align:center;">${txt.noRequests}</td></tr>`;
+            `<tr>
+                <td>${escapePrintHtml(l.user_name)}</td>
+                <td>${escapePrintHtml(formatDate(l.start_date, { year: 'numeric', month: '2-digit', day: '2-digit' }))}</td>
+                <td>${escapePrintHtml(formatDate(l.end_date, { year: 'numeric', month: '2-digit', day: '2-digit' }))}</td>
+                <td>${escapePrintHtml(leaveTypeLabel(l.leave_type))}</td>
+                <td>${escapePrintHtml(statusLabel(l.status))}</td>
+            </tr>`
+        )).join('') || `<tr><td colspan="5" class="center">${escapePrintHtml(txt.noRequests)}</td></tr>`;
         const range = startDate || endDate ? `${startDate || '...'} ${txt.to} ${endDate || '...'}` : txt.allDates;
         const printStatus = statusFilter === 'ALL' ? txt.allStatus : statusLabel(statusFilter);
         const printType = typeFilter === 'ALL' ? txt.allTypes : leaveTypeLabel(typeFilter);
-        w.document.write(`
-        <html><head><title>${txt.summaryTitle}</title>
-        <style>body{font-family:Arial,sans-serif;padding:24px;color:#111}table{width:100%;border-collapse:collapse;font-size:12px}th,td{border:1px solid #ddd;padding:8px;text-align:left}th{background:#f5f5f5}.meta{margin-bottom:10px;color:#555}</style>
-        </head><body>
-        <h2>${txt.summaryTitle}</h2>
-        <div class="meta">${txt.range}: ${range} - ${txt.status}: ${printStatus} - ${txt.type}: ${printType}</div>
-        <table><thead><tr><th>${txt.staff}</th><th>${txt.start}</th><th>${txt.end}</th><th>${txt.type}</th><th>${txt.status}</th></tr></thead><tbody>${rows}</tbody></table>
-        <script>window.onload=function(){window.print();window.close();}</script>
-        </body></html>`);
+        w.document.write(renderPrintShell({
+            title: txt.summaryTitle,
+            locale,
+            direction,
+            body: `
+                <section class="header">
+                    <div>
+                        <p class="eyebrow">${escapePrintHtml(txt.leaveRequests)}</p>
+                        <h1 class="title">${escapePrintHtml(txt.summaryTitle)}</h1>
+                        <p class="subtitle">${escapePrintHtml(txt.subtitle)}</p>
+                    </div>
+                    <div class="badge">${escapePrintHtml(String(leaves.length))}</div>
+                </section>
+                <section class="section">
+                    <h2 class="section-title">${escapePrintHtml(txt.filters)}</h2>
+                    <div class="meta-grid">
+                        <div class="meta-item">
+                            <span class="label">${escapePrintHtml(txt.range)}</span>
+                            <span class="value">${escapePrintHtml(range)}</span>
+                        </div>
+                        <div class="meta-item">
+                            <span class="label">${escapePrintHtml(txt.status)}</span>
+                            <span class="value">${escapePrintHtml(printStatus)}</span>
+                        </div>
+                        <div class="meta-item">
+                            <span class="label">${escapePrintHtml(txt.type)}</span>
+                            <span class="value">${escapePrintHtml(printType)}</span>
+                        </div>
+                    </div>
+                </section>
+                <section class="section">
+                    <h2 class="section-title">${escapePrintHtml(txt.leaveRequests)}</h2>
+                    <table>
+                        <thead>
+                            <tr>
+                                <th>${escapePrintHtml(txt.staff)}</th>
+                                <th>${escapePrintHtml(txt.start)}</th>
+                                <th>${escapePrintHtml(txt.end)}</th>
+                                <th>${escapePrintHtml(txt.type)}</th>
+                                <th>${escapePrintHtml(txt.status)}</th>
+                            </tr>
+                        </thead>
+                        <tbody>${rows}</tbody>
+                    </table>
+                </section>
+            `,
+        }));
         w.document.close();
     };
+    const totalTablePages = Math.max(1, Math.ceil(leaves.length / LEAVES_PAGE_SIZE));
+    const visibleLeaves = leaves.slice((tablePage - 1) * LEAVES_PAGE_SIZE, tablePage * LEAVES_PAGE_SIZE);
 
     if (loading) return (
         <div className="flex h-64 items-center justify-center">
@@ -234,7 +288,7 @@ export default function AdminLeavesPage() {
                             {leaves.length === 0 && (
                                 <tr><td colSpan={5} className="text-center py-8 text-muted-foreground text-sm">{txt.noFound}</td></tr>
                             )}
-                            {leaves.map((l) => (
+                            {visibleLeaves.map((l) => (
                                 <tr key={l.id}>
                                     <td className="font-medium text-foreground">{l.user_name}</td>
                                     <td>
@@ -271,6 +325,12 @@ export default function AdminLeavesPage() {
                         </tbody>
                     </table>
                 </div>
+                <TablePagination
+                    page={tablePage}
+                    totalPages={totalTablePages}
+                    onPrevious={() => setTablePage((prev) => Math.max(1, prev - 1))}
+                    onNext={() => setTablePage((prev) => Math.min(totalTablePages, prev + 1))}
+                />
             </div>
         </div>
     );

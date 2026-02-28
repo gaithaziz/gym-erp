@@ -5,6 +5,7 @@ import { api } from '@/lib/api';
 import { Check, X, Edit2, Printer } from 'lucide-react';
 import { useFeedback } from '@/components/FeedbackProvider';
 import { useLocale } from '@/context/LocaleContext';
+import { escapePrintHtml, renderPrintShell } from '@/lib/print';
 
 interface AttendanceLog {
     id: string;
@@ -16,7 +17,7 @@ interface AttendanceLog {
 }
 
 export default function AttendancePage() {
-    const { locale, formatDate } = useLocale();
+    const { locale, direction, formatDate } = useLocale();
     const { showToast } = useFeedback();
     const txt = locale === 'ar'
         ? {
@@ -127,7 +128,7 @@ export default function AttendancePage() {
             showToast(txt.loadFailed, 'error');
         }
         setLoading(false);
-    }, [PAGE_SIZE, datePreset, endDate, page, showToast, startDate]);
+    }, [PAGE_SIZE, datePreset, endDate, page, showToast, startDate, txt.loadFailed, txt.startAfterEnd]);
 
     useEffect(() => { setTimeout(() => fetchLogs(), 0); }, [fetchLogs]);
 
@@ -181,18 +182,61 @@ export default function AttendancePage() {
             showToast(txt.popupBlocked, 'error');
             return;
         }
+        const rangeText = datePreset === 'all' ? txt.allDates : `${startDate} ${txt.to} ${endDate}`;
         const rows = filteredLogs.map((log) => (
-            `<tr><td>${log.user_name}</td><td>${fmt(log.check_in_time)}</td><td>${fmt(log.check_out_time)}</td><td style="text-align:right;">${log.hours_worked ?? 0}</td></tr>`
-        )).join('') || `<tr><td colspan="4" style="text-align:center;">${txt.noAttendance}</td></tr>`;
-        w.document.write(`
-        <html><head><title>${txt.attendanceSummary}</title>
-        <style>body{font-family:Arial,sans-serif;padding:24px;color:#111}table{width:100%;border-collapse:collapse;font-size:12px}th,td{border:1px solid #ddd;padding:8px;text-align:left}th{background:#f5f5f5}.meta{margin-bottom:10px;color:#555}</style>
-        </head><body>
-        <h2>${txt.attendanceSummary}</h2>
-        <div class="meta">${txt.range}: ${datePreset === 'all' ? txt.allDates : `${startDate} ${txt.to} ${endDate}`}</div>
-        <table><thead><tr><th>${txt.employee}</th><th>${txt.clockIn}</th><th>${txt.clockOut}</th><th style="text-align:right;">${txt.hours}</th></tr></thead><tbody>${rows}</tbody></table>
-        <script>window.onload=function(){window.print();window.close();}</script>
-        </body></html>`);
+            `<tr>
+                <td>${escapePrintHtml(log.user_name)}</td>
+                <td>${escapePrintHtml(fmt(log.check_in_time))}</td>
+                <td>${escapePrintHtml(fmt(log.check_out_time))}</td>
+                <td class="num">${escapePrintHtml((log.hours_worked ?? 0).toFixed(2))}</td>
+            </tr>`
+        )).join('') || `<tr><td colspan="4" class="center">${escapePrintHtml(txt.noAttendance)}</td></tr>`;
+        w.document.write(renderPrintShell({
+            title: txt.attendanceSummary,
+            locale,
+            direction,
+            body: `
+                <section class="header">
+                    <div>
+                        <p class="eyebrow">${escapePrintHtml(txt.attendanceTimesheet)}</p>
+                        <h1 class="title">${escapePrintHtml(txt.attendanceSummary)}</h1>
+                        <p class="subtitle">${escapePrintHtml(txt.attendanceSubtitle)}</p>
+                    </div>
+                    <div class="badge">${escapePrintHtml(rangeText)}</div>
+                </section>
+                <section class="section">
+                    <h2 class="section-title">${escapePrintHtml(txt.range)}</h2>
+                    <div class="meta-grid">
+                        <div class="meta-item">
+                            <span class="label">${escapePrintHtml(txt.range)}</span>
+                            <span class="value">${escapePrintHtml(rangeText)}</span>
+                        </div>
+                        <div class="meta-item">
+                            <span class="label">${escapePrintHtml(txt.totalRecords)}</span>
+                            <span class="value">${escapePrintHtml(String(totalLogs))}</span>
+                        </div>
+                        <div class="meta-item">
+                            <span class="label">${escapePrintHtml(txt.page)}</span>
+                            <span class="value">${escapePrintHtml(`${page} ${txt.of} ${totalPages}`)}</span>
+                        </div>
+                    </div>
+                </section>
+                <section class="section">
+                    <h2 class="section-title">${escapePrintHtml(txt.attendanceSummary)}</h2>
+                    <table>
+                        <thead>
+                            <tr>
+                                <th>${escapePrintHtml(txt.employee)}</th>
+                                <th>${escapePrintHtml(txt.clockIn)}</th>
+                                <th>${escapePrintHtml(txt.clockOut)}</th>
+                                <th class="num">${escapePrintHtml(txt.hours)}</th>
+                            </tr>
+                        </thead>
+                        <tbody>${rows}</tbody>
+                    </table>
+                </section>
+            `,
+        }));
         w.document.close();
     };
 

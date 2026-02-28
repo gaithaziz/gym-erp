@@ -7,6 +7,7 @@ import { useRouter } from 'next/navigation';
 import { Pencil, Calculator, Save, Plus, Download, Eye } from 'lucide-react';
 import Modal from '@/components/Modal';
 import { useFeedback } from '@/components/FeedbackProvider';
+import TablePagination from '@/components/TablePagination';
 import { resolveProfileImageUrl } from '@/lib/profileImage';
 import { downloadBlob } from '@/lib/download';
 import { useLocale } from '@/context/LocaleContext';
@@ -43,9 +44,7 @@ const defaultAddForm = {
     email: '',
     password: 'password123',
     role: 'COACH',
-    contract_type: 'FULL_TIME',
     base_salary: 0,
-    commission_rate: 0
 };
 
 const defaultEditForm = {
@@ -54,6 +53,7 @@ const defaultEditForm = {
     money_per_hour: 0,
     standard_hours: 160,
 };
+const STAFF_PAGE_SIZE = 10;
 
 export default function StaffPage() {
     const { locale, formatDate, formatNumber } = useLocale();
@@ -73,6 +73,7 @@ export default function StaffPage() {
     const [payrollResult, setPayrollResult] = useState<any>(null); // eslint-disable-line @typescript-eslint/no-explicit-any
 
     const [failedImageUrls, setFailedImageUrls] = useState<Record<string, true>>({});
+    const [staffPage, setStaffPage] = useState(1);
     const txt = locale === 'ar'
         ? {
             coach: 'مدرب',
@@ -105,11 +106,7 @@ export default function StaffPage() {
             email: 'البريد الإلكتروني',
             contractType: 'نوع العقد',
             fullTime: 'دوام كامل',
-            partTime: 'دوام جزئي',
-            hybrid: 'هجين',
-            contractor: 'متعاقد',
             baseSalary: 'الراتب الأساسي (JOD)',
-            commission: 'العمولة (0-1)',
             cancel: 'إلغاء',
             saveStaff: 'حفظ الموظف',
             editContract: 'تعديل العقد - ',
@@ -124,7 +121,7 @@ export default function StaffPage() {
             month: 'الشهر',
             year: 'السنة',
             salesVolume: 'حجم المبيعات (JOD)',
-            salesPlaceholder: 'أدخل المبيعات لحساب العمولة...',
+            salesPlaceholder: 'أدخل حجم المبيعات...',
             generate: 'إنشاء',
             payrollGenerated: 'تم إنشاء مسير الرواتب بنجاح',
             basePay: 'الأجر الأساسي',
@@ -132,11 +129,7 @@ export default function StaffPage() {
             close: 'إغلاق',
             downloadSlip: 'تنزيل القسيمة',
             currency: 'دينار',
-            commissionShort: 'عمولة',
             fullTimeContract: 'دوام كامل',
-            partTimeContract: 'دوام جزئي',
-            hybridContract: 'هجين',
-            contractorContract: 'متعاقد',
         }
         : {
             coach: 'Coach',
@@ -169,11 +162,7 @@ export default function StaffPage() {
             email: 'Email',
             contractType: 'Contract',
             fullTime: 'Full Time',
-            partTime: 'Part Time',
-            hybrid: 'Hybrid',
-            contractor: 'Contractor',
             baseSalary: 'Base Salary (JOD)',
-            commission: 'Commission (0-1)',
             cancel: 'Cancel',
             saveStaff: 'Save Staff',
             editContract: 'Edit Contract - ',
@@ -188,7 +177,7 @@ export default function StaffPage() {
             month: 'Month',
             year: 'Year',
             salesVolume: 'Sales Volume (JOD)',
-            salesPlaceholder: 'Enter sales for commission...',
+            salesPlaceholder: 'Enter sales volume...',
             generate: 'Generate',
             payrollGenerated: 'Payroll Generated Successfully',
             basePay: 'Base Pay',
@@ -196,11 +185,7 @@ export default function StaffPage() {
             close: 'Close',
             downloadSlip: 'Download Slip',
             currency: 'JOD',
-            commissionShort: 'Comm.',
             fullTimeContract: 'FULL_TIME',
-            partTimeContract: 'PART_TIME',
-            hybridContract: 'HYBRID',
-            contractorContract: 'CONTRACTOR',
         };
 
     const roleLabelsLocalized: Record<StaffRole, string> = {
@@ -214,6 +199,9 @@ export default function StaffPage() {
         if (roleFilter === 'ALL') return staff;
         return staff.filter((member) => member.role === roleFilter);
     }, [roleFilter, staff]);
+    const totalStaffPages = Math.max(1, Math.ceil(filteredStaff.length / STAFF_PAGE_SIZE));
+    const safeStaffPage = Math.min(staffPage, totalStaffPages);
+    const visibleStaff = filteredStaff.slice((safeStaffPage - 1) * STAFF_PAGE_SIZE, safeStaffPage * STAFF_PAGE_SIZE);
 
     const getRoleBadgeClass = (role: string) => {
         switch (role) {
@@ -236,12 +224,6 @@ export default function StaffPage() {
         switch (contractType) {
             case 'FULL_TIME':
                 return 'badge-green';
-            case 'PART_TIME':
-                return 'badge-blue';
-            case 'HYBRID':
-                return 'badge-purple';
-            case 'CONTRACTOR':
-                return 'badge-gray';
             default:
                 return 'badge-amber';
         }
@@ -250,12 +232,6 @@ export default function StaffPage() {
         switch (contractType) {
             case 'FULL_TIME':
                 return txt.fullTimeContract;
-            case 'PART_TIME':
-                return txt.partTimeContract;
-            case 'HYBRID':
-                return txt.hybridContract;
-            case 'CONTRACTOR':
-                return txt.contractorContract;
             default:
                 return txt.noContract;
         }
@@ -291,8 +267,8 @@ export default function StaffPage() {
             });
             const userId = userRes.data.data.id;
             await api.post('/hr/contracts', {
-                user_id: userId, contract_type: addForm.contract_type,
-                base_salary: Number(addForm.base_salary), commission_rate: Number(addForm.commission_rate),
+                user_id: userId, contract_type: 'FULL_TIME',
+                base_salary: Number(addForm.base_salary), commission_rate: 0,
                 start_date: new Date().toISOString().split('T')[0], standard_hours: 160
             });
             setIsAddOpen(false);
@@ -419,7 +395,7 @@ export default function StaffPage() {
                             {filteredStaff.length === 0 && (
                                 <tr><td colSpan={5} className="text-center py-8 text-muted-foreground text-sm">{txt.noStaff}</td></tr>
                             )}
-                            {filteredStaff.map((member) => (
+                            {visibleStaff.map((member) => (
                                 <tr key={member.id}>
                                     <td>
                                         {(() => {
@@ -453,12 +429,7 @@ export default function StaffPage() {
                                     </td>
                                     <td className="font-mono text-sm text-foreground">
                                         {member.contract ? (
-                                            <div>
-                                                <div>{formatNumber(member.contract.base_salary)} {txt.currency}</div>
-                                                {member.contract.commission_rate > 0 && (
-                                                    <div className="text-emerald-500 text-xs">+{(member.contract.commission_rate * 100).toFixed(0)}% {txt.commissionShort}</div>
-                                                )}
-                                            </div>
+                                            <div>{formatNumber(member.contract.base_salary)} {txt.currency}</div>
                                         ) : '-'}
                                     </td>
                                     <td>
@@ -484,7 +455,7 @@ export default function StaffPage() {
                     {filteredStaff.length === 0 && (
                         <div className="px-4 py-8 text-center text-sm text-muted-foreground">{txt.noStaff}</div>
                     )}
-                    {filteredStaff.map((member) => (
+                    {visibleStaff.map((member) => (
                         <div key={member.id} className="p-4">
                             <div className="flex items-start justify-between gap-3">
                                 <div className="flex items-center gap-3 min-w-0">
@@ -541,6 +512,12 @@ export default function StaffPage() {
                         </div>
                     ))}
                 </div>
+                <TablePagination
+                    page={safeStaffPage}
+                    totalPages={totalStaffPages}
+                    onPrevious={() => setStaffPage((prev) => Math.max(1, prev - 1))}
+                    onNext={() => setStaffPage((prev) => Math.min(totalStaffPages, prev + 1))}
+                />
             </div>
 
             {/* ADD MODAL */}
@@ -565,23 +542,12 @@ export default function StaffPage() {
                         </div>
                         <div>
                             <label className="block text-xs font-medium text-muted-foreground mb-1.5">{txt.contractType}</label>
-                            <select className="input-dark" value={addForm.contract_type} onChange={e => setAddForm({ ...addForm, contract_type: e.target.value })}>
-                                <option value="FULL_TIME">{txt.fullTime}</option>
-                                <option value="PART_TIME">{txt.partTime}</option>
-                                <option value="HYBRID">{txt.hybrid}</option>
-                                <option value="CONTRACTOR">{txt.contractor}</option>
-                            </select>
+                            <input type="text" className="input-dark" value={txt.fullTime} readOnly />
                         </div>
                     </div>
-                    <div className="grid grid-cols-2 gap-4">
-                        <div>
-                            <label className="block text-xs font-medium text-muted-foreground mb-1.5">{txt.baseSalary}</label>
-                            <input type="number" className="input-dark" value={addForm.base_salary} onChange={e => setAddForm({ ...addForm, base_salary: Number(e.target.value) })} />
-                        </div>
-                        <div>
-                            <label className="block text-xs font-medium text-muted-foreground mb-1.5">{txt.commission}</label>
-                            <input type="number" step="0.01" max="1" className="input-dark" value={addForm.commission_rate} onChange={e => setAddForm({ ...addForm, commission_rate: Number(e.target.value) })} />
-                        </div>
+                    <div>
+                        <label className="block text-xs font-medium text-muted-foreground mb-1.5">{txt.baseSalary}</label>
+                        <input type="number" className="input-dark" value={addForm.base_salary} onChange={e => setAddForm({ ...addForm, base_salary: Number(e.target.value) })} />
                     </div>
                     <div className="flex justify-end gap-3 pt-4 border-t border-border">
                         <button type="button" onClick={() => setIsAddOpen(false)} className="btn-ghost">{txt.cancel}</button>
@@ -667,12 +633,6 @@ export default function StaffPage() {
                                 <input type="number" className="input-dark" value={payrollForm.year} onChange={e => setPayrollForm({ ...payrollForm, year: Number(e.target.value) })} />
                             </div>
                         </div>
-                        {payrollTarget?.contract?.type === 'HYBRID' && (
-                            <div>
-                                <label className="block text-xs font-medium text-muted-foreground mb-1.5">{txt.salesVolume}</label>
-                                <input type="number" step="0.01" className="input-dark" value={payrollForm.sales_volume} onChange={e => setPayrollForm({ ...payrollForm, sales_volume: Number(e.target.value) })} placeholder={txt.salesPlaceholder} />
-                            </div>
-                        )}
                         <div className="flex justify-end gap-3 pt-4 border-t border-border">
                             <button type="button" onClick={() => setIsPayrollOpen(false)} className="btn-ghost">{txt.cancel}</button>
                             <button type="submit" className="btn-primary"><Calculator size={16} /> {txt.generate}</button>

@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Dumbbell, PlayCircle, X } from 'lucide-react';
 
 import Modal from '@/components/Modal';
+import PlanDetailsToggle from '@/components/PlanDetailsToggle';
 import { useFeedback } from '@/components/FeedbackProvider';
 import { api } from '@/lib/api';
 import { useLocale } from '@/context/LocaleContext';
@@ -20,6 +21,11 @@ type SessionEntryDraft = {
     reps_completed: number;
     weight_kg: string;
 };
+
+type GroupedExercises = Array<{
+    groupName: string;
+    exercises: NonNullable<MemberPlan['exercises']>;
+}>;
 
 const getApiErrorMessage = (error: unknown, fallback: string) => {
     const detail = (error as { response?: { data?: { detail?: string } } })?.response?.data?.detail;
@@ -39,6 +45,7 @@ export default function MemberPlansPage() {
     const [selectedSessionGroup, setSelectedSessionGroup] = useState('');
     const [loggingSession, setLoggingSession] = useState(false);
     const [sessionsThisWeek, setSessionsThisWeek] = useState(0);
+    const [expandedPlanIds, setExpandedPlanIds] = useState<Record<string, boolean>>({});
     const [videoPopup, setVideoPopup] = useState<{
         title: string;
         youtubeEmbedUrl?: string;
@@ -89,6 +96,11 @@ export default function MemberPlansPage() {
         videoTitleSuffix: 'فيديو',
         previewUnavailable: 'تعذر معاينة هذا المصدر في النافذة المنبثقة.',
         openSource: 'فتح المصدر',
+        viewDetails: '\u0639\u0631\u0636 \u0627\u0644\u062a\u0641\u0627\u0635\u064a\u0644',
+        collapseDetails: '\u0637\u064a',
+        previewSummary: '\u0645\u0639\u0627\u064a\u0646\u0629',
+        moreExercises: '\u062a\u0645\u0627\u0631\u064a\u0646 \u0625\u0636\u0627\u0641\u064a\u0629',
+        noExercisesPreview: '\u0644\u0627 \u062a\u0648\u062c\u062f \u062a\u0645\u0627\u0631\u064a\u0646 \u0645\u0636\u0627\u0641\u0629 \u0628\u0639\u062f.',
     } : {
         loadPlansFailed: 'Failed to load workout plans',
         fallbackExercise: 'Exercise',
@@ -127,6 +139,123 @@ export default function MemberPlansPage() {
         videoTitleSuffix: 'video',
         previewUnavailable: 'Unable to preview this source in popup.',
         openSource: 'Open Source',
+        viewDetails: 'View Details',
+        collapseDetails: 'Collapse',
+        previewSummary: 'Preview',
+        moreExercises: 'more exercises',
+        noExercisesPreview: 'No exercises added yet.',
+    };
+
+    const getExerciseDisplayName = (
+        exercise: NonNullable<MemberPlan['exercises']>[number],
+        index: number
+    ) => exercise.exercise_name || exercise.exercise?.name || exercise.name || `${txt.fallbackExercise} ${index + 1}`;
+
+    const getGroupedExercises = (plan: MemberPlan): GroupedExercises => Array.from(
+        (plan.exercises || []).reduce((acc, exercise) => {
+            const groupName = exercise.section_name?.trim() || txt.general;
+            if (!acc.has(groupName)) acc.set(groupName, []);
+            acc.get(groupName)?.push(exercise);
+            return acc;
+        }, new Map<string, NonNullable<MemberPlan['exercises']>>())
+    ).map(([groupName, exercises]) => ({
+        groupName,
+        exercises: exercises.slice().sort((a, b) => (a.order ?? 0) - (b.order ?? 0)),
+    }));
+
+    const renderCollapsedPlanPreview = (plan: MemberPlan) => {
+        const groupedExercises = getGroupedExercises(plan);
+        if (groupedExercises.length === 0) {
+            return (
+                <div className="rounded-sm border border-dashed border-border bg-muted/10 px-3 py-2 text-xs text-muted-foreground">
+                    {txt.noExercisesPreview}
+                </div>
+            );
+        }
+
+        const previewGroups = groupedExercises.slice(0, 2);
+        const totalExerciseCount = groupedExercises.reduce((sum, group) => sum + group.exercises.length, 0);
+        const previewExerciseCount = previewGroups.reduce((sum, group) => sum + Math.min(group.exercises.length, 2), 0);
+        const remainingExerciseCount = Math.max(totalExerciseCount - previewExerciseCount, 0);
+
+        return (
+            <div className="space-y-2">
+                <p className="text-[10px] font-bold uppercase tracking-[0.14em] text-muted-foreground/70">{txt.previewSummary}</p>
+                {previewGroups.map(({ groupName, exercises }) => (
+                    <div key={`${plan.id}-${groupName}-preview`} className="rounded-sm border border-border bg-muted/15 px-3 py-2">
+                        <p className="mb-1 text-[10px] uppercase tracking-wider text-primary font-mono">{groupName}</p>
+                        <div className="space-y-1.5">
+                            {exercises.slice(0, 2).map((exercise, index) => (
+                                <div key={`${plan.id}-${groupName}-${exercise.id || exercise.exercise_id || index}`} className="flex items-center justify-between gap-2 text-xs">
+                                    <span className="min-w-0 truncate text-foreground">
+                                        {getExerciseDisplayName(exercise, index)}
+                                    </span>
+                                    <span className="shrink-0 text-[11px] font-mono text-muted-foreground">
+                                        {exercise.sets}x{exercise.reps}
+                                    </span>
+                                </div>
+                            ))}
+                        </div>
+                    </div>
+                ))}
+                {remainingExerciseCount > 0 && (
+                    <p className="text-xs text-muted-foreground">
+                        +{remainingExerciseCount} {txt.moreExercises}
+                    </p>
+                )}
+            </div>
+        );
+    };
+
+    const renderExpandedPlanDetails = (plan: MemberPlan) => {
+        const groupedExercises = getGroupedExercises(plan);
+        if (groupedExercises.length === 0) return null;
+
+        return (
+            <div className="space-y-2">
+                {groupedExercises.map(({ groupName, exercises }) => (
+                    <div key={`${plan.id}-${groupName}`} className="border border-border bg-muted/20 p-2">
+                        <p className="text-[10px] uppercase tracking-wider text-primary font-mono mb-1">{groupName}</p>
+                        <div className="space-y-2">
+                            {exercises.map((exercise, index) => {
+                                const videoUrl = resolveExerciseVideoUrl(exercise);
+                                const exerciseName = getExerciseDisplayName(exercise, index);
+                                return (
+                                    <div key={`${plan.id}-${groupName}-${exercise.id || exercise.exercise_id || index}`} className="border border-border bg-background/60 p-2 space-y-2">
+                                        <div className="flex items-center justify-between gap-2">
+                                            <p className="text-xs font-semibold text-foreground">{exerciseName}</p>
+                                            <span className="text-[11px] text-muted-foreground font-mono">{exercise.sets}x{exercise.reps}</span>
+                                        </div>
+                                        <div className="flex flex-wrap gap-2 text-[10px] font-mono">
+                                            <span className="px-1.5 py-0.5 border border-border text-muted-foreground">{txt.sets}: {exercise.sets}</span>
+                                            <span className="px-1.5 py-0.5 border border-border text-muted-foreground">{txt.reps}: {exercise.reps}</span>
+                                            {exercise.duration_minutes ? (
+                                                <span className="px-1.5 py-0.5 border border-border text-muted-foreground">{txt.duration}: {exercise.duration_minutes} {txt.min}</span>
+                                            ) : null}
+                                            {exercise.video_provider ? (
+                                                <span className="px-1.5 py-0.5 border border-border text-primary">{txt.video}: {exercise.video_provider}</span>
+                                            ) : null}
+                                        </div>
+                                        {videoUrl && (
+                                            <div className="space-y-2">
+                                                <button
+                                                    type="button"
+                                                    className="inline-flex items-center gap-1.5 rounded-sm border border-primary/40 bg-primary/10 px-2 py-1 text-[11px] text-primary hover:bg-primary/20"
+                                                    onClick={() => openVideoPopup(exerciseName, videoUrl)}
+                                                >
+                                                    <PlayCircle size={12} />
+                                                    {txt.watchVideo}
+                                                </button>
+                                            </div>
+                                        )}
+                                    </div>
+                                );
+                            })}
+                        </div>
+                    </div>
+                ))}
+            </div>
+        );
     };
 
     const resolveExerciseVideoUrl = (exercise: NonNullable<MemberPlan['exercises']>[number]) => {
@@ -205,7 +334,7 @@ export default function MemberPlansPage() {
             setLoadError(message);
             showToast(message, 'error');
         }
-    }, [showToast]);
+    }, [showToast, txt.loadPlansFailed]);
 
     const loadSessionSummary = useCallback(async () => {
         const logs = await fetchMemberSessionLogs();
@@ -395,61 +524,24 @@ export default function MemberPlansPage() {
                                     {txt.logSession}
                                 </button>
 
-                                {plan.exercises && plan.exercises.length > 0 && (
-                                    <div className="mt-3 space-y-2">
-                                        {Array.from(
-                                            (plan.exercises || []).reduce((acc, exercise) => {
-                                                const group = exercise.section_name?.trim() || txt.general;
-                                                if (!acc.has(group)) acc.set(group, []);
-                                                acc.get(group)?.push(exercise);
-                                                return acc;
-                                            }, new Map<string, typeof plan.exercises>())
-                                        ).map(([groupName, exercises]) => (
-                                            <div key={`${plan.id}-${groupName}`} className="border border-border bg-muted/20 p-2">
-                                                <p className="text-[10px] uppercase tracking-wider text-primary font-mono mb-1">{groupName}</p>
-                                                <div className="space-y-2">
-                                                    {exercises
-                                                        .slice()
-                                                        .sort((a, b) => (a.order ?? 0) - (b.order ?? 0))
-                                                        .map((exercise, index) => {
-                                                            const videoUrl = resolveExerciseVideoUrl(exercise);
-                                                            const exerciseName = exercise.exercise_name || exercise.exercise?.name || exercise.name || `${txt.fallbackExercise} ${index + 1}`;
-                                                            return (
-                                                                <div key={`${plan.id}-${groupName}-${index}`} className="border border-border bg-background/60 p-2 space-y-2">
-                                                                    <div className="flex items-center justify-between gap-2">
-                                                                        <p className="text-xs font-semibold text-foreground">{exerciseName}</p>
-                                                                        <span className="text-[11px] text-muted-foreground font-mono">{exercise.sets}x{exercise.reps}</span>
-                                                                    </div>
-                                                                    <div className="flex flex-wrap gap-2 text-[10px] font-mono">
-                                                                        <span className="px-1.5 py-0.5 border border-border text-muted-foreground">{txt.sets}: {exercise.sets}</span>
-                                                                        <span className="px-1.5 py-0.5 border border-border text-muted-foreground">{txt.reps}: {exercise.reps}</span>
-                                                                        {exercise.duration_minutes ? (
-                                                                            <span className="px-1.5 py-0.5 border border-border text-muted-foreground">{txt.duration}: {exercise.duration_minutes} {txt.min}</span>
-                                                                        ) : null}
-                                                                        {exercise.video_provider ? (
-                                                                            <span className="px-1.5 py-0.5 border border-border text-primary">{txt.video}: {exercise.video_provider}</span>
-                                                                        ) : null}
-                                                                    </div>
-                                                                    {videoUrl && (
-                                                                        <div className="space-y-2">
-                                                                            <button
-                                                                                type="button"
-                                                                                className="inline-flex items-center gap-1.5 rounded-sm border border-primary/40 bg-primary/10 px-2 py-1 text-[11px] text-primary hover:bg-primary/20"
-                                                                                onClick={() => openVideoPopup(exerciseName, videoUrl)}
-                                                                            >
-                                                                                <PlayCircle size={12} />
-                                                                                {txt.watchVideo}
-                                                                            </button>
-                                                                        </div>
-                                                                    )}
-                                                        </div>
-                                                            );
-                                                        })}
-                                                </div>
-                                            </div>
-                                        ))}
-                                    </div>
-                                )}
+                                <div className="mt-3">
+                                    {expandedPlanIds[plan.id]
+                                        ? renderExpandedPlanDetails(plan)
+                                        : renderCollapsedPlanPreview(plan)}
+                                </div>
+
+                                <div className="mt-3 border-t border-border pt-3">
+                                    <PlanDetailsToggle
+                                        expanded={!!expandedPlanIds[plan.id]}
+                                        onClick={() => setExpandedPlanIds((prev) => ({
+                                            ...prev,
+                                            [plan.id]: !prev[plan.id],
+                                        }))}
+                                        expandLabel={txt.viewDetails}
+                                        collapseLabel={txt.collapseDetails}
+                                        size="sm"
+                                    />
+                                </div>
                             </div>
                         ))}
                     </div>

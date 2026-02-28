@@ -11,6 +11,7 @@ import Link from 'next/link';
 import { DateRangePicker } from '@/components/DateRangePicker';
 import { DashboardGrid } from '@/components/DashboardGrid';
 import MemberSearchSelect from '@/components/MemberSearchSelect';
+import TablePagination from '@/components/TablePagination';
 import { fetchMemberOverviewData } from '@/app/dashboard/member/_shared/customerData';
 import type { GamificationStats as MemberGamificationStats } from '@/app/dashboard/member/_shared/types';
 import { DateRange } from 'react-day-picker';
@@ -78,6 +79,7 @@ interface MemberSummary {
     email: string;
     date_of_birth?: string;
 }
+const VISITOR_ROWS_PAGE_SIZE = 10;
 
 interface BiometricLogResponse {
     id: string;
@@ -157,6 +159,7 @@ function AdminDashboard({ userName }: { userName: string }) {
     const [recentActivity, setRecentActivity] = useState<ActivityItem[]>([]);
     const [lowStockItems, setLowStockItems] = useState<LowStockItem[]>([]);
     const [dailyVisitors, setDailyVisitors] = useState<DailyVisitorRow[]>([]);
+    const [dailyVisitorsPage, setDailyVisitorsPage] = useState(1);
     const [dateRange, setDateRange] = useState<DateRange | undefined>({
         from: subDays(new Date(), 30),
         to: new Date(),
@@ -209,6 +212,10 @@ function AdminDashboard({ userName }: { userName: string }) {
     useEffect(() => {
         fetchData();
     }, [fetchData]);
+
+    const totalDailyVisitorPages = Math.max(1, Math.ceil(dailyVisitors.length / VISITOR_ROWS_PAGE_SIZE));
+    const safeDailyVisitorsPage = Math.min(dailyVisitorsPage, totalDailyVisitorPages);
+    const visibleDailyVisitors = dailyVisitors.slice((safeDailyVisitorsPage - 1) * VISITOR_ROWS_PAGE_SIZE, safeDailyVisitorsPage * VISITOR_ROWS_PAGE_SIZE);
 
     const formatTime = (iso: string) => {
         if (!iso) return '';
@@ -515,7 +522,7 @@ function AdminDashboard({ userName }: { userName: string }) {
                         </thead>
                         <tbody>
                             {dailyVisitors.length > 0 ? (
-                                dailyVisitors.map((row, i) => (
+                                visibleDailyVisitors.map((row, i) => (
                                     <tr key={`${row.date || row.week_start}-${i}`}>
                                         <td className="font-mono text-xs text-muted-foreground">{row.date || row.week_start || '-'}</td>
                                         <td className="font-mono text-xs text-foreground">{row.unique_visitors}</td>
@@ -529,6 +536,12 @@ function AdminDashboard({ userName }: { userName: string }) {
                         </tbody>
                     </table>
                 </div>
+                <TablePagination
+                    page={safeDailyVisitorsPage}
+                    totalPages={totalDailyVisitorPages}
+                    onPrevious={() => setDailyVisitorsPage((prev) => Math.max(1, prev - 1))}
+                    onNext={() => setDailyVisitorsPage((prev) => Math.min(totalDailyVisitorPages, prev + 1))}
+                />
             </div>
         </div>
     );
@@ -1018,7 +1031,7 @@ function CustomerDashboard({
             day: 'numeric',
         })
         : (locale === 'ar' ? 'لا يوجد تاريخ انتهاء' : 'No expiry date set');
-    const planLabel = subscriptionPlanName || (locale === 'ar' ? 'خطة اشتراك' : 'Membership Plan');
+    const planLabel = localizeSubscriptionPlanName(subscriptionPlanName, locale) || (locale === 'ar' ? 'خطة اشتراك' : 'Membership Plan');
     const statusLabel = subscriptionStatus || 'NONE';
     const subscriptionCardTheme = {
         ACTIVE: {
@@ -1189,6 +1202,21 @@ function CustomerDashboard({
 }
 
 // ======================== MAIN DASHBOARD PAGE ========================
+
+function localizeSubscriptionPlanName(planName: string | null | undefined, locale: string) {
+    if (!planName) return '';
+    const normalized = planName.trim().toLowerCase();
+    const labels: Record<string, { en: string; ar: string }> = {
+        daily: { en: 'Daily', ar: 'يومي' },
+        weekly: { en: 'Weekly', ar: 'أسبوعي' },
+        monthly: { en: 'Monthly', ar: 'شهري' },
+        yearly: { en: 'Yearly', ar: 'سنوي' },
+        annual: { en: 'Annual', ar: 'سنوي' },
+    };
+    const direct = labels[normalized];
+    if (direct) return locale === 'ar' ? direct.ar : direct.en;
+    return planName;
+}
 
 function CashierDashboard({ userName }: { userName: string }) {
     const { locale } = useLocale();

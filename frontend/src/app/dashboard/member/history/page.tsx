@@ -1,4 +1,4 @@
-﻿'use client';
+'use client';
 
 import { useEffect, useState } from 'react';
 import { api } from '@/lib/api';
@@ -32,10 +32,10 @@ export default function HistoryPage() {
     const paymentMethodLabel = (method: string) => {
         const normalized = method.trim().toUpperCase();
         if (locale === 'ar') {
-            if (normalized === 'CASH') return 'Ù†Ù‚Ø¯Ù‹Ø§';
-            if (normalized === 'CARD') return 'Ø¨Ø·Ø§Ù‚Ø©';
-            if (normalized === 'TRANSFER') return 'ØªØ­ÙˆÙŠÙ„';
-            if (normalized === 'ONLINE') return 'Ø£ÙˆÙ†Ù„Ø§ÙŠÙ†';
+            if (normalized === 'CASH') return 'نقدًا';
+            if (normalized === 'CARD') return 'بطاقة';
+            if (normalized === 'TRANSFER') return 'تحويل';
+            if (normalized === 'ONLINE') return 'أونلاين';
         } else {
             if (normalized === 'CASH') return 'Cash';
             if (normalized === 'CARD') return 'Card';
@@ -49,16 +49,15 @@ export default function HistoryPage() {
         const fetchHistory = async () => {
             setLoading(true);
             try {
-                // Fetch both in parallel
                 const [accessRes, financeRes] = await Promise.all([
                     api.get('/access/my-history').catch(() => ({ data: { data: [] } })),
-                    api.get('/finance/my-transactions').catch(() => ({ data: { data: [] } }))
+                    api.get('/finance/my-transactions').catch(() => ({ data: { data: [] } })),
                 ]);
 
                 setAccessLogs(accessRes.data.data || []);
                 setTransactions(financeRes.data.data || []);
             } catch (err) {
-                console.error("Failed to fetch history", err);
+                console.error('Failed to fetch history', err);
             } finally {
                 setLoading(false);
             }
@@ -78,11 +77,10 @@ export default function HistoryPage() {
     return (
         <div className="max-w-4xl mx-auto space-y-8">
             <div>
-                <h1 className="text-2xl font-bold text-foreground font-serif tracking-tight">{locale === 'ar' ? 'Ø§Ù„Ø³Ø¬Ù„ ÙˆØ§Ù„Ø³Ø¬Ù„Ø§Øª' : 'History & Logs'}</h1>
-                <p className="text-sm text-muted-foreground mt-1">{locale === 'ar' ? 'Ø§Ø·Ù‘Ù„Ø¹ Ø¹Ù„Ù‰ Ø³Ø¬Ù„Ø§Øª Ø§Ù„Ø­Ø¶ÙˆØ± ÙˆØ§Ù„Ù…Ø¯ÙÙˆØ¹Ø§Øª' : 'View your attendance and payment records'}</p>
+                <h1 className="text-2xl font-bold text-foreground font-serif tracking-tight">{locale === 'ar' ? 'السجل والسجلات' : 'History & Logs'}</h1>
+                <p className="text-sm text-muted-foreground mt-1">{locale === 'ar' ? 'اطّلع على سجلات الحضور والمدفوعات' : 'View your attendance and payment records'}</p>
             </div>
 
-            {/* Tabs */}
             <div className="flex border-b border-border">
                 <button
                     onClick={() => setActiveTab('ACCESS')}
@@ -92,7 +90,7 @@ export default function HistoryPage() {
                         }`}
                 >
                     <QrCode size={16} />
-                    {locale === 'ar' ? 'Ø³Ø¬Ù„Ø§Øª Ø§Ù„Ø¯Ø®ÙˆÙ„' : 'Access Logs'}
+                    {locale === 'ar' ? 'سجلات الدخول' : 'Access Logs'}
                 </button>
                 <button
                     onClick={() => setActiveTab('PAYMENTS')}
@@ -102,7 +100,7 @@ export default function HistoryPage() {
                         }`}
                 >
                     <Wallet size={16} />
-                    {locale === 'ar' ? 'Ø§Ù„Ù…Ø¯ÙÙˆØ¹Ø§Øª' : 'Payments'}
+                    {locale === 'ar' ? 'المدفوعات' : 'Payments'}
                 </button>
             </div>
 
@@ -121,8 +119,8 @@ export default function HistoryPage() {
                                         <div>
                                             <p className="text-sm font-bold text-foreground">
                                                 {log.status === 'GRANTED'
-                                                    ? (locale === 'ar' ? 'ØªÙ… ØªØ³Ø¬ÙŠÙ„ Ø§Ù„Ø¯Ø®ÙˆÙ„ Ø¨Ù†Ø¬Ø§Ø­' : 'Check-in Successful')
-                                                    : (locale === 'ar' ? 'ØªÙ… Ø±ÙØ¶ Ø§Ù„Ø¯Ø®ÙˆÙ„' : 'Access Denied')}
+                                                    ? (locale === 'ar' ? 'تم تسجيل الدخول بنجاح' : 'Check-in Successful')
+                                                    : (locale === 'ar' ? 'تم رفض الدخول' : 'Access Denied')}
                                             </p>
                                             <p className="text-xs text-muted-foreground font-mono">
                                                 {formatDate(log.scan_time, { year: 'numeric', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })}
@@ -135,7 +133,7 @@ export default function HistoryPage() {
                                 </div>
                             ))
                         ) : (
-                            <EmptyState icon={QrCode} text={locale === 'ar' ? 'Ù„Ø§ ØªÙˆØ¬Ø¯ Ø³Ø¬Ù„Ø§Øª Ø¯Ø®ÙˆÙ„' : 'No access logs found'} />
+                            <EmptyState icon={QrCode} text={locale === 'ar' ? 'لا توجد سجلات دخول' : 'No access logs found'} />
                         )}
                     </div>
                 ) : (
@@ -160,7 +158,7 @@ export default function HistoryPage() {
                                 </div>
                             ))
                         ) : (
-                            <EmptyState icon={Wallet} text={locale === 'ar' ? 'Ù„Ø§ ØªÙˆØ¬Ø¯ Ù…Ø¹Ø§Ù…Ù„Ø§Øª' : 'No transactions found'} />
+                            <EmptyState icon={Wallet} text={locale === 'ar' ? 'لا توجد معاملات' : 'No transactions found'} />
                         )}
                     </div>
                 )}
@@ -186,7 +184,5 @@ function CheckIcon() {
     const strokeLineJoin = 'round';
     return (
         <svg xmlns={svgXmlns} width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap={strokeLineCap} strokeLinejoin={strokeLineJoin}><polyline points="20 6 9 17 4 12" /></svg>
-    )
+    );
 }
-
-

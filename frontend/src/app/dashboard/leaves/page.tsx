@@ -5,6 +5,7 @@ import { api } from '@/lib/api';
 import { Plus } from 'lucide-react';
 import Modal from '@/components/Modal';
 import { useFeedback } from '@/components/FeedbackProvider';
+import TablePagination from '@/components/TablePagination';
 import { useLocale } from '@/context/LocaleContext';
 
 interface LeaveRequest {
@@ -15,6 +16,7 @@ interface LeaveRequest {
     status: string;
     reason: string | null;
 }
+const MY_LEAVES_PAGE_SIZE = 10;
 
 export default function MyLeavesPage() {
     const { showToast } = useFeedback();
@@ -22,6 +24,7 @@ export default function MyLeavesPage() {
     const [leaves, setLeaves] = useState<LeaveRequest[]>([]);
     const [loading, setLoading] = useState(true);
     const [isAddOpen, setIsAddOpen] = useState(false);
+    const [leavesPage, setLeavesPage] = useState(1);
 
     // form state
     const [startDate, setStartDate] = useState('');
@@ -43,6 +46,13 @@ export default function MyLeavesPage() {
     useEffect(() => {
         fetchLeaves();
     }, []);
+
+    useEffect(() => {
+        setLeavesPage(1);
+    }, [leaves.length]);
+
+    const totalLeavesPages = Math.max(1, Math.ceil(leaves.length / MY_LEAVES_PAGE_SIZE));
+    const visibleLeaves = leaves.slice((leavesPage - 1) * MY_LEAVES_PAGE_SIZE, leavesPage * MY_LEAVES_PAGE_SIZE);
 
     const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
@@ -99,7 +109,7 @@ export default function MyLeavesPage() {
                             {leaves.length === 0 && (
                                 <tr><td colSpan={4} className="text-center py-8 text-muted-foreground text-sm">{locale === 'ar' ? 'لا توجد طلبات إجازة بعد' : 'No leave requests yet'}</td></tr>
                             )}
-                            {leaves.map((l) => (
+                            {visibleLeaves.map((l) => (
                                 <tr key={l.id}>
                                     <td className="font-medium text-foreground">
                                         {formatDate(l.start_date, { year: 'numeric', month: 'short', day: 'numeric' })} - {formatDate(l.end_date, { year: 'numeric', month: 'short', day: 'numeric' })}
@@ -118,6 +128,12 @@ export default function MyLeavesPage() {
                         </tbody>
                     </table>
                 </div>
+                <TablePagination
+                    page={leavesPage}
+                    totalPages={totalLeavesPages}
+                    onPrevious={() => setLeavesPage((prev) => Math.max(1, prev - 1))}
+                    onNext={() => setLeavesPage((prev) => Math.min(totalLeavesPages, prev + 1))}
+                />
             </div>
 
             <Modal isOpen={isAddOpen} onClose={() => setIsAddOpen(false)} title={locale === 'ar' ? 'طلب إجازة' : 'Request Leave'}>

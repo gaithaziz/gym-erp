@@ -7,6 +7,7 @@ import { useRouter } from 'next/navigation';
 import { Search, UserPlus, Save, Shield, Snowflake, RefreshCw, Pencil, Trash2, Eye, Dumbbell, Utensils, MessageCircle } from 'lucide-react';
 import Modal from '@/components/Modal';
 import { useFeedback } from '@/components/FeedbackProvider';
+import TablePagination from '@/components/TablePagination';
 import { useAuth } from '@/context/AuthContext';
 import { resolveProfileImageUrl } from '@/lib/profileImage';
 import { ResponsiveContainer, LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip } from 'recharts';
@@ -91,6 +92,7 @@ type AssignableType = 'WORKOUT' | 'DIET';
 type MemberStatusFilter = 'ALL' | 'ACTIVE' | 'FROZEN' | 'EXPIRED' | 'NONE';
 type WorkoutPlanStatusFilter = 'ALL' | 'PUBLISHED' | 'DRAFT' | 'ARCHIVED';
 type DietPlanStatusFilter = 'ALL' | 'PUBLISHED' | 'DRAFT' | 'ARCHIVED';
+const MEMBERS_PAGE_SIZE = 10;
 
 export default function MembersPage() {
     const { t, formatDate, locale } = useLocale();
@@ -108,6 +110,7 @@ export default function MembersPage() {
     const [debouncedSearch, setDebouncedSearch] = useState('');
     const [statusFilter, setStatusFilter] = useState<MemberStatusFilter>('ALL');
     const [failedImageUrls, setFailedImageUrls] = useState<Record<string, true>>({});
+    const [membersPage, setMembersPage] = useState(1);
 
     // Add Modal
     const [isAddOpen, setIsAddOpen] = useState(false);
@@ -678,6 +681,12 @@ export default function MembersPage() {
             return matchesSearch && matchesStatus;
         });
     }, [members, debouncedSearch, statusFilter]);
+    const totalMemberPages = Math.max(1, Math.ceil(filtered.length / MEMBERS_PAGE_SIZE));
+    const visibleMembers = filtered.slice((membersPage - 1) * MEMBERS_PAGE_SIZE, membersPage * MEMBERS_PAGE_SIZE);
+
+    useEffect(() => {
+        setMembersPage(1);
+    }, [filtered.length]);
 
     const filteredAssignableWorkoutPlans = useMemo(() => {
         if (assignWorkoutStatusFilter === 'ALL') return plans;
@@ -760,7 +769,7 @@ export default function MembersPage() {
                             {filtered.length === 0 && (
                                 <tr><td colSpan={5} className="text-center py-8 text-muted-foreground text-sm">{t('members.noMembers')}</td></tr>
                             )}
-                            {filtered.map(m => (
+                            {visibleMembers.map(m => (
                                 <tr key={m.id}>
                                     <td>
                                         {(() => {
@@ -854,7 +863,7 @@ export default function MembersPage() {
                     {filtered.length === 0 && (
                         <div className="px-4 py-8 text-center text-sm text-muted-foreground">{t('members.noMembers')}</div>
                     )}
-                    {filtered.map((m) => (
+                    {visibleMembers.map((m) => (
                         <div key={m.id} className="p-4">
                             <div className="flex items-start justify-between gap-3">
                                 <div className="flex items-center gap-3 min-w-0">
@@ -944,6 +953,12 @@ export default function MembersPage() {
                         </div>
                     ))}
                 </div>
+                <TablePagination
+                    page={membersPage}
+                    totalPages={totalMemberPages}
+                    onPrevious={() => setMembersPage((prev) => Math.max(1, prev - 1))}
+                    onNext={() => setMembersPage((prev) => Math.min(totalMemberPages, prev + 1))}
+                />
             </div>
 
             {/* ===== ADD MEMBER MODAL ===== */}

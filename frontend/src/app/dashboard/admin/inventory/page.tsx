@@ -1,9 +1,10 @@
 'use client';
 
-import { useEffect, useState, useCallback } from 'react';
+import { useEffect, useState, useCallback, useMemo } from 'react';
 import { api } from '@/lib/api';
 import { Package, Plus, Search, Edit, Trash2, AlertTriangle, X } from 'lucide-react';
 import { useFeedback } from '@/components/FeedbackProvider';
+import TablePagination from '@/components/TablePagination';
 import { useLocale } from '@/context/LocaleContext';
 
 interface Product {
@@ -21,6 +22,7 @@ interface Product {
 }
 
 const CATEGORIES = ['SUPPLEMENT', 'DRINK', 'MERCHANDISE', 'SNACK', 'OTHER'];
+const INVENTORY_PAGE_SIZE = 10;
 
 export default function InventoryPage() {
     const { t, formatNumber } = useLocale();
@@ -31,6 +33,7 @@ export default function InventoryPage() {
     const [categoryFilter, setCategoryFilter] = useState('');
     const [debouncedSearch, setDebouncedSearch] = useState('');
     const [debouncedCategoryFilter, setDebouncedCategoryFilter] = useState('');
+    const [productsPage, setProductsPage] = useState(1);
     const [showModal, setShowModal] = useState(false);
     const [editingProduct, setEditingProduct] = useState<Product | null>(null);
     const [form, setForm] = useState({
@@ -78,6 +81,16 @@ export default function InventoryPage() {
     useEffect(() => {
         fetchProducts();
     }, [fetchProducts]);
+
+    useEffect(() => {
+        setProductsPage(1);
+    }, [products.length]);
+
+    const totalProductPages = Math.max(1, Math.ceil(products.length / INVENTORY_PAGE_SIZE));
+    const visibleProducts = useMemo(
+        () => products.slice((productsPage - 1) * INVENTORY_PAGE_SIZE, productsPage * INVENTORY_PAGE_SIZE),
+        [products, productsPage]
+    );
 
     const openCreate = () => {
         setEditingProduct(null);
@@ -215,7 +228,7 @@ export default function InventoryPage() {
                                         <p>{t('inventory.noProducts')}</p>
                                     </td>
                                 </tr>
-                            ) : products.map(p => (
+                            ) : visibleProducts.map(p => (
                                 <tr key={p.id} className="border-b border-border hover:bg-muted/10 transition-colors">
                                     <td className="px-4 py-3">
                                         <p className="font-bold text-foreground">{p.name}</p>
@@ -251,6 +264,12 @@ export default function InventoryPage() {
                             ))}
                         </tbody>
                     </table>
+                    <TablePagination
+                        page={productsPage}
+                        totalPages={totalProductPages}
+                        onPrevious={() => setProductsPage((prev) => Math.max(1, prev - 1))}
+                        onNext={() => setProductsPage((prev) => Math.min(totalProductPages, prev + 1))}
+                    />
                 </div>
             )}
 

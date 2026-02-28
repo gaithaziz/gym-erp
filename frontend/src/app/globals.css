@@ -276,8 +276,33 @@ html[lang="ar"] body {
   padding: 0.625rem 0.875rem;
   font-size: 0.875rem;
   color: var(--foreground);
+  font-family: inherit;
+  text-align: start;
   outline: none;
   transition: border-color 0.2s ease;
+}
+
+select.input-dark {
+  direction: inherit;
+  text-align: start;
+}
+
+textarea.input-dark,
+input[type="text"].input-dark,
+input[type="search"].input-dark,
+input[type="tel"].input-dark,
+input[type="password"].input-dark {
+  direction: inherit;
+  text-align: start;
+  unicode-bidi: plaintext;
+}
+
+textarea.input-dark::placeholder,
+input[type="text"].input-dark::placeholder,
+input[type="search"].input-dark::placeholder,
+input[type="tel"].input-dark::placeholder,
+input[type="password"].input-dark::placeholder {
+  text-align: start;
 }
 
 .input-dark:focus {
@@ -354,6 +379,7 @@ html[lang="ar"] body {
   font-weight: 600;
   padding: 0.75rem 1.5rem;
   border-bottom: 1px solid var(--border);
+  text-align: start;
 }
 
 .table-dark td {
