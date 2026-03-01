@@ -1,0 +1,19 @@
+{
+  "name": "gym-erp-workspace",
+  "private": true,
+  "workspaces": [
+    "frontend",
+    "mobile",
+    "packages/*"
+  ],
+  "scripts": {
+    "dev:web": "npm run dev --workspace frontend",
+    "dev:mobile": "npm run start --workspace mobile",
+    "build:web": "npm run build --workspace frontend",
+    "typecheck:web": "npm run typecheck --workspace frontend",
+    "typecheck:mobile": "npm run typecheck --workspace mobile",
+    "lint:web": "npm run lint --workspace frontend",
+    "test:web": "npm run test:e2e:fast --workspace frontend",
+    "test:mobile": "npm run test --workspace mobile"
+  }
+}

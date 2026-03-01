@@ -2,25 +2,11 @@
 
 import React, { createContext, useContext, useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
+import type { AuthUser } from '@gym-erp/contracts';
 import { clearTokens, getAccessToken, setTokens } from '@/lib/tokenStorage';
 import { api } from '@/lib/api';
 
-interface User {
-    id: string;
-    email: string;
-    full_name: string;
-    role: string;
-    profile_picture_url?: string;
-    phone_number?: string;
-    date_of_birth?: string;
-    emergency_contact?: string;
-    bio?: string;
-    subscription_status?: 'ACTIVE' | 'FROZEN' | 'EXPIRED' | 'NONE';
-    subscription_end_date?: string | null;
-    subscription_plan_name?: string | null;
-    is_subscription_blocked?: boolean;
-    block_reason?: 'SUBSCRIPTION_EXPIRED' | 'SUBSCRIPTION_FROZEN' | 'NO_ACTIVE_SUBSCRIPTION' | null;
-}
+type User = AuthUser;
 
 interface AuthContextType {
     user: User | null;

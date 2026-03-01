@@ -4,6 +4,7 @@ const backendInternalUrl = (process.env.BACKEND_INTERNAL_URL || "http://localhos
 
 const nextConfig: NextConfig = {
   output: "standalone",
+  transpilePackages: ["@gym-erp/contracts", "@gym-erp/i18n"],
   onDemandEntries: {
     // period (in ms) where the server will keep pages in the buffer
     maxInactiveAge: 60 * 1000,

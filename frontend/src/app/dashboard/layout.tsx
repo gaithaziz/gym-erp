@@ -299,7 +299,7 @@ export default function DashboardLayout({
                                 {profileImageUrl && failedProfileImageUrl !== profileImageUrl ? (
                                     <Image
                                         src={profileImageUrl}
-                                        alt={user.full_name}
+                                        alt={user.full_name || user.email}
                                         fill
                                         className="object-cover"
                                         unoptimized

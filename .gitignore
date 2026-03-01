@@ -7,5 +7,15 @@ venv/
 .vscode/
 dist/
 build/
+node_modules/
+.expo/
+.expo-shared/
 *.egg-info/
 .venv/
+.dart_tool/
+.flutter-plugins
+.flutter-plugins-dependencies
+.packages
+.pub/
+flutter_app/build/
+flutter_app/.dart_tool/

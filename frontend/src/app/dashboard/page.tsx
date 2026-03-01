@@ -1349,26 +1349,28 @@ export default function DashboardPage() {
 
     if (!user) return null;
 
+    const userName = user.full_name || user.email;
+
     switch (user.role) {
         case 'ADMIN':
-            return <AdminDashboard userName={user.full_name} />;
+            return <AdminDashboard userName={userName} />;
         case 'COACH':
-            return <CoachDashboard userName={user.full_name} />;
+            return <CoachDashboard userName={userName} />;
         case 'CASHIER':
         case 'EMPLOYEE':
-            return <CashierDashboard userName={user.full_name} />;
+            return <CashierDashboard userName={userName} />;
         case 'RECEPTION':
         case 'FRONT_DESK':
-            return <ReceptionDashboard userName={user.full_name} />;
+            return <ReceptionDashboard userName={userName} />;
         case 'CUSTOMER':
         default:
             return (
                 <CustomerDashboard
-                    userName={user.full_name}
-                    dateOfBirth={user.date_of_birth}
-                    subscriptionEndDate={user.subscription_end_date}
-                    subscriptionStatus={user.subscription_status}
-                    subscriptionPlanName={user.subscription_plan_name}
+                    userName={userName}
+                    dateOfBirth={user.date_of_birth ?? undefined}
+                    subscriptionEndDate={user.subscription_end_date ?? undefined}
+                    subscriptionStatus={user.subscription_status ?? undefined}
+                    subscriptionPlanName={user.subscription_plan_name ?? undefined}
                 />
             );
     }
