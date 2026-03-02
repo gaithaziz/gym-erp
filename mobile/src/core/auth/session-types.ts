@@ -18,4 +18,5 @@ export type SessionContextValue = SessionState & {
   login: (input: LoginInput) => Promise<void>;
   logout: () => Promise<void>;
   refreshProfile: () => Promise<void>;
+  applyUser: (user: AuthUser) => Promise<void>;
 };

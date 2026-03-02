@@ -3,6 +3,7 @@ import { Pressable, TextInput, View } from "react-native";
 
 import { useLocale } from "@/src/core/i18n/locale-provider";
 import { useSession } from "@/src/core/auth/use-session";
+import { useTheme } from "@/src/core/theme/theme-provider";
 import { AppButton } from "@/src/core/ui/app-button";
 import { AppScreen } from "@/src/core/ui/app-screen";
 import { AppText } from "@/src/core/ui/app-text";
@@ -10,6 +11,7 @@ import { SectionCard } from "@/src/core/ui/section-card";
 
 export function LoginScreen() {
   const { locale, setLocale, direction, t } = useLocale();
+  const { isDark } = useTheme();
   const { login } = useSession();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -44,13 +46,13 @@ export function LoginScreen() {
           </View>
           <Pressable
             onPress={toggleLocale}
-            className="rounded-full border border-border bg-white px-4 py-2"
+            className={`rounded-full px-4 py-2 ${isDark ? "border border-[#2a2f3a] bg-[#1e2329]" : "border border-border bg-white"}`}
           >
             <AppText>{locale === "en" ? "AR" : "EN"}</AppText>
           </Pressable>
         </View>
 
-        <View className="rounded-3xl border border-accent/20 bg-white/80 p-4">
+        <View className={`rounded-3xl p-4 ${isDark ? "border border-[#2a2f3a] bg-[#1e2329]" : "border border-accent/20 bg-white/80"}`}>
           <AppText variant="label">{t("common.appName")}</AppText>
           <AppText className="mt-1 text-base text-ink">{t("mobile.foundationSubtitle")}</AppText>
         </View>
@@ -61,9 +63,10 @@ export function LoginScreen() {
             autoCapitalize="none"
             keyboardType="email-address"
             placeholder={t("mobile.emailPlaceholder")}
+            placeholderTextColor={isDark ? "#9ca3af" : "#57534e"}
             value={email}
             onChangeText={setEmail}
-            className="rounded-2xl border border-border bg-white px-4 py-3 text-base text-ink"
+            className={`rounded-2xl px-4 py-3 text-base ${isDark ? "border border-[#2a2f3a] bg-[#1e2329] text-white" : "border border-border bg-white text-ink"}`}
             style={{ textAlign: direction === "rtl" ? "right" : "left" }}
           />
         </View>
@@ -73,9 +76,10 @@ export function LoginScreen() {
           <TextInput
             secureTextEntry
             placeholder={t("mobile.passwordPlaceholder")}
+            placeholderTextColor={isDark ? "#9ca3af" : "#57534e"}
             value={password}
             onChangeText={setPassword}
-            className="rounded-2xl border border-border bg-white px-4 py-3 text-base text-ink"
+            className={`rounded-2xl px-4 py-3 text-base ${isDark ? "border border-[#2a2f3a] bg-[#1e2329] text-white" : "border border-border bg-white text-ink"}`}
             style={{ textAlign: direction === "rtl" ? "right" : "left" }}
           />
         </View>

@@ -1,5 +1,5 @@
-import { SubscriptionBlockedScreen } from "@/src/features/subscription/subscription-blocked-screen";
+import { SubscriptionScreen } from "@/src/features/subscription/subscription-screen";
 
 export default function SubscriptionRoute() {
-  return <SubscriptionBlockedScreen />;
+  return <SubscriptionScreen />;
 }

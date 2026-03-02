@@ -95,6 +95,13 @@ Relevant files:
 - [mobile/src/core/auth/session-provider.tsx](/c:/Users/user/gym-erp/mobile/src/core/auth/session-provider.tsx)
 - [mobile/src/core/i18n/locale-provider.tsx](/c:/Users/user/gym-erp/mobile/src/core/i18n/locale-provider.tsx)
 - [mobile/src/core/storage/secure-storage.ts](/c:/Users/user/gym-erp/mobile/src/core/storage/secure-storage.ts)
+- [mobile/src/core/device/file-share.ts](/c:/Users/user/gym-erp/mobile/src/core/device/file-share.ts)
+- [mobile/src/core/device/file-open.ts](/c:/Users/user/gym-erp/mobile/src/core/device/file-open.ts)
+- [mobile/src/modules/uploads/prepare-upload-file.ts](/c:/Users/user/gym-erp/mobile/src/modules/uploads/prepare-upload-file.ts)
+- [mobile/src/modules/downloads/resource-actions.ts](/c:/Users/user/gym-erp/mobile/src/modules/downloads/resource-actions.ts)
+- [mobile/src/core/ui/use-device-layout.ts](/c:/Users/user/gym-erp/mobile/src/core/ui/use-device-layout.ts)
+- [mobile/src/core/ui/responsive-content.tsx](/c:/Users/user/gym-erp/mobile/src/core/ui/responsive-content.tsx)
+- [mobile/src/core/ui/responsive-columns.tsx](/c:/Users/user/gym-erp/mobile/src/core/ui/responsive-columns.tsx)
 
 ### Mobile navigation and shell
 
@@ -162,6 +169,18 @@ Not fully complete yet:
 - QR scanner native implementation
 - file picker/share native implementations
 - tablet-specific responsive admin layouts
+
+Artifacts added to close part of this gap:
+
+- [MOBILE-PARITY-MATRIX.md](/c:/Users/user/gym-erp/MOBILE-PARITY-MATRIX.md)
+- [MOBILE-CONTRACT-CHECKLIST.md](/c:/Users/user/gym-erp/MOBILE-CONTRACT-CHECKLIST.md)
+
+Additional partial progress:
+
+- real share flow wired on the mobile QR screen
+- real open flow wired on the mobile profile screen
+- reusable phone/tablet layout primitives added for future admin/coach screens
+- QR scanner capability is no longer a stub; the mobile QR screen now uses a shared scan-session driver
 
 ### Phase 2 and later items not started in product terms
 

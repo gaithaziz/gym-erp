@@ -10,6 +10,13 @@ export interface QrScannerDriver {
   scan(): Promise<string>;
 }
 
+export interface UploadFileInput {
+  uri: string;
+  name: string;
+  mimeType?: string | null;
+  size?: number | null;
+}
+
 export interface PickedFile {
   uri: string;
   name: string;
@@ -21,6 +28,21 @@ export interface FilePickerDriver {
   pickFile(): Promise<PickedFile | null>;
 }
 
+export interface DownloadableResource {
+  url: string;
+  filename?: string | null;
+  mimeType?: string | null;
+}
+
+export interface OpenSharedFileResult {
+  handled: boolean;
+  method: "share" | "open" | "external";
+}
+
 export interface FileShareDriver {
-  share(uri: string): Promise<void>;
+  share(resource: DownloadableResource | string): Promise<OpenSharedFileResult>;
+}
+
+export interface FileOpenDriver {
+  open(resource: DownloadableResource | string): Promise<OpenSharedFileResult>;
 }

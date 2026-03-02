@@ -1,6 +1,6 @@
 import { useQueryClient } from "@tanstack/react-query";
 import { router } from "expo-router";
-import { useEffect, useMemo, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
 import { AxiosError } from "axios";
 
 import { parseStandardResponse, parseTokenPair, type AuthUser } from "@gym-erp/contracts";
@@ -33,7 +33,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
   const queryClient = useQueryClient();
   const [state, setState] = useState<SessionState>(initialState);
 
-  const finalizeAuthenticatedState = async (user: AuthUser) => {
+  const finalizeAuthenticatedState = useCallback(async (user: AuthUser) => {
     const stored = await readStoredState();
     setState({
       status: "authenticated",
@@ -41,9 +41,9 @@ export function SessionProvider({ children }: { children: ReactNode }) {
       refreshToken: stored.refreshToken,
       user,
     });
-  };
+  }, []);
 
-  const markAnonymous = async () => {
+  const markAnonymous = useCallback(async () => {
     await clearPersistedTokens();
     setState({
       status: "anonymous",
@@ -51,14 +51,14 @@ export function SessionProvider({ children }: { children: ReactNode }) {
       refreshToken: null,
       user: null,
     });
-  };
+  }, []);
 
-  const refreshProfile = async () => {
+  const refreshProfile = useCallback(async () => {
     const user = await fetchCurrentUser();
     await finalizeAuthenticatedState(user);
-  };
+  }, [finalizeAuthenticatedState]);
 
-  const bootstrap = async () => {
+  const bootstrap = useCallback(async () => {
     const stored = await readStoredState();
     if (!stored.accessToken && !stored.refreshToken) {
       setState({
@@ -75,7 +75,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
     } catch {
       await markAnonymous();
     }
-  };
+  }, [markAnonymous, refreshProfile]);
 
   useEffect(() => {
     configureApiAuth({
@@ -91,9 +91,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
     void bootstrap();
   }, [queryClient]);
 
-  const value = useMemo<SessionContextValue>(() => ({
-    ...state,
-    login: async ({ email, password }: LoginInput) => {
+  const login = useCallback(async ({ email, password }: LoginInput) => {
       const response = await api.post("/auth/login", { email, password });
       const envelope = parseStandardResponse<unknown>(response.data);
       const tokens = parseTokenPair(envelope.data);
@@ -103,13 +101,15 @@ export function SessionProvider({ children }: { children: ReactNode }) {
       await finalizeAuthenticatedState(user);
 
       router.replace(getHomeRoute(user));
-    },
-    logout: async () => {
+    }, [finalizeAuthenticatedState]);
+
+  const logout = useCallback(async () => {
       queryClient.clear();
       await markAnonymous();
       router.replace("/login");
-    },
-    refreshProfile: async () => {
+    }, [markAnonymous, queryClient]);
+
+  const refreshProfileAction = useCallback(async () => {
       try {
         await refreshProfile();
       } catch (error) {
@@ -120,8 +120,25 @@ export function SessionProvider({ children }: { children: ReactNode }) {
         }
         throw error;
       }
-    },
-  }), [queryClient, state]);
+    }, [markAnonymous, refreshProfile]);
+
+  const applyUser = useCallback(async (user: AuthUser) => {
+    const stored = await readStoredState();
+    setState({
+      status: "authenticated",
+      accessToken: stored.accessToken,
+      refreshToken: stored.refreshToken,
+      user,
+    });
+  }, []);
+
+  const value = useMemo<SessionContextValue>(() => ({
+    ...state,
+    login,
+    logout,
+    refreshProfile: refreshProfileAction,
+    applyUser,
+  }), [applyUser, login, logout, refreshProfileAction, state]);
 
   return <SessionContext.Provider value={value}>{children}</SessionContext.Provider>;
 }

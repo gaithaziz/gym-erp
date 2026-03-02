@@ -6,7 +6,7 @@
     "orientation": "portrait",
     "scheme": "gymerp",
     "icon": "./assets/icon.png",
-    "userInterfaceStyle": "light",
+    "userInterfaceStyle": "automatic",
     "splash": {
       "image": "./assets/splash-icon.png",
       "resizeMode": "contain",
@@ -29,7 +29,19 @@
     },
     "plugins": [
       "expo-router",
-      "expo-secure-store"
+      "expo-secure-store",
+      [
+        "expo-image-picker",
+        {
+          "photosPermission": "Allow Gym ERP to access your photos so you can upload a profile picture."
+        }
+      ],
+      [
+        "expo-camera",
+        {
+          "cameraPermission": "Allow Gym ERP to use your camera to scan kiosk QR codes."
+        }
+      ]
     ],
     "experiments": {
       "typedRoutes": true

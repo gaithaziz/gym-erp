@@ -1,15 +1,18 @@
 import { ActivityIndicator, Pressable, Text, type PressableProps } from "react-native";
 
+import { useLocale } from "@/src/core/i18n/locale-provider";
+import { useTheme } from "@/src/core/theme/theme-provider";
+
 type ButtonVariant = "primary" | "secondary";
 
 const variantClassName: Record<ButtonVariant, string> = {
-  primary: "bg-accent",
-  secondary: "bg-panel border border-border",
+  primary: "rounded-lg bg-primary",
+  secondary: "rounded-lg border border-border bg-secondary",
 };
 
 const textClassName: Record<ButtonVariant, string> = {
   primary: "text-white",
-  secondary: "text-ink",
+  secondary: "text-foreground",
 };
 
 export function AppButton({
@@ -24,16 +27,34 @@ export function AppButton({
   variant?: ButtonVariant;
   className?: string;
 }) {
+  const { direction } = useLocale();
+  const { isDark } = useTheme();
+
+  const resolvedVariantClassName =
+    variant === "primary"
+      ? "rounded-lg bg-primary"
+      : isDark
+        ? "rounded-lg border border-[#2a2f3a] bg-[#1e2329]"
+        : variantClassName.secondary;
+
+  const resolvedTextClassName =
+    variant === "primary"
+      ? textClassName.primary
+      : isDark
+        ? "text-[#e6e2dd]"
+        : textClassName.secondary;
+
   return (
     <Pressable
-      className={`min-h-12 items-center justify-center rounded-2xl px-4 ${variantClassName[variant]} ${className}`}
+      className={`min-h-12 flex-row items-center justify-center gap-2 px-5 active:scale-[0.97] ${resolvedVariantClassName} ${className}`}
+      style={{ flexDirection: direction === "rtl" ? "row-reverse" : "row" }}
       disabled={loading || props.disabled}
       {...props}
     >
       {loading ? (
-        <ActivityIndicator color={variant === "primary" ? "#ffffff" : "#111827"} />
+        <ActivityIndicator color={variant === "primary" ? "#ffffff" : isDark ? "#e6e2dd" : "#0c0a09"} />
       ) : (
-        <Text className={`text-sm font-semibold ${textClassName[variant]}`}>{title}</Text>
+        <Text className={`text-sm font-semibold ${resolvedTextClassName}`}>{title}</Text>
       )}
     </Pressable>
   );
