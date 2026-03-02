@@ -36,7 +36,7 @@ services:
       POSTGRES_DB: ${POSTGRES_DB:-gym_erp_db}
       SECRET_KEY: ${SECRET_KEY:-change_me_local_secret_key_1234567890}
       KIOSK_SIGNING_KEY: ${KIOSK_SIGNING_KEY:-change_me_local_kiosk_secret_1234567890}
-      BACKEND_CORS_ORIGINS: ${BACKEND_CORS_ORIGINS:-["http://localhost:3000","http://localhost:8000"]}
+      BACKEND_CORS_ORIGINS: ${BACKEND_CORS_ORIGINS:-["http://localhost:3000","http://localhost:8000","http://localhost:8082"]}
     volumes:
       - ./static:/app/static
     depends_on:

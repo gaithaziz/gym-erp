@@ -11,10 +11,10 @@ import {
     YAxis,
     CartesianGrid,
     Tooltip,
-    ResponsiveContainer,
 } from 'recharts';
 
 import { useFeedback } from '@/components/FeedbackProvider';
+import SafeResponsiveChart from '@/components/SafeResponsiveChart';
 import TablePagination from '@/components/TablePagination';
 import { api } from '@/lib/api';
 import { useLocale } from '@/context/LocaleContext';
@@ -323,7 +323,7 @@ export default function MemberProgressPage() {
                         <p className="section-chip mb-3">{txt.consistencyTitle}</p>
                         <div className="h-44">
                             {workoutStats.length > 0 ? (
-                                <ResponsiveContainer width="100%" height="100%" minHeight={1} minWidth={1}>
+                                <SafeResponsiveChart>
                                     <BarChart data={workoutStats}>
                                         <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" vertical={false} />
                                         <XAxis
@@ -349,7 +349,7 @@ export default function MemberProgressPage() {
                                         />
                                         <Bar dataKey="workouts" fill="var(--primary)" barSize={16} name={txt.workoutsLogged} radius={[2, 2, 0, 0]} />
                                     </BarChart>
-                                </ResponsiveContainer>
+                                </SafeResponsiveChart>
                             ) : (
                                 <div className="flex items-center justify-center h-full text-muted-foreground text-sm font-mono border border-dashed border-border flex-col">
                                     <Activity size={24} className="mb-2 opacity-50" />
@@ -391,7 +391,7 @@ export default function MemberProgressPage() {
                                     </div>
                                     <div className="h-24">
                                         {metric.series.length > 0 ? (
-                                            <ResponsiveContainer width="100%" height="100%" minHeight={1} minWidth={1}>
+                                            <SafeResponsiveChart>
                                                 <LineChart data={metric.series}>
                                                     <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" vertical={false} />
                                                     <XAxis
@@ -408,7 +408,7 @@ export default function MemberProgressPage() {
                                                     <Tooltip content={<MetricTooltipContent unit={metric.unit} metricLabel={metric.title} />} />
                                                     <Line type="monotone" dataKey="value" stroke={metric.color} strokeWidth={2} dot={{ r: 2, fill: metric.color }} />
                                                 </LineChart>
-                                            </ResponsiveContainer>
+                                            </SafeResponsiveChart>
                                         ) : (
                                             <div className="h-full flex items-center justify-center text-[10px] text-muted-foreground font-mono">
                                                 {txt.noDataInRange}
@@ -501,7 +501,7 @@ export default function MemberProgressPage() {
                 </div>
                 <div className="h-40">
                     {sessionVolumeSeries.length > 0 ? (
-                        <ResponsiveContainer width="100%" height="100%" minHeight={1} minWidth={1}>
+                        <SafeResponsiveChart>
                             <LineChart data={sessionVolumeSeries}>
                                 <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" vertical={false} />
                                 <XAxis
@@ -525,7 +525,7 @@ export default function MemberProgressPage() {
                                 />
                                 <Line type="monotone" dataKey="volume" stroke="var(--primary)" strokeWidth={2} name="Volume (kg)" dot={{ r: 2, fill: 'var(--primary)' }} />
                             </LineChart>
-                        </ResponsiveContainer>
+                        </SafeResponsiveChart>
                     ) : (
                         <div className="h-full flex items-center justify-center text-muted-foreground text-sm font-mono border border-dashed border-border">
                             {txt.noSessionVolume}

@@ -5,7 +5,7 @@ import { api } from '@/lib/api';
 import { useEffect, useState, useCallback, useMemo } from 'react';
 import { Users, DollarSign, Clock, TrendingUp, QrCode, Dumbbell, Utensils, ChevronRight, MessageSquare, UserCheck, ClipboardList, Trophy, Activity, Download } from 'lucide-react';
 import {
-    BarChart, Bar, Cell, LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer
+    BarChart, Bar, Cell, LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip
 } from 'recharts';
 import Link from 'next/link';
 import { DateRangePicker } from '@/components/DateRangePicker';
@@ -17,6 +17,7 @@ import type { GamificationStats as MemberGamificationStats } from '@/app/dashboa
 import { DateRange } from 'react-day-picker';
 import { subDays } from 'date-fns';
 import { useLocale } from '@/context/LocaleContext';
+import SafeResponsiveChart from '@/components/SafeResponsiveChart';
 
 // ======================== ADMIN DASHBOARD ========================
 
@@ -350,7 +351,7 @@ function AdminDashboard({ userName }: { userName: string }) {
                     <h3 className="inline-flex rounded-md border border-orange-500/30 bg-orange-500/10 px-2 py-1 text-base font-extrabold text-orange-500 uppercase tracking-wider font-mono mb-6">{t('dashboard.home.visitsByHour')} ({t('dashboard.home.lastDays').replace('{{days}}', String(selectedDays))})</h3>
                     <div className="h-[calc(100%-2rem)]">
                         {attendanceData.length > 0 ? (
-                            <ResponsiveContainer width="100%" height="100%" minHeight={1} minWidth={1}>
+                            <SafeResponsiveChart>
                                 <BarChart data={attendanceData}>
                                     <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" vertical={false} />
                                     <XAxis dataKey="hour" tick={{ fontSize: 11, fill: 'var(--muted-foreground)', fontFamily: 'var(--font-mono)' }} axisLine={false} tickLine={false} />
@@ -361,7 +362,7 @@ function AdminDashboard({ userName }: { userName: string }) {
                                     />
                                     <Bar dataKey="visits" fill="var(--primary)" barSize={32} />
                                 </BarChart>
-                            </ResponsiveContainer>
+                            </SafeResponsiveChart>
                         ) : (
                             <div className="flex items-center justify-center h-full text-muted-foreground text-sm font-mono">{t('dashboard.home.noData')}</div>
                         )}
@@ -400,7 +401,7 @@ function AdminDashboard({ userName }: { userName: string }) {
                     </div>
                     <div className="mt-1 min-h-0 flex-1">
                         {revenueChartData.length > 0 ? (
-                            <ResponsiveContainer width="100%" height="100%" minHeight={1} minWidth={1}>
+                            <SafeResponsiveChart>
                                 <BarChart
                                     data={revenueChartData}
                                     barGap={1}
@@ -456,7 +457,7 @@ function AdminDashboard({ userName }: { userName: string }) {
                                         ))}
                                     </Bar>
                                 </BarChart>
-                            </ResponsiveContainer>
+                            </SafeResponsiveChart>
                         ) : (
                             <div className="flex items-center justify-center h-full text-muted-foreground text-sm font-mono">{t('dashboard.home.noFinancialData')}</div>
                         )}
@@ -499,7 +500,7 @@ function AdminDashboard({ userName }: { userName: string }) {
                 </div>
                 <div className="h-44 mb-4">
                     {dailyVisitors.length > 0 ? (
-                        <ResponsiveContainer width="100%" height="100%" minHeight={1} minWidth={1}>
+                        <SafeResponsiveChart>
                             <LineChart data={dailyVisitors.map((row) => ({ label: row.date || row.week_start || '', unique_visitors: row.unique_visitors }))}>
                                 <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" vertical={false} />
                                 <XAxis dataKey="label" tick={{ fontSize: 11, fill: 'var(--muted-foreground)', fontFamily: 'var(--font-mono)' }} axisLine={false} tickLine={false} />
@@ -507,7 +508,7 @@ function AdminDashboard({ userName }: { userName: string }) {
                                 <Tooltip contentStyle={{ background: 'var(--card)', border: '1px solid var(--border)', borderRadius: '0px', fontSize: '0.8rem', color: 'var(--foreground)' }} />
                                 <Line type="monotone" dataKey="unique_visitors" stroke="var(--primary)" strokeWidth={2} />
                             </LineChart>
-                        </ResponsiveContainer>
+                        </SafeResponsiveChart>
                     ) : (
                         <div className="h-full flex items-center justify-center text-sm text-muted-foreground border border-dashed border-border">{adminTxt.noVisitorData}</div>
                     )}
@@ -895,7 +896,7 @@ function CoachDashboard({ userName }: { userName: string }) {
 
                     <div className="h-56 lg:h-64">
                     {memberBiometrics.length > 0 ? (
-                        <ResponsiveContainer width="100%" height="100%" minHeight={1} minWidth={1}>
+                        <SafeResponsiveChart>
                             <LineChart data={memberBiometrics}>
                                 <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" vertical={false} />
                                 <XAxis
@@ -916,7 +917,7 @@ function CoachDashboard({ userName }: { userName: string }) {
                                     dot={{ r: 3, fill: selectedMetricConfig.color }}
                                 />
                             </LineChart>
-                        </ResponsiveContainer>
+                        </SafeResponsiveChart>
                     ) : (
                         <div className="flex items-center justify-center h-full text-muted-foreground text-sm font-mono border border-dashed border-border flex-col">
                             <Activity size={24} className="mb-2 opacity-50" />

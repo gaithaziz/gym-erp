@@ -10,8 +10,9 @@ import { useFeedback } from '@/components/FeedbackProvider';
 import TablePagination from '@/components/TablePagination';
 import { useAuth } from '@/context/AuthContext';
 import { resolveProfileImageUrl } from '@/lib/profileImage';
-import { ResponsiveContainer, LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip } from 'recharts';
+import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip } from 'recharts';
 import { useLocale } from '@/context/LocaleContext';
+import SafeResponsiveChart from '@/components/SafeResponsiveChart';
 
 interface Member {
     id: string;
@@ -1381,7 +1382,7 @@ export default function MembersPage() {
                                 <p className="text-xs text-muted-foreground uppercase tracking-wider mb-2 font-semibold">{text.progressVisualization}</p>
                                 <div className="h-52 border border-border bg-muted/10 p-2 rounded-sm">
                                     {viewBiometrics.length > 0 ? (
-                                        <ResponsiveContainer width="100%" height="100%">
+                                        <SafeResponsiveChart>
                                             <LineChart data={viewBiometrics}>
                                                 <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" vertical={false} />
                                                 <XAxis
@@ -1397,7 +1398,7 @@ export default function MembersPage() {
                                                 <Line type="monotone" dataKey="body_fat_pct" stroke="#f97316" strokeWidth={2} name={text.lineBodyFat} dot={{ r: 2 }} />
                                                 <Line type="monotone" dataKey="muscle_mass_kg" stroke="#22c55e" strokeWidth={2} name={text.lineMuscleKg} dot={{ r: 2 }} />
                                             </LineChart>
-                                        </ResponsiveContainer>
+                                        </SafeResponsiveChart>
                                     ) : (
                                         <div className="h-full flex items-center justify-center text-xs text-muted-foreground">{text.noBiometricData}</div>
                                     )}
