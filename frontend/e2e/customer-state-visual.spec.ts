@@ -1,4 +1,5 @@
 import { APIRequestContext, expect, Page, test } from "@playwright/test";
+import { getCachedAuthSession, persistAuthSession } from "./utils/auth";
 
 const apiBase = (process.env.NEXT_PUBLIC_API_URL || "http://127.0.0.1:8000").replace(/\/+$/, "");
 const apiV1 = apiBase.endsWith("/api/v1") ? apiBase : `${apiBase}/api/v1`;
@@ -25,28 +26,9 @@ type CustomerStateScenario = {
   ready?: (page: Page, locale: Locale) => Promise<void>;
 };
 
-async function apiLogin(request: APIRequestContext, email: string, password: string) {
-  const login = await request.post(`${apiV1}/auth/login`, { data: { email, password } });
-  expect(login.ok()).toBeTruthy();
-  const body = await login.json();
-  return {
-    accessToken: body?.data?.access_token as string,
-    refreshToken: body?.data?.refresh_token as string,
-  };
-}
-
-async function fetchMe(request: APIRequestContext, accessToken: string) {
-  const me = await request.get(`${apiV1}/auth/me`, {
-    headers: { Authorization: `Bearer ${accessToken}` },
-  });
-  expect(me.ok()).toBeTruthy();
-  const body = await me.json();
-  return body?.data;
-}
-
 async function ensureCustomerUser(request: APIRequestContext) {
-  const admin = await apiLogin(request, adminEmail, adminPassword);
-  const email = `e2e.customer.${Date.now()}@example.com`;
+  const admin = await getCachedAuthSession(request, apiV1, adminEmail, adminPassword);
+  const email = "e2e.customer.state@example.com";
   const register = await request.post(`${apiV1}/auth/register`, {
     headers: { Authorization: `Bearer ${admin.accessToken}` },
     data: {
@@ -56,8 +38,15 @@ async function ensureCustomerUser(request: APIRequestContext) {
       role: "CUSTOMER",
     },
   });
-  expect(register.ok()).toBeTruthy();
-  const body = await register.json();
+
+  let body: { data?: { id?: string } } | null = null;
+  if (register.ok()) {
+    body = await register.json();
+  } else {
+    const existing = await getCachedAuthSession(request, apiV1, email, rolePassword);
+    body = { data: { id: (existing.me as { id?: string })?.id } };
+  }
+
   return {
     id: body?.data?.id as string,
     email,
@@ -67,21 +56,8 @@ async function ensureCustomerUser(request: APIRequestContext) {
 
 async function applyCustomerAuthAndLocale(page: Page, request: APIRequestContext, email: string, password: string, locale: Locale) {
   const dir: Direction = locale === "ar" ? "rtl" : "ltr";
-  const auth = await apiLogin(request, email, password);
-  const me = await fetchMe(request, auth.accessToken);
-
-  await page.goto("/login", { waitUntil: "domcontentloaded" });
-  await page.evaluate(
-    ({ accessToken, refreshToken, user, nextLocale }) => {
-      window.sessionStorage.setItem("token", accessToken);
-      if (refreshToken) {
-        window.sessionStorage.setItem("refresh_token", refreshToken);
-      }
-      window.localStorage.setItem("user", JSON.stringify(user));
-      window.localStorage.setItem("gym_locale", nextLocale);
-    },
-    { accessToken: auth.accessToken, refreshToken: auth.refreshToken, user: me, nextLocale: locale }
-  );
+  const auth = await getCachedAuthSession(request, apiV1, email, password);
+  await persistAuthSession(page, auth, locale);
 
   await page.reload({ waitUntil: "domcontentloaded" });
   const html = page.locator("html");
@@ -99,7 +75,7 @@ async function applyCustomerAuthAndLocale(page: Page, request: APIRequestContext
     }
   }
   await expect(html).toHaveAttribute("data-locale", locale);
-  return { dir, accessToken: auth.accessToken, me };
+  return { dir, accessToken: auth.accessToken, me: auth.me };
 }
 
 function toSlug(path: string) {

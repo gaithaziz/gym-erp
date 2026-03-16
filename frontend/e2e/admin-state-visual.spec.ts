@@ -1,4 +1,5 @@
 import { APIRequestContext, expect, Page, test } from "@playwright/test";
+import { getCachedAuthSession, persistAuthSession } from "./utils/auth";
 
 const apiBase = (process.env.NEXT_PUBLIC_API_URL || "http://127.0.0.1:8000").replace(/\/+$/, "");
 const apiV1 = apiBase.endsWith("/api/v1") ? apiBase : `${apiBase}/api/v1`;
@@ -23,42 +24,10 @@ type AdminStateScenario = {
   ready?: (page: Page, locale: Locale) => Promise<void>;
 };
 
-async function apiLogin(request: APIRequestContext, email: string, password: string) {
-  const login = await request.post(`${apiV1}/auth/login`, { data: { email, password } });
-  expect(login.ok()).toBeTruthy();
-  const body = await login.json();
-  return {
-    accessToken: body?.data?.access_token as string,
-    refreshToken: body?.data?.refresh_token as string,
-  };
-}
-
-async function fetchMe(request: APIRequestContext, accessToken: string) {
-  const me = await request.get(`${apiV1}/auth/me`, {
-    headers: { Authorization: `Bearer ${accessToken}` },
-  });
-  expect(me.ok()).toBeTruthy();
-  const body = await me.json();
-  return body?.data;
-}
-
 async function applyAdminAuthAndLocale(page: Page, request: APIRequestContext, locale: Locale) {
   const dir: Direction = locale === "ar" ? "rtl" : "ltr";
-  const auth = await apiLogin(request, adminEmail, adminPassword);
-  const me = await fetchMe(request, auth.accessToken);
-
-  await page.goto("/login", { waitUntil: "domcontentloaded" });
-  await page.evaluate(
-    ({ accessToken, refreshToken, user, nextLocale }) => {
-      window.sessionStorage.setItem("token", accessToken);
-      if (refreshToken) {
-        window.sessionStorage.setItem("refresh_token", refreshToken);
-      }
-      window.localStorage.setItem("user", JSON.stringify(user));
-      window.localStorage.setItem("gym_locale", nextLocale);
-    },
-    { accessToken: auth.accessToken, refreshToken: auth.refreshToken, user: me, nextLocale: locale }
-  );
+  const auth = await getCachedAuthSession(request, apiV1, adminEmail, adminPassword);
+  await persistAuthSession(page, auth, locale);
 
   await page.reload({ waitUntil: "domcontentloaded" });
   await expect(page.locator("html")).toHaveAttribute("data-locale", locale);

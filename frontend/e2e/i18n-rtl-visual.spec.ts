@@ -1,4 +1,5 @@
 import { APIRequestContext, expect, Page, test } from "@playwright/test";
+import { getCachedAuthSession, persistAuthSession } from "./utils/auth";
 
 const apiBase = (process.env.NEXT_PUBLIC_API_URL || "http://127.0.0.1:8000").replace(/\/+$/, "");
 const apiV1 = apiBase.endsWith("/api/v1") ? apiBase : `${apiBase}/api/v1`;
@@ -21,6 +22,11 @@ type RouteSpec = {
   path: string;
   roles: AppRole[];
   state: "default";
+};
+
+type RouteOverride = {
+  pattern: string | RegExp;
+  handler: Parameters<Page["route"]>[1];
 };
 
 const fullRouteMatrix: RouteSpec[] = [
@@ -97,20 +103,62 @@ const fastRouteMatrix: RouteSpec[] = [
 
 const fullRoles: AppRole[] = ["ADMIN", "COACH", "CUSTOMER", "EMPLOYEE", "CASHIER", "RECEPTION", "FRONT_DESK"];
 
-async function apiLogin(request: APIRequestContext, email: string, password: string) {
-  const login = await request.post(`${apiV1}/auth/login`, { data: { email, password } });
-  expect(login.ok()).toBeTruthy();
-  const body = await login.json();
-  const accessToken = body?.data?.access_token as string;
-  const refreshToken = body?.data?.refresh_token as string;
-  return { accessToken, refreshToken };
+const stableMembersPayload = {
+  data: [
+    {
+      id: "11111111-1111-1111-1111-111111111111",
+      full_name: "Alice Customer",
+      email: "alice@client.com",
+      role: "CUSTOMER",
+      profile_picture_url: null,
+      subscription: {
+        status: "ACTIVE",
+        end_date: "2026-12-31T00:00:00Z",
+      },
+    },
+    {
+      id: "22222222-2222-2222-2222-222222222222",
+      full_name: "Bob Customer",
+      email: "bob@client.com",
+      role: "CUSTOMER",
+      profile_picture_url: null,
+      subscription: {
+        status: "FROZEN",
+        end_date: "2026-11-30T00:00:00Z",
+      },
+    },
+    {
+      id: "33333333-3333-3333-3333-333333333333",
+      full_name: "Charlie Customer",
+      email: "charlie@client.com",
+      role: "CUSTOMER",
+      profile_picture_url: null,
+      subscription: null,
+    },
+  ],
+};
+
+function getRouteOverrides(routePath: string): RouteOverride[] {
+  if (routePath === "/members" || routePath === "/dashboard/admin/members") {
+    return [
+      {
+        pattern: "**/hr/members**",
+        handler: async (route) => {
+          await route.fulfill({
+            status: 200,
+            contentType: "application/json",
+            body: JSON.stringify(stableMembersPayload),
+          });
+        },
+      },
+    ];
+  }
+
+  return [];
 }
 
-async function fetchMe(request: APIRequestContext, accessToken: string) {
-  const me = await request.get(`${apiV1}/auth/me`, { headers: { Authorization: `Bearer ${accessToken}` } });
-  expect(me.ok()).toBeTruthy();
-  const body = await me.json();
-  return body?.data;
+function getStableRoleEmail(role: Exclude<AppRole, "ADMIN">) {
+  return `e2e.visual.${role.toLowerCase()}@example.com`;
 }
 
 async function ensureRoleUser(request: APIRequestContext, role: AppRole): Promise<RoleContext> {
@@ -118,8 +166,8 @@ async function ensureRoleUser(request: APIRequestContext, role: AppRole): Promis
     return { role, email: adminEmail, password: adminPassword };
   }
 
-  const admin = await apiLogin(request, adminEmail, adminPassword);
-  const email = `e2e.${role.toLowerCase()}.${Date.now()}@example.com`;
+  const admin = await getCachedAuthSession(request, apiV1, adminEmail, adminPassword);
+  const email = getStableRoleEmail(role);
 
   const register = await request.post(`${apiV1}/auth/register`, {
     headers: { Authorization: `Bearer ${admin.accessToken}` },
@@ -131,27 +179,17 @@ async function ensureRoleUser(request: APIRequestContext, role: AppRole): Promis
     },
   });
 
-  expect(register.ok()).toBeTruthy();
+  if (!register.ok()) {
+    await getCachedAuthSession(request, apiV1, email, rolePassword);
+  }
+
   return { role, email, password: rolePassword };
 }
 
 async function applyAuthAndLocale(page: Page, request: APIRequestContext, roleCtx: RoleContext, locale: Locale) {
   const dir: Direction = locale === "ar" ? "rtl" : "ltr";
-  const auth = await apiLogin(request, roleCtx.email, roleCtx.password);
-  const me = await fetchMe(request, auth.accessToken);
-
-  await page.goto("/login", { waitUntil: "domcontentloaded" });
-  await page.evaluate(
-    ({ accessToken, refreshToken, user, nextLocale }) => {
-      window.sessionStorage.setItem("token", accessToken);
-      if (refreshToken) {
-        window.sessionStorage.setItem("refresh_token", refreshToken);
-      }
-      window.localStorage.setItem("user", JSON.stringify(user));
-      window.localStorage.setItem("gym_locale", nextLocale);
-    },
-    { accessToken: auth.accessToken, refreshToken: auth.refreshToken, user: me, nextLocale: locale }
-  );
+  const auth = await getCachedAuthSession(request, apiV1, roleCtx.email, roleCtx.password);
+  await persistAuthSession(page, auth, locale);
 
   // Reload after persisting locale so LocaleProvider resolves the intended direction on init.
   await page.reload({ waitUntil: "domcontentloaded" });
@@ -201,7 +239,7 @@ test.describe("route walkthrough visual coverage", () => {
     // Resolve dynamic route once per run.
     const adminCtx = roleUsers.get("ADMIN");
     if (!adminCtx) throw new Error("Missing ADMIN context");
-    const adminAuth = await apiLogin(request, adminCtx.email, adminCtx.password);
+    const adminAuth = await getCachedAuthSession(request, apiV1, adminCtx.email, adminCtx.password);
     const staffList = await request.get(`${apiV1}/hr/staff?limit=1`, {
       headers: { Authorization: `Bearer ${adminAuth.accessToken}` },
     });
@@ -224,26 +262,39 @@ test.describe("route walkthrough visual coverage", () => {
 
       for (const route of resolvedRoutes.filter((r) => r.roles.includes(role))) {
         for (const locale of ["en", "ar"] as const) {
-          await page.context().clearCookies();
-          await page.goto("about:blank");
-          const dir = await applyAuthAndLocale(page, request, roleCtx, locale);
-
-          await page.goto(route.path, { waitUntil: "networkidle" });
-          await expect(page.locator("html")).toHaveAttribute("dir", dir);
-          const currentPath = new URL(page.url()).pathname;
-          const expectedPath = new RegExp(route.path.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"));
-          if (!expectedPath.test(currentPath)) {
-            // Guarded routes can redirect based on role/subscription state.
-            expect(
-              currentPath === "/" || currentPath === "/login" || currentPath.startsWith("/dashboard")
-            ).toBeTruthy();
+          const routePage = await page.context().newPage();
+          const overrides = getRouteOverrides(route.path);
+          for (const override of overrides) {
+            await routePage.route(override.pattern, override.handler);
           }
 
-          const snapshotName = `${role.toLowerCase()}__${toSlug(route.path)}__${route.state}__${dir}.png`;
-          await expect(page).toHaveScreenshot(snapshotName, {
-            animations: "disabled",
-            maxDiffPixelRatio: 0.002,
-          });
+          try {
+            await page.context().clearCookies();
+            await routePage.goto("about:blank");
+            const dir = await applyAuthAndLocale(routePage, request, roleCtx, locale);
+
+            await routePage.goto(route.path, { waitUntil: "networkidle" });
+            await expect(routePage.locator("html")).toHaveAttribute("dir", dir);
+            const currentPath = new URL(routePage.url()).pathname;
+            const expectedPath = new RegExp(route.path.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"));
+            if (!expectedPath.test(currentPath)) {
+              // Guarded routes can redirect based on role/subscription state.
+              expect(
+                currentPath === "/" || currentPath === "/login" || currentPath.startsWith("/dashboard")
+              ).toBeTruthy();
+            }
+
+            const snapshotName = `${role.toLowerCase()}__${toSlug(route.path)}__${route.state}__${dir}.png`;
+            await expect(routePage).toHaveScreenshot(snapshotName, {
+              animations: "disabled",
+              maxDiffPixelRatio: 0.002,
+            });
+          } finally {
+            for (const override of overrides) {
+              await routePage.unroute(override.pattern, override.handler);
+            }
+            await routePage.close();
+          }
         }
       }
     }
