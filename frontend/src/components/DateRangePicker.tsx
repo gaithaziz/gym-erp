@@ -1,11 +1,102 @@
 'use client';
 
 import * as React from 'react';
-import { Calendar as CalendarIcon } from 'lucide-react';
-import { DayPicker, DateRange } from 'react-day-picker';
-import { arSA, enUS } from 'react-day-picker/locale';
-import 'react-day-picker/dist/style.css';
+import { Calendar as CalendarIcon, ChevronLeft, ChevronRight } from 'lucide-react';
+import type { DateRange } from 'react-day-picker';
 import { useLocale } from '@/context/LocaleContext';
+
+type MonthDay = {
+    date: Date;
+    inMonth: boolean;
+};
+
+function normalizeDate(value: Date) {
+    return new Date(value.getFullYear(), value.getMonth(), value.getDate());
+}
+
+function addMonths(value: Date, delta: number) {
+    return new Date(value.getFullYear(), value.getMonth() + delta, 1);
+}
+
+function startOfMonth(value: Date) {
+    return new Date(value.getFullYear(), value.getMonth(), 1);
+}
+
+function endOfMonth(value: Date) {
+    return new Date(value.getFullYear(), value.getMonth() + 1, 0);
+}
+
+function startOfWeek(value: Date) {
+    const next = new Date(value);
+    next.setDate(next.getDate() - next.getDay());
+    return normalizeDate(next);
+}
+
+function endOfWeek(value: Date) {
+    const next = new Date(value);
+    next.setDate(next.getDate() + (6 - next.getDay()));
+    return normalizeDate(next);
+}
+
+function sameDay(left: Date, right: Date) {
+    return left.getFullYear() === right.getFullYear()
+        && left.getMonth() === right.getMonth()
+        && left.getDate() === right.getDate();
+}
+
+function isInRange(day: Date, from: Date, to: Date) {
+    const current = normalizeDate(day).getTime();
+    return current >= normalizeDate(from).getTime() && current <= normalizeDate(to).getTime();
+}
+
+function buildMonthWeeks(month: Date, direction: 'ltr' | 'rtl') {
+    const monthStart = startOfMonth(month);
+    const monthEnd = endOfMonth(month);
+    const gridStart = startOfWeek(monthStart);
+    const gridEnd = endOfWeek(monthEnd);
+    const days: Date[] = [];
+
+    for (let cursor = new Date(gridStart); cursor <= gridEnd; cursor.setDate(cursor.getDate() + 1)) {
+        days.push(new Date(cursor));
+    }
+
+    const weeks: MonthDay[][] = [];
+    for (let index = 0; index < days.length; index += 7) {
+        const slice = days.slice(index, index + 7).map((date) => ({
+            date,
+            inMonth: date.getMonth() === month.getMonth(),
+        }));
+
+        weeks.push(direction === 'rtl' ? slice.reverse() : slice);
+    }
+
+    return weeks;
+}
+
+function compareDates(left: Date, right: Date) {
+    return normalizeDate(left).getTime() - normalizeDate(right).getTime();
+}
+
+function resolveNextRange(current: DateRange | undefined, selectedDay: Date): DateRange {
+    const day = normalizeDate(selectedDay);
+
+    if (!current?.from || current.to) {
+        return { from: day, to: undefined };
+    }
+
+    const from = normalizeDate(current.from);
+    const comparison = compareDates(day, from);
+
+    if (comparison < 0) {
+        return { from: day, to: from };
+    }
+
+    if (comparison === 0) {
+        return { from, to: from };
+    }
+
+    return { from, to: day };
+}
 
 interface DateRangePickerProps {
     date: DateRange | undefined;
@@ -20,16 +111,24 @@ export function DateRangePicker({
 }: DateRangePickerProps) {
     const { direction, locale, formatDate } = useLocale();
     const [isOpen, setIsOpen] = React.useState(false);
+    const [displayMonth, setDisplayMonth] = React.useState(() => startOfMonth(date?.from ?? new Date()));
     const pickerId = React.useId();
     const buttonId = `${pickerId}-button`;
     const popupId = `${pickerId}-popup`;
     const dialogRole = 'dialog';
-    const rangeMode = 'range' as const;
     const dateRangePlaceholder = locale === 'ar' ? '\u0627\u062e\u062a\u0631 \u0646\u0637\u0627\u0642 \u0627\u0644\u062a\u0627\u0631\u064a\u062e' : 'Pick a date range';
     const buttonRef = React.useRef<HTMLButtonElement | null>(null);
     const popupRef = React.useRef<HTMLDivElement | null>(null);
-    const calendarLocale = locale === 'ar' ? arSA : enUS;
-    const displayMonths = 2;
+    const monthTitleFormatter = React.useMemo(
+        () => new Intl.DateTimeFormat(locale, { month: 'long', year: 'numeric' }),
+        [locale],
+    );
+    const weekdayFormatter = React.useMemo(
+        () => new Intl.DateTimeFormat(locale, { weekday: 'short' }),
+        [locale],
+    );
+    const today = React.useMemo(() => normalizeDate(new Date()), []);
+    const months = React.useMemo(() => [displayMonth, addMonths(displayMonth, 1)], [displayMonth]);
 
     const handleClose = React.useCallback(() => {
         setIsOpen(false);
@@ -42,6 +141,15 @@ export function DateRangePicker({
             setIsOpen(false);
         }
     }, [setDate]);
+
+    const handleDaySelect = React.useCallback((day: Date) => {
+        const nextRange = resolveNextRange(date, day);
+        setDate(nextRange);
+
+        if (nextRange.from && nextRange.to) {
+            setIsOpen(false);
+        }
+    }, [date, setDate]);
 
     React.useEffect(() => {
         if (!isOpen) return;
@@ -78,28 +186,24 @@ export function DateRangePicker({
         };
     }, [handleClose, isOpen]);
 
+    React.useEffect(() => {
+        if (!isOpen) return;
+        setDisplayMonth(startOfMonth(date?.from ?? new Date()));
+    }, [date?.from, isOpen]);
+
     const fromLabel = date?.from ? formatDate(date.from, { month: 'short', day: '2-digit', year: 'numeric' }) : '';
     const toLabel = date?.to ? formatDate(date.to, { month: 'short', day: '2-digit', year: 'numeric' }) : '';
-    const pickerStyle = {
-        '--rdp-accent-color': 'var(--primary)',
-        '--rdp-accent-background-color': 'rgba(255, 107, 0, 0.14)',
-        '--rdp-day-width': '2.7rem',
-        '--rdp-day-height': '2.7rem',
-        '--rdp-day_button-width': '2.45rem',
-        '--rdp-day_button-height': '2.45rem',
-        '--rdp-day_button-border': '0px solid transparent',
-        '--rdp-day_button-border-radius': '0.75rem',
-        '--rdp-selected-border': '0px solid transparent',
-        '--rdp-nav_button-width': '2rem',
-        '--rdp-nav_button-height': '2rem',
-        '--rdp-nav-height': '2.5rem',
-        '--rdp-months-gap': '1.5rem',
-        '--rdp-disabled-opacity': '0.28',
-        '--rdp-outside-opacity': '0.25',
-        '--rdp-today-color': 'var(--foreground)',
-        width: '100%',
-        color: 'var(--foreground)',
-    } as React.CSSProperties;
+    const weekdayBase = React.useMemo(() => {
+        const referenceSunday = new Date(2026, 0, 4);
+        const labels = Array.from({ length: 7 }, (_, index) => {
+            const value = new Date(referenceSunday);
+            value.setDate(referenceSunday.getDate() + index);
+            const raw = weekdayFormatter.format(value);
+            return locale === 'ar' ? raw : raw.slice(0, 2);
+        });
+
+        return direction === 'rtl' ? labels.reverse() : labels;
+    }, [direction, locale, weekdayFormatter]);
 
     return (
         <div className={`relative inline-block ${direction === 'rtl' ? 'text-end' : 'text-start'} ${className || ''}`}>
@@ -135,98 +239,117 @@ export function DateRangePicker({
                 <div
                     ref={popupRef}
                     id={popupId}
-                    className={`absolute top-[calc(100%+0.75rem)] z-[90] w-[21rem] max-w-[calc(100vw-2rem)] max-h-[calc(100vh-8rem)] overflow-x-hidden overflow-y-auto rounded-[1.25rem] border border-white/10 bg-card p-3 shadow-[0_24px_64px_rgba(0,0,0,0.5)] focus:outline-none ${direction === 'rtl' ? 'right-0' : 'left-0'}`}
+                    className={`absolute top-[calc(100%+0.75rem)] z-[90] w-[21rem] max-w-[calc(100vw-2rem)] max-h-[calc(100vh-8rem)] overflow-x-hidden overflow-y-auto rounded-[1.25rem] border border-white/10 p-3 shadow-[0_24px_64px_rgba(0,0,0,0.5)] focus:outline-none ${direction === 'rtl' ? 'right-0' : 'left-0'}`}
+                    style={{ backgroundColor: '#111820' }}
                     role="dialog"
                     aria-modal="false"
                     aria-labelledby={buttonId}
                 >
-                    <DayPicker
-                        mode={rangeMode}
-                        defaultMonth={date?.from}
-                        selected={date}
-                        onSelect={handleSelect}
-                        numberOfMonths={displayMonths}
-                        navLayout="after"
-                        autoFocus
-                        dir={direction}
-                        locale={calendarLocale}
-                        style={pickerStyle}
-                        styles={{
-                            root: { width: '100%' },
-                            months: {
-                                display: 'flex',
-                                flexDirection: 'column',
-                                flexWrap: 'nowrap',
-                                gap: '1.75rem',
-                                width: '100%',
-                            },
-                            month: { width: '100%' },
-                            month_grid: {
-                                width: '100%',
-                                borderCollapse: 'separate',
-                                borderSpacing: '0 0.25rem',
-                            },
-                            month_caption: {
-                                display: 'flex',
-                                alignItems: 'center',
-                                justifyContent: 'flex-end',
-                                minHeight: '2.5rem',
-                                marginBottom: '0.5rem',
-                                paddingInlineStart: '3.3rem',
-                                paddingInlineEnd: '0.2rem',
-                            },
-                            caption_label: {
-                                color: 'var(--foreground)',
-                                fontFamily: 'var(--font-serif)',
-                                fontSize: '1.05rem',
-                                fontWeight: '700',
-                            },
-                            nav: {
-                                display: 'flex',
-                                alignItems: 'center',
-                                gap: '0.25rem',
-                                height: '2.5rem',
-                            },
-                            button_previous: {
-                                color: '#1d4ed8',
-                                borderRadius: '9999px',
-                            },
-                            button_next: {
-                                color: '#1d4ed8',
-                                borderRadius: '9999px',
-                            },
-                            chevron: {
-                                fill: 'currentColor',
-                            },
-                            weekdays: {
-                                marginBottom: '0.15rem',
-                            },
-                            weekday: {
-                                color: 'var(--muted-foreground)',
-                                fontFamily: 'var(--font-mono)',
-                                fontSize: '0.72rem',
-                                fontWeight: '700',
-                                letterSpacing: '0.16em',
-                                opacity: 0.9,
-                                padding: '0.35rem 0',
-                                textTransform: 'uppercase',
-                            },
-                            day: { fontFamily: 'var(--font-sans)' },
-                            day_button: {
-                                fontFamily: 'var(--font-sans)',
-                                fontSize: '0.95rem',
-                                fontWeight: '600',
-                                transition: 'background-color 160ms ease, color 160ms ease, transform 160ms ease',
-                            },
-                        }}
-                        modifiersClassNames={{
-                            selected: '!bg-primary !text-[#121416] rounded-xl font-bold',
-                            range_start: '!bg-primary !text-[#121416] rounded-xl font-bold',
-                            range_middle: '!bg-[#6b4223]/78 !text-[#23150d] rounded-none',
-                            range_end: '!bg-primary !text-[#121416] rounded-xl font-bold',
-                            today: 'font-bold text-foreground',
-                        }}
-                    />
+                    <div className="mb-2 flex items-center justify-between">
+                        <div className="flex items-center gap-1">
+                            <button
+                                type="button"
+                                onClick={() => setDisplayMonth((current) => addMonths(current, -1))}
+                                className="flex h-8 w-8 items-center justify-center rounded-full"
+                                aria-label={locale === 'ar' ? 'الشهر السابق' : 'Previous month'}
+                            >
+                                <ChevronLeft className="h-4 w-4 text-blue-700" />
+                            </button>
+                            <button
+                                type="button"
+                                onClick={() => setDisplayMonth((current) => addMonths(current, 1))}
+                                className="flex h-8 w-8 items-center justify-center rounded-full"
+                                aria-label={locale === 'ar' ? 'الشهر التالي' : 'Next month'}
+                            >
+                                <ChevronRight className="h-4 w-4 text-blue-700" />
+                            </button>
+                        </div>
+                        <p className="text-xs" style={{ color: '#f4ece2', fontFamily: 'var(--font-sans)' }}>
+                            {`${monthTitleFormatter.format(months[0])} • ${monthTitleFormatter.format(months[1])}`}
+                        </p>
+                    </div>
+
+                    {months.map((month, index) => {
+                        const weeks = buildMonthWeeks(month, direction);
+
+                        return (
+                            <div key={`${month.getFullYear()}-${month.getMonth()}`} style={{ marginTop: index === 0 ? 0 : '1.125rem' }}>
+                                <p
+                                    className="mb-3 text-[1.05rem] font-bold"
+                                    style={{
+                                        color: '#f4ece2',
+                                        fontFamily: 'var(--font-serif)',
+                                        textAlign: direction === 'rtl' ? 'right' : 'left',
+                                    }}
+                                >
+                                    {monthTitleFormatter.format(month)}
+                                </p>
+
+                                <div className="mb-2 grid grid-cols-7 gap-0">
+                                    {weekdayBase.map((label, labelIndex) => (
+                                        <div key={`${label}-${labelIndex}`} className="flex items-center justify-center py-1">
+                                            <span
+                                                className="text-[0.72rem] font-bold"
+                                                style={{
+                                                    color: '#8fa0b2',
+                                                    fontFamily: 'var(--font-mono)',
+                                                }}
+                                            >
+                                                {label}
+                                            </span>
+                                        </div>
+                                    ))}
+                                </div>
+
+                                <div className="space-y-0">
+                                    {weeks.map((week, weekIndex) => (
+                                        <div key={`${month.getMonth()}-${weekIndex}`} className="grid grid-cols-7 gap-0">
+                                            {week.map(({ date: day, inMonth }) => {
+                                                const selected = inMonth && (!!date?.from && sameDay(day, date.from) || !!date?.to && sameDay(day, date.to));
+                                                const inRange = inMonth && !!date?.from && !!date?.to && !selected && isInRange(day, date.from, date.to);
+                                                const isToday = inMonth && sameDay(day, today);
+                                                const backgroundColor = selected
+                                                    ? '#ff6b00'
+                                                    : inRange
+                                                        ? 'rgba(108, 66, 35, 0.86)'
+                                                        : 'transparent';
+                                                const textColor = selected
+                                                    ? '#16110c'
+                                                    : inRange
+                                                        ? '#23150d'
+                                                        : inMonth
+                                                            ? '#f4ece2'
+                                                            : 'transparent';
+
+                                                return (
+                                                    <button
+                                                        key={day.toISOString()}
+                                                        type="button"
+                                                        onClick={() => inMonth && handleDaySelect(day)}
+                                                        disabled={!inMonth}
+                                                        className="h-[2.125rem] w-full border-0 p-0"
+                                                        style={{
+                                                            backgroundColor,
+                                                            borderRadius: selected ? '4px' : 0,
+                                                            boxShadow: !selected && isToday ? 'inset 0 0 0 1px rgba(255, 107, 0, 0.4)' : 'none',
+                                                            cursor: inMonth ? 'pointer' : 'default',
+                                                        }}
+                                                    >
+                                                        <span
+                                                            className="flex h-full w-full items-center justify-center text-[0.95rem] font-semibold"
+                                                            style={{ color: textColor, fontFamily: 'var(--font-sans)' }}
+                                                        >
+                                                            {day.getDate()}
+                                                        </span>
+                                                    </button>
+                                                );
+                                            })}
+                                        </div>
+                                    ))}
+                                </div>
+                            </div>
+                        );
+                    })}
                 </div>
             )}
         </div>

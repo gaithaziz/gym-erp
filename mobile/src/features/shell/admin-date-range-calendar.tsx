@@ -274,14 +274,16 @@ export function AdminDateRangeCalendar({
                   ))}
                 </View>
 
-                <View style={{ gap: 6 }}>
+                <View style={{ gap: 0 }}>
                   {weeks.map((week, weekIndex) => (
-                    <View key={`${month.getMonth()}-${weekIndex}`} style={{ flexDirection: rowDirection, gap: 6 }}>
+                    <View key={`${month.getMonth()}-${weekIndex}`} style={{ flexDirection: rowDirection, gap: 0 }}>
                       {week.map(({ date, inMonth }) => {
                         const selected = sameDay(date, rangeStart) || sameDay(date, rangeEnd);
                         const inRange = isInRange(date, rangeStart, rangeEnd);
                         const isToday = sameDay(date, today);
-                        const backgroundColor = selected
+                        const backgroundColor = !inMonth
+                          ? "transparent"
+                          : selected
                           ? "#ff6b00"
                           : inRange
                             ? "rgba(108, 66, 35, 0.86)"
@@ -300,8 +302,8 @@ export function AdminDateRangeCalendar({
                             style={{
                               flex: 1,
                               height: 34,
-                              borderRadius: 9,
-                              borderWidth: !selected && isToday ? 1 : 0,
+                              borderRadius: selected ? 4 : 0,
+                              borderWidth: inMonth && !selected && isToday ? 1 : 0,
                               borderColor: "rgba(255, 107, 0, 0.4)",
                               backgroundColor,
                               alignItems: "center",
