@@ -134,6 +134,7 @@ export const enMessages = {
     nextMilestone: "Next milestone",
     nextMilestoneBody: "Real feature screens will replace these cards domain by domain.",
     activeNow: "Active now",
+    planned: "Planned",
     moduleHint: "These are the first modules this role will grow into.",
     qrTitle: "QR workspace",
     qrBody: "This screen will host personal QR, entrance scan, and attendance flows.",

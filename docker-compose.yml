@@ -53,6 +53,9 @@ services:
     build:
       context: .
       dockerfile: frontend/Dockerfile
+      args:
+        NEXT_PUBLIC_API_URL: /api/v1
+        BACKEND_INTERNAL_URL: http://backend:8000
     container_name: gym_erp_frontend
     restart: always
     ports:

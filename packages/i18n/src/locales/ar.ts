@@ -134,6 +134,7 @@ export const arMessages = {
     nextMilestone: "المرحلة التالية",
     nextMilestoneBody: "سيتم استبدال هذه البطاقات بشاشات فعلية لكل مجال تدريجيًا.",
     activeNow: "الجاهز الآن",
+    planned: "مخطط",
     moduleHint: "هذه أول الوحدات التي سيتوسع إليها هذا الدور.",
     qrTitle: "مساحة QR",
     qrBody: "ستستضيف هذه الشاشة رمزك الشخصي وتدفقات الدخول والحضور.",

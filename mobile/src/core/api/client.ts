@@ -1,5 +1,4 @@
 import axios, { AxiosError, type InternalAxiosRequestConfig } from "axios";
-import { router } from "expo-router";
 
 import {
   parseAuthUser,
@@ -19,10 +18,11 @@ type AuthConfig = {
   onSubscriptionBlocked?: () => void;
 };
 
-type RetryConfig = InternalAxiosRequestConfig & { _retry?: boolean };
+type RetryConfig = InternalAxiosRequestConfig & { _retry?: boolean; _fallbackTried?: boolean };
 
 let authConfig: AuthConfig = {};
 let refreshPromise: Promise<string | null> | null = null;
+const isWebBrowser = typeof window !== "undefined" && typeof document !== "undefined";
 
 export const api = axios.create({
   baseURL: env.apiUrl,
@@ -30,6 +30,39 @@ export const api = axios.create({
     "Content-Type": "application/json",
   },
 });
+
+function normalizeBaseUrl(rawUrl: string): string {
+  return rawUrl.replace(/\/+$/, "");
+}
+
+function getFallbackApiUrls(currentBaseUrl?: string): string[] {
+  if (!isWebBrowser) return [];
+
+  const baseUrl = normalizeBaseUrl(currentBaseUrl ?? env.apiUrl);
+  let parsed: URL;
+
+  try {
+    parsed = new URL(baseUrl);
+  } catch {
+    return [];
+  }
+
+  const locationHost =
+    typeof globalThis.location?.hostname === "string" ? globalThis.location.hostname.trim() : "";
+  const candidates = new Set<string>();
+  const addCandidate = (hostname: string) => {
+    if (!hostname || hostname === parsed.hostname) return;
+    candidates.add(
+      normalizeBaseUrl(`${parsed.protocol}//${hostname}${parsed.port ? `:${parsed.port}` : ""}${parsed.pathname}`),
+    );
+  };
+
+  addCandidate(locationHost);
+  addCandidate("127.0.0.1");
+  addCandidate("localhost");
+
+  return [...candidates];
+}
 
 function extractErrorCode(error: AxiosError): string | null {
   const data = error.response?.data as
@@ -114,9 +147,26 @@ api.interceptors.response.use(
     const url = originalRequest?.url ?? "";
     const isAuthRoute = url.includes("/auth/login") || url.includes("/auth/refresh");
 
+    if (!error.response && originalRequest && !originalRequest._fallbackTried) {
+      originalRequest._fallbackTried = true;
+
+      for (const fallbackApiUrl of getFallbackApiUrls(originalRequest.baseURL)) {
+        try {
+          return await api.request({
+            ...originalRequest,
+            baseURL: fallbackApiUrl,
+          });
+        } catch (fallbackError) {
+          const axiosFallbackError = fallbackError as AxiosError;
+          if (axiosFallbackError.response) {
+            return Promise.reject(fallbackError);
+          }
+        }
+      }
+    }
+
     if (status === 403 && errorCode === SUBSCRIPTION_BLOCKED_CODE) {
       authConfig.onSubscriptionBlocked?.();
-      router.replace("/subscription");
       return Promise.reject(error);
     }
 
@@ -137,7 +187,6 @@ api.interceptors.response.use(
 
       await clearPersistedTokens();
       await authConfig.onSessionInvalid?.();
-      router.replace("/login");
     }
 
     return Promise.reject(error);

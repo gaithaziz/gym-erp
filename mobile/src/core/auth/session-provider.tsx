@@ -10,7 +10,6 @@ import { clearPersistedTokens, configureApiAuth, fetchCurrentUser } from "@/src/
 import { ACCESS_TOKEN_KEY, REFRESH_TOKEN_KEY } from "@/src/core/auth/auth-store";
 import type { LoginInput, SessionContextValue, SessionState } from "@/src/core/auth/session-types";
 import { api, persistTokenPair } from "@/src/core/api/client";
-import { getHomeRoute } from "@/src/core/navigation/home-route";
 import { secureStorageDriver } from "@/src/core/storage/secure-storage";
 
 const initialState: SessionState = {
@@ -99,8 +98,6 @@ export function SessionProvider({ children }: { children: ReactNode }) {
       await persistTokenPair(tokens);
       const user = await fetchCurrentUser();
       await finalizeAuthenticatedState(user);
-
-      router.replace(getHomeRoute(user));
     }, [finalizeAuthenticatedState]);
 
   const logout = useCallback(async () => {

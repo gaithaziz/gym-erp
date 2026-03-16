@@ -8,7 +8,9 @@
     "ios": "expo start --ios",
     "web": "expo start --web",
     "typecheck": "tsc --noEmit",
-    "test": "npm run typecheck"
+    "verify:config": "node ./scripts/verify-mobile-config.mjs",
+    "verify:syntax": "node --check babel.config.js && node --check metro.config.js && node --check index.js",
+    "test": "npm run typecheck && npm run verify:config && npm run verify:syntax"
   },
   "dependencies": {
     "@babel/runtime": "^7.28.4",

@@ -15,5 +15,8 @@
     "lint:web": "npm run lint --workspace frontend",
     "test:web": "npm run test:e2e:fast --workspace frontend",
     "test:mobile": "npm run test --workspace mobile"
+  },
+  "dependencies": {
+    "expo-blur": "~15.0.8"
   }
 }

@@ -1,16 +1,25 @@
 import { Text, type TextProps } from "react-native";
 
 import { useLocale } from "@/src/core/i18n/locale-provider";
+import { getTextAlign } from "@/src/core/i18n/rtl";
+import { resolveFontFamily, resolveFontFromClassName } from "@/src/core/theme/fonts";
 import { useTheme } from "@/src/core/theme/theme-provider";
 
 type Variant = "title" | "subtitle" | "body" | "label";
 
 const variantClassName: Record<Variant, string> = {
-  title: "font-serif text-[28px] font-bold leading-8 tracking-tight text-foreground",
+  title: "text-[28px] leading-8 tracking-tight text-foreground",
   subtitle: "text-sm leading-5 text-muted-foreground",
   body: "text-base leading-6 text-foreground",
-  label: "font-mono text-[11px] font-bold uppercase tracking-[1.5px] text-muted-foreground",
+  label: "text-[10px] uppercase tracking-[1.6px] text-muted-foreground",
 };
+
+function stripManagedFontClasses(value: string) {
+  return value
+    .replace(/\bfont-(serif|sans|mono|bold|semibold|medium|extrabold)\b/g, "")
+    .replace(/\s+/g, " ")
+    .trim();
+}
 
 export function AppText({
   className = "",
@@ -18,26 +27,57 @@ export function AppText({
   style,
   ...props
 }: TextProps & { variant?: Variant; className?: string }) {
-  const { direction } = useLocale();
+  const { direction, locale } = useLocale();
   const { isDark } = useTheme();
-
-  const themeClassName =
+  const variantFontFamily =
     variant === "title"
+      ? resolveFontFamily(locale, "serif", "bold")
+      : variant === "label"
+        ? resolveFontFamily(locale, "mono", "bold")
+        : resolveFontFamily(locale, "serif", "regular");
+  const classFontFamily = resolveFontFromClassName(locale, className, "serif");
+  const sanitizedClassName = stripManagedFontClasses(className);
+
+  const wantsPrimaryTone =
+    className.includes("text-primary") ||
+    className.includes("text-orange-");
+
+  const preservesSemanticColor =
+    className.includes("text-danger") ||
+    className.includes("text-emerald-") ||
+    className.includes("text-rose-") ||
+    className.includes("text-sky-") ||
+    className.includes("text-red-") ||
+    className.includes("text-white");
+
+  const wantsMutedTone =
+    variant === "subtitle" ||
+    variant === "label" ||
+    className.includes("text-muted-foreground");
+
+  const themeTextColor =
+    wantsPrimaryTone
       ? isDark
-        ? "text-[#e6e2dd]"
-        : ""
-      : variant === "subtitle" || variant === "label"
+        ? "#e6e2dd"
+        : "#0c0a09"
+      : preservesSemanticColor
+        ? undefined
+      : wantsMutedTone
         ? isDark
-          ? "text-[#9ca3af]"
-          : ""
+          ? "#9ca3af"
+          : "#57534e"
         : isDark
-          ? "text-[#e6e2dd]"
-          : "";
+          ? "#e6e2dd"
+          : "#0c0a09";
 
   return (
     <Text
-      className={`${variantClassName[variant]} ${themeClassName} ${className}`}
-      style={[style, { writingDirection: direction }]}
+      className={`${variantClassName[variant]} ${sanitizedClassName}`}
+      style={[
+        { writingDirection: direction, textAlign: getTextAlign(direction), color: themeTextColor },
+        style,
+        { fontFamily: className ? classFontFamily : variantFontFamily },
+      ]}
       {...props}
     />
   );

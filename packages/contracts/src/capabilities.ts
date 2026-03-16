@@ -6,10 +6,6 @@ export interface SecureStorageDriver {
   deleteItem(key: string): Promise<void>;
 }
 
-export interface QrScannerDriver {
-  scan(): Promise<string>;
-}
-
 export interface UploadFileInput {
   uri: string;
   name: string;

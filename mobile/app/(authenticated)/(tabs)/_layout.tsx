@@ -1,18 +1,20 @@
 import { Tabs } from "expo-router";
-import { Text, View } from "react-native";
+import { Feather } from "@expo/vector-icons";
+import { View } from "react-native";
 
 import { useLocale } from "@/src/core/i18n/locale-provider";
+import { resolveFontFamily } from "@/src/core/theme/fonts";
 import { useTheme } from "@/src/core/theme/theme-provider";
 
-const tabIcons: Record<string, string> = {
-  index: "D",
-  qr: "QR",
-  profile: "ME",
-  more: "MORE",
+const tabIcons: Record<string, keyof typeof Feather.glyphMap> = {
+  index: "home",
+  qr: "maximize",
+  profile: "user",
+  more: "more-horizontal",
 };
 
 export default function TabsLayout() {
-  const { t } = useLocale();
+  const { locale, t } = useLocale();
   const { isDark } = useTheme();
 
   return (
@@ -24,8 +26,8 @@ export default function TabsLayout() {
         tabBarStyle: { display: "none" },
         tabBarLabelStyle: {
           fontSize: 10,
-          fontWeight: "700",
           letterSpacing: 0.4,
+          fontFamily: resolveFontFamily(locale, "sans", "bold"),
         },
         tabBarIconStyle: {
           marginBottom: 4,
@@ -39,7 +41,7 @@ export default function TabsLayout() {
           tabBarLabel: t("mobile.tabsHome"),
           tabBarIcon: ({ focused }) => (
             <View className={`min-w-[34px] items-center rounded-md border px-2 py-1 ${focused ? "border-primary bg-orange-500/10" : isDark ? "border-[#2a2f3a] bg-[#1e2329]" : "border-border bg-background"}`}>
-              <Text className={`font-mono text-[10px] font-bold ${focused ? "text-primary" : isDark ? "text-[#9ca3af]" : "text-muted-foreground"}`}>{tabIcons.index}</Text>
+              <Feather name={tabIcons.index} size={16} color={focused ? "#ea580c" : isDark ? "#9ca3af" : "#57534e"} />
             </View>
           ),
         }}
@@ -51,7 +53,7 @@ export default function TabsLayout() {
           tabBarLabel: t("mobile.tabsQr"),
           tabBarIcon: ({ focused }) => (
             <View className={`min-w-[34px] items-center rounded-md border px-2 py-1 ${focused ? "border-primary bg-orange-500/10" : isDark ? "border-[#2a2f3a] bg-[#1e2329]" : "border-border bg-background"}`}>
-              <Text className={`font-mono text-[10px] font-bold ${focused ? "text-primary" : isDark ? "text-[#9ca3af]" : "text-muted-foreground"}`}>{tabIcons.qr}</Text>
+              <Feather name={tabIcons.qr} size={16} color={focused ? "#ea580c" : isDark ? "#9ca3af" : "#57534e"} />
             </View>
           ),
         }}
@@ -63,7 +65,7 @@ export default function TabsLayout() {
           tabBarLabel: t("mobile.tabsProfile"),
           tabBarIcon: ({ focused }) => (
             <View className={`min-w-[34px] items-center rounded-md border px-2 py-1 ${focused ? "border-primary bg-orange-500/10" : isDark ? "border-[#2a2f3a] bg-[#1e2329]" : "border-border bg-background"}`}>
-              <Text className={`font-mono text-[10px] font-bold ${focused ? "text-primary" : isDark ? "text-[#9ca3af]" : "text-muted-foreground"}`}>{tabIcons.profile}</Text>
+              <Feather name={tabIcons.profile} size={16} color={focused ? "#ea580c" : isDark ? "#9ca3af" : "#57534e"} />
             </View>
           ),
         }}
@@ -75,7 +77,7 @@ export default function TabsLayout() {
           tabBarLabel: t("mobile.tabsMore"),
           tabBarIcon: ({ focused }) => (
             <View className={`min-w-[42px] items-center rounded-md border px-2 py-1 ${focused ? "border-primary bg-orange-500/10" : isDark ? "border-[#2a2f3a] bg-[#1e2329]" : "border-border bg-background"}`}>
-              <Text className={`font-mono text-[10px] font-bold ${focused ? "text-primary" : isDark ? "text-[#9ca3af]" : "text-muted-foreground"}`}>{tabIcons.more}</Text>
+              <Feather name={tabIcons.more} size={16} color={focused ? "#ea580c" : isDark ? "#9ca3af" : "#57534e"} />
             </View>
           ),
         }}

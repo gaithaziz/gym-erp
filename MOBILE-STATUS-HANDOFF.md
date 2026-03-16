@@ -159,36 +159,28 @@ Relevant files:
 
 The following are still pending from [MobilePlan.md](/c:/Users/user/gym-erp/MobilePlan.md).
 
-### Phase 1 items still incomplete
+### Phase 1 close-out status
 
-Not fully complete yet:
+Phase 1 is now complete.
 
-- parity matrix artifacts for every route/domain/role/device in reusable implementation format
-- contract verification across all target endpoints beyond the auth foundation
-- upload/download abstractions wired to real user flows
-- QR scanner native implementation
-- file picker/share native implementations
-- tablet-specific responsive admin layouts
+Closed in code and artifacts:
 
-Artifacts added to close part of this gap:
+- parity matrix exists in reusable implementation form in [MOBILE-PARITY-MATRIX.md](/c:/Users/user/gym-erp/MOBILE-PARITY-MATRIX.md)
+- contract checklist exists in [MOBILE-CONTRACT-CHECKLIST.md](/c:/Users/user/gym-erp/MOBILE-CONTRACT-CHECKLIST.md)
+- automated Phase 1 contract suite exists in [tests/test_mobile_phase1_contracts.py](/c:/Users/ahmad/gym-erp/tests/test_mobile_phase1_contracts.py)
+- upload/share/open abstractions are wired to real mobile flows; download/export helpers exist but are not yet exercised in real screens
+- QR scanner uses a real native camera path on the mobile QR screen
+- file picker/share/open capability interfaces are implemented and exercised in product UI where corresponding screens now exist
+- tablet-aware responsive layout primitives exist for later dense admin/coach screens
+- mobile verification now passes `npm test` in [mobile/package.json](/c:/Users/ahmad/gym-erp/mobile/package.json)
+- backend contract verification now passes `.\.venv\Scripts\python.exe -m pytest tests/test_mobile_phase1_contracts.py -vv`
 
-- [MOBILE-PARITY-MATRIX.md](/c:/Users/user/gym-erp/MOBILE-PARITY-MATRIX.md)
-- [MOBILE-CONTRACT-CHECKLIST.md](/c:/Users/user/gym-erp/MOBILE-CONTRACT-CHECKLIST.md)
-
-Additional partial progress:
-
-- real share flow wired on the mobile QR screen
-- real open flow wired on the mobile profile screen
-- reusable phone/tablet layout primitives added for future admin/coach screens
-- QR scanner capability is no longer a stub; the mobile QR screen now uses a shared scan-session driver
+What remains from this point is product-slice implementation in later phases, not unresolved Phase 1 foundation work.
 
 ### Phase 2 and later items not started in product terms
 
 Not implemented yet:
 
-- customer dashboard flows
-- customer QR flow
-- customer subscription management UI
 - customer workout/diet/progress/history/achievements flows
 - customer support/chat product screens
 - coach workflows
@@ -197,54 +189,44 @@ Not implemented yet:
 - native uploads/downloads in real screens
 - monitoring, release automation, store packaging
 
+Implemented since Phase 1 close-out:
+
+- customer dashboard flow in [mobile/src/features/shell/home-screen.tsx](/c:/Users/ahmad/gym-erp/mobile/src/features/shell/home-screen.tsx)
+- customer QR flow in [mobile/src/features/shell/qr-screen.tsx](/c:/Users/ahmad/gym-erp/mobile/src/features/shell/qr-screen.tsx)
+- customer subscription management UI in [mobile/src/features/subscription/subscription-screen.tsx](/c:/Users/ahmad/gym-erp/mobile/src/features/subscription/subscription-screen.tsx)
+
 ## Recommended Next Work
 
 According to the sequence implied by [MobilePlan.md](/c:/Users/user/gym-erp/MobilePlan.md), the next execution should be:
 
-### 1. Finish the reusable shell and navigation foundation
+### 1. Extend the customer slice beyond the current core account flows
 
 Next:
 
-- add a proper shared header pattern
-- add consistent loading, empty, and error wrappers per screen
-- add role-aware tab visibility if needed by role
-- add a reusable screen composition model for phone/tablet
+- customer progress
+- customer workout plans
+- customer diet plans
+- customer history and achievements
 
 Why:
 
-- this prevents rework when real feature screens are added
+- the current customer dashboard/profile/subscription/QR flows are already live, so the next highest-value work is filling the remaining customer product gaps around them
 
-### 2. Implement the first real feature slice
-
-Recommended first slice:
-
-- customer core
-
-Implement next:
-
-- real profile screen backed by `/auth/me` and `/auth/me`
-- profile update flow
-- profile picture upload flow
-- real subscription screen
-- real personal QR screen
-
-Why this first:
-
-- it exercises auth, session, profile, subscription gating, and mobile UI patterns without starting the most complex admin workflows
-
-### 3. Then implement the first staff-operational slice
-
-Recommended after customer core:
+### 2. Implement the first staff-operational slice
 
 - attendance
 - member lookup
 - reception/cashier shell entry points
 
-### 4. Then move to coach and admin parity
+Why this first:
 
-After the customer/staff patterns are proven:
+- it exercises the next role family without immediately taking on the densest coach/admin parity work
+
+### 3. Then move to coach and admin parity
 
 - coach plan and diet flows
+- admin inventory/finance/audit workflows
+- native download/export in real screens
 - admin tablet-first workflows
 
 ## Recommended Build Order From Here

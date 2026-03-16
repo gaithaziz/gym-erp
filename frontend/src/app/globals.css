@@ -76,34 +76,30 @@
     /* Stone 300 */
     --input: #e7e5e4;
     --ring: #ea580c;
+    --font-accent: #0c0a09;
 
     --radius: 0.125rem;
   }
 
   .dark {
-    /* Rich Navy / Charcoal Dark Mode Palette */
-    --background: #0f1419;
-    /* Rich Navy Black */
-    --foreground: #e6e2dd;
-    /* Warm Stone Text */
+    /* Warm charcoal dark mode palette */
+    --background: #121416;
+    --foreground: #e9dfcf;
 
-    --card: #151a21;
-    /* Slightly lighter navy for cards */
-    --card-foreground: #e6e2dd;
+    --card: #181c20;
+    --card-foreground: #e9dfcf;
 
-    --popover: #151a21;
-    --popover-foreground: #e6e2dd;
+    --popover: #181c20;
+    --popover-foreground: #e9dfcf;
 
-    --primary: #FF6B00;
-    /* Industrial Orange */
-    --primary-foreground: #0f1419;
+    --primary: #ff6b00;
+    --primary-foreground: #121416;
 
-    --secondary: #2a2f3a;
-    /* Charcoal Blue */
-    --secondary-foreground: #e6e2dd;
+    --secondary: #23272c;
+    --secondary-foreground: #e9dfcf;
 
-    --muted: #1e2329;
-    --muted-foreground: #9ca3af;
+    --muted: #1d2126;
+    --muted-foreground: #98a2ad;
 
     --accent: #FF6B00;
     --accent-foreground: #0f1419;
@@ -111,10 +107,10 @@
     --destructive: #7f1d1d;
     --destructive-foreground: #fecaca;
 
-    --border: #2a2f3a;
-    /* Subtle borders */
-    --input: #1e2329;
-    --ring: #FF6B00;
+    --border: #2f343c;
+    --input: #1d2126;
+    --ring: #ff6b00;
+    --font-accent: #e9dfcf;
   }
 
   .rdp {
@@ -124,6 +120,12 @@
     --rdp-background-color-dark: var(--secondary);
     margin: 0;
   }
+}
+
+html,
+body {
+  min-height: 100%;
+  background-color: var(--background);
 }
 
 body {
@@ -153,6 +155,11 @@ html[lang="ar"] body {
 /* ====== DE-VIBECODED COMPONENT STYLES ====== */
 
 /* Cards */
+.card {
+  background: var(--card);
+  color: var(--card-foreground);
+}
+
 .kpi-card {
   background: var(--card);
   border: 1px solid var(--border);
@@ -183,10 +190,332 @@ html[lang="ar"] body {
   padding: 0.25rem 0.5rem;
   font-size: 0.75rem;
   font-weight: 800;
-  color: rgb(249 115 22);
+  color: var(--font-accent);
   text-transform: uppercase;
   letter-spacing: 0.08em;
   font-family: var(--font-mono);
+}
+
+:where(
+  p,
+  span,
+  h1,
+  h2,
+  h3,
+  h4,
+  h5,
+  h6,
+  a,
+  label,
+  button,
+  td,
+  th,
+  li,
+  div,
+  strong,
+  small,
+  time,
+  input,
+  textarea,
+  option,
+  legend,
+  figcaption,
+  summary,
+  dt,
+  dd
+).text-primary,
+:where(
+  p,
+  span,
+  h1,
+  h2,
+  h3,
+  h4,
+  h5,
+  h6,
+  a,
+  label,
+  button,
+  td,
+  th,
+  li,
+  div,
+  strong,
+  small,
+  time,
+  input,
+  textarea,
+  option,
+  legend,
+  figcaption,
+  summary,
+  dt,
+  dd
+).text-primary\/90,
+:where(
+  p,
+  span,
+  h1,
+  h2,
+  h3,
+  h4,
+  h5,
+  h6,
+  a,
+  label,
+  button,
+  td,
+  th,
+  li,
+  div,
+  strong,
+  small,
+  time,
+  input,
+  textarea,
+  option,
+  legend,
+  figcaption,
+  summary,
+  dt,
+  dd
+).text-primary\/80,
+:where(
+  p,
+  span,
+  h1,
+  h2,
+  h3,
+  h4,
+  h5,
+  h6,
+  a,
+  label,
+  button,
+  td,
+  th,
+  li,
+  div,
+  strong,
+  small,
+  time,
+  input,
+  textarea,
+  option,
+  legend,
+  figcaption,
+  summary,
+  dt,
+  dd
+).text-orange-500,
+:where(
+  p,
+  span,
+  h1,
+  h2,
+  h3,
+  h4,
+  h5,
+  h6,
+  a,
+  label,
+  button,
+  td,
+  th,
+  li,
+  div,
+  strong,
+  small,
+  time,
+  input,
+  textarea,
+  option,
+  legend,
+  figcaption,
+  summary,
+  dt,
+  dd
+).text-orange-400,
+:where(
+  p,
+  span,
+  h1,
+  h2,
+  h3,
+  h4,
+  h5,
+  h6,
+  a,
+  label,
+  button,
+  td,
+  th,
+  li,
+  div,
+  strong,
+  small,
+  time,
+  input,
+  textarea,
+  option,
+  legend,
+  figcaption,
+  summary,
+  dt,
+  dd
+).text-orange-300,
+:where(
+  p,
+  span,
+  h1,
+  h2,
+  h3,
+  h4,
+  h5,
+  h6,
+  a,
+  label,
+  button,
+  td,
+  th,
+  li,
+  div,
+  strong,
+  small,
+  time,
+  input,
+  textarea,
+  option,
+  legend,
+  figcaption,
+  summary,
+  dt,
+  dd
+).text-primary-foreground,
+:where(
+  p,
+  span,
+  h1,
+  h2,
+  h3,
+  h4,
+  h5,
+  h6,
+  a,
+  label,
+  button,
+  td,
+  th,
+  li,
+  div,
+  strong,
+  small,
+  time,
+  input,
+  textarea,
+  option,
+  legend,
+  figcaption,
+  summary,
+  dt,
+  dd
+).text-white,
+:where(
+  p,
+  span,
+  h1,
+  h2,
+  h3,
+  h4,
+  h5,
+  h6,
+  a,
+  label,
+  button,
+  td,
+  th,
+  li,
+  div,
+  strong,
+  small,
+  time,
+  input,
+  textarea,
+  option,
+  legend,
+  figcaption,
+  summary,
+  dt,
+  dd
+).\!text-white,
+:where(
+  p,
+  span,
+  h1,
+  h2,
+  h3,
+  h4,
+  h5,
+  h6,
+  a,
+  label,
+  button,
+  td,
+  th,
+  li,
+  div,
+  strong,
+  small,
+  time,
+  input,
+  textarea,
+  option,
+  legend,
+  figcaption,
+  summary,
+  dt,
+  dd
+).text-\[\#333\],
+:where(
+  p,
+  span,
+  h1,
+  h2,
+  h3,
+  h4,
+  h5,
+  h6,
+  a,
+  label,
+  button,
+  td,
+  th,
+  li,
+  div,
+  strong,
+  small,
+  time,
+  input,
+  textarea,
+  option,
+  legend,
+  figcaption,
+  summary,
+  dt,
+  dd
+).text-\[\#6B6B6B\] {
+  color: var(--font-accent);
+}
+
+:where(p, span, h1, h2, h3, h4, h5, h6, a, label, button, td, th, li, div, strong, small, time).hover\:text-primary:hover,
+:where(p, span, h1, h2, h3, h4, h5, h6, a, label, button, td, th, li, div, strong, small, time).hover\:text-primary\/80:hover,
+:where(p, span, h1, h2, h3, h4, h5, h6, a, label, button, td, th, li, div, strong, small, time).hover\:text-orange-400:hover,
+:where(p, span, h1, h2, h3, h4, h5, h6, a, label, button, td, th, li, div, strong, small, time).hover\:text-orange-300:hover,
+:where(p, span, h1, h2, h3, h4, h5, h6, a, label, button, td, th, li, div, strong, small, time).hover\:text-white:hover,
+.group:hover :where(p, span, h1, h2, h3, h4, h5, h6, a, label, button, td, th, li, div, strong, small, time).group-hover\:text-primary,
+.group:hover :where(p, span, h1, h2, h3, h4, h5, h6, a, label, button, td, th, li, div, strong, small, time).group-hover\:text-primary\/90,
+.group:hover :where(p, span, h1, h2, h3, h4, h5, h6, a, label, button, td, th, li, div, strong, small, time).group-hover\:text-primary\/80 {
+  color: var(--font-accent);
 }
 
 /* Buttons: Solid, utilitarian */
@@ -196,7 +525,7 @@ html[lang="ar"] body {
   justify-content: center;
   gap: 0.5rem;
   background: var(--primary);
-  color: var(--primary-foreground);
+  color: var(--font-accent);
   padding: 0.625rem 1.25rem;
   border-radius: 8px;
   font-size: 0.875rem;
@@ -358,7 +687,7 @@ input[type="password"].input-dark::placeholder {
 
 .nav-link.active {
   background: var(--secondary);
-  color: var(--primary);
+  color: var(--font-accent);
   font-weight: 600;
   border-inline-start: 2px solid var(--primary);
   /* Inline-start border indicator instead of glow */
@@ -403,7 +732,7 @@ input[type="password"].input-dark::placeholder {
 .badge-orange {
   background: #331800;
   /* Darker orange background */
-  color: #ff8533;
+  color: var(--font-accent);
   border: 1px solid #663000;
 }
 
@@ -439,7 +768,7 @@ input[type="password"].input-dark::placeholder {
 
 .badge-amber {
   background: #3a2308;
-  color: #fbbf24;
+  color: var(--font-accent);
   border: 1px solid #78350f;
 }
 

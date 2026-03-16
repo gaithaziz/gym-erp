@@ -2,7 +2,9 @@
 
 ## Purpose
 
-This matrix is the Phase 1 implementation inventory for the React Native + Expo mobile program.
+This matrix started as the Phase 1 implementation inventory for the React Native + Expo mobile program.
+
+Phase 1 is now closed. The status rows below track both shipped mobile product slices and the remaining later-phase parity work.
 
 It maps:
 
@@ -24,10 +26,11 @@ Status values:
 | Domain | Web route(s) | Backend endpoint(s) | Roles | Device | Complexity | Mobile status |
 | --- | --- | --- | --- | --- | --- | --- |
 | Login / bootstrap | `/login` | `/auth/login`, `/auth/refresh`, `/auth/me` | all | phone/tablet | medium | implemented |
-| Dashboard shell | `/dashboard` | `/auth/me` plus role-specific queries | all | phone/tablet | medium | foundation |
+| Role shell / navigation foundation | `/dashboard` | `/auth/me` plus route guards and role-aware navigation | all | phone/tablet | medium | foundation |
+| Customer dashboard | `/dashboard` | `/fitness/stats`, `/fitness/biometrics`, `/auth/me` | customer | phone/tablet | medium | implemented |
 | Profile | `/dashboard/profile` | `/auth/me`, `PUT /auth/me`, `POST /auth/me/profile-picture` | admin, coach, customer, employee, cashier, reception, front_desk | phone/tablet | medium | implemented |
-| QR | `/dashboard/qr` | `GET /access/qr`, `POST /access/grant`, `POST /access/check-in`, `POST /access/check-out` | customer, coach, admin, employee, cashier, reception, front_desk | phone/tablet | high | foundation |
-| Subscription | `/dashboard/subscription` | `/auth/me`, support escalation endpoints | customer | phone/tablet | medium | implemented |
+| QR | `/dashboard/qr` | `POST /access/scan-session`, `POST /access/check-in`, `POST /access/check-out` | customer, coach, admin, employee, cashier, reception, front_desk | phone/tablet | high | implemented |
+| Subscription | `/dashboard/subscription` | `/auth/me` | customer | phone/tablet | medium | implemented |
 | Leaves | `/dashboard/leaves`, `/dashboard/admin/leaves` | `/hr/leaves`, `/hr/leaves/me` | admin, coach, employee, cashier, reception, front_desk | phone/tablet | medium | pending |
 | Support | `/dashboard/support`, `/dashboard/admin/support` | `/support/tickets`, `/support/tickets/{id}`, `/support/tickets/{id}/messages`, `/support/tickets/{id}/attachments`, `/support/tickets/{id}/status` | customer, admin, reception | phone/tablet | high | pending |
 | Chat | `/dashboard/chat` | `/chat/contacts`, `/chat/threads`, `/chat/threads/{id}/messages`, `/chat/threads/{id}/attachments`, `/chat/threads/{id}/read` | admin, coach, customer | phone/tablet | high | pending |
@@ -67,7 +70,7 @@ Status values:
 
 | Domain | Web route(s) | Backend endpoint(s) | Roles | Device | Complexity | Mobile status |
 | --- | --- | --- | --- | --- | --- | --- |
-| Admin dashboard | `/dashboard` | `/analytics/dashboard`, `/analytics/attendance`, `/analytics/revenue-chart`, `/analytics/recent-activity`, `/analytics/daily-visitors` | admin | tablet first, phone fallback | high | pending |
+| Admin dashboard | `/dashboard` | `/analytics/dashboard`, `/analytics/attendance`, `/analytics/revenue-chart`, `/analytics/recent-activity`, `/analytics/daily-visitors` | admin | tablet first, phone fallback | high | implemented |
 | Inventory | `/dashboard/admin/inventory` | `/inventory/products`, low-stock endpoints | admin | tablet first, phone fallback | high | pending |
 | Finance | `/dashboard/admin/finance` | `/finance/transactions`, `/finance/summary`, export/report endpoints | admin | tablet first, phone fallback | high | pending |
 | Audit | `/dashboard/admin/audit` | `/audit/logs`, `/audit/security` | admin | tablet first, phone fallback | medium | pending |
@@ -79,5 +82,9 @@ Status values:
 
 - Shared contracts and i18n packages exist.
 - Auth/bootstrap foundation exists.
-- Customer profile, QR token render, and subscription detail flows are live.
-- Native QR scan, download/export handling, parity coverage artifacts, and tablet admin layout primitives still needed broader product rollout.
+- Capability interfaces for secure storage, uploads, downloads, share, and file open exist in shared/mobile code; QR payload parsing is shared while scanning uses the native mobile screen implementation.
+- Native QR scan, file picker, share, and open flows are wired in product UI.
+- Parity coverage artifacts and contract checklist artifacts exist and are usable.
+- Automated Phase 1 contract checks exist in [tests/test_mobile_phase1_contracts.py](/c:/Users/ahmad/gym-erp/tests/test_mobile_phase1_contracts.py), and mobile verification now runs through `npm test` in [mobile/package.json](/c:/Users/ahmad/gym-erp/mobile/package.json).
+- `implemented` rows now include customer dashboard, admin dashboard, profile, subscription, and QR product slices that are live in the repo.
+- Remaining `foundation` and `pending` rows below are later-phase product implementations, not open Phase 1 blockers.

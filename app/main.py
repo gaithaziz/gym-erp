@@ -51,16 +51,29 @@ configured_origins = [str(origin).rstrip("/") for origin in settings.BACKEND_COR
 default_origins = [
     "http://localhost:3000",
     "http://127.0.0.1:3000",
+    "http://localhost:8081",
+    "http://127.0.0.1:8081",
+    "http://localhost:19006",
+    "http://127.0.0.1:19006",
     "http://localhost:8000",
     "http://127.0.0.1:8000",
 ]
 allow_origins = configured_origins if settings.APP_ENV == "production" else list(dict.fromkeys([*default_origins, *configured_origins]))
+allow_origin_regex = None if settings.APP_ENV == "production" else (
+    r"^https?://("
+    r"(localhost|127\.0\.0\.1)"
+    r"|10\.\d+\.\d+\.\d+"
+    r"|192\.168\.\d+\.\d+"
+    r"|172\.(1[6-9]|2\d|3[0-1])\.\d+\.\d+"
+    r")(:\d+)?$"
+)
 allow_methods = ["*"] if settings.CORS_ALLOW_ALL_METHODS else settings.CORS_ALLOW_METHODS
 allow_headers = ["*"] if settings.CORS_ALLOW_ALL_HEADERS else settings.CORS_ALLOW_HEADERS
 
 app.add_middleware(
     CORSMiddleware,
     allow_origins=allow_origins,
+    allow_origin_regex=allow_origin_regex,
     allow_credentials=True,
     allow_methods=allow_methods,
     allow_headers=allow_headers,

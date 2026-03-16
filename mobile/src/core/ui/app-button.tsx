@@ -1,6 +1,8 @@
 import { ActivityIndicator, Pressable, Text, type PressableProps } from "react-native";
 
 import { useLocale } from "@/src/core/i18n/locale-provider";
+import { getRowDirection } from "@/src/core/i18n/rtl";
+import { resolveFontFamily } from "@/src/core/theme/fonts";
 import { useTheme } from "@/src/core/theme/theme-provider";
 
 type ButtonVariant = "primary" | "secondary";
@@ -8,11 +10,6 @@ type ButtonVariant = "primary" | "secondary";
 const variantClassName: Record<ButtonVariant, string> = {
   primary: "rounded-lg bg-primary",
   secondary: "rounded-lg border border-border bg-secondary",
-};
-
-const textClassName: Record<ButtonVariant, string> = {
-  primary: "text-white",
-  secondary: "text-foreground",
 };
 
 export function AppButton({
@@ -27,34 +24,43 @@ export function AppButton({
   variant?: ButtonVariant;
   className?: string;
 }) {
-  const { direction } = useLocale();
+  const { direction, locale } = useLocale();
   const { isDark } = useTheme();
 
   const resolvedVariantClassName =
     variant === "primary"
       ? "rounded-lg bg-primary"
       : isDark
-        ? "rounded-lg border border-[#2a2f3a] bg-[#1e2329]"
+        ? "rounded-lg border border-[#2a2f3a] bg-[#2a2f3a]"
         : variantClassName.secondary;
 
-  const resolvedTextClassName =
+  const resolvedTextColor =
     variant === "primary"
-      ? textClassName.primary
+      ? isDark
+        ? "#e6e2dd"
+        : "#0c0a09"
       : isDark
-        ? "text-[#e6e2dd]"
-        : textClassName.secondary;
+        ? "#e6e2dd"
+        : "#0c0a09";
+  const activityIndicatorColor = resolvedTextColor;
+  const rowDirection = getRowDirection(direction);
 
   return (
     <Pressable
-      className={`min-h-12 flex-row items-center justify-center gap-2 px-5 active:scale-[0.97] ${resolvedVariantClassName} ${className}`}
-      style={{ flexDirection: direction === "rtl" ? "row-reverse" : "row" }}
+      className={`min-h-[44px] flex-row items-center justify-center gap-2 px-5 py-2.5 active:scale-[0.97] ${resolvedVariantClassName} ${className}`}
+      style={{ flexDirection: rowDirection }}
       disabled={loading || props.disabled}
       {...props}
     >
       {loading ? (
-        <ActivityIndicator color={variant === "primary" ? "#ffffff" : isDark ? "#e6e2dd" : "#0c0a09"} />
+        <ActivityIndicator color={activityIndicatorColor} />
       ) : (
-        <Text className={`text-sm font-semibold ${resolvedTextClassName}`}>{title}</Text>
+        <Text
+          className="text-sm"
+          style={{ color: resolvedTextColor, fontFamily: resolveFontFamily(locale, "serif", "regular") }}
+        >
+          {title}
+        </Text>
       )}
     </Pressable>
   );

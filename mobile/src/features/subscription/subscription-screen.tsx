@@ -1,12 +1,14 @@
 import { useEffect } from "react";
-import { ScrollView, View } from "react-native";
+import { RefreshControl, ScrollView, View } from "react-native";
 import { useQuery } from "@tanstack/react-query";
 
 import { type AuthUser } from "@gym-erp/contracts";
 
 import { fetchCurrentUser } from "@/src/core/api/client";
 import { useSession } from "@/src/core/auth/use-session";
+import { getCrossAxisAlign, getRowDirection, getTextAlign } from "@/src/core/i18n/rtl";
 import { useLocale } from "@/src/core/i18n/locale-provider";
+import { useTheme } from "@/src/core/theme/theme-provider";
 import { AppButton } from "@/src/core/ui/app-button";
 import { AppScreen } from "@/src/core/ui/app-screen";
 import { AppText } from "@/src/core/ui/app-text";
@@ -32,22 +34,35 @@ function localizePlanName(planName: string | null | undefined, locale: "en" | "a
   return labels[normalized]?.[locale] ?? planName;
 }
 
-function getStatusPalette(status: AuthUser["subscription_status"]) {
+function getStatusPalette(status: AuthUser["subscription_status"], isDark: boolean) {
   switch (status) {
     case "ACTIVE":
-      return { card: "border-emerald-200 bg-emerald-50/50", badge: "border-emerald-200 bg-emerald-50", badgeText: "text-emerald-700" };
+      return {
+        badge: isDark ? "border-emerald-500/30 bg-emerald-500/10" : "border-emerald-200 bg-emerald-50",
+        badgeText: isDark ? "text-emerald-300" : "text-emerald-700",
+      };
     case "FROZEN":
-      return { card: "border-sky-200 bg-sky-50/50", badge: "border-sky-200 bg-sky-50", badgeText: "text-sky-700" };
+      return {
+        badge: isDark ? "border-sky-500/30 bg-sky-500/10" : "border-sky-200 bg-sky-50",
+        badgeText: isDark ? "text-sky-300" : "text-sky-700",
+      };
     case "EXPIRED":
-      return { card: "border-rose-200 bg-rose-50/50", badge: "border-rose-200 bg-rose-50", badgeText: "text-rose-700" };
+      return {
+        badge: isDark ? "border-rose-500/30 bg-rose-500/10" : "border-rose-200 bg-rose-50",
+        badgeText: isDark ? "text-rose-300" : "text-rose-700",
+      };
     default:
-      return { card: "", badge: "border-border bg-white", badgeText: "text-foreground" };
+      return {
+        badge: isDark ? "border-[#2a2f3a] bg-[#151d2b]" : "border-border bg-muted/40",
+        badgeText: "text-foreground",
+      };
   }
 }
 
 export function SubscriptionScreen() {
-  const { user, applyUser, logout } = useSession();
-  const { locale, formatDate, t } = useLocale();
+  const { user, applyUser, refreshProfile } = useSession();
+  const { direction, locale, formatDate, t } = useLocale();
+  const { isDark } = useTheme();
 
   const query = useQuery({
     queryKey: AUTH_ME_QUERY_KEY,
@@ -113,64 +128,104 @@ export function SubscriptionScreen() {
     NONE: t("mobile.subscriptionNoneBody"),
   } as const;
 
-  const palette = getStatusPalette(profile.subscription_status);
+  const palette = getStatusPalette(profile.subscription_status, isDark);
+  const cardAlign = getCrossAxisAlign(direction);
+  const cardTextAlign = getTextAlign(direction);
+  const cardRowDirection = getRowDirection(direction);
+  const cardSurfaceClass = isDark ? "border-[#223047] bg-[#0f1826]" : "border-border bg-card";
+  const insetSurfaceClass = isDark ? "border-[#2a2f3a] bg-[#151d2b]" : "border-border bg-muted/40";
+  const blockedSurfaceClass = isDark ? "border-danger/30 bg-danger/10" : "border-danger/20 bg-danger/5";
+  const activeSurfaceClass = isDark ? "border-emerald-500/30 bg-emerald-500/10" : "border-emerald-200 bg-emerald-50";
+  const activeTextClass = isDark ? "text-emerald-300" : "text-emerald-700";
 
   return (
     <AppScreen>
-      <ScrollView contentContainerStyle={{ gap: 16, paddingBottom: 32 }}>
+      <ScrollView
+        contentContainerStyle={{ gap: 16, paddingBottom: 32 }}
+        refreshControl={<RefreshControl refreshing={query.isFetching} onRefresh={() => void (async () => {
+          await refreshProfile();
+          await query.refetch();
+        })()} />}
+      >
         <View className="gap-1">
           <AppText variant="title">{t("dashboard.nav.subscription")}</AppText>
           <AppText variant="subtitle">{descriptions[profile.subscription_status]}</AppText>
         </View>
 
-        <SectionCard className={`gap-2 ${palette.card}`}>
-          <AppText variant="label">{t("dashboard.nav.subscription")}</AppText>
-          <AppText variant="title">{t("mobile.subscriptionHeading")}</AppText>
-          <AppText className="text-muted-foreground">{descriptions[profile.subscription_status]}</AppText>
+        <SectionCard className={`gap-2 ${cardSurfaceClass}`} style={{ alignItems: cardAlign, alignSelf: "stretch" }}>
+          <AppText variant="label" style={{ textAlign: cardTextAlign, width: "100%" }}>
+            {t("dashboard.nav.subscription")}
+          </AppText>
+          <AppText variant="title" style={{ textAlign: cardTextAlign, width: "100%" }}>
+            {t("mobile.subscriptionHeading")}
+          </AppText>
+          <AppText className="text-muted-foreground" style={{ textAlign: cardTextAlign, width: "100%" }}>
+            {descriptions[profile.subscription_status]}
+          </AppText>
         </SectionCard>
 
-        <SectionCard className="gap-4">
-          <View className="gap-3">
-            <View className="flex-row items-center justify-between gap-3">
-              <View className="flex-1">
-                <AppText variant="label">{t("mobile.subscriptionCurrentPlan")}</AppText>
-                <AppText className="text-lg font-semibold text-foreground">{planName}</AppText>
+        <SectionCard className={`gap-4 ${cardSurfaceClass}`} style={{ alignItems: cardAlign, alignSelf: "stretch" }}>
+          <View className="gap-3" style={{ alignItems: cardAlign, alignSelf: "stretch", width: "100%" }}>
+            <View
+              className="w-full items-center justify-between gap-3"
+              style={{ flexDirection: cardRowDirection, alignItems: "center" }}
+            >
+              <View className="flex-1 gap-1" style={{ alignItems: cardAlign }}>
+                <AppText variant="label" style={{ textAlign: cardTextAlign, width: "100%" }}>
+                  {t("mobile.subscriptionCurrentPlan")}
+                </AppText>
+                <AppText className="text-lg font-bold text-foreground" style={{ textAlign: cardTextAlign, width: "100%" }}>
+                  {planName}
+                </AppText>
               </View>
               <View className={`rounded-md border px-3 py-2 ${palette.badge}`}>
-                <AppText className={`text-xs font-semibold ${palette.badgeText}`}>
+                <AppText className={`font-mono text-xs font-bold ${palette.badgeText}`}>
                   {statusLabels[profile.subscription_status]}
                 </AppText>
               </View>
             </View>
 
-            <View className="rounded-lg border border-border bg-background px-4 py-4">
-              <AppText variant="label">{t("mobile.subscriptionExpiry")}</AppText>
-              <AppText className="font-semibold text-foreground">{expiryText}</AppText>
+            <View className={`w-full rounded-lg border px-4 py-4 ${insetSurfaceClass}`} style={{ alignItems: cardAlign }}>
+              <AppText variant="label" style={{ textAlign: cardTextAlign, width: "100%" }}>
+                {t("mobile.subscriptionExpiry")}
+              </AppText>
+              <AppText className="font-mono text-base font-bold text-foreground" style={{ textAlign: cardTextAlign, width: "100%" }}>
+                {expiryText}
+              </AppText>
             </View>
 
             {profile.is_subscription_blocked ? (
-              <View className="rounded-lg border border-danger/20 bg-danger/5 px-4 py-4">
-                <AppText variant="label">{t("mobile.subscriptionAccessState")}</AppText>
-                <AppText className="font-semibold text-danger">{t("mobile.subscriptionBlockedNotice")}</AppText>
+              <View className={`w-full rounded-lg border px-4 py-4 ${blockedSurfaceClass}`} style={{ alignItems: cardAlign }}>
+                <AppText variant="label" style={{ textAlign: cardTextAlign, width: "100%" }}>
+                  {t("mobile.subscriptionAccessState")}
+                </AppText>
+                <AppText className="text-base font-bold text-danger" style={{ textAlign: cardTextAlign, width: "100%" }}>
+                  {t("mobile.subscriptionBlockedNotice")}
+                </AppText>
               </View>
             ) : (
-              <View className="rounded-lg border border-emerald-200 bg-emerald-50 px-4 py-4">
-                <AppText variant="label">{t("mobile.subscriptionAccessState")}</AppText>
-                <AppText className="font-semibold text-emerald-700">{t("mobile.subscriptionActiveNotice")}</AppText>
+              <View className={`w-full rounded-lg border px-4 py-4 ${activeSurfaceClass}`} style={{ alignItems: cardAlign }}>
+                <AppText variant="label" style={{ textAlign: cardTextAlign, width: "100%" }}>
+                  {t("mobile.subscriptionAccessState")}
+                </AppText>
+                <AppText className={`text-base font-bold ${activeTextClass}`} style={{ textAlign: cardTextAlign, width: "100%" }}>
+                  {t("mobile.subscriptionActiveNotice")}
+                </AppText>
               </View>
             )}
           </View>
         </SectionCard>
 
-        <SectionCard className="gap-3">
-          <AppText variant="label">{t("mobile.accountActions")}</AppText>
+        <SectionCard className={`gap-3 ${cardSurfaceClass}`} style={{ alignItems: cardAlign, alignSelf: "stretch" }}>
+          <AppText variant="label" style={{ textAlign: cardTextAlign, width: "100%" }}>
+            {t("mobile.accountActions")}
+          </AppText>
           <AppButton
             title={query.isFetching ? t("common.loading") : t("common.retry")}
             variant="secondary"
             loading={query.isFetching}
             onPress={() => void query.refetch()}
           />
-          <AppButton title={t("common.logout")} variant="secondary" onPress={logout} />
         </SectionCard>
       </ScrollView>
     </AppScreen>
