@@ -13,7 +13,10 @@ COPY app/ ./app/
 COPY alembic/ ./alembic/
 COPY alembic.ini .
 COPY .env.example ./.env.example
+COPY docker/backend-entrypoint.sh /app/docker/backend-entrypoint.sh
+
+RUN chmod +x /app/docker/backend-entrypoint.sh
 
 EXPOSE 8000
 
-CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]
+CMD ["/app/docker/backend-entrypoint.sh"]

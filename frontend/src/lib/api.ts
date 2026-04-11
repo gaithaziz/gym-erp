@@ -1,12 +1,13 @@
 import axios, { AxiosError, InternalAxiosRequestConfig } from 'axios';
 import { clearTokens, getAccessToken, getRefreshToken, setAccessToken, setRefreshToken } from './tokenStorage';
 
-const configuredApiUrl = process.env.NEXT_PUBLIC_API_URL?.trim() || 'http://localhost:8000';
-const normalizedApiUrl = configuredApiUrl.replace(/\/+$/, '');
+const isBrowser = typeof window !== 'undefined';
+const configuredApiUrl = process.env.NEXT_PUBLIC_API_URL?.trim();
+const defaultApiUrl = isBrowser ? '/api/v1' : 'http://127.0.0.1:8000/api/v1';
+const normalizedApiUrl = (configuredApiUrl || defaultApiUrl).replace(/\/+$/, '');
 const API_URL = normalizedApiUrl.endsWith('/api/v1')
     ? normalizedApiUrl
     : `${normalizedApiUrl}/api/v1`;
-const isBrowser = typeof window !== 'undefined';
 
 export const api = axios.create({
     baseURL: API_URL,

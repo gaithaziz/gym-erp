@@ -3,17 +3,26 @@
   "private": true,
   "workspaces": [
     "frontend",
-    "mobile",
     "packages/*"
   ],
   "scripts": {
-    "dev:web": "npm run dev --workspace frontend",
-    "dev:mobile": "npm run start --workspace mobile",
-    "build:web": "npm run build --workspace frontend",
+    "up": "docker compose up -d",
+    "up:build": "docker compose up -d --build",
+    "pull-up": "docker compose pull && docker compose up -d",
+    "down": "docker compose stop",
+    "down:rm": "docker compose down",
+    "down:volumes": "docker compose down -v",
+    "logs": "docker compose logs -f",
+    "ps": "docker compose ps",
+    "restart": "docker compose restart",
+    "reset": "docker compose down -v && docker compose up -d --build",
+    "seed": "docker compose exec backend python -m app.seed_demo_data",
+    "seed:all": "docker compose exec backend python -m app.initial_data && docker compose exec backend python -m app.seed_phase3_4 && docker compose exec backend python -m app.seed_demo_data",
+    "dev:web": "docker compose up -d --build db backend frontend",
+    "build:web": "docker compose build frontend",
+    "rebuild:frontend": "docker compose build frontend",
     "typecheck:web": "npm run typecheck --workspace frontend",
-    "typecheck:mobile": "npm run typecheck --workspace mobile",
     "lint:web": "npm run lint --workspace frontend",
-    "test:web": "npm run test:e2e:fast --workspace frontend",
-    "test:mobile": "npm run test --workspace mobile"
+    "test:web": "npm run test:e2e:fast --workspace frontend"
   }
 }

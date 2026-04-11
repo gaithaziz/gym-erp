@@ -6,14 +6,15 @@ COPY package.json package-lock.json ./
 COPY frontend/package.json ./frontend/package.json
 COPY packages/contracts/package.json ./packages/contracts/package.json
 COPY packages/i18n/package.json ./packages/i18n/package.json
-RUN npm install \
-    && npm install --workspace frontend --no-save @tailwindcss/oxide-linux-x64-gnu
+RUN npm install
 
 FROM node:22-slim AS builder
 
 WORKDIR /app
 
+ARG BACKEND_INTERNAL_URL=http://backend:8000
 ENV NEXT_TELEMETRY_DISABLED=1
+ENV BACKEND_INTERNAL_URL=${BACKEND_INTERNAL_URL}
 
 COPY --from=deps /app/ ./
 COPY frontend/ ./frontend/

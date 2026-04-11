@@ -284,7 +284,7 @@ async def _upsert_transaction(
 
 async def seed_demo_data():
     async with AsyncSessionLocal() as session:
-        await reset_rls_context(session)
+        await set_rls_context(session, role=Role.ADMIN.value)
         logger.info("Seeding demo users...")
         users_by_email: dict[str, User] = {}
         for payload in LOCAL_DEFAULT_USERS:

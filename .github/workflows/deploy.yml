@@ -74,9 +74,7 @@ jobs:
           FRONTEND_IMAGE=ghcr.io/${OWNER}/gym-erp-frontend:${IMAGE_TAG}
           EOCFG
           docker compose --env-file .env --env-file .deploy-images.current.env -f docker-compose.prod.yml pull
-          docker compose --env-file .env --env-file .deploy-images.current.env -f docker-compose.prod.yml up -d db
-          docker compose --env-file .env --env-file .deploy-images.current.env -f docker-compose.prod.yml run --rm backend alembic upgrade head
-          docker compose --env-file .env --env-file .deploy-images.current.env -f docker-compose.prod.yml up -d backend frontend
+          docker compose --env-file .env --env-file .deploy-images.current.env -f docker-compose.prod.yml up -d db backend frontend
           curl -fsS http://127.0.0.1:8000/healthz
           curl -fsS http://127.0.0.1:3000/login > /dev/null
           EOF

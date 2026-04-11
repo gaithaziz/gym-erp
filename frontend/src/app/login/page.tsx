@@ -9,7 +9,7 @@ import { LanguageToggle } from '@/components/LanguageToggle';
 
 export default function LoginPage() {
     const { t, direction } = useLocale();
-    const emailPlaceholder = 'admin@gym.com';
+    const emailPlaceholder = 'admin@gym-erp.com';
     const passwordPlaceholder = '********';
     const autoCompleteEmail = 'email';
     const autoCompleteCurrentPassword = 'current-password';

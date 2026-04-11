@@ -1,75 +1,80 @@
 services:
   db:
     image: postgres:15-alpine
-    container_name: gym_erp_db
-    restart: always
+    restart: unless-stopped
     environment:
       POSTGRES_USER: ${POSTGRES_USER:-gym_admin}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-change_me_local_password}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-change_me_now}
       POSTGRES_DB: ${POSTGRES_DB:-gym_erp_db}
     ports:
-      - "5432:5432"
+      - "${POSTGRES_EXPOSE_PORT:-5432}:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
     healthcheck:
-      test: [ "CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-gym_admin} -d ${POSTGRES_DB:-gym_erp_db}" ]
-      interval: 5s
-      timeout: 3s
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-gym_admin} -d ${POSTGRES_DB:-gym_erp_db}"]
+      interval: 10s
+      timeout: 5s
       retries: 10
 
   backend:
+    image: ${BACKEND_IMAGE:-gym-erp-backend:local}
     build:
       context: .
       dockerfile: Dockerfile
-    container_name: gym_erp_backend
-    restart: always
-    ports:
-      - "8000:8000"
+    restart: unless-stopped
     env_file:
       - .env
     environment:
-      APP_ENV: ${APP_ENV:-development}
-      POSTGRES_HOST: db
+      APP_ENV: ${APP_ENV:-production}
+      POSTGRES_HOST: ${POSTGRES_HOST:-db}
       POSTGRES_PORT: ${POSTGRES_PORT:-5432}
       POSTGRES_USER: ${POSTGRES_USER:-gym_admin}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-change_me_local_password}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-change_me_now}
       POSTGRES_DB: ${POSTGRES_DB:-gym_erp_db}
-      SECRET_KEY: ${SECRET_KEY:-change_me_local_secret_key_1234567890}
-      KIOSK_SIGNING_KEY: ${KIOSK_SIGNING_KEY:-change_me_local_kiosk_secret_1234567890}
-      BACKEND_CORS_ORIGINS: ${BACKEND_CORS_ORIGINS:-["http://localhost:3000","http://localhost:8000","http://localhost:8082"]}
+      SECRET_KEY: ${SECRET_KEY:-change_me_to_a_long_random_secret}
+      KIOSK_SIGNING_KEY: ${KIOSK_SIGNING_KEY:-change_me_to_a_long_random_kiosk_secret}
+      BACKEND_CORS_ORIGINS: ${BACKEND_CORS_ORIGINS:-["http://localhost:3000","http://127.0.0.1:3000"]}
+      NEXT_PUBLIC_KIOSK_ID: ${NEXT_PUBLIC_KIOSK_ID:-kiosk-01}
+    ports:
+      - "${BACKEND_EXPOSE_PORT:-8000}:8000"
     volumes:
-      - ./static:/app/static
+      - static_data:/app/static
     depends_on:
       db:
         condition: service_healthy
     healthcheck:
-      test: [ "CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/healthz')" ]
-      interval: 10s
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/healthz')"]
+      interval: 15s
       timeout: 5s
       retries: 10
-      start_period: 10s
+      start_period: 20s
 
   frontend:
+    image: ${FRONTEND_IMAGE:-gym-erp-frontend:local}
     build:
       context: .
       dockerfile: frontend/Dockerfile
-    container_name: gym_erp_frontend
-    restart: always
-    ports:
-      - "3000:3000"
+      args:
+        BACKEND_INTERNAL_URL: ${BACKEND_INTERNAL_URL:-http://backend:8000}
+    restart: unless-stopped
     environment:
-      NEXT_PUBLIC_API_URL: /api/v1
-      BACKEND_INTERNAL_URL: http://backend:8000
+      NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-/api/v1}
+      BACKEND_INTERNAL_URL: ${BACKEND_INTERNAL_URL:-http://backend:8000}
       NEXT_PUBLIC_KIOSK_ID: ${NEXT_PUBLIC_KIOSK_ID:-kiosk-01}
+      HOSTNAME: 0.0.0.0
+      PORT: 3000
+    ports:
+      - "${FRONTEND_EXPOSE_PORT:-3000}:3000"
     depends_on:
       backend:
         condition: service_healthy
     healthcheck:
-      test: [ "CMD", "node", "-e", "fetch('http://127.0.0.1:3000/login').then((res) => { if (!res.ok) process.exit(1); }).catch(() => process.exit(1));" ]
-      interval: 10s
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:3000/login').then((res) => { if (!res.ok) process.exit(1); }).catch(() => process.exit(1));"]
+      interval: 15s
       timeout: 5s
       retries: 10
-      start_period: 15s
+      start_period: 20s
 
 volumes:
   postgres_data:
+  static_data:

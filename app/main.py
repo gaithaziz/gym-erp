@@ -7,9 +7,10 @@ from fastapi import FastAPI, HTTPException, status
 from fastapi import Request
 from fastapi.exceptions import RequestValidationError
 from sqlalchemy.exc import IntegrityError
-from sqlalchemy import text
+from sqlalchemy import select, text
 from app.config import settings
 from app.auth import router as auth_router
+from app.auth.security import get_password_hash
 from app.routers.access import router as access_router
 from app.routers.hr import router as hr_router
 from app.routers.finance import router as finance_router
@@ -28,6 +29,8 @@ from fastapi.staticfiles import StaticFiles
 import os
 import uuid
 from app.database import AsyncSessionLocal
+from app.models.enums import Role
+from app.models.user import User
 from app.services.payroll_automation_service import PayrollAutomationService
 
 from fastapi.middleware.cors import CORSMiddleware
@@ -35,6 +38,8 @@ from fastapi.middleware.cors import CORSMiddleware
 logger = logging.getLogger(__name__)
 PAYROLL_SCHEDULER_LOCK_KEY = 995311042
 payroll_scheduler_task: asyncio.Task | None = None
+LOCAL_ADMIN_EMAIL = "admin@gym-erp.com"
+LOCAL_ADMIN_PASSWORD = "password123"
 
 app = FastAPI(
     title=settings.PROJECT_NAME,
@@ -180,10 +185,38 @@ async def _payroll_scheduler_loop() -> None:
             logger.exception("Payroll scheduler iteration failed")
 
 
+async def _ensure_local_admin_user() -> None:
+    if settings.APP_ENV != "development":
+        return
+
+    async with AsyncSessionLocal() as db:
+        existing = (await db.execute(select(User).where(User.email == LOCAL_ADMIN_EMAIL))).scalar_one_or_none()
+        if existing is None:
+            db.add(
+                User(
+                    email=LOCAL_ADMIN_EMAIL,
+                    hashed_password=get_password_hash(LOCAL_ADMIN_PASSWORD),
+                    full_name="System Admin",
+                    role=Role.ADMIN,
+                    is_active=True,
+                )
+            )
+            logger.info("Created local development admin user: %s", LOCAL_ADMIN_EMAIL)
+        else:
+            existing.hashed_password = get_password_hash(LOCAL_ADMIN_PASSWORD)
+            existing.full_name = existing.full_name or "System Admin"
+            existing.role = Role.ADMIN
+            existing.is_active = True
+            logger.info("Reset local development admin password for: %s", LOCAL_ADMIN_EMAIL)
+
+        await db.commit()
+
+
 @app.on_event("startup")
 async def startup_payroll_scheduler() -> None:
     global payroll_scheduler_task
     _validate_security_settings()
+    await _ensure_local_admin_user()
     if not settings.PAYROLL_AUTO_ENABLED:
         logger.info("Payroll auto scheduler disabled by config")
         return
