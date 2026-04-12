@@ -24,6 +24,7 @@ from app.routers.notifications import router as notifications_router
 from app.routers.chat import router as chat_router
 from app.routers.lost_found import router as lost_found_router
 from app.routers.support import router as support_router
+from app.routers.mobile import router as mobile_router
 from app.core import exceptions
 from fastapi.staticfiles import StaticFiles
 import os
@@ -99,6 +100,7 @@ app.include_router(notifications_router, prefix=f"{settings.API_V1_STR}/admin/no
 app.include_router(chat_router, prefix=f"{settings.API_V1_STR}/chat", tags=["Chat"])
 app.include_router(lost_found_router, prefix=f"{settings.API_V1_STR}/lost-found", tags=["LostFound"])
 app.include_router(support_router, prefix=f"{settings.API_V1_STR}/support", tags=["Support"])
+app.include_router(mobile_router, prefix=f"{settings.API_V1_STR}/mobile", tags=["Mobile"])
 
 @app.get("/health")
 async def health_check():

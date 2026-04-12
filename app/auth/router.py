@@ -16,7 +16,7 @@ from app.models.auth import RefreshToken
 from app.models.enums import Role
 from app.services.audit_service import AuditService
 from app.core.responses import StandardResponse
-from app.services.subscription_status_service import SubscriptionStatusService
+from app.services.mobile_bootstrap_service import MobileBootstrapService
 from app.core.rate_limit import rate_limit_dependency
 
 router = APIRouter()
@@ -229,31 +229,8 @@ async def read_users_me(
     current_user: Annotated[User, Depends(dependencies.get_current_active_user)],
     db: Annotated[AsyncSession, Depends(get_db)],
 ):
-    user_payload = schemas.UserResponse.model_validate(current_user).model_dump()
-
-    if current_user.role == Role.CUSTOMER:
-        state = await SubscriptionStatusService.get_user_subscription_state(current_user.id, db)
-        user_payload.update(
-            {
-                "subscription_status": state.subscription_status,
-                "subscription_end_date": state.subscription_end_date,
-                "subscription_plan_name": state.subscription_plan_name,
-                "is_subscription_blocked": state.is_subscription_blocked,
-                "block_reason": state.block_reason,
-            }
-        )
-    else:
-        user_payload.update(
-            {
-                "subscription_status": "ACTIVE",
-                "subscription_end_date": None,
-                "subscription_plan_name": None,
-                "is_subscription_blocked": False,
-                "block_reason": None,
-            }
-        )
-
-    return StandardResponse(data=schemas.UserResponse(**user_payload))
+    user_payload = await MobileBootstrapService.build_user_response(current_user=current_user, db=db)
+    return StandardResponse(data=user_payload)
 
 @router.put("/me", response_model=StandardResponse[schemas.UserResponse])
 async def update_user_me(

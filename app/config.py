@@ -1,4 +1,6 @@
-from typing import List, Literal, cast
+from __future__ import annotations
+
+from typing import List, Literal, Optional, cast
 from pydantic import AnyHttpUrl, PostgresDsn, computed_field, field_validator
 from pydantic_core import MultiHostUrl
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -14,13 +16,19 @@ class Settings(BaseSettings):
     SECRET_KEY: str
     ALGORITHM: str = "HS256"
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 30
-    KIOSK_SIGNING_KEY: str | None = None
+    KIOSK_SIGNING_KEY: Optional[str] = None
     KIOSK_TOKEN_EXPIRE_MINUTES: int = 60
     GYM_TIMEZONE: str = "UTC"
     PAYROLL_AUTO_ENABLED: bool = True
     PAYROLL_AUTO_HOUR_LOCAL: int = 2
     PAYROLL_AUTO_MINUTE_LOCAL: int = 0
-    PAYROLL_AUTO_TZ: str | None = None
+    PAYROLL_AUTO_TZ: Optional[str] = None
+    GYM_NAME: str = "Gym ERP"
+    GYM_LOGO_URL: Optional[str] = None
+    GYM_PRIMARY_COLOR: str = "#0F766E"
+    GYM_SECONDARY_COLOR: str = "#F59E0B"
+    GYM_SUPPORT_EMAIL: Optional[str] = None
+    GYM_SUPPORT_PHONE: Optional[str] = None
 
     # Validation
     BACKEND_CORS_ORIGINS: List[AnyHttpUrl] = []
@@ -33,8 +41,8 @@ class Settings(BaseSettings):
     WHATSAPP_ENABLED: bool = False
     WHATSAPP_DRY_RUN: bool = True
     WHATSAPP_PROVIDER: str = "mock"
-    WHATSAPP_API_URL: str | None = None
-    WHATSAPP_API_TOKEN: str | None = None
+    WHATSAPP_API_URL: Optional[str] = None
+    WHATSAPP_API_TOKEN: Optional[str] = None
     WHATSAPP_TIMEOUT_SECONDS: int = 10
 
     # Database
@@ -65,7 +73,7 @@ class Settings(BaseSettings):
 
     @field_validator("KIOSK_SIGNING_KEY")
     @classmethod
-    def validate_kiosk_signing_key(cls, value: str | None) -> str | None:
+    def validate_kiosk_signing_key(cls, value: Optional[str]) -> Optional[str]:
         return value.strip() if isinstance(value, str) and value.strip() else None
 
     model_config = SettingsConfigDict(env_file=".env", case_sensitive=True, extra="ignore")

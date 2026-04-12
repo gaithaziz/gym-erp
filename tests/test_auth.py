@@ -180,3 +180,75 @@ async def test_update_me_profile_validation(client: AsyncClient, db_session: Asy
     )
     assert too_long_bio_response.status_code == 422
     assert "request_id" in too_long_bio_response.json()
+
+
+@pytest.mark.asyncio
+async def test_mobile_bootstrap_returns_customer_foundation_payload(client: AsyncClient, db_session: AsyncSession):
+    email = "mobile-customer@example.com"
+    password = "password123"
+    user = User(
+        email=email,
+        hashed_password=security.get_password_hash(password),
+        role=Role.CUSTOMER,
+        full_name="Mobile Customer",
+    )
+    db_session.add(user)
+    await db_session.commit()
+
+    login_response = await client.post(
+        f"{settings.API_V1_STR}/auth/login",
+        json={"email": email, "password": password},
+    )
+    token = login_response.json()["data"]["access_token"]
+
+    response = await client.get(
+        f"{settings.API_V1_STR}/mobile/bootstrap",
+        headers={"Authorization": f"Bearer {token}"},
+    )
+
+    assert response.status_code == 200
+    payload = response.json()["data"]
+    assert payload["role"] == "CUSTOMER"
+    assert payload["user"]["email"] == email
+    assert payload["subscription"]["status"] == "NONE"
+    assert payload["subscription"]["is_blocked"] is True
+    assert payload["gym"]["gym_name"] == settings.GYM_NAME
+    assert "view_personal_qr" in payload["capabilities"]
+    assert "renew_subscription" in payload["capabilities"]
+    assert "home" in payload["enabled_modules"]
+    assert payload["notification_settings"]["push_enabled"] is True
+
+
+@pytest.mark.asyncio
+async def test_mobile_bootstrap_returns_staff_capabilities_without_subscription_block(client: AsyncClient, db_session: AsyncSession):
+    email = "mobile-admin@example.com"
+    password = "password123"
+    user = User(
+        email=email,
+        hashed_password=security.get_password_hash(password),
+        role=Role.ADMIN,
+        full_name="Mobile Admin",
+    )
+    db_session.add(user)
+    await db_session.commit()
+
+    login_response = await client.post(
+        f"{settings.API_V1_STR}/auth/login",
+        json={"email": email, "password": password},
+    )
+    token = login_response.json()["data"]["access_token"]
+
+    response = await client.get(
+        f"{settings.API_V1_STR}/mobile/bootstrap",
+        headers={"Authorization": f"Bearer {token}"},
+    )
+
+    assert response.status_code == 200
+    payload = response.json()["data"]
+    assert payload["role"] == "ADMIN"
+    assert payload["subscription"]["status"] == "ACTIVE"
+    assert payload["subscription"]["is_blocked"] is False
+    assert "view_audit_summary" in payload["capabilities"]
+    assert "manage_inventory" in payload["capabilities"]
+    assert "audit" in payload["enabled_modules"]
+    assert "finance" in payload["enabled_modules"]

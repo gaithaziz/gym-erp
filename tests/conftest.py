@@ -1,3 +1,4 @@
+import os
 import pytest
 from alembic import command
 from alembic.config import Config
@@ -6,6 +7,10 @@ from httpx import AsyncClient
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession, async_sessionmaker
 from sqlalchemy.pool import NullPool
+
+if not os.path.exists("/.dockerenv") and os.environ.get("POSTGRES_HOST") in (None, "", "db"):
+    os.environ["POSTGRES_HOST"] = os.environ.get("TEST_POSTGRES_HOST", "127.0.0.1")
+
 from app.database import get_db, set_rls_context
 from app.config import settings
 from app.main import app

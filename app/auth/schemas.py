@@ -103,3 +103,75 @@ class UserUpdate(BaseModel):
 class PasswordChange(BaseModel):
     current_password: str
     new_password: str
+
+
+CapabilityValue = Literal[
+    "view_personal_qr",
+    "scan_member_qr",
+    "lookup_members",
+    "manage_member_plans",
+    "manage_member_diets",
+    "view_finance_summary",
+    "use_pos",
+    "manage_inventory",
+    "handle_support_queue",
+    "view_audit_summary",
+    "renew_subscription",
+    "pay_invoice",
+    "view_receipts",
+    "view_profile",
+    "view_notifications",
+    "view_chat",
+    "view_support",
+]
+
+EnabledModuleValue = Literal[
+    "home",
+    "qr",
+    "members",
+    "plans",
+    "progress",
+    "support",
+    "chat",
+    "profile",
+    "notifications",
+    "operations",
+    "finance",
+    "inventory",
+    "audit",
+]
+
+
+class SubscriptionSnapshot(BaseModel):
+    status: Literal["ACTIVE", "FROZEN", "EXPIRED", "NONE"]
+    end_date: Optional[datetime] = None
+    plan_name: Optional[str] = None
+    is_blocked: bool = False
+    block_reason: Optional[Literal["SUBSCRIPTION_EXPIRED", "SUBSCRIPTION_FROZEN", "NO_ACTIVE_SUBSCRIPTION"]] = None
+
+
+class GymBranding(BaseModel):
+    gym_name: str
+    logo_url: Optional[str] = None
+    primary_color: str
+    secondary_color: str
+    support_email: Optional[str] = None
+    support_phone: Optional[str] = None
+
+
+class NotificationPreference(BaseModel):
+    push_enabled: bool = True
+    chat_enabled: bool = True
+    support_enabled: bool = True
+    billing_enabled: bool = True
+    announcements_enabled: bool = True
+
+
+class MobileBootstrap(BaseModel):
+    user: UserResponse
+    role: Role
+    subscription: SubscriptionSnapshot
+    gym: GymBranding
+    capabilities: list[CapabilityValue]
+    enabled_modules: list[EnabledModuleValue]
+    notification_settings: NotificationPreference
