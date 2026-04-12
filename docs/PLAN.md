@@ -108,8 +108,10 @@ Customer policy:
 
 Payment policy:
 - Gym memberships, renewals, and other gym services consumed in the physical gym are treated as external payment flows, not Apple In-App Purchase or Google Play Billing flows
-- Mobile checkout must use store-compliant external payment methods for physical services
+- Renewal is a manual request-and-approval workflow: the customer submits a renewal request in the app, pays the gym offline in cash, and waits for gym staff to approve and activate the renewal
+- The customer app must not imply instant in-app payment completion for renewal flows unless the business process changes later
 - The app must not present digital-only entitlements in a way that would trigger Apple In-App Purchase or Google Play Billing requirements unless those flows are explicitly redesigned for store billing
+- POS flows remain gym-side operational workflows handled by staff; customer mobile does not perform POS checkout
 
 Customer tabs:
 - Home
@@ -123,7 +125,7 @@ Customer screens:
 - Personal QR and entrance status
 - Subscription status
 - Renew subscription
-- In-app payment checkout
+- Renewal request status
 - Payment history and receipts
 - Workout plans
 - Diet plans
@@ -138,9 +140,9 @@ Customer screens:
 
 Required API/interface additions:
 - Add payment/renewal mobile-safe endpoints:
-  - list payable items / renewal offers
-  - create payment intent / checkout session
-  - confirm payment result
+  - list renewal offers / request options
+  - create renewal request
+  - read renewal request status
   - list receipts / receipt detail
 - Stabilize chat/support unread counts for mobile badge use
 - Add a notifications feed endpoint if one does not exist
@@ -153,7 +155,7 @@ Type additions:
 Phase acceptance:
 - Customer can access nearly all self-serve flows without seeing restricted staff/admin controls
 - Blocked customer is restricted only where business rules require it
-- Customer can view QR, plans, diets, progress, history, support, chat, lost & found, subscription, receipts, and complete payment flow
+- Customer can view QR, plans, diets, progress, history, support, chat, lost & found, subscription, receipts, and submit/track renewal requests
 
 ## Phase 3: Staff Operations MVP
 
@@ -212,7 +214,7 @@ Cashier tabs:
 
 Cashier screens:
 - Sales summary
-- POS-lite checkout
+- POS-lite operations
 - Product search / cart
 - Transaction history
 - Receipt detail/share
@@ -245,7 +247,7 @@ Required API/interface additions:
 Phase acceptance:
 - Coach can view assigned members and manage plans/diets/feedback
 - Reception/front desk can scan, search, and process member check-in flows
-- Cashier can complete POS-lite and receipt flows
+- Cashier can complete gym-side POS and receipt flows
 - Employee can use personal operational flows allowed by capability
 
 ## Phase 4: Admin and Manager Mobile Control Center

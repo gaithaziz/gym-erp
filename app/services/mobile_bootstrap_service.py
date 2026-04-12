@@ -8,6 +8,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.auth import schemas
 from app.config import settings
 from app.models.enums import Role
+from app.models.notification import MobileNotificationPreference
 from app.models.user import User
 from app.services.subscription_status_service import SubscriptionAccessState, SubscriptionStatusService
 
@@ -132,7 +133,7 @@ class MobileBootstrapService:
             ),
             capabilities=list(cls._values_for_role(cls._ROLE_CAPABILITIES, current_user.role)),
             enabled_modules=list(cls._values_for_role(cls._ROLE_MODULES, current_user.role)),
-            notification_settings=schemas.NotificationPreference(),
+            notification_settings=await cls.get_notification_preferences(current_user=current_user, db=db),
         )
 
     @classmethod
@@ -175,6 +176,24 @@ class MobileBootstrapService:
             plan_name=state.subscription_plan_name,
             is_blocked=state.is_subscription_blocked,
             block_reason=state.block_reason,
+        )
+
+    @classmethod
+    async def get_notification_preferences(
+        cls,
+        *,
+        current_user: User,
+        db: AsyncSession,
+    ) -> schemas.NotificationPreference:
+        pref = await db.get(MobileNotificationPreference, current_user.id)
+        if pref is None:
+            return schemas.NotificationPreference()
+        return schemas.NotificationPreference(
+            push_enabled=pref.push_enabled,
+            chat_enabled=pref.chat_enabled,
+            support_enabled=pref.support_enabled,
+            billing_enabled=pref.billing_enabled,
+            announcements_enabled=pref.announcements_enabled,
         )
 
     @staticmethod

@@ -15,6 +15,8 @@ from app.models.fitness import BiometricLog, DietPlan, WorkoutPlan
 from app.models.support import SupportTicket, TicketStatus
 from app.models.user import User
 from app.models.notification import WhatsAppDeliveryLog
+from app.models.notification import MobileNotificationPreference
+from app.models.access import RenewalRequestStatus, Subscription, SubscriptionRenewalRequest
 from app.models.workout_log import WorkoutSession
 from app.services.access_service import AccessService
 from app.services.mobile_bootstrap_service import MobileBootstrapService
@@ -162,6 +164,7 @@ class MobileCustomerService:
     async def get_billing_overview(*, current_user: User, db: AsyncSession) -> dict:
         subscription = await MobileBootstrapService.get_subscription_snapshot(current_user=current_user, db=db)
         receipts = await MobileCustomerService.list_receipts(current_user=current_user, db=db)
+        renewal_requests = await MobileCustomerService.list_renewal_requests(current_user=current_user, db=db)
 
         offers = [
             {
@@ -215,14 +218,69 @@ class MobileCustomerService:
         return {
             "subscription": subscription.model_dump(mode="json"),
             "renewal_offers": offers,
+            "renewal_requests": renewal_requests,
             "payable_items": payable_items,
             "receipts": receipts,
             "payment_policy": {
                 "provider": "external_gym_payment",
                 "store_billing_used": False,
-                "notes": "Physical gym services use external payment flows.",
+                "notes": "Submit a renewal request in the app, pay the gym directly, then wait for staff approval.",
             },
         }
+
+    @staticmethod
+    async def list_renewal_requests(*, current_user: User, db: AsyncSession, limit: int = 20) -> list[dict]:
+        requests = (
+            await db.execute(
+                select(SubscriptionRenewalRequest)
+                .where(SubscriptionRenewalRequest.user_id == current_user.id)
+                .order_by(SubscriptionRenewalRequest.requested_at.desc())
+                .limit(limit)
+            )
+        ).scalars().all()
+        return [MobileCustomerService._serialize_renewal_request(item) for item in requests]
+
+    @staticmethod
+    async def create_renewal_request(
+        *,
+        current_user: User,
+        db: AsyncSession,
+        offer_code: str,
+        duration_days: int,
+        customer_note: str | None,
+    ) -> dict:
+        offers = {
+            "MONTHLY_30": {"plan_name": "Monthly Membership", "duration_days": 30},
+            "QUARTERLY_90": {"plan_name": "Quarterly Membership", "duration_days": 90},
+        }
+        offer = offers.get(offer_code)
+        if offer is None:
+            raise ValueError("Invalid renewal offer")
+        if offer["duration_days"] != duration_days:
+            raise ValueError("Duration does not match the selected renewal offer")
+
+        existing_pending = (
+            await db.execute(
+                select(SubscriptionRenewalRequest).where(
+                    SubscriptionRenewalRequest.user_id == current_user.id,
+                    SubscriptionRenewalRequest.status == RenewalRequestStatus.PENDING,
+                )
+            )
+        ).scalar_one_or_none()
+        if existing_pending is not None:
+            raise ValueError("A renewal request is already pending gym approval")
+
+        renewal_request = SubscriptionRenewalRequest(
+            user_id=current_user.id,
+            offer_code=offer_code,
+            plan_name=offer["plan_name"],
+            duration_days=duration_days,
+            customer_note=customer_note,
+        )
+        db.add(renewal_request)
+        await db.commit()
+        await db.refresh(renewal_request)
+        return MobileCustomerService._serialize_renewal_request(renewal_request)
 
     @staticmethod
     async def get_plans(*, current_user: User, db: AsyncSession) -> dict:
@@ -364,6 +422,41 @@ class MobileCustomerService:
         ]
 
     @staticmethod
+    async def get_notification_preferences(*, current_user: User, db: AsyncSession) -> dict:
+        prefs = await MobileBootstrapService.get_notification_preferences(current_user=current_user, db=db)
+        return prefs.model_dump()
+
+    @staticmethod
+    async def update_notification_preferences(
+        *,
+        current_user: User,
+        db: AsyncSession,
+        push_enabled: bool,
+        chat_enabled: bool,
+        support_enabled: bool,
+        billing_enabled: bool,
+        announcements_enabled: bool,
+    ) -> dict:
+        pref = await db.get(MobileNotificationPreference, current_user.id)
+        if pref is None:
+            pref = MobileNotificationPreference(user_id=current_user.id)
+            db.add(pref)
+        pref.push_enabled = push_enabled
+        pref.chat_enabled = chat_enabled
+        pref.support_enabled = support_enabled
+        pref.billing_enabled = billing_enabled
+        pref.announcements_enabled = announcements_enabled
+        pref.updated_at = datetime.utcnow()
+        await db.commit()
+        return {
+            "push_enabled": pref.push_enabled,
+            "chat_enabled": pref.chat_enabled,
+            "support_enabled": pref.support_enabled,
+            "billing_enabled": pref.billing_enabled,
+            "announcements_enabled": pref.announcements_enabled,
+        }
+
+    @staticmethod
     def _serialize_receipt(transaction: Transaction) -> dict:
         amount = transaction.amount
         if isinstance(amount, Decimal):
@@ -391,4 +484,20 @@ class MobileCustomerService:
             "height_cm": log.height_cm,
             "body_fat_pct": log.body_fat_pct,
             "muscle_mass_kg": log.muscle_mass_kg,
+        }
+
+    @staticmethod
+    def _serialize_renewal_request(item: SubscriptionRenewalRequest) -> dict:
+        return {
+            "id": str(item.id),
+            "offer_code": item.offer_code,
+            "plan_name": item.plan_name,
+            "duration_days": item.duration_days,
+            "status": item.status.value,
+            "customer_note": item.customer_note,
+            "requested_at": item.requested_at.isoformat(),
+            "reviewed_at": item.reviewed_at.isoformat() if item.reviewed_at else None,
+            "reviewer_note": item.reviewer_note,
+            "payment_method": "CASH",
+            "payment_status": "AWAITING_GYM_APPROVAL" if item.status == RenewalRequestStatus.PENDING else item.status.value,
         }

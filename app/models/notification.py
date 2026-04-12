@@ -49,3 +49,17 @@ class WhatsAppAutomationRule(Base):
     updated_by: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("users.id"), nullable=True)
 
     updater = relationship("User")
+
+
+class MobileNotificationPreference(Base):
+    __tablename__ = "mobile_notification_preferences"
+
+    user_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id"), primary_key=True)
+    push_enabled: Mapped[bool] = mapped_column(default=True, nullable=False)
+    chat_enabled: Mapped[bool] = mapped_column(default=True, nullable=False)
+    support_enabled: Mapped[bool] = mapped_column(default=True, nullable=False)
+    billing_enabled: Mapped[bool] = mapped_column(default=True, nullable=False)
+    announcements_enabled: Mapped[bool] = mapped_column(default=True, nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, default=datetime.utcnow)
+
+    user = relationship("User")

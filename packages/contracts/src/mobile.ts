@@ -132,6 +132,21 @@ export const mobileCustomerBillingSchema = z.object({
       currency: z.string().nullable().optional(),
     }),
   ),
+  renewal_requests: z.array(
+    z.object({
+      id: z.string().uuid(),
+      offer_code: z.string(),
+      plan_name: z.string(),
+      duration_days: z.number().int(),
+      status: z.string(),
+      customer_note: z.string().nullable().optional(),
+      requested_at: z.string(),
+      reviewed_at: z.string().nullable().optional(),
+      reviewer_note: z.string().nullable().optional(),
+      payment_method: z.literal("CASH"),
+      payment_status: z.string(),
+    }),
+  ),
   payable_items: z.array(
     z.object({
       code: z.string(),
@@ -223,6 +238,24 @@ export const mobileCustomerNotificationsSchema = z.object({
   ),
 });
 
+export const mobileRenewalRequestSchema = z.object({
+  id: z.string().uuid(),
+  offer_code: z.string(),
+  plan_name: z.string(),
+  duration_days: z.number().int(),
+  status: z.string(),
+  customer_note: z.string().nullable().optional(),
+  requested_at: z.string(),
+  reviewed_at: z.string().nullable().optional(),
+  reviewer_note: z.string().nullable().optional(),
+  payment_method: z.literal("CASH"),
+  payment_status: z.string(),
+});
+
+export const mobileRenewalRequestListSchema = z.object({
+  items: z.array(mobileRenewalRequestSchema),
+});
+
 export type Capability = z.infer<typeof capabilitySchema>;
 export type EnabledModule = z.infer<typeof enabledModuleSchema>;
 export type SubscriptionSnapshot = z.infer<typeof subscriptionSnapshotSchema>;
@@ -235,6 +268,8 @@ export type MobileCustomerBilling = z.infer<typeof mobileCustomerBillingSchema>;
 export type MobileCustomerPlans = z.infer<typeof mobileCustomerPlansSchema>;
 export type MobileCustomerProgress = z.infer<typeof mobileCustomerProgressSchema>;
 export type MobileCustomerNotifications = z.infer<typeof mobileCustomerNotificationsSchema>;
+export type MobileRenewalRequest = z.infer<typeof mobileRenewalRequestSchema>;
+export type MobileRenewalRequestList = z.infer<typeof mobileRenewalRequestListSchema>;
 
 export function parseMobileBootstrap(input: unknown): MobileBootstrap {
   return mobileBootstrapSchema.parse(input);
@@ -258,4 +293,12 @@ export function parseMobileCustomerProgress(input: unknown): MobileCustomerProgr
 
 export function parseMobileCustomerNotifications(input: unknown): MobileCustomerNotifications {
   return mobileCustomerNotificationsSchema.parse(input);
+}
+
+export function parseMobileRenewalRequest(input: unknown): MobileRenewalRequest {
+  return mobileRenewalRequestSchema.parse(input);
+}
+
+export function parseMobileRenewalRequestList(input: unknown): MobileRenewalRequestList {
+  return mobileRenewalRequestListSchema.parse(input);
 }

@@ -7,7 +7,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.auth import security
 from app.config import settings
-from app.models.access import AccessLog, Subscription
+from app.models.access import AccessLog, RenewalRequestStatus, Subscription, SubscriptionRenewalRequest
 from app.models.chat import ChatMessage, ChatThread
 from app.models.enums import Role
 from app.models.finance import PaymentMethod, Transaction, TransactionCategory, TransactionType
@@ -314,3 +314,163 @@ async def test_mobile_customer_notifications_feed(client: AsyncClient, db_sessio
     payload = response.json()["data"]
     assert payload["items"][0]["event_type"] == "SUPPORT_REPLY"
     assert payload["items"][0]["status"] == "SENT"
+
+
+@pytest.mark.asyncio
+async def test_mobile_customer_write_flows(client: AsyncClient, db_session: AsyncSession):
+    now = datetime.now(timezone.utc)
+    customer = User(
+        email="customer-write@example.com",
+        hashed_password=security.get_password_hash("password123"),
+        role=Role.CUSTOMER,
+        full_name="Write Customer",
+        is_active=True,
+    )
+    coach = User(
+        email="coach-write@example.com",
+        hashed_password=security.get_password_hash("password123"),
+        role=Role.COACH,
+        full_name="Write Coach",
+        is_active=True,
+    )
+    db_session.add_all([customer, coach])
+    await db_session.flush()
+    db_session.add(
+        Subscription(
+            user_id=customer.id,
+            plan_name="Monthly",
+            start_date=now - timedelta(days=35),
+            end_date=now - timedelta(days=5),
+            status=SubscriptionStatus.EXPIRED,
+        )
+    )
+    await db_session.commit()
+
+    headers = await _login(client, customer.email)
+
+    prefs_get = await client.get(f"{settings.API_V1_STR}/mobile/customer/notification-settings", headers=headers)
+    assert prefs_get.status_code == 200
+    assert prefs_get.json()["data"]["push_enabled"] is True
+
+    prefs_put = await client.put(
+        f"{settings.API_V1_STR}/mobile/customer/notification-settings",
+        headers=headers,
+        json={
+            "push_enabled": True,
+            "chat_enabled": False,
+            "support_enabled": True,
+            "billing_enabled": True,
+            "announcements_enabled": False,
+        },
+    )
+    assert prefs_put.status_code == 200
+    assert prefs_put.json()["data"]["chat_enabled"] is False
+    assert prefs_put.json()["data"]["announcements_enabled"] is False
+
+    bootstrap = await client.get(f"{settings.API_V1_STR}/mobile/bootstrap", headers=headers)
+    assert bootstrap.status_code == 200
+    assert bootstrap.json()["data"]["notification_settings"]["chat_enabled"] is False
+
+    renewal_request = await client.post(
+        f"{settings.API_V1_STR}/mobile/customer/billing/renewal-requests",
+        headers=headers,
+        json={"offer_code": "MONTHLY_30", "duration_days": 30, "customer_note": "I will pay at the front desk today."},
+    )
+    assert renewal_request.status_code == 200
+    renewal_data = renewal_request.json()["data"]
+    assert renewal_data["status"] == "PENDING"
+    assert renewal_data["payment_method"] == "CASH"
+
+    duplicate_request = await client.post(
+        f"{settings.API_V1_STR}/mobile/customer/billing/renewal-requests",
+        headers=headers,
+        json={"offer_code": "MONTHLY_30", "duration_days": 30},
+    )
+    assert duplicate_request.status_code == 400
+
+    billing = await client.get(f"{settings.API_V1_STR}/mobile/customer/billing", headers=headers)
+    assert billing.status_code == 200
+    billing_data = billing.json()["data"]
+    assert billing_data["receipts"] == []
+    assert billing_data["renewal_requests"][0]["id"] == renewal_data["id"]
+    assert billing_data["payment_policy"]["notes"].startswith("Submit a renewal request")
+
+    renewal_requests = await client.get(
+        f"{settings.API_V1_STR}/mobile/customer/billing/renewal-requests",
+        headers=headers,
+    )
+    assert renewal_requests.status_code == 200
+    assert renewal_requests.json()["data"]["items"][0]["status"] == "PENDING"
+
+    stored_request = (
+        await db_session.get(SubscriptionRenewalRequest, uuid.UUID(renewal_data["id"]))
+    )
+    assert stored_request is not None
+    assert stored_request.status == RenewalRequestStatus.PENDING
+
+    support_create = await client.post(
+        f"{settings.API_V1_STR}/mobile/customer/support/tickets",
+        headers=headers,
+        json={"subject": "Need help", "category": "GENERAL", "message": "Hello support"},
+    )
+    assert support_create.status_code == 200
+    ticket_id = support_create.json()["data"]["id"]
+
+    support_reply = await client.post(
+        f"{settings.API_V1_STR}/mobile/customer/support/tickets/{ticket_id}/messages",
+        headers=headers,
+        json={"message": "Following up"},
+    )
+    assert support_reply.status_code == 200
+    assert support_reply.json()["data"]["message"] == "Following up"
+
+    lost_found_create = await client.post(
+        f"{settings.API_V1_STR}/mobile/customer/lost-found/items",
+        headers=headers,
+        json={
+            "title": "Water Bottle",
+            "description": "Black bottle left near treadmill",
+            "category": "Bottle",
+            "found_location": "Cardio area",
+            "contact_note": "Please hold at reception",
+        },
+    )
+    assert lost_found_create.status_code == 200
+    lost_found_item_id = lost_found_create.json()["data"]["id"]
+
+    lost_found_list = await client.get(
+        f"{settings.API_V1_STR}/mobile/customer/lost-found/items",
+        headers=headers,
+    )
+    assert lost_found_list.status_code == 200
+    assert lost_found_list.json()["data"][0]["title"] == "Water Bottle"
+
+    lost_found_comment = await client.post(
+        f"{settings.API_V1_STR}/mobile/customer/lost-found/items/{lost_found_item_id}/comments",
+        headers=headers,
+        json={"text": "This one is mine, thanks."},
+    )
+    assert lost_found_comment.status_code == 200
+    assert lost_found_comment.json()["data"]["text"] == "This one is mine, thanks."
+
+    thread_create = await client.post(
+        f"{settings.API_V1_STR}/mobile/customer/chat/threads",
+        headers=headers,
+        json={"coach_id": str(coach.id)},
+    )
+    assert thread_create.status_code == 200
+    thread_id = thread_create.json()["data"]["id"]
+
+    chat_send = await client.post(
+        f"{settings.API_V1_STR}/mobile/customer/chat/threads/{thread_id}/messages",
+        headers=headers,
+        json={"text_content": "Hi coach"},
+    )
+    assert chat_send.status_code == 200
+    assert chat_send.json()["data"]["text_content"] == "Hi coach"
+
+    chat_read = await client.post(
+        f"{settings.API_V1_STR}/mobile/customer/chat/threads/{thread_id}/read",
+        headers=headers,
+    )
+    assert chat_read.status_code == 200
