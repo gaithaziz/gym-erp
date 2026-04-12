@@ -1,25 +1,34 @@
 import uuid
 from typing import Annotated, Any
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, UploadFile
 from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.auth import dependencies, schemas
+from app.auth.router import (
+    change_password as change_current_user_password,
+    read_users_me as read_current_user_profile,
+    update_user_me as update_current_user_profile,
+    upload_profile_picture as upload_current_user_profile_picture,
+)
 from app.core.responses import StandardResponse
 from app.database import get_db
 from app.models.user import User
 from app.routers.chat import (
     MessageCreateRequest as ChatMessageCreateRequest,
+    list_thread_messages as list_chat_thread_messages,
     ThreadCreateRequest as ChatThreadCreateRequest,
     create_or_get_thread as create_or_get_chat_thread,
     list_threads as list_chat_threads,
     mark_thread_as_read as mark_chat_thread_as_read,
     send_text_message as send_chat_message,
+    upload_attachment as upload_chat_attachment,
 )
 from app.routers.support import (
     SupportMessageCreateRequest,
     SupportTicketCreateRequest,
+    add_ticket_attachment as add_support_ticket_attachment,
     add_ticket_message as add_support_ticket_message,
     create_ticket as create_support_ticket,
     list_tickets as list_support_tickets,
@@ -31,6 +40,7 @@ from app.routers.lost_found import (
     create_lost_found_item as create_customer_lost_found_item_record,
     get_lost_found_item as get_customer_lost_found_item,
     list_lost_found_items as list_customer_lost_found_items,
+    upload_lost_found_media as upload_customer_lost_found_media,
 )
 from app.services.mobile_customer_service import MobileCustomerService
 from app.services.mobile_bootstrap_service import MobileBootstrapService
@@ -69,6 +79,12 @@ class MobileCustomerProgressResponse(BaseModel):
 
 class MobileCustomerNotificationsResponse(BaseModel):
     items: list[dict[str, Any]]
+
+
+class MobileCustomerFeedbackHistoryResponse(BaseModel):
+    workout_feedback: list[dict[str, Any]]
+    diet_feedback: list[dict[str, Any]]
+    gym_feedback: list[dict[str, Any]]
 
 
 class MobileRenewalRequestCreate(BaseModel):
@@ -157,6 +173,50 @@ async def read_customer_notifications(
     return StandardResponse(data=MobileCustomerNotificationsResponse(items=items))
 
 
+@router.get("/customer/feedback/history", response_model=StandardResponse[MobileCustomerFeedbackHistoryResponse])
+async def read_customer_feedback_history(
+    current_user: Annotated[User, Depends(dependencies.RoleChecker([schemas.Role.CUSTOMER]))],
+    db: Annotated[AsyncSession, Depends(get_db)],
+):
+    payload = await MobileCustomerService.get_feedback_history(current_user=current_user, db=db)
+    return StandardResponse(data=MobileCustomerFeedbackHistoryResponse(**payload))
+
+
+@router.get("/customer/profile", response_model=StandardResponse[schemas.UserResponse])
+async def read_customer_profile(
+    current_user: Annotated[User, Depends(dependencies.RoleChecker([schemas.Role.CUSTOMER]))],
+    db: Annotated[AsyncSession, Depends(get_db)],
+):
+    return await read_current_user_profile(current_user=current_user, db=db)
+
+
+@router.put("/customer/profile", response_model=StandardResponse[schemas.UserResponse])
+async def update_customer_profile(
+    payload: schemas.UserUpdate,
+    current_user: Annotated[User, Depends(dependencies.RoleChecker([schemas.Role.CUSTOMER]))],
+    db: Annotated[AsyncSession, Depends(get_db)],
+):
+    return await update_current_user_profile(user_update=payload, current_user=current_user, db=db)
+
+
+@router.put("/customer/profile/password", response_model=StandardResponse)
+async def update_customer_password(
+    payload: schemas.PasswordChange,
+    current_user: Annotated[User, Depends(dependencies.RoleChecker([schemas.Role.CUSTOMER]))],
+    db: Annotated[AsyncSession, Depends(get_db)],
+):
+    return await change_current_user_password(password_data=payload, current_user=current_user, db=db)
+
+
+@router.post("/customer/profile/picture", response_model=StandardResponse[schemas.UserResponse])
+async def update_customer_profile_picture(
+    current_user: Annotated[User, Depends(dependencies.RoleChecker([schemas.Role.CUSTOMER]))],
+    db: Annotated[AsyncSession, Depends(get_db)],
+    file: UploadFile = File(...),
+):
+    return await upload_current_user_profile_picture(current_user=current_user, db=db, file=file)
+
+
 @router.get("/customer/notification-settings", response_model=StandardResponse[schemas.NotificationPreference])
 async def read_customer_notification_settings(
     current_user: Annotated[User, Depends(dependencies.RoleChecker([schemas.Role.CUSTOMER]))],
@@ -237,6 +297,23 @@ async def create_customer_support_ticket_message(
     return await add_support_ticket_message(ticket_id=ticket_id, data=payload, current_user=current_user, db=db)
 
 
+@router.post("/customer/support/tickets/{ticket_id}/attachments", response_model=StandardResponse)
+async def create_customer_support_ticket_attachment(
+    ticket_id: uuid.UUID,
+    current_user: Annotated[User, Depends(dependencies.RoleChecker([schemas.Role.CUSTOMER]))],
+    db: Annotated[AsyncSession, Depends(get_db)],
+    file: UploadFile = File(...),
+    message: str | None = Form(None),
+):
+    return await add_support_ticket_attachment(
+        ticket_id=ticket_id,
+        current_user=current_user,
+        db=db,
+        file=file,
+        message=message,
+    )
+
+
 @router.get("/customer/lost-found/items", response_model=StandardResponse)
 async def read_customer_lost_found_items(
     current_user: Annotated[User, Depends(dependencies.RoleChecker([schemas.Role.CUSTOMER]))],
@@ -282,12 +359,39 @@ async def create_customer_lost_found_comment(
     return await add_lost_found_comment(item_id=item_id, payload=payload, current_user=current_user, db=db)
 
 
+@router.post("/customer/lost-found/items/{item_id}/media", response_model=StandardResponse)
+async def create_customer_lost_found_media(
+    item_id: uuid.UUID,
+    current_user: Annotated[User, Depends(dependencies.RoleChecker([schemas.Role.CUSTOMER]))],
+    db: Annotated[AsyncSession, Depends(get_db)],
+    file: UploadFile = File(...),
+):
+    return await upload_customer_lost_found_media(item_id=item_id, current_user=current_user, db=db, file=file)
+
+
 @router.get("/customer/chat/threads", response_model=StandardResponse)
 async def read_customer_chat_threads(
     current_user: Annotated[User, Depends(dependencies.RoleChecker([schemas.Role.CUSTOMER]))],
     db: Annotated[AsyncSession, Depends(get_db)],
 ):
-    return await list_chat_threads(current_user=current_user, db=db)
+    return await list_chat_threads(
+        current_user=current_user,
+        db=db,
+        limit=30,
+        offset=0,
+        sort_by="last_message_at",
+        sort_order="desc",
+        coach_id=None,
+        customer_id=None,
+    )
+
+
+@router.get("/customer/chat/coaches", response_model=StandardResponse)
+async def read_customer_chat_coaches(
+    current_user: Annotated[User, Depends(dependencies.RoleChecker([schemas.Role.CUSTOMER]))],
+    db: Annotated[AsyncSession, Depends(get_db)],
+):
+    return StandardResponse(data=await MobileCustomerService.list_relevant_chat_coaches(current_user=current_user, db=db))
 
 
 @router.post("/customer/chat/threads", response_model=StandardResponse)
@@ -299,6 +403,22 @@ async def create_customer_chat_thread(
     return await create_or_get_chat_thread(data=payload, current_user=current_user, db=db)
 
 
+@router.get("/customer/chat/threads/{thread_id}/messages", response_model=StandardResponse)
+async def read_customer_chat_messages(
+    thread_id: uuid.UUID,
+    current_user: Annotated[User, Depends(dependencies.RoleChecker([schemas.Role.CUSTOMER]))],
+    db: Annotated[AsyncSession, Depends(get_db)],
+    limit: int = Query(50, ge=1, le=100),
+):
+    return await list_chat_thread_messages(
+        thread_id=thread_id,
+        current_user=current_user,
+        db=db,
+        limit=limit,
+        before=None,
+    )
+
+
 @router.post("/customer/chat/threads/{thread_id}/messages", response_model=StandardResponse)
 async def create_customer_chat_message(
     thread_id: uuid.UUID,
@@ -307,6 +427,25 @@ async def create_customer_chat_message(
     db: Annotated[AsyncSession, Depends(get_db)],
 ):
     return await send_chat_message(thread_id=thread_id, data=payload, current_user=current_user, db=db)
+
+
+@router.post("/customer/chat/threads/{thread_id}/attachments", response_model=StandardResponse)
+async def create_customer_chat_attachment(
+    thread_id: uuid.UUID,
+    current_user: Annotated[User, Depends(dependencies.RoleChecker([schemas.Role.CUSTOMER]))],
+    db: Annotated[AsyncSession, Depends(get_db)],
+    file: UploadFile = File(...),
+    text_content: str | None = Form(None),
+    voice_duration_seconds: int | None = Form(None),
+):
+    return await upload_chat_attachment(
+        thread_id=thread_id,
+        current_user=current_user,
+        db=db,
+        file=file,
+        text_content=text_content,
+        voice_duration_seconds=voice_duration_seconds,
+    )
 
 
 @router.post("/customer/chat/threads/{thread_id}/read", response_model=StandardResponse)

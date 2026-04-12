@@ -12,17 +12,84 @@ from app.models.access import AccessLog
 from app.models.chat import ChatMessage, ChatReadReceipt, ChatThread
 from app.models.finance import Transaction
 from app.models.fitness import BiometricLog, DietPlan, WorkoutPlan
+from app.models.enums import Role
 from app.models.support import SupportTicket, TicketStatus
 from app.models.user import User
 from app.models.notification import WhatsAppDeliveryLog
 from app.models.notification import MobileNotificationPreference
 from app.models.access import RenewalRequestStatus, Subscription, SubscriptionRenewalRequest
 from app.models.workout_log import WorkoutSession
+from app.models.workout_log import DietFeedback, GymFeedback, WorkoutLog
 from app.services.access_service import AccessService
 from app.services.mobile_bootstrap_service import MobileBootstrapService
 
 
 class MobileCustomerService:
+    @staticmethod
+    async def list_relevant_chat_coaches(*, current_user: User, db: AsyncSession) -> list[dict]:
+        coach_ids: set[uuid.UUID] = set()
+
+        workout_creator_ids = (
+            await db.execute(
+                select(WorkoutPlan.creator_id).where(
+                    WorkoutPlan.member_id == current_user.id,
+                    WorkoutPlan.status != "ARCHIVED",
+                )
+            )
+        ).scalars().all()
+        coach_ids.update(workout_creator_ids)
+
+        diet_creator_ids = (
+            await db.execute(
+                select(DietPlan.creator_id).where(
+                    DietPlan.member_id == current_user.id,
+                    DietPlan.status != "ARCHIVED",
+                )
+            )
+        ).scalars().all()
+        coach_ids.update(diet_creator_ids)
+
+        thread_coach_ids = (
+            await db.execute(select(ChatThread.coach_id).where(ChatThread.customer_id == current_user.id))
+        ).scalars().all()
+        coach_ids.update(thread_coach_ids)
+
+        feedback_coach_ids = (
+            await db.execute(
+                select(DietFeedback.coach_id).where(
+                    DietFeedback.member_id == current_user.id,
+                    DietFeedback.coach_id.is_not(None),
+                )
+            )
+        ).scalars().all()
+        coach_ids.update([coach_id for coach_id in feedback_coach_ids if coach_id is not None])
+
+        if not coach_ids:
+            coaches = (
+                await db.execute(
+                    select(User).where(User.role == Role.COACH, User.is_active.is_(True)).order_by(User.full_name.asc())
+                )
+            ).scalars().all()
+        else:
+            coaches = (
+                await db.execute(
+                    select(User)
+                    .where(User.id.in_(coach_ids), User.is_active.is_(True))
+                    .order_by(User.full_name.asc())
+                )
+            ).scalars().all()
+
+        return [
+            {
+                "id": str(coach.id),
+                "full_name": coach.full_name,
+                "email": coach.email,
+                "role": coach.role.value if hasattr(coach.role, "value") else str(coach.role),
+                "profile_picture_url": coach.profile_picture_url,
+            }
+            for coach in coaches
+        ]
+
     @staticmethod
     async def get_home_summary(*, current_user: User, db: AsyncSession) -> dict:
         subscription = await MobileBootstrapService.get_subscription_snapshot(current_user=current_user, db=db)
@@ -396,6 +463,72 @@ class MobileCustomerService:
             "workout_stats": [
                 {"date": str(row.day), "workouts": int(row.count or 0)}
                 for row in workout_stats_rows
+            ],
+        }
+
+    @staticmethod
+    async def get_feedback_history(*, current_user: User, db: AsyncSession, limit: int = 20) -> dict:
+        workout_logs = (
+            await db.execute(
+                select(WorkoutLog, WorkoutPlan.name)
+                .join(WorkoutPlan, WorkoutLog.plan_id == WorkoutPlan.id)
+                .where(WorkoutLog.member_id == current_user.id)
+                .order_by(WorkoutLog.date.desc())
+                .limit(limit)
+            )
+        ).all()
+        diet_feedback = (
+            await db.execute(
+                select(DietFeedback, DietPlan.name)
+                .join(DietPlan, DietFeedback.diet_plan_id == DietPlan.id)
+                .where(DietFeedback.member_id == current_user.id)
+                .order_by(DietFeedback.created_at.desc())
+                .limit(limit)
+            )
+        ).all()
+        gym_feedback = (
+            await db.execute(
+                select(GymFeedback)
+                .where(GymFeedback.member_id == current_user.id)
+                .order_by(GymFeedback.created_at.desc())
+                .limit(limit)
+            )
+        ).scalars().all()
+
+        return {
+            "workout_feedback": [
+                {
+                    "id": str(log.id),
+                    "plan_id": str(log.plan_id),
+                    "plan_name": plan_name,
+                    "date": log.date.isoformat(),
+                    "completed": log.completed,
+                    "difficulty_rating": log.difficulty_rating,
+                    "comment": log.comment,
+                }
+                for log, plan_name in workout_logs
+            ],
+            "diet_feedback": [
+                {
+                    "id": str(feedback.id),
+                    "diet_plan_id": str(feedback.diet_plan_id),
+                    "diet_plan_name": diet_name,
+                    "coach_id": str(feedback.coach_id) if feedback.coach_id else None,
+                    "rating": feedback.rating,
+                    "comment": feedback.comment,
+                    "created_at": feedback.created_at.isoformat(),
+                }
+                for feedback, diet_name in diet_feedback
+            ],
+            "gym_feedback": [
+                {
+                    "id": str(feedback.id),
+                    "category": feedback.category,
+                    "rating": feedback.rating,
+                    "comment": feedback.comment,
+                    "created_at": feedback.created_at.isoformat(),
+                }
+                for feedback in gym_feedback
             ],
         }
 

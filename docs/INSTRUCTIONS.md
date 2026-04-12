@@ -121,7 +121,28 @@ Full destructive reset:
 npm run reset
 ```
 
-## 4. Git Operations
+## 4. Run The Mobile App
+
+The Expo mobile app lives under `apps/mobile`.
+
+From the repo root:
+
+```bash
+npm install
+EXPO_PUBLIC_API_BASE_URL=http://127.0.0.1:8000/api/v1 npm run dev:mobile
+```
+
+Useful related commands:
+
+```bash
+npm run ios:mobile
+npm run android:mobile
+npm run typecheck:mobile
+```
+
+If you are testing on a physical device, replace `127.0.0.1` with your computer's LAN IP.
+
+## 5. Git Operations
 
 To save and upload changes:
 
@@ -131,7 +152,7 @@ git commit -m "Description of your changes"
 git push
 ```
 
-## 5. Troubleshooting
+## 6. Troubleshooting
 
 PowerShell script execution issue:
 
@@ -147,7 +168,7 @@ Object.keys(localStorage)
   .forEach(k => localStorage.removeItem(k));
 ```
 
-## 6. EN/AR Localization Verification
+## 7. EN/AR Localization Verification
 
 From `frontend/`:
 

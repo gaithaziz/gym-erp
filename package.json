@@ -2,6 +2,7 @@
   "name": "gym-erp-workspace",
   "private": true,
   "workspaces": [
+    "apps/*",
     "frontend",
     "packages/*"
   ],
@@ -21,6 +22,10 @@
     "dev:web": "docker compose up -d --build db backend frontend",
     "build:web": "docker compose build frontend",
     "rebuild:frontend": "docker compose build frontend",
+    "dev:mobile": "npm run start --workspace @gym-erp/mobile",
+    "ios:mobile": "npm run ios --workspace @gym-erp/mobile",
+    "android:mobile": "npm run android --workspace @gym-erp/mobile",
+    "typecheck:mobile": "npm run typecheck --workspace @gym-erp/mobile",
     "test:api": "./.venv/bin/python -m pytest tests/test_auth.py -q",
     "test:api:all": "./.venv/bin/python -m pytest -q",
     "typecheck:web": "npm run typecheck --workspace frontend",

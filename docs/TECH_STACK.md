@@ -54,10 +54,26 @@ This document is the canonical technical stack reference for the current `gym-er
   - `react-grid-layout`
   - `react-easy-crop`
 
+### Mobile Frontend
+
+- Framework/runtime:
+  - Expo SDK 55
+  - Expo Router
+  - React Native 0.83
+  - React 19
+- Mobile state/data:
+  - TanStack Query
+  - Expo SecureStore for token persistence
+- Mobile platform helpers:
+  - `react-native-safe-area-context`
+  - `react-native-screens`
+  - `react-native-gesture-handler`
+
 ### Shared Workspace Packages
 
 - Monorepo/workspaces: npm workspaces
 - Shared packages:
+  - `@gym-erp/mobile`
   - `@gym-erp/contracts`
   - `@gym-erp/i18n`
 - Shared contracts validation: `zod`

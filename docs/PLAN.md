@@ -6,7 +6,7 @@ Build one React Native app for all users with a single sign-in flow, single code
 
 Product direction:
 - All roles are included in the overall roadmap: `CUSTOMER`, `COACH`, `RECEPTION`, `FRONT_DESK`, `CASHIER`, `EMPLOYEE`, `ADMIN`, `MANAGER`
-- Customers get an expanded self-serve experience with nearly all user-facing value, including payments
+- Customers get an expanded self-serve experience with nearly all user-facing value, including renewal requests, receipts, and support flows
 - Staff/admin domains remain accessible where appropriate, but sensitive global operations stay restricted by capability
 - The app is not a web clone; it is a mobile-first "super-app lite" with role-aware surfaces
 
@@ -149,7 +149,7 @@ Required API/interface additions:
 
 Type additions:
 - `MobileNotificationItem`
-- `PaymentIntentSummary`
+- `RenewalRequestSummary`
 - `ReceiptSummary`
 
 Phase acceptance:

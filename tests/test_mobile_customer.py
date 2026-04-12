@@ -17,6 +17,7 @@ from app.models.subscription_enums import SubscriptionStatus
 from app.models.support import SupportTicket, TicketCategory, TicketStatus
 from app.models.user import User
 from app.models.workout_log import WorkoutSession
+from app.models.workout_log import DietFeedback, GymFeedback, WorkoutLog
 
 
 async def _login(client: AsyncClient, email: str, password: str = "password123") -> dict[str, str]:
@@ -348,6 +349,32 @@ async def test_mobile_customer_write_flows(client: AsyncClient, db_session: Asyn
 
     headers = await _login(client, customer.email)
 
+    profile_get = await client.get(f"{settings.API_V1_STR}/mobile/customer/profile", headers=headers)
+    assert profile_get.status_code == 200
+    assert profile_get.json()["data"]["email"] == customer.email
+
+    profile_put = await client.put(
+        f"{settings.API_V1_STR}/mobile/customer/profile",
+        headers=headers,
+        json={
+            "full_name": "Updated Customer",
+            "phone_number": "+15551234567",
+            "bio": "Member profile from mobile",
+        },
+    )
+    assert profile_put.status_code == 200
+    assert profile_put.json()["data"]["full_name"] == "Updated Customer"
+    assert profile_put.json()["data"]["phone_number"] == "+15551234567"
+
+    password_put = await client.put(
+        f"{settings.API_V1_STR}/mobile/customer/profile/password",
+        headers=headers,
+        json={"current_password": "password123", "new_password": "password456"},
+    )
+    assert password_put.status_code == 200
+
+    headers = await _login(client, customer.email, "password456")
+
     prefs_get = await client.get(f"{settings.API_V1_STR}/mobile/customer/notification-settings", headers=headers)
     assert prefs_get.status_code == 200
     assert prefs_get.json()["data"]["push_enabled"] is True
@@ -408,6 +435,14 @@ async def test_mobile_customer_write_flows(client: AsyncClient, db_session: Asyn
     assert stored_request is not None
     assert stored_request.status == RenewalRequestStatus.PENDING
 
+    profile_picture = await client.post(
+        f"{settings.API_V1_STR}/mobile/customer/profile/picture",
+        headers=headers,
+        files={"file": ("avatar.png", b"fake-image-content", "image/png")},
+    )
+    assert profile_picture.status_code == 200
+    assert profile_picture.json()["data"]["profile_picture_url"].startswith("/static/profiles/")
+
     support_create = await client.post(
         f"{settings.API_V1_STR}/mobile/customer/support/tickets",
         headers=headers,
@@ -423,6 +458,15 @@ async def test_mobile_customer_write_flows(client: AsyncClient, db_session: Asyn
     )
     assert support_reply.status_code == 200
     assert support_reply.json()["data"]["message"] == "Following up"
+
+    support_attachment = await client.post(
+        f"{settings.API_V1_STR}/mobile/customer/support/tickets/{ticket_id}/attachments",
+        headers=headers,
+        data={"message": "Photo attached"},
+        files={"file": ("issue.png", b"ticket-image", "image/png")},
+    )
+    assert support_attachment.status_code == 200
+    assert support_attachment.json()["data"]["media_url"].startswith("/static/support_media/")
 
     lost_found_create = await client.post(
         f"{settings.API_V1_STR}/mobile/customer/lost-found/items",
@@ -453,6 +497,14 @@ async def test_mobile_customer_write_flows(client: AsyncClient, db_session: Asyn
     assert lost_found_comment.status_code == 200
     assert lost_found_comment.json()["data"]["text"] == "This one is mine, thanks."
 
+    lost_found_media = await client.post(
+        f"{settings.API_V1_STR}/mobile/customer/lost-found/items/{lost_found_item_id}/media",
+        headers=headers,
+        files={"file": ("bottle.png", b"lost-found-image", "image/png")},
+    )
+    assert lost_found_media.status_code == 200
+    assert lost_found_media.json()["data"]["media_url"].startswith("/static/lost_found_media/")
+
     thread_create = await client.post(
         f"{settings.API_V1_STR}/mobile/customer/chat/threads",
         headers=headers,
@@ -460,6 +512,13 @@ async def test_mobile_customer_write_flows(client: AsyncClient, db_session: Asyn
     )
     assert thread_create.status_code == 200
     thread_id = thread_create.json()["data"]["id"]
+
+    relevant_coaches = await client.get(
+        f"{settings.API_V1_STR}/mobile/customer/chat/coaches",
+        headers=headers,
+    )
+    assert relevant_coaches.status_code == 200
+    assert relevant_coaches.json()["data"][0]["id"] == str(coach.id)
 
     chat_send = await client.post(
         f"{settings.API_V1_STR}/mobile/customer/chat/threads/{thread_id}/messages",
@@ -469,8 +528,87 @@ async def test_mobile_customer_write_flows(client: AsyncClient, db_session: Asyn
     assert chat_send.status_code == 200
     assert chat_send.json()["data"]["text_content"] == "Hi coach"
 
+    chat_messages = await client.get(
+        f"{settings.API_V1_STR}/mobile/customer/chat/threads/{thread_id}/messages",
+        headers=headers,
+    )
+    assert chat_messages.status_code == 200
+    assert chat_messages.json()["data"][0]["text_content"] == "Hi coach"
+
+    chat_attachment = await client.post(
+        f"{settings.API_V1_STR}/mobile/customer/chat/threads/{thread_id}/attachments",
+        headers=headers,
+        data={"text_content": "See attachment"},
+        files={"file": ("voice.ogg", b"voice-bytes", "audio/ogg")},
+    )
+    assert chat_attachment.status_code == 200
+    assert chat_attachment.json()["data"]["message_type"] == "VOICE"
+
     chat_read = await client.post(
         f"{settings.API_V1_STR}/mobile/customer/chat/threads/{thread_id}/read",
         headers=headers,
     )
     assert chat_read.status_code == 200
+
+    workout_plan = WorkoutPlan(
+        name="Feedback Plan",
+        creator_id=coach.id,
+        member_id=customer.id,
+        is_template=False,
+        status="PUBLISHED",
+        version=1,
+        expected_sessions_per_30d=8,
+        published_at=now - timedelta(days=3),
+    )
+    diet_plan = DietPlan(
+        name="Feedback Diet",
+        creator_id=coach.id,
+        member_id=customer.id,
+        content="diet",
+        is_template=False,
+        status="PUBLISHED",
+        version=1,
+        published_at=now - timedelta(days=3),
+    )
+    db_session.add_all([workout_plan, diet_plan])
+    await db_session.flush()
+    db_session.add(
+        WorkoutLog(
+            member_id=customer.id,
+            plan_id=workout_plan.id,
+            completed=True,
+            difficulty_rating=4,
+            comment="Strong workout",
+            date=(now - timedelta(days=1)).replace(tzinfo=None),
+        )
+    )
+    db_session.add(
+        DietFeedback(
+            member_id=customer.id,
+            diet_plan_id=diet_plan.id,
+            coach_id=coach.id,
+            rating=5,
+            comment="Diet went well",
+            created_at=(now - timedelta(hours=12)).replace(tzinfo=None),
+        )
+    )
+    db_session.add(
+        GymFeedback(
+            member_id=customer.id,
+            category="GENERAL",
+            rating=4,
+            comment="Nice gym",
+            created_at=(now - timedelta(hours=6)).replace(tzinfo=None),
+        )
+    )
+    await db_session.commit()
+
+    feedback_history = await client.get(
+        f"{settings.API_V1_STR}/mobile/customer/feedback/history",
+        headers=headers,
+    )
+    assert feedback_history.status_code == 200
+    feedback_data = feedback_history.json()["data"]
+    assert feedback_data["workout_feedback"][0]["plan_name"] == "Feedback Plan"
+    assert feedback_data["diet_feedback"][0]["diet_plan_name"] == "Feedback Diet"
+    assert feedback_data["gym_feedback"][0]["category"] == "GENERAL"
