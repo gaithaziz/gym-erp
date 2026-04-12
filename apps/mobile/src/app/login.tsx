@@ -29,7 +29,7 @@ export default function LoginScreen() {
   }
 
   return (
-    <Screen title={copy.login.title} subtitle={copy.login.subtitle}>
+    <Screen title={copy.login.title} subtitle={copy.login.subtitle} accentHeight={96} accentOpacity={0.06}>
       <Card style={[styles.heroCard, { backgroundColor: theme.inverseBackground, borderColor: theme.inverseBackground }]}>
         <Text style={[styles.kicker, { color: theme.primary, fontFamily: fontSet.mono, textAlign: isRTL ? "right" : "left", writingDirection: direction }]}>
           {copy.login.kicker}

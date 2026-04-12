@@ -1,8 +1,9 @@
 import { Ionicons } from "@expo/vector-icons";
+import { BottomTabBarHeightContext } from "@react-navigation/bottom-tabs";
 import { useQuery } from "@tanstack/react-query";
 import { Image } from "expo-image";
 import { usePathname, useRouter } from "expo-router";
-import type { PropsWithChildren, ReactNode } from "react";
+import { useContext, type PropsWithChildren, type ReactNode } from "react";
 import {
   ActivityIndicator,
   Pressable,
@@ -15,7 +16,7 @@ import {
   type TextInputProps,
   type ViewProps,
 } from "react-native";
-import { SafeAreaView } from "react-native-safe-area-context";
+import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { API_BASE_URL, parseHomeEnvelope } from "@/lib/api";
 import { usePreferences } from "@/lib/preferences";
@@ -28,6 +29,8 @@ function FloatingChatButton() {
   const router = useRouter();
   const { authorizedRequest, status } = useSession();
   const { copy, isRTL, theme } = usePreferences();
+  const insets = useSafeAreaInsets();
+  const tabBarHeight = useContext(BottomTabBarHeightContext);
 
   const hidden = status !== "signed_in" || pathname === "/login" || pathname.includes("/chat");
   const homeQuery = useQuery({
@@ -42,6 +45,8 @@ function FloatingChatButton() {
     return null;
   }
 
+  const bottomOffset = Math.max(insets.bottom - 4, 0);
+
   return (
     <Pressable
       accessibilityRole="button"
@@ -52,6 +57,7 @@ function FloatingChatButton() {
         {
           backgroundColor: theme.primary,
           shadowColor: "#000000",
+          bottom: bottomOffset,
           left: isRTL ? 20 : undefined,
           right: isRTL ? undefined : 20,
         },
@@ -78,43 +84,82 @@ export function Screen({
   title,
   subtitle,
   children,
+  leadingAction,
   action,
   scrollable = true,
+  compactTitle = false,
+  showSubtitle = false,
   hideFloatingChat = false,
-}: PropsWithChildren<{ title: string; subtitle?: string; action?: ReactNode; scrollable?: boolean; hideFloatingChat?: boolean }>) {
+  accentHeight = 0,
+  accentOpacity = 0,
+  contentPaddingBottom,
+}: PropsWithChildren<{
+  title: string;
+  subtitle?: string;
+  leadingAction?: ReactNode;
+  action?: ReactNode;
+  scrollable?: boolean;
+  compactTitle?: boolean;
+  showSubtitle?: boolean;
+  hideFloatingChat?: boolean;
+  accentHeight?: number;
+  accentOpacity?: number;
+  contentPaddingBottom?: number;
+}>) {
+  const pathname = usePathname();
+  const router = useRouter();
   const { direction, isRTL, theme, themeMode, toggleLocale, toggleThemeMode, locale, fontSet } = usePreferences();
+  const insets = useSafeAreaInsets();
+  const resolvedContentPaddingBottom = contentPaddingBottom ?? (hideFloatingChat ? insets.bottom + 8 : insets.bottom + 28);
+  const shouldShowBackButton = pathname !== "/" && pathname !== "/index" && pathname !== "/login" && !pathname.startsWith("/(tabs)") && router.canGoBack();
+  const resolvedLeadingAction =
+    leadingAction ??
+    (shouldShowBackButton ? (
+      <Pressable
+        accessibilityRole="button"
+        accessibilityLabel={isRTL ? "رجوع" : "Back"}
+        onPress={() => router.back()}
+        style={[styles.backButton, { backgroundColor: theme.card, borderColor: theme.border }]}
+      >
+        <Ionicons name={isRTL ? "chevron-forward" : "chevron-back"} size={20} color={theme.foreground} />
+      </Pressable>
+    ) : null);
   const content = (
     <>
       <View style={styles.headerRow}>
-        <View style={styles.headerText}>
-          <Text
-            style={[
-              styles.screenTitle,
-              {
-                color: theme.foreground,
-                textAlign: isRTL ? "right" : "left",
-                writingDirection: direction,
-                fontFamily: fontSet.display,
-              },
-            ]}
-          >
-            {title}
-          </Text>
-          {subtitle ? (
+        <View style={[styles.headerMain, { flexDirection: isRTL ? "row-reverse" : "row" }]}>
+          {resolvedLeadingAction ? <View style={styles.headerLeading}>{resolvedLeadingAction}</View> : null}
+          <View style={styles.headerText}>
             <Text
               style={[
-                styles.screenSubtitle,
+                compactTitle ? styles.screenTitleCompact : styles.screenTitle,
                 {
-                  color: theme.muted,
+                  color: theme.foreground,
                   textAlign: isRTL ? "right" : "left",
                   writingDirection: direction,
-                  fontFamily: fontSet.body,
+                  fontFamily: fontSet.display,
                 },
               ]}
+              numberOfLines={1}
             >
-              {subtitle}
+              {title}
             </Text>
-          ) : null}
+            {showSubtitle && subtitle ? (
+              <Text
+                style={[
+                  styles.screenSubtitle,
+                  {
+                    color: theme.muted,
+                    textAlign: isRTL ? "right" : "left",
+                    writingDirection: direction,
+                    fontFamily: fontSet.body,
+                  },
+                ]}
+              >
+                {subtitle}
+              </Text>
+            ) : null}
+          </View>
         </View>
         <View style={[styles.headerActions, { flexDirection: isRTL ? "row-reverse" : "row" }]}>
           <Pressable onPress={() => void toggleThemeMode()} style={[styles.controlButton, { backgroundColor: theme.card, borderColor: theme.border }]}>
@@ -132,11 +177,11 @@ export function Screen({
 
   return (
     <SafeAreaView style={[styles.safeArea, { backgroundColor: theme.background }]}>
-      <View style={[styles.topAccent, { backgroundColor: theme.primary }]} />
+      <View style={[styles.topAccent, { backgroundColor: theme.primary, height: accentHeight, opacity: accentOpacity }]} />
       {scrollable ? (
-        <ScrollView contentContainerStyle={styles.screenContent}>{content}</ScrollView>
+        <ScrollView contentContainerStyle={[styles.screenContent, { paddingBottom: resolvedContentPaddingBottom }]}>{content}</ScrollView>
       ) : (
-        <View style={[styles.screenContent, styles.screenContentStatic]}>{content}</View>
+        <View style={[styles.screenContent, styles.screenContentStatic, { paddingBottom: resolvedContentPaddingBottom }]}>{content}</View>
       )}
       <View pointerEvents="box-none" style={styles.screenOverlay}>
         {!hideFloatingChat ? <FloatingChatButton /> : null}
@@ -274,11 +319,44 @@ export function TextArea(props: TextInputProps) {
 }
 
 export function InlineStat({ label, value }: { label: string; value: string | number }) {
-  const { theme, fontSet } = usePreferences();
+  const { direction, isRTL, theme, fontSet } = usePreferences();
   return (
-    <View style={[styles.inlineStat, { backgroundColor: theme.cardAlt, borderColor: theme.border }]}>
-      <Text style={[styles.inlineStatLabel, { color: theme.primary, fontFamily: fontSet.mono }]}>{label}</Text>
-      <Text style={[styles.inlineStatValue, { color: theme.foreground, fontFamily: fontSet.display }]}>{value}</Text>
+    <View
+      style={[
+        styles.inlineStat,
+        {
+          backgroundColor: theme.cardAlt,
+          borderColor: theme.border,
+          alignItems: isRTL ? "flex-end" : "flex-start",
+        },
+      ]}
+    >
+      <Text
+        style={[
+          styles.inlineStatLabel,
+          {
+            color: theme.primary,
+            fontFamily: fontSet.mono,
+            textAlign: isRTL ? "right" : "left",
+            writingDirection: direction,
+          },
+        ]}
+      >
+        {label}
+      </Text>
+      <Text
+        style={[
+          styles.inlineStatValue,
+          {
+            color: theme.foreground,
+            fontFamily: fontSet.display,
+            textAlign: isRTL ? "right" : "left",
+            writingDirection: direction,
+          },
+        ]}
+      >
+        {value}
+      </Text>
     </View>
   );
 }
@@ -376,7 +454,7 @@ const styles = StyleSheet.create({
   screenContent: {
     paddingHorizontal: 20,
     paddingBottom: 48,
-    paddingTop: 12,
+    paddingTop: 4,
     gap: 16,
   },
   screenContentStatic: {
@@ -391,7 +469,26 @@ const styles = StyleSheet.create({
     pointerEvents: "box-none",
   },
   headerRow: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "flex-start",
     gap: 12,
+  },
+  headerMain: {
+    flex: 1,
+    alignItems: "flex-start",
+    gap: 10,
+  },
+  headerLeading: {
+    flexShrink: 0,
+  },
+  backButton: {
+    width: 38,
+    height: 38,
+    borderRadius: 999,
+    alignItems: "center",
+    justifyContent: "center",
+    borderWidth: 1,
   },
   headerText: {
     gap: 4,
@@ -401,11 +498,17 @@ const styles = StyleSheet.create({
     gap: 8,
     alignItems: "center",
     justifyContent: "flex-start",
+    flexShrink: 0,
   },
   screenTitle: {
     fontSize: 32,
     fontWeight: "800",
     letterSpacing: -0.6,
+  },
+  screenTitleCompact: {
+    fontSize: 24,
+    fontWeight: "800",
+    letterSpacing: -0.3,
   },
   screenSubtitle: {
     fontSize: 15,

@@ -12,6 +12,7 @@
     },
     "ios": {
       "infoPlist": {
+        "NSMicrophoneUsageDescription": "Record voice notes in gym chat conversations.",
         "NSAppTransportSecurity": {
           "NSAllowsArbitraryLoads": true,
           "NSAllowsLocalNetworking": true

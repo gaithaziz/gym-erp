@@ -51,6 +51,7 @@ function AppNavigator() {
             fontFamily: fontSet.body,
           },
           headerTintColor: theme.foreground,
+          headerBackButtonDisplayMode: "minimal",
           headerShadowVisible: false,
           contentStyle: {
             backgroundColor: theme.background,
@@ -62,13 +63,13 @@ function AppNavigator() {
         <Stack.Screen name="index" options={{ headerShown: false }} />
         <Stack.Screen name="login" options={{ headerShown: false }} />
         <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
-        <Stack.Screen name="billing" options={{ title: copy.common.billing }} />
-        <Stack.Screen name="notifications" options={{ title: copy.common.notifications }} />
-        <Stack.Screen name="support" options={{ title: copy.common.support }} />
-        <Stack.Screen name="chat" options={{ title: copy.common.chat }} />
-        <Stack.Screen name="lost-found" options={{ title: copy.common.lostFound }} />
-        <Stack.Screen name="profile" options={{ title: copy.common.profile }} />
-        <Stack.Screen name="feedback" options={{ title: copy.common.feedbackHistory }} />
+        <Stack.Screen name="billing" options={{ headerShown: false, title: copy.common.billing }} />
+        <Stack.Screen name="notifications" options={{ headerShown: false, title: copy.common.notifications }} />
+        <Stack.Screen name="support" options={{ headerShown: false, title: copy.common.support }} />
+        <Stack.Screen name="chat" options={{ headerShown: false }} />
+        <Stack.Screen name="lost-found" options={{ headerShown: false, title: copy.common.lostFound }} />
+        <Stack.Screen name="profile" options={{ headerShown: false, title: copy.common.profile }} />
+        <Stack.Screen name="feedback" options={{ headerShown: false, title: copy.common.feedbackHistory }} />
       </Stack>
     </>
   );

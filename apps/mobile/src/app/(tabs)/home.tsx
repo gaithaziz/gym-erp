@@ -61,8 +61,8 @@ export default function HomeTab() {
               </Pressable>
             </View>
 
-            <View style={styles.heroMeta}>
-              <View>
+            <View style={[styles.heroMeta, { flexDirection: isRTL ? "row-reverse" : "row" }]}>
+              <View style={styles.heroMetaBlock}>
                 <MutedText>{copy.home.plan}</MutedText>
                 <Text
                   style={[
@@ -73,7 +73,7 @@ export default function HomeTab() {
                   {home.subscription.plan_name || copy.common.noActivePlan}
                 </Text>
               </View>
-              <View>
+              <View style={styles.heroMetaBlock}>
                 <MutedText>{copy.home.status}</MutedText>
                 <Text
                   style={[
@@ -89,7 +89,7 @@ export default function HomeTab() {
             <PrimaryButton onPress={() => router.push("/billing")}>{copy.home.renew}</PrimaryButton>
           </Card>
 
-          <View style={styles.statGrid}>
+          <View style={[styles.statGrid, { flexDirection: isRTL ? "row-reverse" : "row" }]}>
             <InlineStat label={copy.home.workoutPlans} value={home.quick_stats.active_workout_plans} />
             <InlineStat label={copy.home.dietPlans} value={home.quick_stats.active_diet_plans} />
             <InlineStat label={copy.home.checkIns} value={home.quick_stats.recent_check_ins} />
@@ -121,7 +121,7 @@ export default function HomeTab() {
             ) : (
               home.recent_receipts.map((receipt) => (
                 <View key={receipt.id} style={[styles.listRow, { borderTopColor: theme.border, flexDirection: isRTL ? "row-reverse" : "row" }]}>
-                  <View>
+                  <View style={styles.listTextBlock}>
                     <Text
                       style={[
                         styles.listTitle,
@@ -178,9 +178,12 @@ const styles = StyleSheet.create({
     fontWeight: "800",
   },
   heroMeta: {
-    flexDirection: "row",
     justifyContent: "space-between",
     gap: 12,
+  },
+  heroMetaBlock: {
+    flex: 1,
+    gap: 2,
   },
   heroPlan: {
     fontSize: 15,
@@ -203,7 +206,6 @@ const styles = StyleSheet.create({
     textTransform: "uppercase",
   },
   statGrid: {
-    flexDirection: "row",
     flexWrap: "wrap",
     gap: 12,
   },
@@ -220,6 +222,9 @@ const styles = StyleSheet.create({
   listTitle: {
     fontSize: 15,
     fontWeight: "600",
+  },
+  listTextBlock: {
+    flex: 1,
   },
   amountText: {
     fontSize: 16,

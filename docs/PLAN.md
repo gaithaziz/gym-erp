@@ -52,7 +52,7 @@ Role and capability model:
   - `enabled modules`
   - `notification preferences snapshot`
 - Capability examples:
-  - `view_personal_qr`
+  - `scan_gym_qr`
   - `scan_member_qr`
   - `lookup_members`
   - `manage_member_plans`
@@ -115,14 +115,14 @@ Payment policy:
 
 Customer tabs:
 - Home
-- QR
+- Scan
 - Plans
 - Progress
 - More
 
 Customer screens:
 - Home dashboard
-- Personal QR and entrance status
+- Check-in scan and entrance status
 - Subscription status
 - Renew subscription
 - Renewal request status
@@ -155,7 +155,7 @@ Type additions:
 Phase acceptance:
 - Customer can access nearly all self-serve flows without seeing restricted staff/admin controls
 - Blocked customer is restricted only where business rules require it
-- Customer can view QR, plans, diets, progress, history, support, chat, lost & found, subscription, receipts, and submit/track renewal requests
+- Customer can use scan, plans, diets, progress, history, support, chat, lost & found, subscription, receipts, and submit/track renewal requests
 
 ## Phase 3: Staff Operations MVP
 

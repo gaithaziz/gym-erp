@@ -37,7 +37,7 @@ export default function TabsLayout() {
         name="qr"
         options={{
           title: copy.tabs.qr,
-          tabBarIcon: ({ color, size }) => <Ionicons name="qr-code-outline" size={size} color={color} />,
+          tabBarIcon: ({ color, size }) => <Ionicons name="scan-outline" size={size} color={color} />,
         }}
       />
       <Tabs.Screen
