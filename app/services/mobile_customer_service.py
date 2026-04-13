@@ -18,9 +18,8 @@ from app.models.user import User
 from app.models.notification import WhatsAppDeliveryLog
 from app.models.notification import MobileNotificationPreference
 from app.models.access import RenewalRequestStatus, Subscription, SubscriptionRenewalRequest
-from app.models.workout_log import WorkoutSession
+from app.models.workout_log import WorkoutSession, WorkoutSessionEntry
 from app.models.workout_log import DietFeedback, GymFeedback, WorkoutLog
-from app.services.access_service import AccessService
 from app.services.mobile_bootstrap_service import MobileBootstrapService
 
 
@@ -93,7 +92,6 @@ class MobileCustomerService:
     @staticmethod
     async def get_home_summary(*, current_user: User, db: AsyncSession) -> dict:
         subscription = await MobileBootstrapService.get_subscription_snapshot(current_user=current_user, db=db)
-        qr_token, qr_expires_in_seconds = AccessService.generate_qr_token(current_user.id)
 
         active_workout_plans = int(
             (
@@ -157,10 +155,6 @@ class MobileCustomerService:
 
         return {
             "subscription": subscription.model_dump(mode="json"),
-            "qr": {
-                "token": qr_token,
-                "expires_in_seconds": qr_expires_in_seconds,
-            },
             "quick_stats": {
                 "active_workout_plans": active_workout_plans,
                 "active_diet_plans": active_diet_plans,
@@ -437,6 +431,16 @@ class MobileCustomerService:
                 .order_by("day")
             )
         ).all()
+        pr_entries = (
+            await db.execute(
+                select(WorkoutSessionEntry, WorkoutSession, WorkoutPlan.name)
+                .join(WorkoutSession, WorkoutSessionEntry.session_id == WorkoutSession.id)
+                .join(WorkoutPlan, WorkoutSession.plan_id == WorkoutPlan.id)
+                .where(WorkoutSession.member_id == current_user.id, WorkoutSessionEntry.is_pr.is_(True))
+                .order_by(WorkoutSession.performed_at.desc(), WorkoutSessionEntry.order.asc())
+                .limit(20)
+            )
+        ).all()
 
         return {
             "biometrics": [MobileCustomerService._serialize_biometric(log) for log in biometric_logs],
@@ -463,6 +467,23 @@ class MobileCustomerService:
             "workout_stats": [
                 {"date": str(row.day), "workouts": int(row.count or 0)}
                 for row in workout_stats_rows
+            ],
+            "personal_records": [
+                {
+                    "id": str(entry.id),
+                    "session_id": str(session.id),
+                    "plan_id": str(session.plan_id),
+                    "plan_name": plan_name,
+                    "exercise_name": entry.exercise_name,
+                    "pr_type": entry.pr_type,
+                    "pr_value": entry.pr_value,
+                    "pr_notes": entry.pr_notes,
+                    "weight_kg": entry.weight_kg,
+                    "sets_completed": entry.sets_completed,
+                    "reps_completed": entry.reps_completed,
+                    "performed_at": session.performed_at.isoformat(),
+                }
+                for entry, session, plan_name in pr_entries
             ],
         }
 

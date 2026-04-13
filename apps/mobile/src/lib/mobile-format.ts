@@ -118,6 +118,114 @@ export function localizeMessageType(value: string | undefined, isRTL: boolean) {
   );
 }
 
+export function localizeAccessStatus(status: string | undefined, isRTL: boolean) {
+  return localizeValue(
+    status,
+    isRTL
+      ? {
+          GRANTED: "تم السماح",
+          DENIED: "مرفوض",
+          ALREADY_SCANNED: "تم المسح مسبقاً",
+        }
+      : {
+          GRANTED: "Granted",
+          DENIED: "Denied",
+          ALREADY_SCANNED: "Already scanned",
+        },
+    isRTL,
+  );
+}
+
+export function localizeAccessReason(reason: string | undefined | null, isRTL: boolean) {
+  if (!reason) {
+    return isRTL ? "لا يوجد سبب إضافي" : "No additional reason";
+  }
+  const normalized = reason.toUpperCase();
+  const map: Record<string, string> = isRTL
+    ? {
+        SUBSCRIPTION_EXPIRED: "الاشتراك منتهي",
+        SUBSCRIPTION_FROZEN: "الاشتراك مجمّد",
+        NO_ACTIVE_SUBSCRIPTION: "لا يوجد اشتراك نشط",
+        QR_EXPIRED: "رمز المسح منتهي",
+        USER_NOT_FOUND: "المستخدم غير موجود",
+      }
+    : {
+        SUBSCRIPTION_EXPIRED: "Subscription expired",
+        SUBSCRIPTION_FROZEN: "Subscription frozen",
+        NO_ACTIVE_SUBSCRIPTION: "No active subscription",
+        QR_EXPIRED: "Scan code expired",
+        USER_NOT_FOUND: "User not found",
+      };
+  map["SCANNED WITHIN THE LAST 60 SECONDS"] = isRTL ? "تم المسح خلال آخر 60 ثانية" : "Scanned within the last 60 seconds";
+  return map[normalized] ?? reason;
+}
+
+export function localizeNotificationEventType(value: string | undefined, isRTL: boolean) {
+  return localizeValue(
+    value,
+    isRTL
+      ? {
+          SUPPORT_REPLY: "رد من الدعم",
+          SUBSCRIPTION_RENEWED: "تم تجديد الاشتراك",
+          SUBSCRIPTION_CREATED: "تم إنشاء الاشتراك",
+          SUBSCRIPTION_STATUS_CHANGED: "تم تحديث حالة الاشتراك",
+          ACCESS_GRANTED: "تم تسجيل الدخول",
+        }
+      : {
+          SUPPORT_REPLY: "Support reply",
+          SUBSCRIPTION_RENEWED: "Subscription renewed",
+          SUBSCRIPTION_CREATED: "Subscription created",
+          SUBSCRIPTION_STATUS_CHANGED: "Subscription status changed",
+          ACCESS_GRANTED: "Check-in granted",
+        },
+    isRTL,
+  );
+}
+
+export function localizeNotificationStatus(value: string | undefined, isRTL: boolean) {
+  return localizeValue(
+    value,
+    isRTL
+      ? {
+          SENT: "تم الإرسال",
+          QUEUED: "قيد الانتظار",
+          FAILED: "فشل",
+          SKIPPED: "تم التجاهل",
+        }
+      : {
+          SENT: "Sent",
+          QUEUED: "Queued",
+          FAILED: "Failed",
+          SKIPPED: "Skipped",
+        },
+    isRTL,
+  );
+}
+
+export function localizeLostFoundStatus(value: string | undefined, isRTL: boolean) {
+  return localizeValue(
+    value,
+    isRTL
+      ? {
+          REPORTED: "تم الإبلاغ",
+          UNDER_REVIEW: "قيد المراجعة",
+          READY_FOR_PICKUP: "جاهز للاستلام",
+          CLOSED: "مغلق",
+          REJECTED: "مرفوض",
+          DISPOSED: "تم التخلص منه",
+        }
+      : {
+          REPORTED: "Reported",
+          UNDER_REVIEW: "Under review",
+          READY_FOR_PICKUP: "Ready for pickup",
+          CLOSED: "Closed",
+          REJECTED: "Rejected",
+          DISPOSED: "Disposed",
+        },
+    isRTL,
+  );
+}
+
 function localizeValue(value: string | undefined, map: Record<string, string>, isRTL: boolean) {
   if (!value) {
     return isRTL ? "غير معروف" : "Unknown";

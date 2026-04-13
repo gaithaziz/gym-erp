@@ -9,6 +9,7 @@ import {
 
 export const CAPABILITY_VALUES = [
   "view_personal_qr",
+  "scan_gym_qr",
   "scan_member_qr",
   "lookup_members",
   "manage_member_plans",
@@ -19,7 +20,6 @@ export const CAPABILITY_VALUES = [
   "handle_support_queue",
   "view_audit_summary",
   "renew_subscription",
-  "pay_invoice",
   "view_receipts",
   "view_profile",
   "view_notifications",
@@ -71,14 +71,30 @@ export const notificationPreferenceSchema = z.object({
   announcements_enabled: z.boolean(),
 });
 
-export const mobileBootstrapSchema = z.object({
+const rawMobileBootstrapSchema = z.object({
   user: authUserSchema,
   role: roleSchema,
   subscription: subscriptionSnapshotSchema,
   gym: gymBrandingSchema,
-  capabilities: z.array(capabilitySchema),
+  capabilities: z.array(z.string()),
   enabled_modules: z.array(enabledModuleSchema),
   notification_settings: notificationPreferenceSchema,
+});
+
+export const mobileBootstrapSchema = rawMobileBootstrapSchema.transform((payload) => {
+  const nextCapabilities = payload.capabilities.filter((capability): capability is Capability =>
+    CAPABILITY_VALUES.includes(capability as Capability),
+  );
+
+  if (payload.role === "CUSTOMER") {
+    const customerCapabilities = nextCapabilities.filter((capability) => capability !== "view_personal_qr");
+    if (!customerCapabilities.includes("scan_gym_qr")) {
+      customerCapabilities.unshift("scan_gym_qr");
+    }
+    return { ...payload, capabilities: customerCapabilities };
+  }
+
+  return { ...payload, capabilities: nextCapabilities };
 });
 
 export const mobileReceiptSummarySchema = z.object({
@@ -95,10 +111,6 @@ export const mobileReceiptSummarySchema = z.object({
 
 export const mobileCustomerHomeSchema = z.object({
   subscription: subscriptionSnapshotSchema,
-  qr: z.object({
-    token: z.string(),
-    expires_in_seconds: z.number().int(),
-  }),
   quick_stats: z.object({
     active_workout_plans: z.number().int(),
     active_diet_plans: z.number().int(),
@@ -223,6 +235,22 @@ export const mobileCustomerProgressSchema = z.object({
       workouts: z.number().int(),
     }),
   ),
+  personal_records: z.array(
+    z.object({
+      id: z.string().uuid(),
+      session_id: z.string().uuid(),
+      plan_id: z.string().uuid(),
+      plan_name: z.string().nullable().optional(),
+      exercise_name: z.string().nullable().optional(),
+      pr_type: z.string().nullable().optional(),
+      pr_value: z.string().nullable().optional(),
+      pr_notes: z.string().nullable().optional(),
+      weight_kg: z.number().nullable().optional(),
+      sets_completed: z.number().int(),
+      reps_completed: z.number().int(),
+      performed_at: z.string(),
+    }),
+  ).default([]),
 });
 
 export const mobileCustomerNotificationsSchema = z.object({

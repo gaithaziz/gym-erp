@@ -11,6 +11,18 @@ import { useLocale } from '@/context/LocaleContext';
 import { api } from '@/lib/api';
 
 type LostFoundStatus = 'REPORTED' | 'UNDER_REVIEW' | 'READY_FOR_PICKUP' | 'CLOSED' | 'REJECTED' | 'DISPOSED';
+type LostFoundCategory = 'LOST' | 'FOUND';
+
+const allowedEvidenceMimeTypes = new Set([
+    'image/jpeg',
+    'image/png',
+    'image/webp',
+    'image/heic',
+    'image/heif',
+    'video/mp4',
+    'video/webm',
+    'video/quicktime',
+]);
 
 interface Actor {
     id: string;
@@ -152,6 +164,8 @@ export default function LostFoundPage() {
         fieldTitle: 'العنوان',
         fieldDescription: 'الوصف',
         fieldCategory: 'التصنيف',
+        lostCategory: 'مفقود',
+        foundCategory: 'معثور عليه',
         fieldFoundDate: 'تاريخ العثور',
         fieldFoundLocation: 'موقع العثور',
         fieldContactNote: 'ملاحظة التواصل',
@@ -169,7 +183,7 @@ export default function LostFoundPage() {
         statusUpdateFailed: 'فشل تغيير الحالة.',
         assignedSuccess: 'تم التعيين بنجاح.',
         assignFailed: 'تعذر تعيين العنصر.',
-        onlyMediaAllowed: 'تدعم الملفات من نوع صورة/فيديو فقط.',
+        onlyMediaAllowed: 'تدعم الملفات من نوع JPEG أو PNG أو WebP أو HEIC أو HEIF أو فيديو فقط.',
         sendMediaTitle: 'إرسال وسائط',
         sendMediaDescription: 'إرسال هذا الملف إلى بلاغ المفقودات والمعثورات المحدد؟',
         sendMedia: 'إرسال',
@@ -233,6 +247,8 @@ export default function LostFoundPage() {
         fieldTitle: 'Title',
         fieldDescription: 'Description',
         fieldCategory: 'Category',
+        lostCategory: 'Lost',
+        foundCategory: 'Found',
         fieldFoundDate: 'Found Date',
         fieldFoundLocation: 'Found Location',
         fieldContactNote: 'Contact Note',
@@ -250,7 +266,7 @@ export default function LostFoundPage() {
         statusUpdateFailed: 'Status change failed.',
         assignedSuccess: 'Assigned successfully.',
         assignFailed: 'Could not assign item.',
-        onlyMediaAllowed: 'Only image/video files are supported.',
+        onlyMediaAllowed: 'Only JPEG, PNG, WebP, HEIC, HEIF, or video files are supported.',
         sendMediaTitle: 'Send media',
         sendMediaDescription: 'Send this file to the selected Lost & Found report?',
         sendMedia: 'Send',
@@ -276,6 +292,11 @@ export default function LostFoundPage() {
         if (status === 'REJECTED') return txt.statusRejected;
         return txt.statusDisposed;
     };
+    const getCategoryLabel = (category: string) => {
+        if (category === 'LOST') return txt.lostCategory;
+        if (category === 'FOUND') return txt.foundCategory;
+        return category || txt.notAvailable;
+    };
     const isHandler = handlerRoles.includes(user?.role || '');
     const isAdmin = user?.role === 'ADMIN';
     const [viewMode, setViewMode] = useState<'ACTIVE' | 'ARCHIVE'>('ACTIVE');
@@ -296,7 +317,7 @@ export default function LostFoundPage() {
     const [reportForm, setReportForm] = useState({
         title: '',
         description: '',
-        category: '',
+        category: 'LOST' as LostFoundCategory,
         found_date: '',
         found_location: '',
         contact_note: '',
@@ -410,7 +431,7 @@ export default function LostFoundPage() {
             setReportForm({
                 title: '',
                 description: '',
-                category: '',
+                category: 'LOST',
                 found_date: '',
                 found_location: '',
                 contact_note: '',
@@ -475,7 +496,7 @@ export default function LostFoundPage() {
         input.value = '';
         if (!file) return;
         const mime = file.type.toLowerCase().split(';')[0].trim();
-        if (!mime.startsWith('image/') && !mime.startsWith('video/')) {
+        if (!allowedEvidenceMimeTypes.has(mime)) {
             showToast(txt.onlyMediaAllowed, 'error');
             return;
         }
@@ -614,7 +635,7 @@ export default function LostFoundPage() {
                                     <p className="text-sm font-semibold truncate">{item.title}</p>
                                     <span className={statusBadgeClass(item.status)}>{getStatusLabel(item.status)}</span>
                                 </div>
-                                <p className="mt-1 text-xs text-muted-foreground truncate">{item.category} - {item.reporter.full_name || item.reporter.email}</p>
+                                <p className="mt-1 text-xs text-muted-foreground truncate">{getCategoryLabel(item.category)} - {item.reporter.full_name || item.reporter.email}</p>
                             </button>
                         ))}
                     </div>
@@ -636,7 +657,7 @@ export default function LostFoundPage() {
                                 <div className="rounded-md border border-border/90 bg-muted/10 p-3">
                                     <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">{txt.itemDetails}</p>
                                     <div className="space-y-1 text-sm">
-                                        <p><span className="text-muted-foreground">{txt.category}</span> {selectedItem.category}</p>
+                                        <p><span className="text-muted-foreground">{txt.category}</span> {getCategoryLabel(selectedItem.category)}</p>
                                         <p><span className="text-muted-foreground">{txt.foundDate}</span> {selectedItem.found_date || txt.notAvailable}</p>
                                         <p><span className="text-muted-foreground">{txt.location}</span> {selectedItem.found_location || txt.notAvailable}</p>
                                         <p><span className="text-muted-foreground">{txt.contactNote}</span> {selectedItem.contact_note || txt.notAvailable}</p>
@@ -812,12 +833,22 @@ export default function LostFoundPage() {
                     <div className="grid gap-2 sm:grid-cols-2">
                         <div>
                             <label className="mb-1.5 block text-xs text-muted-foreground">{txt.fieldCategory}</label>
-                            <input
-                                required
-                                className="w-full rounded-md border border-border/90 bg-background/80 px-3 py-2 text-sm text-foreground outline-none transition-colors focus:border-primary/70"
-                                value={reportForm.category}
-                                onChange={(e) => setReportForm((prev) => ({ ...prev, category: e.target.value }))}
-                            />
+                            <div className="grid grid-cols-2 gap-2">
+                                {(['LOST', 'FOUND'] as LostFoundCategory[]).map((category) => (
+                                    <button
+                                        key={category}
+                                        type="button"
+                                        onClick={() => setReportForm((prev) => ({ ...prev, category }))}
+                                        className={`rounded-md border px-3 py-2 text-sm font-semibold transition-colors ${
+                                            reportForm.category === category
+                                                ? 'border-primary bg-primary text-primary-foreground'
+                                                : 'border-border/90 bg-background/80 text-foreground hover:bg-muted/40'
+                                        }`}
+                                    >
+                                        {category === 'LOST' ? txt.lostCategory : txt.foundCategory}
+                                    </button>
+                                ))}
+                            </div>
                         </div>
                         <div>
                             <label className="mb-1.5 block text-xs text-muted-foreground">{txt.fieldFoundDate}</label>
@@ -874,4 +905,3 @@ export default function LostFoundPage() {
         </div>
     );
 }
-

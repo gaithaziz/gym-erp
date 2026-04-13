@@ -1,6 +1,6 @@
 import os
 from typing import Any, Annotated, List, Literal
-from datetime import datetime, timedelta
+from datetime import date, datetime, timedelta
 import uuid
 import re
 from urllib.parse import parse_qs, urlparse
@@ -33,6 +33,10 @@ GymFeedback = workout_log_models.GymFeedback
 WorkoutLog = workout_log_models.WorkoutLog
 WorkoutSession = workout_log_models.WorkoutSession
 WorkoutSessionEntry = workout_log_models.WorkoutSessionEntry
+WorkoutSessionDraft = workout_log_models.WorkoutSessionDraft
+WorkoutSessionDraftEntry = workout_log_models.WorkoutSessionDraftEntry
+MemberDietTrackingDay = workout_log_models.MemberDietTrackingDay
+MemberDietTrackingMeal = workout_log_models.MemberDietTrackingMeal
 
 router = APIRouter()
 ALLOWED_VIDEO_HOSTS = {
@@ -148,7 +152,7 @@ async def _get_workout_plan_or_404(
 ) -> WorkoutPlan:
     stmt = select(WorkoutPlan).where(WorkoutPlan.id == plan_id)
     if with_exercises:
-        stmt = stmt.options(selectinload(WorkoutPlan.exercises))
+        stmt = stmt.options(selectinload(WorkoutPlan.exercises).selectinload(WorkoutExercise.exercise))
 
     result = await db.execute(stmt)
     plan = result.scalar_one_or_none()
@@ -191,6 +195,176 @@ def _apply_date_filters(stmt, model_date_field, from_date: datetime | None, to_d
     if to_date:
         stmt = stmt.where(model_date_field <= to_date)
     return stmt
+
+
+def _normalize_diet_structure(plan: DietPlan) -> list[dict[str, Any]]:
+    structured = plan.content_structured
+    if isinstance(structured, list):
+        raw_days = structured
+    elif isinstance(structured, dict):
+        raw_days = structured.get("days", [])
+    else:
+        raw_days = []
+
+    normalized_days: list[dict[str, Any]] = []
+    for day_index, raw_day in enumerate(raw_days):
+        if not isinstance(raw_day, dict):
+            continue
+        day_id = str(raw_day.get("id") or f"day-{day_index + 1}")
+        meals: list[dict[str, Any]] = []
+        raw_meals = raw_day.get("meals", [])
+        if isinstance(raw_meals, list):
+            for meal_index, raw_meal in enumerate(raw_meals):
+                if not isinstance(raw_meal, dict):
+                    continue
+                meal_id = str(raw_meal.get("id") or f"{day_id}-meal-{meal_index + 1}")
+                items: list[dict[str, Any]] = []
+                raw_items = raw_meal.get("items", [])
+                if isinstance(raw_items, list):
+                    for item_index, raw_item in enumerate(raw_items):
+                        if isinstance(raw_item, str):
+                            items.append(
+                                {
+                                    "id": f"{meal_id}-item-{item_index + 1}",
+                                    "label": raw_item,
+                                    "quantity": None,
+                                    "notes": None,
+                                }
+                            )
+                            continue
+                        if not isinstance(raw_item, dict):
+                            continue
+                        label = raw_item.get("label") or raw_item.get("name") or raw_item.get("title")
+                        if not label:
+                            continue
+                        items.append(
+                            {
+                                "id": str(raw_item.get("id") or f"{meal_id}-item-{item_index + 1}"),
+                                "label": str(label),
+                                "quantity": raw_item.get("quantity"),
+                                "notes": raw_item.get("notes"),
+                            }
+                        )
+                meals.append(
+                    {
+                        "id": meal_id,
+                        "name": str(raw_meal.get("name") or raw_meal.get("title") or f"Meal {meal_index + 1}"),
+                        "time_label": raw_meal.get("time_label") or raw_meal.get("time"),
+                        "instructions": raw_meal.get("instructions") or raw_meal.get("notes"),
+                        "items": items,
+                    }
+                )
+        normalized_days.append(
+            {
+                "id": day_id,
+                "name": str(raw_day.get("name") or raw_day.get("title") or f"Day {day_index + 1}"),
+                "meals": meals,
+            }
+        )
+    return normalized_days
+
+
+def _active_entry_index(entries: list[WorkoutSessionDraftEntry]) -> int:
+    for idx, entry in enumerate(entries):
+        if not entry.skipped and entry.completed_at is None:
+            return idx
+    return len(entries)
+
+
+def _serialize_tracking_day(
+    tracking_day: MemberDietTrackingDay | None,
+) -> "MemberDietTrackingDayResponse | None":
+    if tracking_day is None:
+        return None
+    meals = [
+        MemberDietTrackingMealResponse(
+            id=meal.meal_key,
+            name=meal.meal_name,
+            completed=meal.completed,
+            note=meal.note,
+        )
+        for meal in sorted(tracking_day.meals, key=lambda item: item.meal_name.lower())
+    ]
+    return MemberDietTrackingDayResponse(
+        id=tracking_day.id,
+        tracked_for=tracking_day.tracked_for,
+        adherence_rating=tracking_day.adherence_rating,
+        notes=tracking_day.notes,
+        meals=meals,
+    )
+
+
+def _build_tracker_payload(
+    plan: DietPlan,
+    tracking_day: MemberDietTrackingDay | None,
+) -> "MemberDietTrackerResponse":
+    tracked_meals = {meal.meal_key: meal for meal in (tracking_day.meals if tracking_day else [])}
+    days: list[DietDayResponse] = []
+    for day in _normalize_diet_structure(plan):
+        meals = [
+            DietMealResponse(
+                id=meal["id"],
+                name=meal["name"],
+                completed=tracked_meals.get(meal["id"]).completed if meal["id"] in tracked_meals else False,
+                note=tracked_meals.get(meal["id"]).note if meal["id"] in tracked_meals else None,
+                time_label=meal["time_label"],
+                instructions=meal["instructions"],
+                items=[DietMealItemResponse(**item) for item in meal["items"]],
+            )
+            for meal in day["meals"]
+        ]
+        days.append(DietDayResponse(id=day["id"], name=day["name"], meals=meals))
+    return MemberDietTrackerResponse(
+        plan_id=plan.id,
+        plan_name=plan.name,
+        description=plan.description,
+        has_structured_content=bool(days),
+        legacy_content=plan.content,
+        days=days,
+        tracking_day=_serialize_tracking_day(tracking_day),
+    )
+
+
+async def _require_member_workout_plan(
+    db: AsyncSession,
+    current_user: User,
+    plan_id: uuid.UUID,
+) -> WorkoutPlan:
+    plan = await _get_workout_plan_or_404(db, plan_id, with_exercises=True)
+    if current_user.role == Role.CUSTOMER and plan.member_id != current_user.id:
+        raise HTTPException(status_code=403, detail="You can only access workout plans assigned to your account")
+    return plan
+
+
+async def _require_member_diet_plan(
+    db: AsyncSession,
+    current_user: User,
+    diet_id: uuid.UUID,
+) -> DietPlan:
+    plan = await _get_diet_plan_or_404(db, diet_id)
+    if current_user.role == Role.CUSTOMER and plan.member_id != current_user.id:
+        raise HTTPException(status_code=403, detail="You can only access diet plans assigned to your account")
+    return plan
+
+
+async def _get_active_draft_for_member(
+    db: AsyncSession,
+    *,
+    member_id: uuid.UUID,
+    plan_id: uuid.UUID,
+) -> WorkoutSessionDraft | None:
+    stmt = (
+        select(WorkoutSessionDraft)
+        .where(WorkoutSessionDraft.member_id == member_id, WorkoutSessionDraft.plan_id == plan_id)
+        .options(selectinload(WorkoutSessionDraft.entries))
+        .order_by(WorkoutSessionDraft.started_at.desc())
+    )
+    result = await db.execute(stmt)
+    draft = result.scalars().first()
+    if draft:
+        draft.entries.sort(key=lambda entry: entry.order)
+        draft.current_exercise_index = _active_entry_index(draft.entries)
+    return draft
 
 
 def _add_workout_exercises(db: AsyncSession, plan_id: uuid.UUID, exercises: List["WorkoutExerciseData"]) -> None:
@@ -1195,6 +1369,67 @@ class DietPlanResponse(BaseModel):
         from_attributes = True
 
 
+class DietMealItemResponse(BaseModel):
+    id: str
+    label: str
+    quantity: str | None = None
+    notes: str | None = None
+
+
+class DietMealResponse(BaseModel):
+    id: str
+    name: str
+    completed: bool = False
+    note: str | None = None
+    time_label: str | None = None
+    instructions: str | None = None
+    items: list[DietMealItemResponse] = Field(default_factory=list)
+
+
+class DietDayResponse(BaseModel):
+    id: str
+    name: str
+    meals: list[DietMealResponse] = Field(default_factory=list)
+
+
+class MemberDietTrackingMealUpdate(BaseModel):
+    meal_id: str
+    completed: bool
+    note: str | None = None
+
+
+class MemberDietTrackingMealResponse(BaseModel):
+    id: str
+    name: str
+    completed: bool
+    note: str | None = None
+
+
+class MemberDietTrackingDayUpsert(BaseModel):
+    tracked_for: date
+    adherence_rating: int | None = Field(None, ge=1, le=5)
+    notes: str | None = None
+    meals: list[MemberDietTrackingMealUpdate] = Field(default_factory=list)
+
+
+class MemberDietTrackingDayResponse(BaseModel):
+    id: uuid.UUID
+    tracked_for: date
+    adherence_rating: int | None = None
+    notes: str | None = None
+    meals: list[MemberDietTrackingMealResponse] = Field(default_factory=list)
+
+
+class MemberDietTrackerResponse(BaseModel):
+    plan_id: uuid.UUID
+    plan_name: str
+    description: str | None = None
+    has_structured_content: bool
+    legacy_content: str | None = None
+    days: list[DietDayResponse] = Field(default_factory=list)
+    tracking_day: MemberDietTrackingDayResponse | None = None
+
+
 class DietPlanSummaryResponse(BaseModel):
     id: uuid.UUID
     name: str
@@ -1745,6 +1980,10 @@ class WorkoutSessionEntryCreate(BaseModel):
     reps_completed: int = Field(0, ge=0)
     weight_kg: float | None = Field(None, ge=0)
     notes: str | None = None
+    is_pr: bool = False
+    pr_type: str | None = None
+    pr_value: str | None = None
+    pr_notes: str | None = None
     order: int = 0
 
     @field_validator("exercise_name")
@@ -1782,6 +2021,10 @@ class WorkoutSessionEntryResponse(BaseModel):
     reps_completed: int
     weight_kg: float | None
     notes: str | None
+    is_pr: bool
+    pr_type: str | None
+    pr_value: str | None
+    pr_notes: str | None
     order: int
 
     class Config:
@@ -1799,6 +2042,78 @@ class WorkoutSessionResponse(BaseModel):
 
     class Config:
         from_attributes = True
+
+
+class WorkoutSessionDraftEntryResponse(BaseModel):
+    id: uuid.UUID
+    workout_exercise_id: uuid.UUID | None = None
+    exercise_id: uuid.UUID | None = None
+    exercise_name: str | None = None
+    section_name: str | None = None
+    target_sets: int | None = None
+    target_reps: int | None = None
+    target_duration_minutes: int | None = None
+    video_type: str | None = None
+    video_url: str | None = None
+    uploaded_video_url: str | None = None
+    video_provider: str | None = None
+    video_id: str | None = None
+    embed_url: str | None = None
+    playback_type: str | None = None
+    sets_completed: int
+    reps_completed: int
+    weight_kg: float | None = None
+    notes: str | None = None
+    is_pr: bool
+    pr_type: str | None = None
+    pr_value: str | None = None
+    pr_notes: str | None = None
+    skipped: bool
+    completed_at: datetime | None = None
+    order: int
+
+    class Config:
+        from_attributes = True
+
+
+class WorkoutSessionDraftResponse(BaseModel):
+    id: uuid.UUID
+    member_id: uuid.UUID
+    plan_id: uuid.UUID
+    section_name: str | None = None
+    current_exercise_index: int
+    started_at: datetime
+    updated_at: datetime
+    notes: str | None = None
+    entries: list[WorkoutSessionDraftEntryResponse] = Field(default_factory=list)
+
+    class Config:
+        from_attributes = True
+
+
+class StartWorkoutSessionRequest(BaseModel):
+    plan_id: uuid.UUID
+    section_name: str | None = None
+
+
+class UpdateWorkoutSessionEntryRequest(BaseModel):
+    sets_completed: int = Field(0, ge=0)
+    reps_completed: int = Field(0, ge=0)
+    weight_kg: float | None = Field(None, ge=0)
+    notes: str | None = None
+    is_pr: bool = False
+    pr_type: str | None = None
+    pr_value: str | None = None
+    pr_notes: str | None = None
+
+
+class SkipWorkoutExerciseRequest(BaseModel):
+    notes: str | None = None
+
+
+class FinishWorkoutSessionRequest(BaseModel):
+    duration_minutes: int | None = Field(None, ge=1)
+    notes: str | None = None
 
 
 @router.post("/log", response_model=StandardResponse)
@@ -1894,12 +2209,369 @@ async def create_workout_session_log(
                 reps_completed=entry.reps_completed,
                 weight_kg=entry.weight_kg,
                 notes=entry.notes,
+                is_pr=entry.is_pr,
+                pr_type=entry.pr_type,
+                pr_value=entry.pr_value,
+                pr_notes=entry.pr_notes,
                 order=entry.order if entry.order else idx,
             )
         )
 
     await db.commit()
     return StandardResponse(message="Workout session logged", data={"id": str(session.id)})
+
+
+@router.post("/workout-sessions/start", response_model=StandardResponse[WorkoutSessionDraftResponse])
+async def start_workout_session(
+    data: StartWorkoutSessionRequest,
+    current_user: Annotated[User, Depends(dependencies.RoleChecker([Role.ADMIN, Role.CUSTOMER]))],
+    _subscription_guard: Annotated[User, Depends(dependencies.require_active_customer_subscription)],
+    db: Annotated[AsyncSession, Depends(get_db)],
+):
+    plan = await _require_member_workout_plan(db, current_user, data.plan_id)
+    existing = await _get_active_draft_for_member(db, member_id=current_user.id, plan_id=plan.id)
+    if existing:
+        return StandardResponse(data=WorkoutSessionDraftResponse.model_validate(existing))
+
+    plan_exercises = sorted(plan.exercises, key=lambda exercise: exercise.order)
+    if data.section_name:
+        section_name = data.section_name.strip()
+        plan_exercises = [
+            exercise for exercise in plan_exercises if (exercise.section_name or "").strip() == section_name
+        ]
+        if not plan_exercises:
+            raise HTTPException(status_code=400, detail="Selected workout section was not found in this plan")
+
+    if not plan_exercises:
+        raise HTTPException(status_code=400, detail="This plan has no exercises to start")
+
+    draft = WorkoutSessionDraft(
+        member_id=current_user.id,
+        plan_id=plan.id,
+        section_name=data.section_name.strip() if data.section_name else None,
+        current_exercise_index=0,
+        started_at=datetime.utcnow(),
+        updated_at=datetime.utcnow(),
+    )
+    db.add(draft)
+    await db.flush()
+
+    for idx, exercise in enumerate(plan_exercises):
+        db.add(
+            WorkoutSessionDraftEntry(
+                draft_id=draft.id,
+                workout_exercise_id=exercise.id,
+                exercise_id=exercise.exercise_id,
+                exercise_name=exercise.exercise_name or (exercise.exercise.name if exercise.exercise else None),
+                section_name=exercise.section_name,
+                target_sets=exercise.sets,
+                target_reps=exercise.reps,
+                target_duration_minutes=exercise.duration_minutes,
+                video_type=exercise.video_type,
+                video_url=exercise.video_url,
+                uploaded_video_url=exercise.uploaded_video_url,
+                video_provider=exercise.video_provider,
+                video_id=exercise.video_id,
+                embed_url=exercise.embed_url,
+                playback_type=exercise.playback_type,
+                order=idx,
+            )
+        )
+
+    await db.commit()
+    created = await _get_active_draft_for_member(db, member_id=current_user.id, plan_id=plan.id)
+    assert created is not None
+    return StandardResponse(data=WorkoutSessionDraftResponse.model_validate(created))
+
+
+@router.get("/workout-sessions/active", response_model=StandardResponse[WorkoutSessionDraftResponse | None])
+async def get_active_workout_session(
+    current_user: Annotated[User, Depends(dependencies.RoleChecker([Role.ADMIN, Role.CUSTOMER]))],
+    _subscription_guard: Annotated[User, Depends(dependencies.require_active_customer_subscription)],
+    db: Annotated[AsyncSession, Depends(get_db)],
+    plan_id: uuid.UUID = Query(...),
+):
+    await _require_member_workout_plan(db, current_user, plan_id)
+    draft = await _get_active_draft_for_member(db, member_id=current_user.id, plan_id=plan_id)
+    return StandardResponse(data=WorkoutSessionDraftResponse.model_validate(draft) if draft else None)
+
+
+@router.put("/workout-sessions/{draft_id}/entries/{entry_id}", response_model=StandardResponse[WorkoutSessionDraftResponse])
+async def update_workout_session_entry(
+    draft_id: uuid.UUID,
+    entry_id: uuid.UUID,
+    data: UpdateWorkoutSessionEntryRequest,
+    current_user: Annotated[User, Depends(dependencies.RoleChecker([Role.ADMIN, Role.CUSTOMER]))],
+    _subscription_guard: Annotated[User, Depends(dependencies.require_active_customer_subscription)],
+    db: Annotated[AsyncSession, Depends(get_db)],
+):
+    stmt = (
+        select(WorkoutSessionDraft)
+        .where(WorkoutSessionDraft.id == draft_id)
+        .options(selectinload(WorkoutSessionDraft.entries))
+    )
+    draft = (await db.execute(stmt)).scalar_one_or_none()
+    if not draft:
+        raise HTTPException(status_code=404, detail="Workout session draft not found")
+    if current_user.role == Role.CUSTOMER and draft.member_id != current_user.id:
+        raise HTTPException(status_code=403, detail="Access denied")
+
+    draft.entries.sort(key=lambda entry: entry.order)
+    current_index = _active_entry_index(draft.entries)
+    if current_index >= len(draft.entries):
+        raise HTTPException(status_code=400, detail="This workout session is already complete")
+
+    current_entry = draft.entries[current_index]
+    if current_entry.id != entry_id:
+        raise HTTPException(status_code=400, detail="Exercises must be logged in order")
+
+    current_entry.sets_completed = data.sets_completed
+    current_entry.reps_completed = data.reps_completed
+    current_entry.weight_kg = data.weight_kg
+    current_entry.notes = data.notes
+    current_entry.is_pr = data.is_pr
+    current_entry.pr_type = data.pr_type
+    current_entry.pr_value = data.pr_value
+    current_entry.pr_notes = data.pr_notes
+    current_entry.skipped = False
+    current_entry.completed_at = datetime.utcnow()
+    draft.updated_at = datetime.utcnow()
+    draft.current_exercise_index = _active_entry_index(draft.entries)
+    await db.commit()
+    await db.refresh(draft, attribute_names=["entries"])
+    draft.entries.sort(key=lambda entry: entry.order)
+    draft.current_exercise_index = _active_entry_index(draft.entries)
+    return StandardResponse(data=WorkoutSessionDraftResponse.model_validate(draft))
+
+
+@router.post("/workout-sessions/{draft_id}/entries/{entry_id}/skip", response_model=StandardResponse[WorkoutSessionDraftResponse])
+async def skip_workout_session_entry(
+    draft_id: uuid.UUID,
+    entry_id: uuid.UUID,
+    data: SkipWorkoutExerciseRequest,
+    current_user: Annotated[User, Depends(dependencies.RoleChecker([Role.ADMIN, Role.CUSTOMER]))],
+    _subscription_guard: Annotated[User, Depends(dependencies.require_active_customer_subscription)],
+    db: Annotated[AsyncSession, Depends(get_db)],
+):
+    stmt = (
+        select(WorkoutSessionDraft)
+        .where(WorkoutSessionDraft.id == draft_id)
+        .options(selectinload(WorkoutSessionDraft.entries))
+    )
+    draft = (await db.execute(stmt)).scalar_one_or_none()
+    if not draft:
+        raise HTTPException(status_code=404, detail="Workout session draft not found")
+    if current_user.role == Role.CUSTOMER and draft.member_id != current_user.id:
+        raise HTTPException(status_code=403, detail="Access denied")
+
+    draft.entries.sort(key=lambda entry: entry.order)
+    current_index = _active_entry_index(draft.entries)
+    if current_index >= len(draft.entries):
+        raise HTTPException(status_code=400, detail="This workout session is already complete")
+
+    current_entry = draft.entries[current_index]
+    if current_entry.id != entry_id:
+        raise HTTPException(status_code=400, detail="Exercises must be skipped in order")
+
+    current_entry.skipped = True
+    current_entry.notes = data.notes
+    current_entry.completed_at = datetime.utcnow()
+    current_entry.is_pr = False
+    current_entry.pr_type = None
+    current_entry.pr_value = None
+    current_entry.pr_notes = None
+    draft.updated_at = datetime.utcnow()
+    draft.current_exercise_index = _active_entry_index(draft.entries)
+    await db.commit()
+    await db.refresh(draft, attribute_names=["entries"])
+    draft.entries.sort(key=lambda entry: entry.order)
+    draft.current_exercise_index = _active_entry_index(draft.entries)
+    return StandardResponse(data=WorkoutSessionDraftResponse.model_validate(draft))
+
+
+@router.post("/workout-sessions/{draft_id}/finish", response_model=StandardResponse[WorkoutSessionResponse])
+async def finish_workout_session(
+    draft_id: uuid.UUID,
+    data: FinishWorkoutSessionRequest,
+    current_user: Annotated[User, Depends(dependencies.RoleChecker([Role.ADMIN, Role.CUSTOMER]))],
+    _subscription_guard: Annotated[User, Depends(dependencies.require_active_customer_subscription)],
+    db: Annotated[AsyncSession, Depends(get_db)],
+):
+    stmt = (
+        select(WorkoutSessionDraft)
+        .where(WorkoutSessionDraft.id == draft_id)
+        .options(selectinload(WorkoutSessionDraft.entries))
+    )
+    draft = (await db.execute(stmt)).scalar_one_or_none()
+    if not draft:
+        raise HTTPException(status_code=404, detail="Workout session draft not found")
+    if current_user.role == Role.CUSTOMER and draft.member_id != current_user.id:
+        raise HTTPException(status_code=403, detail="Access denied")
+
+    draft.entries.sort(key=lambda entry: entry.order)
+    session = WorkoutSession(
+        member_id=draft.member_id,
+        plan_id=draft.plan_id,
+        performed_at=datetime.utcnow(),
+        duration_minutes=data.duration_minutes,
+        notes=data.notes if data.notes is not None else draft.notes,
+    )
+    db.add(session)
+    await db.flush()
+
+    for entry in draft.entries:
+        db.add(
+            WorkoutSessionEntry(
+                session_id=session.id,
+                exercise_id=entry.exercise_id,
+                exercise_name=entry.exercise_name,
+                target_sets=entry.target_sets,
+                target_reps=entry.target_reps,
+                sets_completed=entry.sets_completed,
+                reps_completed=entry.reps_completed,
+                weight_kg=entry.weight_kg,
+                notes=entry.notes,
+                is_pr=entry.is_pr,
+                pr_type=entry.pr_type,
+                pr_value=entry.pr_value,
+                pr_notes=entry.pr_notes,
+                order=entry.order,
+            )
+        )
+
+    await db.delete(draft)
+    await db.commit()
+    session_stmt = select(WorkoutSession).where(WorkoutSession.id == session.id).options(selectinload(WorkoutSession.entries))
+    saved = (await db.execute(session_stmt)).scalar_one()
+    return StandardResponse(data=WorkoutSessionResponse.model_validate(saved))
+
+
+@router.delete("/workout-sessions/{draft_id}", response_model=StandardResponse)
+async def abandon_workout_session(
+    draft_id: uuid.UUID,
+    current_user: Annotated[User, Depends(dependencies.RoleChecker([Role.ADMIN, Role.CUSTOMER]))],
+    _subscription_guard: Annotated[User, Depends(dependencies.require_active_customer_subscription)],
+    db: Annotated[AsyncSession, Depends(get_db)],
+):
+    draft = await db.get(WorkoutSessionDraft, draft_id)
+    if not draft:
+        raise HTTPException(status_code=404, detail="Workout session draft not found")
+    if current_user.role == Role.CUSTOMER and draft.member_id != current_user.id:
+        raise HTTPException(status_code=403, detail="Access denied")
+    await db.delete(draft)
+    await db.commit()
+    return StandardResponse(message="Workout session discarded")
+
+
+@router.get("/diets/{diet_id}/tracking", response_model=StandardResponse[MemberDietTrackerResponse])
+async def get_member_diet_tracking(
+    diet_id: uuid.UUID,
+    current_user: Annotated[User, Depends(dependencies.RoleChecker([Role.ADMIN, Role.CUSTOMER]))],
+    _subscription_guard: Annotated[User, Depends(dependencies.require_active_customer_subscription)],
+    db: Annotated[AsyncSession, Depends(get_db)],
+    tracked_for: date | None = Query(None),
+):
+    plan = await _require_member_diet_plan(db, current_user, diet_id)
+    tracked_date = tracked_for or date.today()
+    tracking_stmt = (
+        select(MemberDietTrackingDay)
+        .where(
+            MemberDietTrackingDay.member_id == current_user.id,
+            MemberDietTrackingDay.diet_plan_id == diet_id,
+            MemberDietTrackingDay.tracked_for == tracked_date,
+        )
+        .options(selectinload(MemberDietTrackingDay.meals))
+    )
+    tracking_day = (await db.execute(tracking_stmt)).scalar_one_or_none()
+    return StandardResponse(data=_build_tracker_payload(plan, tracking_day))
+
+
+@router.put("/diets/{diet_id}/tracking", response_model=StandardResponse[MemberDietTrackerResponse])
+async def upsert_member_diet_tracking(
+    diet_id: uuid.UUID,
+    data: MemberDietTrackingDayUpsert,
+    current_user: Annotated[User, Depends(dependencies.RoleChecker([Role.ADMIN, Role.CUSTOMER]))],
+    _subscription_guard: Annotated[User, Depends(dependencies.require_active_customer_subscription)],
+    db: Annotated[AsyncSession, Depends(get_db)],
+):
+    plan = await _require_member_diet_plan(db, current_user, diet_id)
+    structured_meal_names = {
+        meal["id"]: meal["name"]
+        for day in _normalize_diet_structure(plan)
+        for meal in day["meals"]
+    }
+    tracking_stmt = (
+        select(MemberDietTrackingDay)
+        .where(
+            MemberDietTrackingDay.member_id == current_user.id,
+            MemberDietTrackingDay.diet_plan_id == diet_id,
+            MemberDietTrackingDay.tracked_for == data.tracked_for,
+        )
+        .options(selectinload(MemberDietTrackingDay.meals))
+    )
+    tracking_day = (await db.execute(tracking_stmt)).scalar_one_or_none()
+    created_new = tracking_day is None
+    if tracking_day is None:
+        tracking_day = MemberDietTrackingDay(
+            member_id=current_user.id,
+            diet_plan_id=diet_id,
+            tracked_for=data.tracked_for,
+            created_at=datetime.utcnow(),
+            updated_at=datetime.utcnow(),
+        )
+        db.add(tracking_day)
+        await db.flush()
+    tracking_day.adherence_rating = data.adherence_rating
+    tracking_day.notes = data.notes
+    tracking_day.updated_at = datetime.utcnow()
+
+    by_key = {} if created_new else {meal.meal_key: meal for meal in tracking_day.meals}
+    for meal_update in data.meals:
+        meal = by_key.get(meal_update.meal_id)
+        if meal is None:
+            meal = MemberDietTrackingMeal(
+                tracking_day_id=tracking_day.id,
+                meal_key=meal_update.meal_id,
+                meal_name=structured_meal_names.get(meal_update.meal_id, meal_update.meal_id.replace("-", " ").title()),
+            )
+            db.add(meal)
+            by_key[meal_update.meal_id] = meal
+        meal.completed = meal_update.completed
+        meal.note = meal_update.note
+        meal.updated_at = datetime.utcnow()
+
+    await db.commit()
+    refreshed_stmt = (
+        select(MemberDietTrackingDay)
+        .where(MemberDietTrackingDay.id == tracking_day.id)
+        .options(selectinload(MemberDietTrackingDay.meals))
+    )
+    refreshed_day = (await db.execute(refreshed_stmt)).scalar_one()
+    return StandardResponse(data=_build_tracker_payload(plan, refreshed_day))
+
+
+@router.get("/diets/{diet_id}/tracking/history", response_model=StandardResponse[list[MemberDietTrackingDayResponse]])
+async def list_member_diet_tracking_history(
+    diet_id: uuid.UUID,
+    current_user: Annotated[User, Depends(dependencies.RoleChecker([Role.ADMIN, Role.CUSTOMER]))],
+    _subscription_guard: Annotated[User, Depends(dependencies.require_active_customer_subscription)],
+    db: Annotated[AsyncSession, Depends(get_db)],
+    limit: int = Query(14, ge=1, le=90),
+):
+    await _require_member_diet_plan(db, current_user, diet_id)
+    stmt = (
+        select(MemberDietTrackingDay)
+        .where(
+            MemberDietTrackingDay.member_id == current_user.id,
+            MemberDietTrackingDay.diet_plan_id == diet_id,
+        )
+        .options(selectinload(MemberDietTrackingDay.meals))
+        .order_by(MemberDietTrackingDay.tracked_for.desc())
+        .limit(limit)
+    )
+    rows = (await db.execute(stmt)).scalars().all()
+    serialized = [_serialize_tracking_day(row) for row in rows]
+    return StandardResponse(data=[row for row in serialized if row is not None])
 
 
 @router.post("/diet-feedback", response_model=StandardResponse)
@@ -2131,4 +2803,3 @@ async def get_member_biometrics(
     result = await db.execute(stmt)
     logs = result.scalars().all()
     return StandardResponse(data=[BiometricLogResponse.model_validate(log) for log in logs])
-

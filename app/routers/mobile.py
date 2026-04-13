@@ -50,7 +50,6 @@ router = APIRouter()
 
 class MobileCustomerHomeResponse(BaseModel):
     subscription: dict[str, Any]
-    qr: dict[str, Any]
     quick_stats: dict[str, int]
     latest_biometric: dict[str, Any] | None = None
     recent_receipts: list[dict[str, Any]]
@@ -75,6 +74,7 @@ class MobileCustomerProgressResponse(BaseModel):
     attendance_history: list[dict[str, Any]]
     recent_workout_sessions: list[dict[str, Any]]
     workout_stats: list[dict[str, Any]]
+    personal_records: list[dict[str, Any]] = Field(default_factory=list)
 
 
 class MobileCustomerNotificationsResponse(BaseModel):

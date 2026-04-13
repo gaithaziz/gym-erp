@@ -1,13 +1,19 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  localizeAccessReason,
+  localizeAccessStatus,
+  localizeLostFoundStatus,
   localizeMessageType,
+  localizeNotificationEventType,
+  localizeNotificationStatus,
   localizePaymentMethod,
   localizeRenewalStatus,
   localizeSubscriptionStatus,
   localizeTicketCategory,
   localizeTicketStatus,
 } from "./mobile-format";
+import { parseScannedKioskId } from "./mobile-scan";
 
 describe("mobile-format", () => {
   it("localizes subscription status for Arabic", () => {
@@ -28,6 +34,20 @@ describe("mobile-format", () => {
   it("localizes payment and message types", () => {
     expect(localizePaymentMethod("CASH", true)).toBe("نقداً");
     expect(localizeMessageType("VOICE", false)).toBe("Voice note");
+  });
+
+  it("localizes access and notification values", () => {
+    expect(localizeAccessStatus("GRANTED", false)).toBe("Granted");
+    expect(localizeAccessReason("SUBSCRIPTION_EXPIRED", true)).toBe("الاشتراك منتهي");
+    expect(localizeNotificationEventType("SUPPORT_REPLY", false)).toBe("Support reply");
+    expect(localizeNotificationStatus("SENT", true)).toBe("تم الإرسال");
+    expect(localizeLostFoundStatus("UNDER_REVIEW", false)).toBe("Under review");
+  });
+
+  it("parses kiosk ids from raw and json qr payloads", () => {
+    expect(parseScannedKioskId("front-door-01")).toBe("front-door-01");
+    expect(parseScannedKioskId('{\"kiosk_id\":\"front-desk-02\"}')).toBe("front-desk-02");
+    expect(parseScannedKioskId("not valid !!!")).toBeNull();
   });
 
   it("falls back gracefully for unknown values", () => {

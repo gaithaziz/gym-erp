@@ -2,8 +2,10 @@ import { api } from '@/lib/api';
 import type {
     BiometricLogResponse,
     GamificationStats,
+    MemberDietTracker,
     MemberDiet,
     MemberPlan,
+    WorkoutSessionDraft,
     WorkoutSessionLog,
 } from './types';
 
@@ -64,4 +66,67 @@ export async function fetchMemberProgressData(): Promise<{
 export async function fetchMemberSessionLogs(): Promise<WorkoutSessionLog[]> {
     const response = await api.get('/fitness/session-logs/me').catch(() => ({ data: { data: [] } }));
     return safeData<WorkoutSessionLog[]>(response.data?.data, []);
+}
+
+export async function startWorkoutSession(planId: string, sectionName?: string | null): Promise<WorkoutSessionDraft> {
+    const response = await api.post('/fitness/workout-sessions/start', { plan_id: planId, section_name: sectionName || null });
+    return safeData<WorkoutSessionDraft>(response.data?.data, {} as WorkoutSessionDraft);
+}
+
+export async function fetchActiveWorkoutSession(planId: string): Promise<WorkoutSessionDraft | null> {
+    const response = await api.get('/fitness/workout-sessions/active', { params: { plan_id: planId } });
+    return safeData<WorkoutSessionDraft | null>(response.data?.data, null);
+}
+
+export async function completeWorkoutExercise(
+    draftId: string,
+    entryId: string,
+    payload: {
+        sets_completed: number;
+        reps_completed: number;
+        weight_kg?: number | null;
+        notes?: string | null;
+        is_pr?: boolean;
+        pr_type?: string | null;
+        pr_value?: string | null;
+        pr_notes?: string | null;
+    },
+): Promise<WorkoutSessionDraft> {
+    const response = await api.put(`/fitness/workout-sessions/${draftId}/entries/${entryId}`, payload);
+    return safeData<WorkoutSessionDraft>(response.data?.data, {} as WorkoutSessionDraft);
+}
+
+export async function skipWorkoutExercise(draftId: string, entryId: string, notes?: string | null): Promise<WorkoutSessionDraft> {
+    const response = await api.post(`/fitness/workout-sessions/${draftId}/entries/${entryId}/skip`, { notes: notes || null });
+    return safeData<WorkoutSessionDraft>(response.data?.data, {} as WorkoutSessionDraft);
+}
+
+export async function finishWorkoutSession(
+    draftId: string,
+    payload: { duration_minutes?: number | null; notes?: string | null },
+): Promise<WorkoutSessionLog> {
+    const response = await api.post(`/fitness/workout-sessions/${draftId}/finish`, payload);
+    return safeData<WorkoutSessionLog>(response.data?.data, {} as WorkoutSessionLog);
+}
+
+export async function abandonWorkoutSession(draftId: string): Promise<void> {
+    await api.delete(`/fitness/workout-sessions/${draftId}`);
+}
+
+export async function fetchMemberDietTracker(dietId: string, trackedFor?: string): Promise<MemberDietTracker> {
+    const response = await api.get(`/fitness/diets/${dietId}/tracking`, { params: trackedFor ? { tracked_for: trackedFor } : undefined });
+    return safeData<MemberDietTracker>(response.data?.data, {} as MemberDietTracker);
+}
+
+export async function updateMemberDietTracker(
+    dietId: string,
+    payload: {
+        tracked_for: string;
+        adherence_rating?: number | null;
+        notes?: string | null;
+        meals: Array<{ meal_id: string; completed: boolean; note?: string | null }>;
+    },
+): Promise<MemberDietTracker> {
+    const response = await api.put(`/fitness/diets/${dietId}/tracking`, payload);
+    return safeData<MemberDietTracker>(response.data?.data, {} as MemberDietTracker);
 }

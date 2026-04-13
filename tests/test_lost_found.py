@@ -259,6 +259,14 @@ async def test_comments_and_media_validation(client: AsyncClient, db_session: As
     assert ok_media.status_code == 200
     assert ok_media.json()["data"]["media_mime"] == "image/jpeg"
 
+    heic_media = await client.post(
+        f"{settings.API_V1_STR}/lost-found/items/{item_id}/media",
+        headers=reporter_headers,
+        files={"file": ("photo.heic", b"heic-image", "image/heic")},
+    )
+    assert heic_media.status_code == 200
+    assert heic_media.json()["data"]["media_mime"] == "image/heic"
+
     await client.post(
         f"{settings.API_V1_STR}/lost-found/items/{item_id}/status",
         headers=admin_headers,

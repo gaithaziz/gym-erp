@@ -19,7 +19,7 @@ from app.services.audit_service import AuditService
 
 router = APIRouter()
 
-IMAGE_MIME_TYPES = {"image/jpeg", "image/png", "image/webp"}
+IMAGE_MIME_TYPES = {"image/jpeg", "image/png", "image/webp", "image/heic", "image/heif"}
 VIDEO_MIME_TYPES = {"video/mp4", "video/webm", "video/quicktime"}
 ALL_MIME_TYPES = IMAGE_MIME_TYPES | VIDEO_MIME_TYPES
 MAX_BYTES_BY_MIME = {

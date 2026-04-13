@@ -1,4 +1,3 @@
-import * as DocumentPicker from "expo-document-picker";
 import { Ionicons } from "@expo/vector-icons";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useRouter } from "expo-router";
@@ -15,6 +14,7 @@ import {
 
 import { API_BASE_URL } from "@/lib/api";
 import { Card, Input, MediaPreview, MutedText, QueryState, Screen } from "@/components/ui";
+import { pickImageOrVideoFromLibrary } from "@/lib/media-picker";
 import { localeTag, localizeMessageType } from "@/lib/mobile-format";
 import { usePreferences } from "@/lib/preferences";
 import { useSession } from "@/lib/session";
@@ -78,10 +78,34 @@ function ChatAudioPlayer({
   src: string;
   initialDurationSeconds?: number | null;
 }) {
-  const { theme, fontSet } = usePreferences();
+  const { copy, direction, fontSet, isRTL, theme } = usePreferences();
   const [sound, setSound] = useState<import("expo-av").Audio.Sound | null>(null);
   const [playing, setPlaying] = useState(false);
   const [durationSeconds, setDurationSeconds] = useState<number>(initialDurationSeconds ?? 0);
+
+  if (!expoAVModule?.Audio) {
+    return (
+      <View style={[styles.audioPlayer, { backgroundColor: theme.cardAlt, borderColor: theme.border }]}>
+        <Ionicons name="volume-mute" size={16} color={theme.primary} />
+        <Text
+          style={[
+            styles.audioFallbackText,
+            {
+              color: theme.foreground,
+              fontFamily: fontSet.body,
+              textAlign: isRTL ? "right" : "left",
+              writingDirection: direction,
+            },
+          ]}
+        >
+          {copy.chatScreen.voicePlaybackUnavailable}
+        </Text>
+        <Text style={[styles.audioDuration, { color: theme.foreground, fontFamily: fontSet.mono }]}>
+          {formatDuration(durationSeconds)}
+        </Text>
+      </View>
+    );
+  }
 
   useEffect(() => {
     return () => {
@@ -273,18 +297,17 @@ export default function ChatScreen() {
       if (!selectedThread) {
         throw new Error(copy.chatScreen.pickThread);
       }
-      const picked = await DocumentPicker.getDocumentAsync({ copyToCacheDirectory: true, multiple: false });
-      if (picked.canceled || !picked.assets[0]) {
+      const [asset] = await pickImageOrVideoFromLibrary({ permissionDeniedMessage: copy.common.photoPermissionDenied });
+      if (!asset) {
         return null;
       }
-      const asset = picked.assets[0];
       const formData = new FormData();
       formData.append(
         "file",
         {
           uri: asset.uri,
           name: asset.name,
-          type: asset.mimeType ?? "application/octet-stream",
+          type: asset.mimeType,
         } as never,
       );
       if (messageText.trim()) {
@@ -352,6 +375,7 @@ export default function ChatScreen() {
     (contactsQuery.error instanceof Error ? contactsQuery.error.message : null);
   const selectedCoach = contacts.find((contact) => contact.id === selectedCoachId) ?? null;
   const selectedThreadName = selectedThread?.coach.full_name || copy.common.coach;
+  const voiceNotesAvailable = Boolean(expoAVModule?.Audio);
 
   useEffect(() => {
     if (!selectedThread?.id || !messagesQuery.data) {
@@ -680,11 +704,24 @@ export default function ChatScreen() {
                         <Ionicons name="attach" size={18} color={theme.primary} />
                       </Pressable>
                       <Pressable
-                        onPress={() => void (recording ? stopVoiceRecording({ directSend: false }) : startVoiceRecording())}
+                        onPress={() => {
+                          if (!voiceNotesAvailable) {
+                            setFeedback(copy.chatScreen.voiceUnavailable);
+                            return;
+                          }
+                          void (recording ? stopVoiceRecording({ directSend: false }) : startVoiceRecording());
+                        }}
                         disabled={voiceUploadMutation.isPending || Boolean(pendingVoiceUpload)}
-                        style={[styles.iconButton, { backgroundColor: theme.cardAlt, borderColor: recording ? theme.primary : theme.border }]}
+                        style={[
+                          styles.iconButton,
+                          {
+                            backgroundColor: theme.cardAlt,
+                            borderColor: recording ? theme.primary : theme.border,
+                            opacity: voiceNotesAvailable ? 1 : 0.55,
+                          },
+                        ]}
                       >
-                        <Ionicons name={recording ? "stop" : "mic"} size={18} color={recording ? theme.primary : theme.primary} />
+                        <Ionicons name={recording ? "stop" : "mic"} size={18} color={theme.primary} />
                       </Pressable>
                       <Input
                         value={messageText}
@@ -915,7 +952,6 @@ const styles = StyleSheet.create({
   activePillText: {
     fontSize: 11,
     fontWeight: "800",
-    textTransform: "uppercase",
   },
   horizontalList: {
     gap: 10,
@@ -1016,6 +1052,11 @@ const styles = StyleSheet.create({
   audioDuration: {
     fontSize: 12,
     fontWeight: "700",
+  },
+  audioFallbackText: {
+    flex: 1,
+    fontSize: 12,
+    lineHeight: 18,
   },
   liveDot: {
     width: 10,

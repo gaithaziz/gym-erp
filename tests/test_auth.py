@@ -213,8 +213,9 @@ async def test_mobile_bootstrap_returns_customer_foundation_payload(client: Asyn
     assert payload["subscription"]["status"] == "NONE"
     assert payload["subscription"]["is_blocked"] is True
     assert payload["gym"]["gym_name"] == settings.GYM_NAME
-    assert "view_personal_qr" in payload["capabilities"]
+    assert "scan_gym_qr" in payload["capabilities"]
     assert "renew_subscription" in payload["capabilities"]
+    assert "pay_invoice" not in payload["capabilities"]
     assert "home" in payload["enabled_modules"]
     assert payload["notification_settings"]["push_enabled"] is True
 

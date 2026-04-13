@@ -339,6 +339,8 @@ export function InlineStat({ label, value }: { label: string; value: string | nu
             fontFamily: fontSet.mono,
             textAlign: isRTL ? "right" : "left",
             writingDirection: direction,
+            letterSpacing: isRTL ? 0 : 0.5,
+            textTransform: isRTL ? "none" : "uppercase",
           },
         ]}
       >
@@ -370,17 +372,20 @@ export function MediaPreview({
   mime?: string | null;
   label?: string | null;
 }) {
-  const { direction, isRTL, theme, fontSet } = usePreferences();
+  const { copy, direction, isRTL, theme, fontSet } = usePreferences();
   if (!uri) {
     return null;
   }
-  const resolvedUri = uri.startsWith("http://") || uri.startsWith("https://") ? uri : `${ASSET_BASE_URL}${uri}`;
+  const resolvedUri =
+    uri.startsWith("http://") || uri.startsWith("https://") || uri.startsWith("file://") || uri.startsWith("content://")
+      ? uri
+      : `${ASSET_BASE_URL}${uri}`;
   const isImage = Boolean(mime?.startsWith("image/"));
 
   return (
     <View style={[styles.mediaCard, { backgroundColor: theme.cardAlt, borderColor: theme.border }]}>
       {isImage ? <Image source={{ uri: resolvedUri }} style={styles.mediaImage} contentFit="cover" /> : null}
-      {label ? (
+      {!isImage || label ? (
         <Text
           style={[
             styles.mediaLabel,
@@ -392,10 +397,9 @@ export function MediaPreview({
             },
           ]}
         >
-          {label}
+          {label ?? copy.common.attachment}
         </Text>
       ) : null}
-      <MutedText>{resolvedUri}</MutedText>
     </View>
   );
 }
@@ -501,18 +505,18 @@ const styles = StyleSheet.create({
     flexShrink: 0,
   },
   screenTitle: {
-    fontSize: 32,
+    fontSize: 26,
     fontWeight: "800",
-    letterSpacing: -0.6,
+    letterSpacing: -0.4,
   },
   screenTitleCompact: {
-    fontSize: 24,
+    fontSize: 21,
     fontWeight: "800",
-    letterSpacing: -0.3,
+    letterSpacing: -0.2,
   },
   screenSubtitle: {
-    fontSize: 15,
-    lineHeight: 22,
+    fontSize: 13,
+    lineHeight: 19,
   },
   card: {
     borderWidth: 1,
@@ -526,15 +530,15 @@ const styles = StyleSheet.create({
     elevation: 1,
   },
   sectionTitle: {
-    fontSize: 18,
+    fontSize: 16,
     fontWeight: "700",
   },
   mutedText: {
-    fontSize: 14,
-    lineHeight: 20,
+    fontSize: 13,
+    lineHeight: 18,
   },
   valueText: {
-    fontSize: 22,
+    fontSize: 19,
     fontWeight: "700",
   },
   primaryButton: {
@@ -545,7 +549,7 @@ const styles = StyleSheet.create({
     justifyContent: "center",
   },
   primaryButtonText: {
-    fontSize: 16,
+    fontSize: 15,
     fontWeight: "700",
   },
   secondaryButton: {
@@ -557,7 +561,7 @@ const styles = StyleSheet.create({
     borderWidth: 1,
   },
   secondaryButtonText: {
-    fontSize: 15,
+    fontSize: 14,
     fontWeight: "700",
   },
   buttonPressed: {
@@ -608,7 +612,7 @@ const styles = StyleSheet.create({
     justifyContent: "space-between",
   },
   linkLabel: {
-    fontSize: 16,
+    fontSize: 14,
     fontWeight: "600",
   },
   input: {
@@ -616,11 +620,11 @@ const styles = StyleSheet.create({
     borderRadius: 10,
     paddingHorizontal: 14,
     paddingVertical: 12,
-    fontSize: 16,
+    fontSize: 15,
   },
   inlineStat: {
     flex: 1,
-    minWidth: 132,
+    minWidth: 120,
     borderRadius: 10,
     borderWidth: 1,
     paddingHorizontal: 14,
@@ -628,13 +632,11 @@ const styles = StyleSheet.create({
     gap: 4,
   },
   inlineStatLabel: {
-    fontSize: 12,
-    textTransform: "uppercase",
-    letterSpacing: 0.8,
+    fontSize: 11,
     fontWeight: "700",
   },
   inlineStatValue: {
-    fontSize: 20,
+    fontSize: 18,
     fontWeight: "800",
   },
   mediaCard: {
@@ -649,11 +651,11 @@ const styles = StyleSheet.create({
     borderRadius: 8,
   },
   mediaLabel: {
-    fontSize: 13,
+    fontSize: 12,
     fontWeight: "700",
   },
   errorText: {
-    fontSize: 14,
-    lineHeight: 20,
+    fontSize: 13,
+    lineHeight: 18,
   },
 });

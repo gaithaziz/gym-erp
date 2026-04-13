@@ -155,6 +155,189 @@ async def test_customer_can_only_log_assigned_plan(client: AsyncClient, db_sessi
 
 
 @pytest.mark.asyncio
+async def test_member_workout_session_draft_tracks_order_and_prs(client: AsyncClient, db_session: AsyncSession):
+    password = "password123"
+    hashed = get_password_hash(password)
+
+    coach = User(email="coach_runner@gym.com", hashed_password=hashed, role=Role.COACH, full_name="Coach Runner")
+    member = User(email="member_runner@gym.com", hashed_password=hashed, role=Role.CUSTOMER, full_name="Member Runner")
+    db_session.add_all([coach, member])
+    await db_session.flush()
+    db_session.add(_active_subscription(member.id))
+    await db_session.commit()
+
+    coach_login = await client.post(f"{settings.API_V1_STR}/auth/login", json={"email": coach.email, "password": password})
+    coach_headers = {"Authorization": f"Bearer {coach_login.json()['data']['access_token']}"}
+    member_login = await client.post(f"{settings.API_V1_STR}/auth/login", json={"email": member.email, "password": password})
+    member_headers = {"Authorization": f"Bearer {member_login.json()['data']['access_token']}"}
+
+    ex1 = await client.post(f"{settings.API_V1_STR}/fitness/exercises", json={"name": "Back Squat", "category": "Legs"}, headers=coach_headers)
+    ex2 = await client.post(f"{settings.API_V1_STR}/fitness/exercises", json={"name": "Romanian Deadlift", "category": "Legs"}, headers=coach_headers)
+    assert ex1.status_code == 200
+    assert ex2.status_code == 200
+
+    plan_resp = await client.post(
+        f"{settings.API_V1_STR}/fitness/plans",
+        json={
+            "name": "Leg Day Runner",
+            "member_id": str(member.id),
+            "status": "PUBLISHED",
+            "exercises": [
+                {"exercise_id": ex1.json()["data"]["id"], "sets": 4, "reps": 5, "order": 1, "section_name": "Day A"},
+                {"exercise_id": ex2.json()["data"]["id"], "sets": 3, "reps": 8, "order": 2, "section_name": "Day A"},
+            ],
+        },
+        headers=coach_headers,
+    )
+    assert plan_resp.status_code == 200
+    plan_id = plan_resp.json()["data"]["id"]
+
+    start_resp = await client.post(
+        f"{settings.API_V1_STR}/fitness/workout-sessions/start",
+        json={"plan_id": plan_id, "section_name": "Day A"},
+        headers=member_headers,
+    )
+    assert start_resp.status_code == 200
+    draft = start_resp.json()["data"]
+    assert draft["current_exercise_index"] == 0
+    assert len(draft["entries"]) == 2
+
+    first_entry = draft["entries"][0]
+    second_entry = draft["entries"][1]
+
+    out_of_order = await client.put(
+        f"{settings.API_V1_STR}/fitness/workout-sessions/{draft['id']}/entries/{second_entry['id']}",
+        json={"sets_completed": 3, "reps_completed": 8},
+        headers=member_headers,
+    )
+    assert out_of_order.status_code == 400
+
+    first_done = await client.put(
+        f"{settings.API_V1_STR}/fitness/workout-sessions/{draft['id']}/entries/{first_entry['id']}",
+        json={"sets_completed": 4, "reps_completed": 5, "weight_kg": 120, "notes": "Strong opener"},
+        headers=member_headers,
+    )
+    assert first_done.status_code == 200
+    assert first_done.json()["data"]["current_exercise_index"] == 1
+
+    second_done = await client.put(
+        f"{settings.API_V1_STR}/fitness/workout-sessions/{draft['id']}/entries/{second_entry['id']}",
+        json={
+            "sets_completed": 3,
+            "reps_completed": 8,
+            "weight_kg": 90,
+            "is_pr": True,
+            "pr_type": "WEIGHT",
+            "pr_value": "90kg x 8",
+            "pr_notes": "Best RDL set this month",
+        },
+        headers=member_headers,
+    )
+    assert second_done.status_code == 200
+    assert second_done.json()["data"]["current_exercise_index"] == 2
+
+    finish_resp = await client.post(
+        f"{settings.API_V1_STR}/fitness/workout-sessions/{draft['id']}/finish",
+        json={"duration_minutes": 62, "notes": "Full leg day complete"},
+        headers=member_headers,
+    )
+    assert finish_resp.status_code == 200
+    session = finish_resp.json()["data"]
+    assert session["duration_minutes"] == 62
+    assert len(session["entries"]) == 2
+    assert session["entries"][1]["is_pr"] is True
+    assert session["entries"][1]["pr_type"] == "WEIGHT"
+    assert session["entries"][1]["pr_value"] == "90kg x 8"
+
+    active_resp = await client.get(
+        f"{settings.API_V1_STR}/fitness/workout-sessions/active?plan_id={plan_id}",
+        headers=member_headers,
+    )
+    assert active_resp.status_code == 200
+    assert active_resp.json()["data"] is None
+
+
+@pytest.mark.asyncio
+async def test_member_can_track_structured_diet_by_day_and_meal(client: AsyncClient, db_session: AsyncSession):
+    password = "password123"
+    hashed = get_password_hash(password)
+
+    coach = User(email="coach_diet_tracker@gym.com", hashed_password=hashed, role=Role.COACH, full_name="Coach Diet Tracker")
+    member = User(email="member_diet_tracker@gym.com", hashed_password=hashed, role=Role.CUSTOMER, full_name="Member Diet Tracker")
+    db_session.add_all([coach, member])
+    await db_session.flush()
+    db_session.add(_active_subscription(member.id))
+    await db_session.commit()
+
+    coach_login = await client.post(f"{settings.API_V1_STR}/auth/login", json={"email": coach.email, "password": password})
+    coach_headers = {"Authorization": f"Bearer {coach_login.json()['data']['access_token']}"}
+    member_login = await client.post(f"{settings.API_V1_STR}/auth/login", json={"email": member.email, "password": password})
+    member_headers = {"Authorization": f"Bearer {member_login.json()['data']['access_token']}"}
+
+    diet_resp = await client.post(
+        f"{settings.API_V1_STR}/fitness/diets",
+        json={
+            "name": "Structured Cut",
+            "member_id": str(member.id),
+            "status": "PUBLISHED",
+            "content": "Legacy fallback",
+            "content_structured": {
+                "days": [
+                    {
+                        "id": "day-1",
+                        "name": "Day 1",
+                        "meals": [
+                            {"id": "breakfast", "name": "Breakfast", "items": [{"label": "Eggs", "quantity": "3"}]},
+                            {"id": "dinner", "name": "Dinner", "items": [{"label": "Chicken", "quantity": "200g"}]},
+                        ],
+                    }
+                ]
+            },
+        },
+        headers=coach_headers,
+    )
+    assert diet_resp.status_code == 200
+    diet_id = diet_resp.json()["data"]["id"]
+    tracked_for = datetime.now(timezone.utc).date().isoformat()
+
+    tracker_resp = await client.get(
+        f"{settings.API_V1_STR}/fitness/diets/{diet_id}/tracking?tracked_for={tracked_for}",
+        headers=member_headers,
+    )
+    assert tracker_resp.status_code == 200
+    tracker = tracker_resp.json()["data"]
+    assert tracker["has_structured_content"] is True
+    assert tracker["days"][0]["meals"][0]["name"] == "Breakfast"
+
+    update_resp = await client.put(
+        f"{settings.API_V1_STR}/fitness/diets/{diet_id}/tracking",
+        json={
+            "tracked_for": tracked_for,
+            "adherence_rating": 4,
+            "notes": "Good food day",
+            "meals": [
+                {"meal_id": "breakfast", "completed": True, "note": "Hit protein target"},
+                {"meal_id": "dinner", "completed": False, "note": "Late meal"},
+            ],
+        },
+        headers=member_headers,
+    )
+    assert update_resp.status_code == 200
+    updated = update_resp.json()["data"]
+    assert updated["tracking_day"]["adherence_rating"] == 4
+    tracked_meals = {meal["id"]: meal for meal in updated["tracking_day"]["meals"]}
+    assert tracked_meals["breakfast"]["completed"] is True
+    assert tracked_meals["breakfast"]["note"] == "Hit protein target"
+
+    history_resp = await client.get(
+        f"{settings.API_V1_STR}/fitness/diets/{diet_id}/tracking/history",
+        headers=member_headers,
+    )
+    assert history_resp.status_code == 200
+    assert history_resp.json()["data"][0]["tracked_for"] == tracked_for
+
+
+@pytest.mark.asyncio
 async def test_coach_cannot_view_other_coach_plan_logs(client: AsyncClient, db_session: AsyncSession):
     password = "password123"
     hashed = get_password_hash(password)

@@ -121,11 +121,36 @@ Full destructive reset:
 npm run reset
 ```
 
-## 4. Run The Mobile App
+## 4. Run Web And Mobile Together
 
-The Expo mobile app lives under `apps/mobile`.
+For normal daily development with the web app and backend:
 
-From the repo root:
+```bash
+npm run dev:web
+```
+
+That brings up:
+- Frontend web: `http://localhost:3000`
+- Backend API: `http://127.0.0.1:8000`
+- Postgres: `localhost:5432`
+
+Health check:
+
+```bash
+curl -fsS http://127.0.0.1:8000/healthz
+```
+
+If this is your first local run for the current database volume, seed demo data:
+
+```bash
+npm run seed:all
+```
+
+## 5. Run The Mobile App
+
+The Expo mobile app lives under `apps/mobile` and should be started separately from Docker.
+
+From the repo root, after `npm run dev:web` is already running:
 
 ```bash
 npm install
@@ -140,9 +165,72 @@ npm run android:mobile
 npm run typecheck:mobile
 ```
 
-If you are testing on a physical device, replace `127.0.0.1` with your computer's LAN IP.
+Use the correct API base URL for your device:
+- iPhone simulator on the same Mac: `http://127.0.0.1:8000/api/v1`
+- Android emulator: `http://10.0.2.2:8000/api/v1`
+- Physical phone on the same Wi-Fi: `http://YOUR_LAN_IP:8000/api/v1`
 
-## 5. Git Operations
+Find your Mac LAN IP:
+
+```bash
+ipconfig getifaddr en0
+```
+
+If that returns nothing, try:
+
+```bash
+ipconfig getifaddr en1
+```
+
+Demo mobile login:
+- `alice@client.com` / `GymPass123!`
+
+## 6. Safe Shutdown
+
+Stop the Expo / Metro mobile process with:
+
+```bash
+Ctrl+C
+```
+
+If Expo was left running in another terminal and you want to terminate it safely:
+
+```bash
+pkill -f "expo start"
+```
+
+Stop the Docker services but keep data:
+
+```bash
+npm run down
+```
+
+Fully stop and remove containers/network, while keeping named volumes:
+
+```bash
+npm run down:rm
+```
+
+If you want the same manual Docker command we used for a clean end-of-day shutdown:
+
+```bash
+docker compose down
+```
+
+Recommended end-of-day flow:
+
+```bash
+pkill -f "expo start"
+npm run down:rm
+```
+
+Avoid this unless you intentionally want to wipe local database data too:
+
+```bash
+npm run down:volumes
+```
+
+## 7. Git Operations
 
 To save and upload changes:
 
@@ -152,7 +240,7 @@ git commit -m "Description of your changes"
 git push
 ```
 
-## 6. Troubleshooting
+## 8. Troubleshooting
 
 PowerShell script execution issue:
 
@@ -168,7 +256,7 @@ Object.keys(localStorage)
   .forEach(k => localStorage.removeItem(k));
 ```
 
-## 7. EN/AR Localization Verification
+## 9. EN/AR Localization Verification
 
 From `frontend/`:
 

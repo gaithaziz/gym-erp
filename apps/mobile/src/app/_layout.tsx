@@ -64,6 +64,7 @@ function AppNavigator() {
         <Stack.Screen name="login" options={{ headerShown: false }} />
         <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
         <Stack.Screen name="billing" options={{ headerShown: false, title: copy.common.billing }} />
+        <Stack.Screen name="badges" options={{ headerShown: false, title: copy.home.achievements }} />
         <Stack.Screen name="notifications" options={{ headerShown: false, title: copy.common.notifications }} />
         <Stack.Screen name="support" options={{ headerShown: false, title: copy.common.support }} />
         <Stack.Screen name="chat" options={{ headerShown: false }} />

@@ -73,7 +73,13 @@ class AccessService:
                 raise HTTPException(status_code=400, detail="Invalid QR Token")
         except JWTError:
             # Token expired or invalid signature
-            return {"status": "DENIED", "reason": "QR_EXPIRED", "user_name": "Unknown"}
+            return {
+                "status": "DENIED",
+                "reason": "QR_EXPIRED",
+                "user_name": "Unknown",
+                "kiosk_id": kiosk_id,
+                "scan_time": datetime.now(timezone.utc).isoformat(),
+            }
 
         # Fetch User and Subscription
         stmt = select(User).where(User.id == uuid.UUID(user_id))
@@ -81,7 +87,13 @@ class AccessService:
         user = result.scalar_one_or_none()
 
         if not user:
-            return {"status": "DENIED", "reason": "USER_NOT_FOUND", "user_name": "Unknown"}
+            return {
+                "status": "DENIED",
+                "reason": "USER_NOT_FOUND",
+                "user_name": "Unknown",
+                "kiosk_id": kiosk_id,
+                "scan_time": datetime.now(timezone.utc).isoformat(),
+            }
 
         # Duplicate scan protection: check if user scanned within the last 60 seconds
         now = datetime.now(timezone.utc)
@@ -94,7 +106,13 @@ class AccessService:
         result_recent = await db.execute(stmt_recent)
         recent_scan = result_recent.scalar_one_or_none()
         if recent_scan:
-            return {"status": "ALREADY_SCANNED", "user_name": user.full_name, "reason": "Scanned within the last 60 seconds"}
+            return {
+                "status": "ALREADY_SCANNED",
+                "user_name": user.full_name,
+                "reason": "Scanned within the last 60 seconds",
+                "kiosk_id": kiosk_id,
+                "scan_time": now.isoformat(),
+            }
 
         status_decision = "GRANTED"
         reason = None
@@ -133,7 +151,9 @@ class AccessService:
         return {
             "status": status_decision,
             "user_name": user.full_name,
-            "reason": reason
+            "reason": reason,
+            "kiosk_id": kiosk_id,
+            "scan_time": now.isoformat(),
         }
 
     @staticmethod
@@ -144,7 +164,13 @@ class AccessService:
         user = result.scalar_one_or_none()
 
         if not user:
-            return {"status": "DENIED", "reason": "USER_NOT_FOUND", "user_name": "Unknown"}
+            return {
+                "status": "DENIED",
+                "reason": "USER_NOT_FOUND",
+                "user_name": "Unknown",
+                "kiosk_id": kiosk_id,
+                "scan_time": datetime.now(timezone.utc).isoformat(),
+            }
 
         now = datetime.now(timezone.utc)
 
@@ -158,7 +184,13 @@ class AccessService:
         result_recent = await db.execute(stmt_recent)
         recent_scan = result_recent.scalar_one_or_none()
         if recent_scan:
-            return {"status": "ALREADY_SCANNED", "user_name": user.full_name, "reason": "Scanned within the last 60 seconds"}
+            return {
+                "status": "ALREADY_SCANNED",
+                "user_name": user.full_name,
+                "reason": "Scanned within the last 60 seconds",
+                "kiosk_id": kiosk_id,
+                "scan_time": now.isoformat(),
+            }
 
         status_decision = "GRANTED"
         reason = None
@@ -196,7 +228,9 @@ class AccessService:
         return {
             "status": status_decision,
             "user_name": user.full_name,
-            "reason": reason
+            "reason": reason,
+            "kiosk_id": kiosk_id,
+            "scan_time": now.isoformat(),
         }
 
     @staticmethod
@@ -277,4 +311,3 @@ class AccessService:
             })
             
         return data
-

@@ -63,7 +63,6 @@ Role and capability model:
   - `handle_support_queue`
   - `view_audit_summary`
   - `renew_subscription`
-  - `pay_invoice`
   - `view_receipts`
 
 Required API/interface additions:
@@ -127,8 +126,8 @@ Customer screens:
 - Renew subscription
 - Renewal request status
 - Payment history and receipts
-- Workout plans
-- Diet plans
+- Interactive workout runner
+- Interactive diet tracker
 - Feedback history
 - Progress metrics
 - Attendance/history
@@ -144,6 +143,17 @@ Required API/interface additions:
   - create renewal request
   - read renewal request status
   - list receipts / receipt detail
+- Add member workout tracking endpoints:
+  - start workout session draft
+  - read active workout session draft
+  - update current exercise in sequence
+  - skip current exercise
+  - finish workout session draft
+  - abandon workout session draft
+- Add member diet tracking endpoints:
+  - read structured diet tracker detail
+  - upsert daily meal completion/adherence
+  - read diet tracking history
 - Stabilize chat/support unread counts for mobile badge use
 - Add a notifications feed endpoint if one does not exist
 
@@ -151,11 +161,21 @@ Type additions:
 - `MobileNotificationItem`
 - `RenewalRequestSummary`
 - `ReceiptSummary`
+- `WorkoutSessionDraft`
+- `WorkoutSessionDraftEntry`
+- `DietDay`
+- `DietMeal`
+- `DietMealItem`
+- `MemberDietTrackingDay`
+- `MemberDietTrackingMeal`
 
 Phase acceptance:
 - Customer can access nearly all self-serve flows without seeing restricted staff/admin controls
 - Blocked customer is restricted only where business rules require it
-- Customer can use scan, plans, diets, progress, history, support, chat, lost & found, subscription, receipts, and submit/track renewal requests
+- Customer can use scan, progress, history, support, chat, lost & found, subscription, receipts, and submit/track renewal requests
+- Customer can start a workout session, log exercise 1 then exercise 2 in order, mark PRs during execution, and finish the session
+- Customer can use assigned diet plans as a day/meal tracker with completion state, notes, and daily adherence
+- Web and mobile member workout/diet experiences use the same backend session/tracking model
 
 ## Phase 3: Staff Operations MVP
 

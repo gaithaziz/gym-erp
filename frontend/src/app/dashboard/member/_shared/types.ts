@@ -31,6 +31,24 @@ export interface MemberDiet {
     name: string;
     description?: string;
     content: string;
+    content_structured?: {
+        days?: Array<{
+            id?: string;
+            name?: string;
+            meals?: Array<{
+                id?: string;
+                name?: string;
+                time_label?: string | null;
+                instructions?: string | null;
+                items?: Array<{
+                    id?: string;
+                    label?: string;
+                    quantity?: string | null;
+                    notes?: string | null;
+                }>;
+            }>;
+        }>;
+    } | Array<unknown> | null;
     member_id?: string | null;
 }
 
@@ -75,6 +93,10 @@ export interface WorkoutSessionEntry {
     reps_completed: number;
     weight_kg?: number | null;
     notes?: string | null;
+    is_pr?: boolean;
+    pr_type?: string | null;
+    pr_value?: string | null;
+    pr_notes?: string | null;
     order: number;
 }
 
@@ -86,4 +108,78 @@ export interface WorkoutSessionLog {
     duration_minutes?: number | null;
     notes?: string | null;
     entries: WorkoutSessionEntry[];
+}
+
+export interface WorkoutSessionDraftEntry extends WorkoutSessionEntry {
+    id: string;
+    workout_exercise_id?: string | null;
+    section_name?: string | null;
+    target_duration_minutes?: number | null;
+    video_type?: string | null;
+    video_url?: string | null;
+    uploaded_video_url?: string | null;
+    video_provider?: string | null;
+    video_id?: string | null;
+    embed_url?: string | null;
+    playback_type?: string | null;
+    skipped: boolean;
+    completed_at?: string | null;
+}
+
+export interface WorkoutSessionDraft {
+    id: string;
+    member_id: string;
+    plan_id: string;
+    section_name?: string | null;
+    current_exercise_index: number;
+    started_at: string;
+    updated_at: string;
+    notes?: string | null;
+    entries: WorkoutSessionDraftEntry[];
+}
+
+export interface MemberDietTrackingMeal {
+    id: string;
+    name: string;
+    completed: boolean;
+    note?: string | null;
+}
+
+export interface MemberDietTrackingDay {
+    id: string;
+    tracked_for: string;
+    adherence_rating?: number | null;
+    notes?: string | null;
+    meals: MemberDietTrackingMeal[];
+}
+
+export interface MemberDietTrackerMeal {
+    id: string;
+    name: string;
+    completed: boolean;
+    note?: string | null;
+    time_label?: string | null;
+    instructions?: string | null;
+    items: Array<{
+        id: string;
+        label: string;
+        quantity?: string | null;
+        notes?: string | null;
+    }>;
+}
+
+export interface MemberDietTrackerDay {
+    id: string;
+    name: string;
+    meals: MemberDietTrackerMeal[];
+}
+
+export interface MemberDietTracker {
+    plan_id: string;
+    plan_name: string;
+    description?: string | null;
+    has_structured_content: boolean;
+    legacy_content?: string | null;
+    days: MemberDietTrackerDay[];
+    tracking_day?: MemberDietTrackingDay | null;
 }

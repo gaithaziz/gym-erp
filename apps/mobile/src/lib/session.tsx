@@ -45,6 +45,19 @@ async function readJsonResponse<T>(response: Response): Promise<Envelope<T>> {
     );
   }
 
+  if (parsed && typeof parsed === "object" && "success" in parsed) {
+    return parseEnvelope<T>(parsed);
+  }
+
+  if (parsed && typeof parsed === "object" && "detail" in parsed) {
+    const detail = (parsed as { detail?: unknown }).detail;
+    return {
+      success: false,
+      message: typeof detail === "string" ? detail : `Request failed (${response.status})`,
+      data: undefined as T,
+    };
+  }
+
   return parseEnvelope<T>(parsed);
 }
 

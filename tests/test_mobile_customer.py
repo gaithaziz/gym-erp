@@ -16,7 +16,7 @@ from app.models.notification import WhatsAppDeliveryLog
 from app.models.subscription_enums import SubscriptionStatus
 from app.models.support import SupportTicket, TicketCategory, TicketStatus
 from app.models.user import User
-from app.models.workout_log import WorkoutSession
+from app.models.workout_log import WorkoutSession, WorkoutSessionEntry
 from app.models.workout_log import DietFeedback, GymFeedback, WorkoutLog
 
 
@@ -166,6 +166,7 @@ async def test_mobile_customer_home_and_billing(client: AsyncClient, db_session:
     assert home["quick_stats"]["unread_chat_messages"] == 1
     assert home["recent_receipts"][0]["description"] == "Monthly renewal"
     assert home["latest_biometric"]["weight_kg"] == 81.2
+    assert "qr" not in home
 
     billing_response = await client.get(f"{settings.API_V1_STR}/mobile/customer/billing", headers=headers)
     assert billing_response.status_code == 200
@@ -237,13 +238,27 @@ async def test_mobile_customer_plans_and_progress(client: AsyncClient, db_sessio
             published_at=now - timedelta(days=2),
         )
     )
+    workout_session = WorkoutSession(
+        member_id=customer.id,
+        plan_id=workout_plan.id,
+        performed_at=(now - timedelta(days=1)).replace(tzinfo=None),
+        duration_minutes=55,
+        notes="Solid session",
+    )
+    db_session.add(workout_session)
+    await db_session.flush()
     db_session.add(
-        WorkoutSession(
-            member_id=customer.id,
-            plan_id=workout_plan.id,
-            performed_at=(now - timedelta(days=1)).replace(tzinfo=None),
-            duration_minutes=55,
-            notes="Solid session",
+        WorkoutSessionEntry(
+            session_id=workout_session.id,
+            exercise_name="Deadlift",
+            sets_completed=3,
+            reps_completed=5,
+            weight_kg=140,
+            is_pr=True,
+            pr_type="WEIGHT",
+            pr_value="140kg x 5",
+            pr_notes="First clean set at this weight",
+            order=0,
         )
     )
     db_session.add(
@@ -280,6 +295,8 @@ async def test_mobile_customer_plans_and_progress(client: AsyncClient, db_sessio
     assert progress["attendance_history"][0]["status"] == "GRANTED"
     assert progress["recent_workout_sessions"][0]["duration_minutes"] == 55
     assert progress["workout_stats"][0]["workouts"] == 1
+    assert progress["personal_records"][0]["exercise_name"] == "Deadlift"
+    assert progress["personal_records"][0]["pr_value"] == "140kg x 5"
 
 
 @pytest.mark.asyncio
@@ -315,6 +332,70 @@ async def test_mobile_customer_notifications_feed(client: AsyncClient, db_sessio
     payload = response.json()["data"]
     assert payload["items"][0]["event_type"] == "SUPPORT_REPLY"
     assert payload["items"][0]["status"] == "SENT"
+
+
+@pytest.mark.asyncio
+async def test_mobile_customer_scan_session_flow(client: AsyncClient, db_session: AsyncSession):
+    now = datetime.now(timezone.utc)
+    active_customer = User(
+        email="customer-scan-active@example.com",
+        hashed_password=security.get_password_hash("password123"),
+        role=Role.CUSTOMER,
+        full_name="Active Scanner",
+        is_active=True,
+    )
+    expired_customer = User(
+        email="customer-scan-expired@example.com",
+        hashed_password=security.get_password_hash("password123"),
+        role=Role.CUSTOMER,
+        full_name="Expired Scanner",
+        is_active=True,
+    )
+    db_session.add_all([active_customer, expired_customer])
+    await db_session.flush()
+    db_session.add_all(
+        [
+            Subscription(
+                user_id=active_customer.id,
+                plan_name="Monthly",
+                start_date=now - timedelta(days=3),
+                end_date=now + timedelta(days=27),
+                status=SubscriptionStatus.ACTIVE,
+            ),
+            Subscription(
+                user_id=expired_customer.id,
+                plan_name="Monthly",
+                start_date=now - timedelta(days=60),
+                end_date=now - timedelta(days=1),
+                status=SubscriptionStatus.EXPIRED,
+            ),
+        ]
+    )
+    await db_session.commit()
+
+    active_headers = await _login(client, active_customer.email)
+    first_scan = await client.post(
+        f"{settings.API_V1_STR}/access/scan-session",
+        headers=active_headers,
+        json={"kiosk_id": "front-door-01"},
+    )
+    assert first_scan.status_code == 200
+    first_data = first_scan.json()["data"]
+    assert first_data["status"] == "GRANTED"
+    assert first_data["kiosk_id"] == "front-door-01"
+    assert first_data["scan_time"]
+
+    expired_headers = await _login(client, expired_customer.email)
+    denied_scan = await client.post(
+        f"{settings.API_V1_STR}/access/scan-session",
+        headers=expired_headers,
+        json={"kiosk_id": "front-door-02"},
+    )
+    assert denied_scan.status_code == 200
+    denied_data = denied_scan.json()["data"]
+    assert denied_data["status"] == "DENIED"
+    assert denied_data["reason"] == "SUBSCRIPTION_EXPIRED"
+    assert denied_data["kiosk_id"] == "front-door-02"
 
 
 @pytest.mark.asyncio

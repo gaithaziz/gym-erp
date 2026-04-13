@@ -65,6 +65,34 @@ export type NotificationSettings = {
 
 export type MobileProfile = AuthUser;
 
+export type MobileGamificationStats = {
+  total_visits: number;
+  streak: {
+    current_streak: number;
+    best_streak: number;
+    last_visit_date?: string | null;
+  };
+  weekly_progress?: {
+    current: number;
+    goal: number;
+  };
+  badges: Array<{
+    id: string;
+    badge_type: string;
+    badge_name: string;
+    badge_description?: string | null;
+    earned_at?: string | null;
+  }>;
+};
+
+export type AccessScanResult = {
+  status: string;
+  user_name: string;
+  reason?: string | null;
+  kiosk_id?: string | null;
+  scan_time?: string | null;
+};
+
 export function parseEnvelope<T>(input: unknown): Envelope<T> {
   const payload = input as Envelope<T>;
   if (!payload || typeof payload !== "object" || !("success" in payload)) {
@@ -136,4 +164,3 @@ export function parseProfileEnvelope(input: unknown): Envelope<MobileProfile> {
     data: parseAuthUser(payload.data),
   };
 }
-

@@ -1,11 +1,31 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { Image } from "expo-image";
 import { useEffect, useState } from "react";
 import { Pressable, StyleSheet, Text, View } from "react-native";
 
-import { Card, Input, MutedText, PrimaryButton, QueryState, Screen, SectionTitle, TextArea } from "@/components/ui";
-import { parseEnvelope, parseProfileEnvelope, type NotificationSettings } from "@/lib/api";
+import { Card, Input, MutedText, PrimaryButton, QueryState, Screen, SecondaryButton, SectionTitle, TextArea } from "@/components/ui";
+import { API_BASE_URL, parseEnvelope, parseProfileEnvelope, type NotificationSettings } from "@/lib/api";
+import { pickImagesFromLibrary } from "@/lib/media-picker";
 import { usePreferences } from "@/lib/preferences";
 import { useSession } from "@/lib/session";
+
+const ASSET_BASE_URL = API_BASE_URL.replace(/\/api\/v1\/?$/, "");
+
+function resolveMediaUri(uri?: string | null) {
+  if (!uri) {
+    return null;
+  }
+  return uri.startsWith("http://") || uri.startsWith("https://") || uri.startsWith("file://") || uri.startsWith("content://") ? uri : `${ASSET_BASE_URL}${uri}`;
+}
+
+function getInitials(name?: string | null, email?: string | null) {
+  const source = name?.trim() || email?.trim() || "?";
+  return source
+    .split(/\s+/)
+    .slice(0, 2)
+    .map((part) => part[0]?.toUpperCase())
+    .join("");
+}
 
 export default function ProfileScreen() {
   const { authorizedRequest, refreshBootstrap } = useSession();
@@ -85,6 +105,34 @@ export default function ProfileScreen() {
     onError: (error) => setFormMessage(error instanceof Error ? error.message : copy.common.errorTryAgain),
   });
 
+  const photoMutation = useMutation({
+    mutationFn: async () => {
+      const [asset] = await pickImagesFromLibrary({ permissionDeniedMessage: copy.common.photoPermissionDenied });
+      if (!asset) {
+        return null;
+      }
+      const formData = new FormData();
+      formData.append("file", {
+        uri: asset.uri,
+        name: asset.name,
+        type: asset.mimeType,
+      } as never);
+      return authorizedRequest("/mobile/customer/profile/picture", {
+        method: "POST",
+        body: formData,
+      });
+    },
+    onSuccess: async (payload) => {
+      if (!payload) {
+        return;
+      }
+      setFormMessage(copy.common.successUpdated);
+      await queryClient.invalidateQueries({ queryKey: ["mobile-profile"] });
+      await refreshBootstrap();
+    },
+    onError: (error) => setFormMessage(error instanceof Error ? error.message : copy.common.errorTryAgain),
+  });
+
   function togglePref(key: keyof NotificationSettings) {
     if (!notificationsQuery.data) {
       return;
@@ -100,6 +148,25 @@ export default function ProfileScreen() {
       <QueryState loading={profileQuery.isLoading} error={profileQuery.error instanceof Error ? profileQuery.error.message : null} />
       {profileQuery.data ? (
         <>
+          <Card style={[styles.profilePhotoCard, { flexDirection: isRTL ? "row-reverse" : "row" }]}>
+            <View style={[styles.avatarFrame, { borderColor: theme.border, backgroundColor: theme.cardAlt }]}>
+              {resolveMediaUri(profileQuery.data.profile_picture_url) ? (
+                <Image source={{ uri: resolveMediaUri(profileQuery.data.profile_picture_url) ?? undefined }} style={styles.avatarImage} contentFit="cover" />
+              ) : (
+                <View style={[styles.avatarFallback, { backgroundColor: theme.primary }]}>
+                  <Text style={[styles.avatarInitials, { color: "#FFFFFF", fontFamily: fontSet.display }]}>{getInitials(profileQuery.data.full_name, profileQuery.data.email)}</Text>
+                </View>
+              )}
+            </View>
+            <View style={styles.profilePhotoText}>
+              <SectionTitle>{copy.profileScreen.profilePhoto}</SectionTitle>
+              <MutedText>{profileQuery.data.profile_picture_url ? profileQuery.data.email : copy.profileScreen.noPhoto}</MutedText>
+              <SecondaryButton onPress={() => photoMutation.mutate()} disabled={photoMutation.isPending}>
+                {photoMutation.isPending ? copy.profileScreen.uploadingPhoto : copy.profileScreen.changePhoto}
+              </SecondaryButton>
+            </View>
+          </Card>
+
           <Card>
             <SectionTitle>{profileQuery.data.full_name || copy.common.customer}</SectionTitle>
             <MutedText>{profileQuery.data.email}</MutedText>
@@ -162,6 +229,34 @@ function PreferenceRow({ label, enabled, onPress }: { label: string; enabled: bo
 }
 
 const styles = StyleSheet.create({
+  profilePhotoCard: {
+    alignItems: "center",
+    gap: 14,
+  },
+  avatarFrame: {
+    width: 76,
+    height: 76,
+    borderRadius: 999,
+    borderWidth: 1,
+    overflow: "hidden",
+  },
+  avatarImage: {
+    width: "100%",
+    height: "100%",
+  },
+  avatarFallback: {
+    flex: 1,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  avatarInitials: {
+    fontSize: 22,
+    fontWeight: "800",
+  },
+  profilePhotoText: {
+    flex: 1,
+    gap: 8,
+  },
   preferenceRow: {
     alignItems: "center",
     justifyContent: "space-between",

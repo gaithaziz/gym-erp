@@ -1,9 +1,10 @@
-import * as DocumentPicker from "expo-document-picker";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useMemo, useState } from "react";
 import { Pressable, StyleSheet, Text, View } from "react-native";
 
 import { Card, Input, MediaPreview, MutedText, PrimaryButton, QueryState, Screen, SectionTitle, SecondaryButton, TextArea } from "@/components/ui";
+import { pickImagesFromLibrary } from "@/lib/media-picker";
+import { localeTag, localizeLostFoundStatus } from "@/lib/mobile-format";
 import { usePreferences } from "@/lib/preferences";
 import { useSession } from "@/lib/session";
 
@@ -31,18 +32,28 @@ type LostFoundItem = {
   media?: LostFoundMedia[];
 };
 
+type PendingPhoto = {
+  uri: string;
+  name: string;
+  mimeType?: string | null;
+};
+
+const SUPPORTED_PHOTO_MIME_TYPES = new Set(["image/jpeg", "image/png", "image/webp", "image/heic", "image/heif"]);
+
 export default function LostFoundScreen() {
   const { authorizedRequest } = useSession();
   const { copy, direction, fontSet, isRTL, theme } = usePreferences();
+  const locale = localeTag(isRTL);
   const queryClient = useQueryClient();
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
-  const [category, setCategory] = useState("");
+  const [category, setCategory] = useState<"LOST" | "FOUND">("LOST");
   const [foundLocation, setFoundLocation] = useState("");
   const [contactNote, setContactNote] = useState("");
   const [selectedItemId, setSelectedItemId] = useState<string | null>(null);
   const [comment, setComment] = useState("");
   const [feedback, setFeedback] = useState<string | null>(null);
+  const [pendingPhotos, setPendingPhotos] = useState<PendingPhoto[]>([]);
 
   const itemsQuery = useQuery({
     queryKey: ["mobile-lost-found"],
@@ -57,9 +68,36 @@ export default function LostFoundScreen() {
     queryFn: async () => (await authorizedRequest<LostFoundItem>(`/mobile/customer/lost-found/items/${selectedItem?.id}`)).data,
   });
 
+  async function uploadItemPhoto(itemId: string, photo: PendingPhoto) {
+    const formData = new FormData();
+    formData.append("file", {
+      uri: photo.uri,
+      name: photo.name,
+      type: photo.mimeType ?? "image/jpeg",
+    } as never);
+    return authorizedRequest(`/mobile/customer/lost-found/items/${itemId}/media`, {
+      method: "POST",
+      body: formData,
+    });
+  }
+
+  async function pickPhotos() {
+    const photos = await pickImagesFromLibrary({ multiple: true, permissionDeniedMessage: copy.common.photoPermissionDenied });
+    const unsupported = photos.find((photo) => !SUPPORTED_PHOTO_MIME_TYPES.has((photo.mimeType ?? "").toLowerCase()));
+    if (unsupported) {
+      setFeedback(copy.lostFoundScreen.unsupportedPhoto);
+      return;
+    }
+    setPendingPhotos((current) => [...current, ...photos]);
+  }
+
   const createItemMutation = useMutation({
-    mutationFn: async () =>
-      authorizedRequest("/mobile/customer/lost-found/items", {
+    mutationFn: async () => {
+      const unsupported = pendingPhotos.find((photo) => !SUPPORTED_PHOTO_MIME_TYPES.has((photo.mimeType ?? "").toLowerCase()));
+      if (unsupported) {
+        throw new Error(copy.lostFoundScreen.unsupportedPhoto);
+      }
+      const created = await authorizedRequest("/mobile/customer/lost-found/items", {
         method: "POST",
         body: JSON.stringify({
           title,
@@ -68,17 +106,25 @@ export default function LostFoundScreen() {
           found_location: foundLocation || null,
           contact_note: contactNote || null,
         }),
-      }),
+      });
+      const data = created.data as { id: string };
+      for (const photo of pendingPhotos) {
+        await uploadItemPhoto(data.id, photo);
+      }
+      return created;
+    },
     onSuccess: async (payload) => {
       setTitle("");
       setDescription("");
-      setCategory("");
+      setCategory("LOST");
       setFoundLocation("");
       setContactNote("");
+      setPendingPhotos([]);
       setFeedback(copy.common.successUpdated);
       const data = payload.data as { id: string };
       setSelectedItemId(data.id);
       await queryClient.invalidateQueries({ queryKey: ["mobile-lost-found"] });
+      await queryClient.invalidateQueries({ queryKey: ["mobile-lost-found-detail", data.id] });
     },
     onError: (error) => setFeedback(error instanceof Error ? error.message : copy.common.errorTryAgain),
   });
@@ -107,20 +153,14 @@ export default function LostFoundScreen() {
       if (!selectedItem) {
         throw new Error(copy.lostFoundScreen.noItems);
       }
-      const picked = await DocumentPicker.getDocumentAsync({ copyToCacheDirectory: true, multiple: false });
-      if (picked.canceled || !picked.assets[0]) {
+      const [asset] = await pickImagesFromLibrary({ permissionDeniedMessage: copy.common.photoPermissionDenied });
+      if (!asset) {
         return null;
       }
-      const asset = picked.assets[0];
-      const formData = new FormData();
-      formData.append("file", {
+      return uploadItemPhoto(selectedItem.id, {
         uri: asset.uri,
         name: asset.name,
-        type: asset.mimeType ?? "application/octet-stream",
-      } as never);
-      return authorizedRequest(`/mobile/customer/lost-found/items/${selectedItem.id}/media`, {
-        method: "POST",
-        body: formData,
+        mimeType: asset.mimeType,
       });
     },
     onSuccess: async (payload) => {
@@ -135,18 +175,41 @@ export default function LostFoundScreen() {
   });
 
   const detail = itemDetailQuery.data ?? selectedItem;
+  const categoryLabel = (value?: string | null) => {
+    if (value === "LOST") {
+      return copy.lostFoundScreen.lostCategory;
+    }
+    if (value === "FOUND") {
+      return copy.lostFoundScreen.foundCategory;
+    }
+    return value || "--";
+  };
 
   return (
     <Screen title={copy.common.lostFound} subtitle={copy.lostFoundScreen.subtitle}>
       <Card>
         <SectionTitle>{copy.lostFoundScreen.createItem}</SectionTitle>
         <Input value={title} onChangeText={setTitle} placeholder={copy.lostFoundScreen.title} />
-        <Input value={category} onChangeText={setCategory} placeholder={copy.lostFoundScreen.category} />
+        <View style={[styles.categoryPicker, { flexDirection: isRTL ? "row-reverse" : "row" }]}>
+          <CategoryChip label={copy.lostFoundScreen.lostCategory} active={category === "LOST"} onPress={() => setCategory("LOST")} />
+          <CategoryChip label={copy.lostFoundScreen.foundCategory} active={category === "FOUND"} onPress={() => setCategory("FOUND")} />
+        </View>
         <TextArea value={description} onChangeText={setDescription} placeholder={copy.lostFoundScreen.description} />
         <Input value={foundLocation} onChangeText={setFoundLocation} placeholder={copy.lostFoundScreen.foundLocation} />
         <Input value={contactNote} onChangeText={setContactNote} placeholder={copy.lostFoundScreen.contactNote} />
-        <PrimaryButton onPress={() => createItemMutation.mutate()} disabled={createItemMutation.isPending || !title.trim() || !description.trim() || !category.trim()}>
-          {createItemMutation.isPending ? copy.lostFoundScreen.createItemBusy : copy.lostFoundScreen.createItem}
+        <MutedText>{copy.lostFoundScreen.photoHint}</MutedText>
+        {pendingPhotos.length ? (
+          <View style={styles.photoList}>
+            {pendingPhotos.map((photo) => (
+              <MediaPreview key={photo.uri} uri={photo.uri} mime={photo.mimeType} label={photo.name} />
+            ))}
+          </View>
+        ) : null}
+        <SecondaryButton onPress={() => void pickPhotos()} disabled={createItemMutation.isPending}>
+          {copy.lostFoundScreen.addPhotosToReport}
+        </SecondaryButton>
+        <PrimaryButton onPress={() => createItemMutation.mutate()} disabled={createItemMutation.isPending || !title.trim() || !description.trim()}>
+          {createItemMutation.isPending ? (pendingPhotos.length ? copy.lostFoundScreen.uploadingPhotos : copy.lostFoundScreen.createItemBusy) : copy.lostFoundScreen.createItem}
         </PrimaryButton>
       </Card>
 
@@ -169,13 +232,15 @@ export default function LostFoundScreen() {
                   onPress={() => setSelectedItemId(item.id)}
                   style={[styles.itemRow, { borderTopColor: theme.border, backgroundColor: active ? theme.cardAlt : "transparent", borderColor: active ? theme.primary : theme.border }]}
                 >
-                  <View style={styles.itemHead}>
-                    <Text style={{ color: theme.foreground, fontFamily: fontSet.body, textAlign: isRTL ? "right" : "left", writingDirection: direction }}>
+                  <View style={[styles.itemHead, { flexDirection: isRTL ? "row-reverse" : "row" }]}>
+                    <Text style={[styles.itemTitle, { color: theme.foreground, fontFamily: fontSet.body, textAlign: isRTL ? "right" : "left", writingDirection: direction }]}>
                       {item.title}
                     </Text>
-                    <Text style={{ color: theme.primary, fontFamily: fontSet.mono, fontSize: 11, fontWeight: "800" }}>{item.status}</Text>
+                    <Text style={{ color: theme.primary, fontFamily: fontSet.mono, fontSize: 11, fontWeight: "800" }}>
+                      {localizeLostFoundStatus(item.status, isRTL)}
+                    </Text>
                   </View>
-                  <MutedText>{item.category || "--"}</MutedText>
+                  <MutedText>{categoryLabel(item.category)}</MutedText>
                 </Pressable>
               );
             })}
@@ -184,19 +249,20 @@ export default function LostFoundScreen() {
           {detail ? (
             <Card>
               <SectionTitle>{detail.title}</SectionTitle>
-              <MutedText>{detail.status}</MutedText>
+              <MutedText>{localizeLostFoundStatus(detail.status, isRTL)}</MutedText>
+              <MutedText>{categoryLabel(detail.category)}</MutedText>
               <Text style={{ color: theme.foreground, fontFamily: fontSet.body, textAlign: isRTL ? "right" : "left", writingDirection: direction }}>
                 {detail.description}
               </Text>
               <MutedText>{detail.found_location || copy.common.noLocationAdded}</MutedText>
               {detail.contact_note ? <MutedText>{detail.contact_note}</MutedText> : null}
 
-              <SectionTitle>{copy.lostFoundScreen.media}</SectionTitle>
+              <SectionTitle>{copy.lostFoundScreen.photos}</SectionTitle>
               {detail.media?.length ? detail.media.map((item) => (
-                <MediaPreview key={item.id} uri={item.media_url} mime={item.media_mime} label={item.media_mime} />
-              )) : <MutedText>{copy.common.noData}</MutedText>}
+                <MediaPreview key={item.id} uri={item.media_url} mime={item.media_mime} label={copy.lostFoundScreen.photos} />
+              )) : <MutedText>{copy.lostFoundScreen.noPhotos}</MutedText>}
               <SecondaryButton onPress={() => mediaMutation.mutate()} disabled={mediaMutation.isPending}>
-                {mediaMutation.isPending ? copy.common.uploading : copy.common.attachFile}
+                {mediaMutation.isPending ? copy.lostFoundScreen.uploadingPhotos : copy.lostFoundScreen.addPhotos}
               </SecondaryButton>
 
               <SectionTitle>{copy.lostFoundScreen.itemComments}</SectionTitle>
@@ -205,7 +271,7 @@ export default function LostFoundScreen() {
                   <Text style={{ color: theme.foreground, fontFamily: fontSet.body, textAlign: isRTL ? "right" : "left", writingDirection: direction }}>
                     {item.text}
                   </Text>
-                  <MutedText>{new Date(item.created_at).toLocaleString(isRTL ? "ar" : "en")}</MutedText>
+                  <MutedText>{new Date(item.created_at).toLocaleString(locale)}</MutedText>
                 </View>
               ))}
               <TextArea value={comment} onChangeText={setComment} placeholder={copy.lostFoundScreen.commentPlaceholder} />
@@ -226,7 +292,41 @@ export default function LostFoundScreen() {
   );
 }
 
+function CategoryChip({ label, active, onPress }: { label: string; active: boolean; onPress: () => void }) {
+  const { fontSet, theme } = usePreferences();
+  return (
+    <Pressable
+      accessibilityRole="button"
+      onPress={onPress}
+      style={[
+        styles.categoryChip,
+        {
+          backgroundColor: active ? theme.primary : theme.cardAlt,
+          borderColor: active ? theme.primary : theme.border,
+        },
+      ]}
+    >
+      <Text style={[styles.categoryChipText, { color: active ? "#FFFFFF" : theme.foreground, fontFamily: fontSet.body }]}>{label}</Text>
+    </Pressable>
+  );
+}
+
 const styles = StyleSheet.create({
+  categoryPicker: {
+    gap: 10,
+  },
+  categoryChip: {
+    flex: 1,
+    borderWidth: 1,
+    borderRadius: 999,
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+    alignItems: "center",
+  },
+  categoryChipText: {
+    fontSize: 14,
+    fontWeight: "800",
+  },
   itemRow: {
     gap: 4,
     borderTopWidth: 1,
@@ -237,10 +337,12 @@ const styles = StyleSheet.create({
     borderRadius: 10,
   },
   itemHead: {
-    flexDirection: "row",
     justifyContent: "space-between",
     gap: 12,
     alignItems: "center",
+  },
+  itemTitle: {
+    flex: 1,
   },
   commentRow: {
     gap: 4,
@@ -249,5 +351,8 @@ const styles = StyleSheet.create({
     borderRadius: 10,
     paddingHorizontal: 10,
     paddingBottom: 10,
+  },
+  photoList: {
+    gap: 10,
   },
 });

@@ -1,9 +1,10 @@
+import { Ionicons } from "@expo/vector-icons";
 import { useQuery } from "@tanstack/react-query";
 import { useRouter } from "expo-router";
 import { Pressable, StyleSheet, Text, View } from "react-native";
 
-import { Card, InlineStat, MutedText, PrimaryButton, QueryState, Screen, SectionTitle, ValueText } from "@/components/ui";
-import { parseHomeEnvelope } from "@/lib/api";
+import { Card, InlineStat, MutedText, PrimaryButton, QueryState, Screen, SecondaryButton, SectionTitle, ValueText } from "@/components/ui";
+import { parseEnvelope, parseHomeEnvelope, type MobileGamificationStats } from "@/lib/api";
 import { localeTag, localizeSubscriptionStatus } from "@/lib/mobile-format";
 import { usePreferences } from "@/lib/preferences";
 import { useSession } from "@/lib/session";
@@ -16,8 +17,13 @@ export default function HomeTab() {
     queryKey: ["mobile-home"],
     queryFn: async () => parseHomeEnvelope(await authorizedRequest("/mobile/customer/home")).data,
   });
+  const gamificationQuery = useQuery({
+    queryKey: ["mobile-gamification"],
+    queryFn: async () => parseEnvelope<MobileGamificationStats>(await authorizedRequest("/gamification/stats")).data,
+  });
 
   const home = homeQuery.data;
+  const gamification = gamificationQuery.data;
   const firstName = bootstrap?.user.full_name ? bootstrap.user.full_name.split(" ")[0] : "";
   const title = isRTL ? `${copy.home.greeting}${firstName ? `، ${firstName}` : ""}` : `${copy.home.greeting}${firstName ? `, ${firstName}` : ""}`;
   const locale = localeTag(isRTL);
@@ -29,7 +35,9 @@ export default function HomeTab() {
       subtitle={bootstrap?.gym.gym_name || copy.home.subtitle}
       action={
         <Pressable onPress={() => router.push("/billing")} style={[styles.badge, { backgroundColor: theme.card, borderColor: theme.border }]}>
-          <Text style={[styles.badgeText, { color: theme.foreground, fontFamily: fontSet.mono }]}>{copy.home.billingBadge}</Text>
+          <Text style={[styles.badgeText, { color: theme.foreground, fontFamily: fontSet.mono, textTransform: isRTL ? "none" : "uppercase" }]}>
+            {copy.home.billingBadge}
+          </Text>
         </Pressable>
       }
     >
@@ -42,7 +50,14 @@ export default function HomeTab() {
                 <Text
                   style={[
                     styles.heroKicker,
-                    { color: theme.primary, fontFamily: fontSet.mono, textAlign: isRTL ? "right" : "left", writingDirection: direction },
+                    {
+                      color: theme.primary,
+                      fontFamily: fontSet.mono,
+                      textAlign: isRTL ? "right" : "left",
+                      writingDirection: direction,
+                      letterSpacing: isRTL ? 0 : 1,
+                      textTransform: isRTL ? "none" : "uppercase",
+                    },
                   ]}
                 >
                   {copy.home.subscription}
@@ -57,7 +72,9 @@ export default function HomeTab() {
                 </Text>
               </View>
               <Pressable onPress={() => router.push("/billing")} style={[styles.compactBadge, { backgroundColor: theme.primarySoft, borderColor: theme.border }]}>
-                <Text style={[styles.compactBadgeText, { color: theme.primary, fontFamily: fontSet.mono }]}>{copy.home.billingBadge}</Text>
+                <Text style={[styles.compactBadgeText, { color: theme.primary, fontFamily: fontSet.mono, textTransform: isRTL ? "none" : "uppercase" }]}>
+                  {copy.home.billingBadge}
+                </Text>
               </Pressable>
             </View>
 
@@ -78,7 +95,13 @@ export default function HomeTab() {
                 <Text
                   style={[
                     styles.heroStatusTag,
-                    { color: theme.primary, fontFamily: fontSet.mono, textAlign: isRTL ? "right" : "left", writingDirection: direction },
+                    {
+                      color: theme.primary,
+                      fontFamily: fontSet.mono,
+                      textAlign: isRTL ? "right" : "left",
+                      writingDirection: direction,
+                      textTransform: isRTL ? "none" : "uppercase",
+                    },
                   ]}
                 >
                   {localizedSubscriptionStatus}
@@ -95,6 +118,41 @@ export default function HomeTab() {
             <InlineStat label={copy.home.checkIns} value={home.quick_stats.recent_check_ins} />
             <InlineStat label={copy.home.unreadChat} value={home.quick_stats.unread_chat_messages} />
           </View>
+
+          <Card>
+            <SectionTitle>{copy.home.quickActions}</SectionTitle>
+            <View style={[styles.actionGrid, { flexDirection: isRTL ? "row-reverse" : "row" }]}>
+              <HomeAction label={copy.home.logBodyMetrics} onPress={() => router.push("/(tabs)/progress" as never)} />
+              <HomeAction label={copy.home.requestSupport} onPress={() => router.push("/support")} />
+              <HomeAction label={copy.home.reportLostItem} onPress={() => router.push("/lost-found")} />
+              <HomeAction label={copy.home.leaveFeedback} onPress={() => router.push("/feedback")} />
+            </View>
+          </Card>
+
+          <Card>
+            <SectionTitle>{copy.home.achievements}</SectionTitle>
+            <View style={[styles.statGrid, { flexDirection: isRTL ? "row-reverse" : "row" }]}>
+              <InlineStat label={copy.home.currentStreak} value={gamification?.streak.current_streak ?? "--"} />
+              <InlineStat label={copy.home.totalVisits} value={gamification?.total_visits ?? "--"} />
+              <InlineStat label={copy.home.unlocked} value={`${gamification?.badges.length ?? 0}/11`} />
+            </View>
+            {gamificationQuery.isLoading ? <MutedText>{copy.common.loading}</MutedText> : null}
+            {gamification?.badges.length ? (
+              <View style={[styles.badgeGrid, { flexDirection: isRTL ? "row-reverse" : "row" }]}>
+                {gamification.badges.slice(0, 4).map((badge) => (
+                  <View key={badge.id} style={[styles.achievementBadge, { backgroundColor: theme.primarySoft, borderColor: theme.border }]}>
+                    <Ionicons name={badgeIcon(badge.badge_type)} size={24} color={theme.primary} />
+                    <Text style={[styles.achievementText, { color: theme.foreground, fontFamily: fontSet.body, textAlign: "center" }]} numberOfLines={2}>
+                      {cleanBadgeName(badge.badge_name)}
+                    </Text>
+                  </View>
+                ))}
+              </View>
+            ) : gamificationQuery.isLoading ? null : (
+              <MutedText>{copy.home.noBadges}</MutedText>
+            )}
+            <SecondaryButton onPress={() => router.push("/badges")}>{copy.home.viewAllBadges}</SecondaryButton>
+          </Card>
 
           <Card>
             <SectionTitle>{copy.home.latestBiometric}</SectionTitle>
@@ -143,6 +201,35 @@ export default function HomeTab() {
   );
 }
 
+function badgeIcon(type: string) {
+  if (type.startsWith("STREAK")) {
+    return "flame-outline";
+  }
+  if (type.startsWith("VISITS")) {
+    return "medal-outline";
+  }
+  if (type === "EARLY_BIRD") {
+    return "sunny-outline";
+  }
+  if (type === "NIGHT_OWL") {
+    return "moon-outline";
+  }
+  return "star-outline";
+}
+
+function cleanBadgeName(name: string) {
+  return name.replace(/[^\p{L}\p{N}\s-]/gu, "").trim() || name;
+}
+
+function HomeAction({ label, onPress }: { label: string; onPress: () => void }) {
+  const { direction, fontSet, isRTL, theme } = usePreferences();
+  return (
+    <Pressable onPress={onPress} style={({ pressed }) => [styles.actionButton, { backgroundColor: theme.cardAlt, borderColor: theme.border }, pressed && styles.pressed]}>
+      <Text style={[styles.actionText, { color: theme.foreground, fontFamily: fontSet.body, textAlign: isRTL ? "right" : "left", writingDirection: direction }]}>{label}</Text>
+    </Pressable>
+  );
+}
+
 const styles = StyleSheet.create({
   badge: {
     borderWidth: 1,
@@ -153,7 +240,6 @@ const styles = StyleSheet.create({
   badgeText: {
     fontWeight: "700",
     fontSize: 12,
-    textTransform: "uppercase",
   },
   heroCard: {
     paddingVertical: 14,
@@ -168,8 +254,6 @@ const styles = StyleSheet.create({
     gap: 4,
   },
   heroKicker: {
-    textTransform: "uppercase",
-    letterSpacing: 1,
     fontSize: 12,
     fontWeight: "700",
   },
@@ -192,7 +276,6 @@ const styles = StyleSheet.create({
   heroStatusTag: {
     fontSize: 13,
     fontWeight: "700",
-    textTransform: "uppercase",
   },
   compactBadge: {
     borderWidth: 1,
@@ -203,11 +286,47 @@ const styles = StyleSheet.create({
   compactBadgeText: {
     fontWeight: "700",
     fontSize: 11,
-    textTransform: "uppercase",
   },
   statGrid: {
     flexWrap: "wrap",
     gap: 12,
+  },
+  actionGrid: {
+    flexWrap: "wrap",
+    gap: 10,
+  },
+  actionButton: {
+    flex: 1,
+    minWidth: 132,
+    borderWidth: 1,
+    borderRadius: 12,
+    paddingHorizontal: 14,
+    paddingVertical: 13,
+  },
+  actionText: {
+    fontSize: 14,
+    fontWeight: "700",
+  },
+  badgeGrid: {
+    flexWrap: "wrap",
+    gap: 10,
+  },
+  achievementBadge: {
+    width: "47%",
+    minHeight: 96,
+    borderWidth: 1,
+    borderRadius: 14,
+    padding: 12,
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 8,
+  },
+  achievementText: {
+    fontSize: 12,
+    fontWeight: "800",
+  },
+  pressed: {
+    opacity: 0.85,
   },
   rowBetween: {
     flexDirection: "row",

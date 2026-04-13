@@ -107,6 +107,7 @@ class PasswordChange(BaseModel):
 
 CapabilityValue = Literal[
     "view_personal_qr",
+    "scan_gym_qr",
     "scan_member_qr",
     "lookup_members",
     "manage_member_plans",
@@ -117,7 +118,6 @@ CapabilityValue = Literal[
     "handle_support_queue",
     "view_audit_summary",
     "renew_subscription",
-    "pay_invoice",
     "view_receipts",
     "view_profile",
     "view_notifications",

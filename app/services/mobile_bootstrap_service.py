@@ -18,9 +18,8 @@ T = TypeVar("T")
 class MobileBootstrapService:
     _ROLE_CAPABILITIES: dict[Role, tuple[schemas.CapabilityValue, ...]] = {
         Role.CUSTOMER: (
-            "view_personal_qr",
+            "scan_gym_qr",
             "renew_subscription",
-            "pay_invoice",
             "view_receipts",
             "view_profile",
             "view_notifications",

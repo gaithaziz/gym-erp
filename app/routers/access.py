@@ -38,6 +38,8 @@ class AccessScanResponse(BaseModel):
     status: str
     user_name: str
     reason: str | None = None
+    kiosk_id: str | None = None
+    scan_time: datetime | None = None
 
 
 class SessionCheckInRequest(BaseModel):

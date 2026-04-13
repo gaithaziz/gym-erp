@@ -1,15 +1,17 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useRouter } from "expo-router";
 import { useState } from "react";
 import { Pressable, StyleSheet, Text, View } from "react-native";
 
 import { Card, MutedText, PrimaryButton, QueryState, Screen, SectionTitle, SecondaryButton, TextArea } from "@/components/ui";
 import { parseBillingEnvelope } from "@/lib/api";
-import { localeTag, localizePaymentMethod, localizeRenewalStatus } from "@/lib/mobile-format";
+import { localeTag, localizePaymentMethod, localizeRenewalStatus, localizeSubscriptionStatus } from "@/lib/mobile-format";
 import { usePreferences } from "@/lib/preferences";
 import { useSession } from "@/lib/session";
 
 export default function BillingScreen() {
-  const { authorizedRequest } = useSession();
+  const router = useRouter();
+  const { authorizedRequest, bootstrap } = useSession();
   const { copy, direction, fontSet, isRTL, theme } = usePreferences();
   const queryClient = useQueryClient();
   const [selectedOfferCode, setSelectedOfferCode] = useState<string | null>(null);
@@ -23,6 +25,11 @@ export default function BillingScreen() {
   });
   const billing = billingQuery.data;
   const locale = localeTag(isRTL);
+  const subscription = billing?.subscription ?? bootstrap?.subscription;
+  const subscriptionStatus = subscription?.status ?? "NONE";
+  const statusMeta = getSubscriptionStatusMeta(subscriptionStatus, copy.billingScreen);
+  const expiryDate = subscription?.end_date ? new Date(subscription.end_date) : null;
+  const expiryLabel = expiryDate && !Number.isNaN(expiryDate.getTime()) ? expiryDate.toLocaleDateString(locale, { year: "numeric", month: "long", day: "numeric" }) : copy.billingScreen.noExpirySet;
 
   const renewalMutation = useMutation({
     mutationFn: async () => {
@@ -54,6 +61,57 @@ export default function BillingScreen() {
       {billing ? (
         <>
           <Card>
+            <SectionTitle>{copy.billingScreen.currentPlan}</SectionTitle>
+            <View style={[styles.subscriptionHero, { backgroundColor: theme.cardAlt, borderColor: theme.border }]}>
+              <View style={[styles.rowSpread, { flexDirection: isRTL ? "row-reverse" : "row" }]}>
+                <View style={styles.subscriptionText}>
+                  <Text style={[styles.subscriptionPlan, { color: theme.foreground, fontFamily: fontSet.display, textAlign: isRTL ? "right" : "left", writingDirection: direction }]}>
+                    {subscription?.plan_name || copy.common.noActivePlan}
+                  </Text>
+                  <MutedText>{statusMeta.description}</MutedText>
+                </View>
+                <Text style={[styles.statusPill, { color: theme.primary, borderColor: theme.primary, fontFamily: fontSet.mono, textTransform: isRTL ? "none" : "uppercase" }]}>
+                  {localizeSubscriptionStatus(subscriptionStatus, isRTL)}
+                </Text>
+              </View>
+              <View style={[styles.statGrid, { flexDirection: isRTL ? "row-reverse" : "row" }]}>
+                <InlineSubStat label={copy.common.status} value={statusMeta.title} />
+                <InlineSubStat label={copy.billingScreen.expiryDate} value={expiryLabel} />
+              </View>
+            </View>
+          </Card>
+
+          <Card>
+            <SectionTitle>{copy.billingScreen.subscriptionRequests}</SectionTitle>
+            <View style={[styles.actionGrid, { flexDirection: isRTL ? "row-reverse" : "row" }]}>
+              {subscriptionStatus === "ACTIVE" ? (
+                <>
+                  <PrimaryButton onPress={() => selectFirstOffer()}>{copy.billingScreen.requestRenewal}</PrimaryButton>
+                  <SecondaryButton onPress={() => openSubscriptionSupport("freeze")}>{copy.billingScreen.requestFreeze}</SecondaryButton>
+                </>
+              ) : null}
+              {subscriptionStatus === "FROZEN" ? (
+                <>
+                  <PrimaryButton onPress={() => openSubscriptionSupport("unfreeze")}>{copy.billingScreen.requestUnfreeze}</PrimaryButton>
+                  <SecondaryButton onPress={() => openSubscriptionSupport("support")}>{copy.billingScreen.contactSupport}</SecondaryButton>
+                </>
+              ) : null}
+              {subscriptionStatus === "EXPIRED" ? (
+                <>
+                  <PrimaryButton onPress={() => selectFirstOffer()}>{copy.billingScreen.requestRenewal}</PrimaryButton>
+                  <SecondaryButton onPress={() => openSubscriptionSupport("extend")}>{copy.billingScreen.requestExtension}</SecondaryButton>
+                </>
+              ) : null}
+              {subscriptionStatus === "NONE" ? (
+                <>
+                  <PrimaryButton onPress={() => openSubscriptionSupport("extend")}>{copy.billingScreen.requestActivationExtend}</PrimaryButton>
+                  <SecondaryButton onPress={() => openSubscriptionSupport("support")}>{copy.billingScreen.contactSupport}</SecondaryButton>
+                </>
+              ) : null}
+            </View>
+          </Card>
+
+          <Card>
             <SectionTitle>{copy.billingScreen.requestTitle}</SectionTitle>
             <MutedText>{copy.billingScreen.requestHelp}</MutedText>
             <View style={styles.offerList}>
@@ -74,7 +132,7 @@ export default function BillingScreen() {
                       },
                     ]}
                   >
-                    <View style={styles.offerHeader}>
+                    <View style={[styles.offerHeader, { flexDirection: isRTL ? "row-reverse" : "row" }]}>
                       <Text
                         style={[
                           styles.offerTitle,
@@ -119,11 +177,11 @@ export default function BillingScreen() {
             ) : (
               billing.renewal_requests.map((request) => (
                 <View key={request.id} style={[styles.stackRow, { borderTopColor: theme.border }]}>
-                  <View style={styles.rowSpread}>
+                  <View style={[styles.rowSpread, { flexDirection: isRTL ? "row-reverse" : "row" }]}>
                     <Text style={[styles.itemTitle, { color: theme.foreground, fontFamily: fontSet.body, textAlign: isRTL ? "right" : "left", writingDirection: direction }]}>
                       {request.plan_name}
                     </Text>
-                    <Text style={[styles.statusChip, { color: theme.primary, fontFamily: fontSet.mono }]}>
+                    <Text style={[styles.statusChip, { color: theme.primary, fontFamily: fontSet.mono, textTransform: isRTL ? "none" : "uppercase" }]}>
                       {localizeRenewalStatus(request.status, isRTL)}
                     </Text>
                   </View>
@@ -141,7 +199,7 @@ export default function BillingScreen() {
             ) : (
               billing.receipts.map((receipt) => (
                 <View key={receipt.id} style={[styles.stackRow, { borderTopColor: theme.border }]}>
-                  <View style={styles.rowSpread}>
+                  <View style={[styles.rowSpread, { flexDirection: isRTL ? "row-reverse" : "row" }]}>
                     <Text style={[styles.itemTitle, { color: theme.foreground, fontFamily: fontSet.body, textAlign: isRTL ? "right" : "left", writingDirection: direction }]}>
                       {receipt.description}
                     </Text>
@@ -163,9 +221,114 @@ export default function BillingScreen() {
       ) : null}
     </Screen>
   );
+
+  function selectFirstOffer() {
+    const firstOffer = billing?.renewal_offers[0];
+    if (!firstOffer) {
+      setRequestError(copy.billingScreen.selectedOffer);
+      return;
+    }
+    setSelectedOfferCode(firstOffer.code);
+    setSelectedDurationDays(firstOffer.duration_days);
+  }
+
+  function openSubscriptionSupport(type: string) {
+    router.push({ pathname: "/support", params: { type } });
+  }
+}
+
+function getSubscriptionStatusMeta(status: string, copy: {
+  activeTitle: string;
+  activeDesc: string;
+  frozenTitle: string;
+  frozenDesc: string;
+  expiredTitle: string;
+  expiredDesc: string;
+  noneTitle: string;
+  noneDesc: string;
+}) {
+  if (status === "ACTIVE") {
+    return { title: copy.activeTitle, description: copy.activeDesc };
+  }
+  if (status === "FROZEN") {
+    return { title: copy.frozenTitle, description: copy.frozenDesc };
+  }
+  if (status === "EXPIRED") {
+    return { title: copy.expiredTitle, description: copy.expiredDesc };
+  }
+  return { title: copy.noneTitle, description: copy.noneDesc };
+}
+
+function InlineSubStat({ label, value }: { label: string; value: string }) {
+  const { direction, fontSet, isRTL, theme } = usePreferences();
+  return (
+    <View style={[styles.inlineSubStat, { borderColor: theme.border }]}>
+      <Text
+        style={[
+          styles.inlineSubStatLabel,
+          {
+            color: theme.muted,
+            fontFamily: fontSet.mono,
+            textAlign: isRTL ? "right" : "left",
+            writingDirection: direction,
+            textTransform: isRTL ? "none" : "uppercase",
+          },
+        ]}
+      >
+        {label}
+      </Text>
+      <Text style={[styles.inlineSubStatValue, { color: theme.foreground, fontFamily: fontSet.body, textAlign: isRTL ? "right" : "left", writingDirection: direction }]}>{value}</Text>
+    </View>
+  );
 }
 
 const styles = StyleSheet.create({
+  subscriptionHero: {
+    borderWidth: 1,
+    borderRadius: 14,
+    padding: 14,
+    gap: 14,
+  },
+  subscriptionText: {
+    flex: 1,
+    gap: 4,
+  },
+  subscriptionPlan: {
+    fontSize: 20,
+    fontWeight: "800",
+  },
+  statusPill: {
+    borderWidth: 1,
+    borderRadius: 999,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    fontSize: 10,
+    fontWeight: "900",
+  },
+  statGrid: {
+    flexWrap: "wrap",
+    gap: 10,
+  },
+  inlineSubStat: {
+    flex: 1,
+    minWidth: 130,
+    borderWidth: 1,
+    borderRadius: 12,
+    padding: 12,
+    gap: 4,
+  },
+  inlineSubStatLabel: {
+    fontSize: 10,
+    fontWeight: "800",
+  },
+  inlineSubStatValue: {
+    fontSize: 13,
+    fontWeight: "700",
+  },
+  actionGrid: {
+    gap: 10,
+    flexWrap: "wrap",
+  },
   offerList: {
     gap: 10,
   },
@@ -176,7 +339,6 @@ const styles = StyleSheet.create({
     gap: 6,
   },
   offerHeader: {
-    flexDirection: "row",
     justifyContent: "space-between",
     gap: 12,
     alignItems: "center",
@@ -204,7 +366,6 @@ const styles = StyleSheet.create({
     paddingTop: 10,
   },
   rowSpread: {
-    flexDirection: "row",
     justifyContent: "space-between",
     gap: 12,
     alignItems: "center",
@@ -217,7 +378,6 @@ const styles = StyleSheet.create({
   statusChip: {
     fontSize: 11,
     fontWeight: "800",
-    textTransform: "uppercase",
   },
   amountText: {
     fontSize: 13,
