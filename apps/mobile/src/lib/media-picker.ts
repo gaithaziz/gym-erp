@@ -25,7 +25,7 @@ function extensionForMime(mimeType?: string | null) {
 export async function pickMediaFromLibrary(options: {
   multiple?: boolean;
   permissionDeniedMessage: string;
-  mediaTypes?: ImagePicker.MediaTypeOptions;
+  mediaTypes?: ImagePicker.MediaType | ImagePicker.MediaType[];
 }): Promise<PickedMedia[]> {
   const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
   if (!permission.granted) {
@@ -34,7 +34,7 @@ export async function pickMediaFromLibrary(options: {
 
   const result = await ImagePicker.launchImageLibraryAsync({
     allowsMultipleSelection: options.multiple ?? false,
-    mediaTypes: options.mediaTypes ?? ImagePicker.MediaTypeOptions.Images,
+    mediaTypes: options.mediaTypes ?? ["images"],
     quality: 0.9,
   });
 
@@ -53,9 +53,9 @@ export async function pickMediaFromLibrary(options: {
 }
 
 export async function pickImagesFromLibrary(options: { multiple?: boolean; permissionDeniedMessage: string }): Promise<PickedMedia[]> {
-  return pickMediaFromLibrary({ ...options, mediaTypes: ImagePicker.MediaTypeOptions.Images });
+  return pickMediaFromLibrary({ ...options, mediaTypes: ["images"] });
 }
 
 export async function pickImageOrVideoFromLibrary(options: { multiple?: boolean; permissionDeniedMessage: string }): Promise<PickedMedia[]> {
-  return pickMediaFromLibrary({ ...options, mediaTypes: ImagePicker.MediaTypeOptions.All });
+  return pickMediaFromLibrary({ ...options, mediaTypes: ["images", "videos"] });
 }
