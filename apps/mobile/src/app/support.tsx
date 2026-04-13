@@ -6,6 +6,7 @@ import { Pressable, StyleSheet, Text, View } from "react-native";
 import { Card, Input, MediaPreview, MutedText, PrimaryButton, QueryState, Screen, SectionTitle, SecondaryButton, TextArea } from "@/components/ui";
 import { pickImagesFromLibrary } from "@/lib/media-picker";
 import { localizeTicketCategory, localizeTicketStatus, localeTag } from "@/lib/mobile-format";
+import { getCurrentRole, isCustomerRole } from "@/lib/mobile-role";
 import { usePreferences } from "@/lib/preferences";
 import { useSession } from "@/lib/session";
 
@@ -48,9 +49,10 @@ function subscriptionSupportMessage(type: string, isRTL: boolean) {
 }
 
 export default function SupportScreen() {
-  const params = useLocalSearchParams<{ type?: string }>();
-  const { authorizedRequest } = useSession();
+  const params = useLocalSearchParams<{ type?: string; ticketId?: string }>();
+  const { authorizedRequest, bootstrap } = useSession();
   const { copy, direction, fontSet, isRTL, theme } = usePreferences();
+  const customer = isCustomerRole(getCurrentRole(bootstrap));
   const queryClient = useQueryClient();
   const locale = localeTag(isRTL);
   const [subject, setSubject] = useState("");
@@ -73,14 +75,20 @@ export default function SupportScreen() {
   const supportQuery = useQuery({
     queryKey: ["mobile-support"],
     retry: 1,
-    queryFn: async () => (await authorizedRequest<SupportTicket[]>("/mobile/customer/support/tickets")).data,
+    queryFn: async () => (await authorizedRequest<SupportTicket[]>("/mobile/support/tickets")).data,
   });
   const tickets = supportQuery.data ?? [];
   const selectedTicket = useMemo(() => tickets.find((ticket) => ticket.id === selectedTicketId) ?? tickets[0] ?? null, [selectedTicketId, tickets]);
 
+  useEffect(() => {
+    if (params.ticketId && typeof params.ticketId === "string") {
+      setSelectedTicketId(params.ticketId);
+    }
+  }, [params.ticketId]);
+
   const createTicketMutation = useMutation({
     mutationFn: async () =>
-      authorizedRequest("/mobile/customer/support/tickets", {
+      authorizedRequest("/mobile/support/tickets", {
         method: "POST",
         body: JSON.stringify({
           subject,
@@ -106,7 +114,7 @@ export default function SupportScreen() {
       if (!selectedTicket) {
         throw new Error(copy.supportScreen.pickTicket);
       }
-      return authorizedRequest(`/mobile/customer/support/tickets/${selectedTicket.id}/messages`, {
+      return authorizedRequest(`/mobile/support/tickets/${selectedTicket.id}/messages`, {
         method: "POST",
         body: JSON.stringify({ message: replyMessage }),
       });
@@ -137,7 +145,7 @@ export default function SupportScreen() {
       if (replyMessage.trim()) {
         formData.append("message", replyMessage.trim());
       }
-      return authorizedRequest(`/mobile/customer/support/tickets/${selectedTicket.id}/attachments`, {
+      return authorizedRequest(`/mobile/support/tickets/${selectedTicket.id}/attachments`, {
         method: "POST",
         body: formData,
       });
@@ -155,30 +163,32 @@ export default function SupportScreen() {
 
   return (
     <Screen title={copy.common.support} subtitle={copy.supportScreen.subtitle}>
-      <Card>
-        <SectionTitle>{copy.supportScreen.newTicket}</SectionTitle>
-        <Input value={subject} onChangeText={setSubject} placeholder={copy.supportScreen.subjectPlaceholder} />
-        <View style={[styles.categoryList, { flexDirection: isRTL ? "row-reverse" : "row" }]}>
-          {CATEGORIES.map((item) => {
-            const active = item === category;
-            return (
-              <Pressable
-                key={item}
-                onPress={() => setCategory(item)}
-                style={[styles.chip, { backgroundColor: active ? theme.primarySoft : theme.cardAlt, borderColor: theme.border }]}
-              >
-                <Text style={{ color: active ? theme.primary : theme.foreground, fontFamily: fontSet.mono }}>
-                  {localizeTicketCategory(item, isRTL)}
-                </Text>
-              </Pressable>
-            );
-          })}
-        </View>
-        <TextArea value={message} onChangeText={setMessage} placeholder={copy.supportScreen.messagePlaceholder} />
-        <PrimaryButton onPress={() => createTicketMutation.mutate()} disabled={createTicketMutation.isPending || !subject.trim() || !message.trim()}>
-          {createTicketMutation.isPending ? copy.supportScreen.creatingTicket : copy.supportScreen.newTicket}
-        </PrimaryButton>
-      </Card>
+      {customer ? (
+        <Card>
+          <SectionTitle>{copy.supportScreen.newTicket}</SectionTitle>
+          <Input value={subject} onChangeText={setSubject} placeholder={copy.supportScreen.subjectPlaceholder} />
+          <View style={[styles.categoryList, { flexDirection: isRTL ? "row-reverse" : "row" }]}>
+            {CATEGORIES.map((item) => {
+              const active = item === category;
+              return (
+                <Pressable
+                  key={item}
+                  onPress={() => setCategory(item)}
+                  style={[styles.chip, { backgroundColor: active ? theme.primarySoft : theme.cardAlt, borderColor: theme.border }]}
+                >
+                  <Text style={{ color: active ? theme.primary : theme.foreground, fontFamily: fontSet.mono }}>
+                    {localizeTicketCategory(item, isRTL)}
+                  </Text>
+                </Pressable>
+              );
+            })}
+          </View>
+          <TextArea value={message} onChangeText={setMessage} placeholder={copy.supportScreen.messagePlaceholder} />
+          <PrimaryButton onPress={() => createTicketMutation.mutate()} disabled={createTicketMutation.isPending || !subject.trim() || !message.trim()}>
+            {createTicketMutation.isPending ? copy.supportScreen.creatingTicket : copy.supportScreen.newTicket}
+          </PrimaryButton>
+        </Card>
+      ) : null}
 
       <QueryState
         loading={supportQuery.isLoading && !supportQuery.data}

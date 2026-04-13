@@ -40,11 +40,11 @@ export default function ProfileScreen() {
 
   const profileQuery = useQuery({
     queryKey: ["mobile-profile"],
-    queryFn: async () => parseProfileEnvelope(await authorizedRequest("/mobile/customer/profile")).data,
+    queryFn: async () => parseProfileEnvelope(await authorizedRequest("/mobile/me/profile")).data,
   });
   const notificationsQuery = useQuery({
     queryKey: ["mobile-notification-settings"],
-    queryFn: async () => parseEnvelope<NotificationSettings>(await authorizedRequest("/mobile/customer/notification-settings")).data,
+    queryFn: async () => parseEnvelope<NotificationSettings>(await authorizedRequest("/mobile/me/notification-settings")).data,
   });
 
   useEffect(() => {
@@ -58,7 +58,7 @@ export default function ProfileScreen() {
 
   const profileMutation = useMutation({
     mutationFn: async () =>
-      authorizedRequest("/mobile/customer/profile", {
+      authorizedRequest("/mobile/me/profile", {
         method: "PUT",
         body: JSON.stringify({
           full_name: fullName.trim() || null,
@@ -76,7 +76,7 @@ export default function ProfileScreen() {
 
   const passwordMutation = useMutation({
     mutationFn: async () =>
-      authorizedRequest("/mobile/customer/profile/password", {
+      authorizedRequest("/mobile/me/profile/password", {
         method: "PUT",
         body: JSON.stringify({
           current_password: currentPassword,
@@ -93,7 +93,7 @@ export default function ProfileScreen() {
 
   const prefsMutation = useMutation({
     mutationFn: async (next: NotificationSettings) =>
-      authorizedRequest("/mobile/customer/notification-settings", {
+      authorizedRequest("/mobile/me/notification-settings", {
         method: "PUT",
         body: JSON.stringify(next),
       }),
@@ -117,7 +117,7 @@ export default function ProfileScreen() {
         name: asset.name,
         type: asset.mimeType,
       } as never);
-      return authorizedRequest("/mobile/customer/profile/picture", {
+      return authorizedRequest("/mobile/me/profile/picture", {
         method: "POST",
         body: formData,
       });

@@ -1,16 +1,26 @@
-import { useMutation } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { CameraView, useCameraPermissions, type BarcodeScanningResult } from "expo-camera";
+import { useLocalSearchParams } from "expo-router";
 import { useMemo, useState } from "react";
 import { Pressable, StyleSheet, Text, View } from "react-native";
 
-import { Card, MutedText, QueryState, Screen, SectionTitle, ValueText } from "@/components/ui";
-import { type AccessScanResult } from "@/lib/api";
+import { Card, Input, MutedText, PrimaryButton, QueryState, Screen, SectionTitle, ValueText } from "@/components/ui";
+import { parseCheckInLookupEnvelope, parseCheckInResultEnvelope, parseStaffMemberDetailEnvelope, type AccessScanResult } from "@/lib/api";
 import { localizeAccessReason, localizeAccessStatus, localizeSubscriptionStatus, localeTag } from "@/lib/mobile-format";
-import { parseScannedKioskId } from "@/lib/mobile-scan";
+import { getCurrentRole, hasCapability, isCustomerRole } from "@/lib/mobile-role";
+import { parseScannedKioskPayload, type ScannedKioskPayload } from "@/lib/mobile-scan";
 import { usePreferences } from "@/lib/preferences";
 import { useSession } from "@/lib/session";
 
 export default function QrTab() {
+  const { bootstrap } = useSession();
+  if (!isCustomerRole(getCurrentRole(bootstrap))) {
+    return <StaffQrTab />;
+  }
+  return <CustomerQrTab />;
+}
+
+function CustomerQrTab() {
   const { authorizedRequest, bootstrap } = useSession();
   const { copy, direction, fontSet, isRTL, theme } = usePreferences();
   const [permission, requestPermission] = useCameraPermissions();
@@ -45,16 +55,21 @@ export default function QrTab() {
       return;
     }
 
-    const kioskId = parseScannedKioskId(result.data);
+    const payload = parseScannedKioskPayload(result.data);
     setLastScanRaw(result.data);
 
-    if (!kioskId) {
+    if (!payload) {
       setScanResult(null);
       setScanError(copy.qr.invalidCode);
       return;
     }
+    if (payload.kind !== "client_entry") {
+      setScanResult(null);
+      setScanError(copy.qr.staffOnlyCode);
+      return;
+    }
 
-    scanMutation.mutate(kioskId);
+    scanMutation.mutate(payload.kioskId);
   }
 
   function resetScanner() {
@@ -64,7 +79,7 @@ export default function QrTab() {
   }
 
   return (
-    <Screen title={copy.qr.title} subtitle={copy.qr.subtitle}>
+    <Screen title={copy.qr.title} subtitle={copy.qr.subtitle} showSubtitle>
       {!permission ? (
         <QueryState loading error={null} />
       ) : permission.granted ? (
@@ -146,19 +161,7 @@ export default function QrTab() {
               </View>
               <View style={styles.metaGroup}>
                 <MutedText>{copy.qr.scanKiosk}</MutedText>
-                <Text
-                  style={[
-                    styles.scanValue,
-                    {
-                      color: theme.foreground,
-                      fontFamily: fontSet.mono,
-                      textAlign: isRTL ? "right" : "left",
-                      writingDirection: direction,
-                    },
-                  ]}
-                >
-                  {scanResult.kiosk_id || "--"}
-                </Text>
+                <CodeValue value={scanResult.kiosk_id || "--"} />
               </View>
               <View style={styles.metaGroup}>
                 <MutedText>{copy.qr.scanTime}</MutedText>
@@ -179,19 +182,7 @@ export default function QrTab() {
               {lastScanRaw ? (
                 <View style={styles.metaGroup}>
                   <MutedText>{copy.qr.lastScan}</MutedText>
-                  <Text
-                    style={[
-                      styles.scanValue,
-                      {
-                        color: theme.foreground,
-                        fontFamily: fontSet.mono,
-                        textAlign: isRTL ? "right" : "left",
-                        writingDirection: direction,
-                      },
-                    ]}
-                  >
-                    {lastScanRaw}
-                  </Text>
+                  <CodeValue value={lastScanRaw} />
                 </View>
               ) : null}
               <Pressable onPress={resetScanner} style={[styles.scanAgainButton, { backgroundColor: theme.primary }]}>
@@ -219,19 +210,7 @@ export default function QrTab() {
               {lastScanRaw ? (
                 <View style={styles.metaGroup}>
                   <MutedText>{copy.qr.lastScan}</MutedText>
-                  <Text
-                    style={[
-                      styles.scanValue,
-                      {
-                        color: theme.foreground,
-                        fontFamily: fontSet.mono,
-                        textAlign: isRTL ? "right" : "left",
-                        writingDirection: direction,
-                      },
-                    ]}
-                  >
-                    {lastScanRaw}
-                  </Text>
+                  <CodeValue value={lastScanRaw} />
                 </View>
               ) : null}
               <Pressable onPress={resetScanner} style={[styles.scanAgainButton, { backgroundColor: theme.primary }]}>
@@ -250,6 +229,260 @@ export default function QrTab() {
         </Card>
       )}
     </Screen>
+  );
+}
+
+function StaffQrTab() {
+  const { authorizedRequest, bootstrap } = useSession();
+  const queryClient = useQueryClient();
+  const { copy, direction, fontSet, isRTL, theme } = usePreferences();
+  const params = useLocalSearchParams<{ memberId?: string }>();
+  const role = getCurrentRole(bootstrap);
+  const canCheckIn = hasCapability(bootstrap, "scan_member_qr") || hasCapability(bootstrap, "lookup_members");
+  const [permission, requestPermission] = useCameraPermissions();
+  const [kioskId, setKioskId] = useState("");
+  const [search, setSearch] = useState("");
+  const [shiftScan, setShiftScan] = useState<ScannedKioskPayload | null>(null);
+  const [shiftError, setShiftError] = useState<string | null>(null);
+
+  const lookupQuery = useQuery({
+    queryKey: ["mobile-staff-checkin-lookup", search.trim()],
+    enabled: search.trim().length >= 2,
+    queryFn: async () => parseCheckInLookupEnvelope(await authorizedRequest(`/mobile/staff/check-in/lookup?q=${encodeURIComponent(search.trim())}`)).data,
+  });
+
+  const selectedMemberQuery = useQuery({
+    queryKey: ["mobile-staff-member-detail", params.memberId],
+    enabled: canCheckIn && typeof params.memberId === "string" && Boolean(params.memberId),
+    queryFn: async () => parseStaffMemberDetailEnvelope(await authorizedRequest(`/mobile/staff/members/${params.memberId}`)).data,
+  });
+
+  const checkInMutation = useMutation({
+    mutationFn: async (memberId: string) =>
+      parseCheckInResultEnvelope(
+        await authorizedRequest("/mobile/staff/check-in/process", {
+          method: "POST",
+          body: JSON.stringify({ member_id: memberId, kiosk_id: kioskId }),
+        }),
+      ).data,
+  });
+
+  const shiftMutation = useMutation({
+    mutationFn: async (payload: ScannedKioskPayload) => {
+      if (payload.kind === "client_entry") {
+        throw new Error(copy.qr.invalidCode);
+      }
+      const response = await authorizedRequest<Record<string, never>>(payload.kind === "staff_check_in" ? "/access/check-in" : "/access/check-out", {
+        method: "POST",
+      });
+      return {
+        kind: payload.kind,
+        message: response.message || (payload.kind === "staff_check_in" ? copy.qr.staffStart : copy.qr.staffEnd),
+      };
+    },
+    onSuccess: () => {
+      setShiftError(null);
+      void queryClient.invalidateQueries({ queryKey: ["mobile-staff-home"] });
+    },
+    onError: (error) => {
+      setShiftError(error instanceof Error ? error.message : copy.common.errorTryAgain);
+    },
+  });
+
+  function handleStaffScan(result: BarcodeScanningResult) {
+    if (shiftMutation.isPending || shiftScan) {
+      return;
+    }
+
+    const parsed = parseScannedKioskPayload(result.data);
+    if (!parsed) {
+      setShiftError(copy.qr.invalidCode);
+      return;
+    }
+
+    if (parsed.kind === "client_entry") {
+      if (!canCheckIn) {
+        setShiftError(copy.qr.invalidCode);
+        return;
+      }
+      setKioskId(parsed.kioskId);
+      setShiftError(null);
+      return;
+    }
+
+    setShiftScan(parsed);
+    setShiftError(null);
+  }
+
+  function resetShiftScanner() {
+    setShiftScan(null);
+    setShiftError(null);
+    shiftMutation.reset();
+  }
+
+  return (
+    <Screen title={role === "COACH" ? copy.qr.staffShiftTitle : copy.staffTabs.checkIn} subtitle={copy.qr.staffScreenSubtitle} showSubtitle>
+      <QueryState loading={selectedMemberQuery.isLoading} error={selectedMemberQuery.error instanceof Error ? selectedMemberQuery.error.message : null} />
+      <Card style={[styles.cameraShell, { backgroundColor: theme.cardAlt, borderColor: theme.border }]}>
+        <SectionTitle>{copy.qr.staffShiftTitle}</SectionTitle>
+        <MutedText>{copy.qr.staffShiftHint}</MutedText>
+        {!permission ? (
+          <QueryState loading error={null} />
+        ) : permission.granted ? (
+          <View style={[styles.cameraWrap, { borderColor: theme.border, backgroundColor: theme.background }]}>
+            <CameraView
+              facing="back"
+              style={StyleSheet.absoluteFill}
+              barcodeScannerSettings={{ barcodeTypes: ["qr"] }}
+              onBarcodeScanned={shiftScan || shiftMutation.isPending ? undefined : handleStaffScan}
+            />
+            <View style={styles.overlay}>
+              <View style={[styles.scanFrame, { borderColor: theme.primary }]} />
+            </View>
+          </View>
+        ) : (
+          <PrimaryButton onPress={() => void requestPermission()}>{copy.qr.grantCamera}</PrimaryButton>
+        )}
+        {shiftScan ? (
+          <>
+            <SectionTitle>{copy.qr.staffShiftDetected}</SectionTitle>
+            <ValueText>{shiftScan.kind === "staff_check_in" ? copy.qr.staffStart : copy.qr.staffEnd}</ValueText>
+            <View style={styles.metaGroup}>
+              <MutedText>{copy.qr.scanKiosk}</MutedText>
+              <CodeValue value={shiftScan.kioskId} />
+            </View>
+            <PrimaryButton onPress={() => shiftMutation.mutate(shiftScan)} disabled={shiftMutation.isPending}>
+              {shiftMutation.isPending ? copy.qr.scanning : shiftScan.kind === "staff_check_in" ? copy.qr.staffStart : copy.qr.staffEnd}
+            </PrimaryButton>
+          </>
+        ) : null}
+        {shiftMutation.data ? (
+          <View style={styles.metaGroup}>
+            <SectionTitle>{copy.qr.staffShiftResult}</SectionTitle>
+            <MutedText>{shiftMutation.data.message}</MutedText>
+          </View>
+        ) : null}
+        {shiftError ? (
+          <Text
+            style={[
+              styles.scanValue,
+              {
+                color: "#A53A22",
+                fontFamily: fontSet.body,
+                textAlign: isRTL ? "right" : "left",
+                writingDirection: direction,
+              },
+            ]}
+          >
+            {shiftError}
+          </Text>
+        ) : null}
+        {shiftScan || shiftError || shiftMutation.data ? (
+          <Pressable onPress={resetShiftScanner} style={[styles.scanAgainButton, { backgroundColor: theme.primary }]}>
+            <Text style={[styles.scanAgainText, { fontFamily: fontSet.body }]}>{copy.qr.scanAgain}</Text>
+          </Pressable>
+        ) : null}
+      </Card>
+
+      {canCheckIn ? (
+        <>
+          <Card>
+            <SectionTitle>{copy.qr.staffMemberCheckInTitle}</SectionTitle>
+            {kioskId ? (
+              <>
+                <MutedText>{copy.qr.staffMemberKioskReady}</MutedText>
+                <CodeValue value={kioskId} />
+              </>
+            ) : (
+              <MutedText>{copy.qr.staffMemberKioskMissing}</MutedText>
+            )}
+            <Input value={kioskId} onChangeText={setKioskId} placeholder={copy.qr.manualKiosk} />
+            <MutedText>{copy.qr.staffMemberCheckInHint}</MutedText>
+            <Input value={search} onChangeText={setSearch} placeholder={copy.membersScreen.search} />
+            <MutedText>{copy.qr.staffMemberSearchHint}</MutedText>
+          </Card>
+
+          {selectedMemberQuery.data ? (
+            <Card>
+              <SectionTitle>{copy.qr.staffSelectedMember}</SectionTitle>
+              <ValueText>{selectedMemberQuery.data.member.full_name || selectedMemberQuery.data.member.email}</ValueText>
+              <MutedText>{selectedMemberQuery.data.subscription.plan_name || localizeSubscriptionStatus(selectedMemberQuery.data.subscription.status, isRTL)}</MutedText>
+              <PrimaryButton
+                onPress={() => {
+                  if (typeof params.memberId === "string") {
+                    checkInMutation.mutate(params.memberId);
+                  }
+                }}
+                disabled={checkInMutation.isPending || !kioskId}
+              >
+                {copy.staffTabs.checkIn}
+              </PrimaryButton>
+            </Card>
+          ) : null}
+
+          {lookupQuery.isLoading ? (
+            <Card>
+              <MutedText>{copy.common.loading}</MutedText>
+            </Card>
+          ) : null}
+
+          {lookupQuery.error instanceof Error ? (
+            <Card>
+              <MutedText>{lookupQuery.error.message}</MutedText>
+            </Card>
+          ) : null}
+
+          {search.trim().length >= 2 && !lookupQuery.isLoading && !lookupQuery.error && lookupQuery.data?.items.length === 0 ? (
+            <Card>
+              <MutedText>{copy.membersScreen.noMembers}</MutedText>
+            </Card>
+          ) : null}
+
+          {lookupQuery.data?.items.map((member) => (
+            <Card key={member.id}>
+              <SectionTitle>{member.full_name || member.email}</SectionTitle>
+              <MutedText>{member.subscription.plan_name || localizeSubscriptionStatus(member.subscription.status, isRTL)}</MutedText>
+              <PrimaryButton
+                onPress={() => {
+                  checkInMutation.mutate(member.id);
+                }}
+                disabled={checkInMutation.isPending || !kioskId}
+              >
+                {copy.staffTabs.checkIn}
+              </PrimaryButton>
+            </Card>
+          ))}
+
+          {checkInMutation.data ? (
+            <Card>
+              <SectionTitle>{checkInMutation.data.member_name || copy.common.noData}</SectionTitle>
+              <MutedText>{checkInMutation.data.status ? localizeAccessStatus(checkInMutation.data.status, isRTL) : "--"}</MutedText>
+              <MutedText>{checkInMutation.data.reason || "--"}</MutedText>
+            </Card>
+          ) : null}
+        </>
+      ) : null}
+    </Screen>
+  );
+}
+
+function CodeValue({ value }: { value: string }) {
+  const { fontSet, isRTL, theme } = usePreferences();
+
+  return (
+    <Text
+      style={[
+        styles.scanValue,
+        {
+          color: theme.foreground,
+          fontFamily: fontSet.mono,
+          textAlign: isRTL ? "right" : "left",
+          writingDirection: "ltr",
+        },
+      ]}
+    >
+      {value}
+    </Text>
   );
 }
 

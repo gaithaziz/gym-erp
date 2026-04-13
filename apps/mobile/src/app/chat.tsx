@@ -1,7 +1,7 @@
 import { Ionicons } from "@expo/vector-icons";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useRouter } from "expo-router";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useLocalSearchParams, useRouter } from "expo-router";
+import { useDeferredValue, useEffect, useMemo, useRef, useState } from "react";
 import {
   KeyboardAvoidingView,
   Platform,
@@ -16,6 +16,7 @@ import { API_BASE_URL } from "@/lib/api";
 import { Card, Input, MediaPreview, MutedText, QueryState, Screen } from "@/components/ui";
 import { pickImageOrVideoFromLibrary } from "@/lib/media-picker";
 import { localeTag, localizeMessageType } from "@/lib/mobile-format";
+import { getCurrentRole } from "@/lib/mobile-role";
 import { usePreferences } from "@/lib/preferences";
 import { useSession } from "@/lib/session";
 
@@ -33,7 +34,7 @@ try {
 type Thread = {
   id: string;
   unread_count: number;
-  customer: { full_name?: string | null };
+  customer: { id?: string | null; full_name?: string | null };
   coach: { id?: string | null; full_name?: string | null };
   last_message?: { text_content?: string | null; created_at: string } | null;
 };
@@ -175,16 +176,23 @@ function ChatAudioPlayer({
 
 export default function ChatScreen() {
   const router = useRouter();
+  const params = useLocalSearchParams<{ contactId?: string; memberId?: string }>();
   const { authorizedRequest, bootstrap } = useSession();
   const { copy, direction, fontSet, isRTL, theme } = usePreferences();
+  const role = getCurrentRole(bootstrap);
   const queryClient = useQueryClient();
   const locale = localeTag(isRTL);
   const currentUserId = bootstrap?.user.id ?? null;
   const [selectedCoachId, setSelectedCoachId] = useState<string | null>(null);
   const [selectedThreadId, setSelectedThreadId] = useState<string | null>(null);
   const [messageText, setMessageText] = useState("");
+  const [composerHeight, setComposerHeight] = useState(44);
   const [feedback, setFeedback] = useState<string | null>(null);
   const [showNewChatPanel, setShowNewChatPanel] = useState(false);
+  const [contactSearch, setContactSearch] = useState("");
+  const [contactDropdownOpen, setContactDropdownOpen] = useState(false);
+  const [threadSearch, setThreadSearch] = useState("");
+  const [threadDropdownOpen, setThreadDropdownOpen] = useState(false);
   const [recording, setRecording] = useState(false);
   const [recordSeconds, setRecordSeconds] = useState(0);
   const [pendingVoiceUpload, setPendingVoiceUpload] = useState<PendingVoiceUpload | null>(null);
@@ -194,7 +202,7 @@ export default function ChatScreen() {
 
   const contactsQuery = useQuery({
     queryKey: ["mobile-chat-contacts"],
-    queryFn: async () => (await authorizedRequest<ChatContact[]>("/mobile/customer/chat/coaches")).data,
+    queryFn: async () => (await authorizedRequest<ChatContact[]>("/mobile/chat/contacts")).data,
   });
   const contacts = contactsQuery.data ?? [];
 
@@ -204,21 +212,63 @@ export default function ChatScreen() {
     }
   }, [contacts, selectedCoachId]);
 
+  useEffect(() => {
+    if (params.contactId && typeof params.contactId === "string") {
+      setSelectedCoachId(params.contactId);
+      setShowNewChatPanel(true);
+    }
+  }, [params.contactId]);
+
+  const deferredContactSearch = useDeferredValue(contactSearch);
+  const filteredContacts = useMemo(() => {
+    const query = deferredContactSearch.trim().toLowerCase();
+    if (!query) {
+      return contacts;
+    }
+    return contacts.filter((contact) => {
+      const name = (contact.full_name || "").toLowerCase();
+      const email = contact.email.toLowerCase();
+      return name.includes(query) || email.includes(query);
+    });
+  }, [contacts, deferredContactSearch]);
+
   const threadsQuery = useQuery({
     queryKey: ["mobile-chat"],
-    queryFn: async () => (await authorizedRequest<Thread[]>("/mobile/customer/chat/threads")).data,
+    queryFn: async () => (await authorizedRequest<Thread[]>("/mobile/chat/threads")).data,
   });
   const threads = threadsQuery.data ?? [];
+  const deferredThreadSearch = useDeferredValue(threadSearch);
+  const filteredThreads = useMemo(() => {
+    const query = deferredThreadSearch.trim().toLowerCase();
+    if (!query) {
+      return threads;
+    }
+    return threads.filter((thread) => {
+      const name = (
+        role === "COACH" ? thread.customer.full_name || "" : thread.coach.full_name || ""
+      ).toLowerCase();
+      const emailish = role === "COACH" ? thread.customer.full_name || "" : thread.coach.full_name || "";
+      const preview = thread.last_message?.text_content?.toLowerCase() || "";
+      return name.includes(query) || emailish.toLowerCase().includes(query) || preview.includes(query);
+    });
+  }, [deferredThreadSearch, role, threads]);
 
   useEffect(() => {
     if (!threads.length) {
       setSelectedThreadId(null);
       return;
     }
+    if (role === "COACH" && params.memberId && typeof params.memberId === "string") {
+      const matchingThread = threads.find((thread) => thread.customer.id === params.memberId);
+      if (matchingThread) {
+        setSelectedThreadId(matchingThread.id);
+        return;
+      }
+    }
     if (!selectedThreadId || !threads.some((thread) => thread.id === selectedThreadId)) {
       setSelectedThreadId(threads[0].id);
     }
-  }, [selectedThreadId, threads]);
+  }, [params.memberId, role, selectedThreadId, threads]);
 
   const selectedThread = useMemo(
     () => threads.find((thread) => thread.id === selectedThreadId) ?? threads[0] ?? null,
@@ -228,7 +278,7 @@ export default function ChatScreen() {
   const messagesQuery = useQuery({
     queryKey: ["mobile-chat-messages", selectedThread?.id],
     enabled: Boolean(selectedThread?.id),
-    queryFn: async () => (await authorizedRequest<ChatMessage[]>(`/mobile/customer/chat/threads/${selectedThread?.id}/messages`)).data,
+    queryFn: async () => (await authorizedRequest<ChatMessage[]>(`/mobile/chat/threads/${selectedThread?.id}/messages`)).data,
   });
 
   const markReadMutation = useMutation({
@@ -236,7 +286,7 @@ export default function ChatScreen() {
       if (!selectedThread) {
         throw new Error(copy.chatScreen.pickThread);
       }
-      return authorizedRequest(`/mobile/customer/chat/threads/${selectedThread.id}/read`, {
+      return authorizedRequest(`/mobile/chat/threads/${selectedThread.id}/read`, {
         method: "POST",
       });
     },
@@ -257,15 +307,17 @@ export default function ChatScreen() {
       if (!selectedCoachId) {
         throw new Error(copy.chatScreen.noCoaches);
       }
-      return authorizedRequest<{ id: string }>("/mobile/customer/chat/threads", {
+      return authorizedRequest<{ id: string }>("/mobile/chat/threads", {
         method: "POST",
-        body: JSON.stringify({ coach_id: selectedCoachId }),
+        body: JSON.stringify(role === "COACH" ? { customer_id: selectedCoachId } : { coach_id: selectedCoachId }),
       });
     },
     onSuccess: async (payload) => {
       setFeedback(copy.chatScreen.threadStarted);
       setSelectedThreadId(payload.data.id);
       setShowNewChatPanel(false);
+      setContactDropdownOpen(false);
+      setContactSearch("");
       await queryClient.invalidateQueries({ queryKey: ["mobile-chat"] });
       await queryClient.invalidateQueries({ queryKey: ["mobile-home"] });
     },
@@ -277,7 +329,7 @@ export default function ChatScreen() {
       if (!selectedThread) {
         throw new Error(copy.chatScreen.pickThread);
       }
-      return authorizedRequest(`/mobile/customer/chat/threads/${selectedThread.id}/messages`, {
+      return authorizedRequest(`/mobile/chat/threads/${selectedThread.id}/messages`, {
         method: "POST",
         body: JSON.stringify({ text_content: messageText }),
       });
@@ -313,7 +365,7 @@ export default function ChatScreen() {
       if (messageText.trim()) {
         formData.append("text_content", messageText.trim());
       }
-      return authorizedRequest(`/mobile/customer/chat/threads/${selectedThread.id}/attachments`, {
+      return authorizedRequest(`/mobile/chat/threads/${selectedThread.id}/attachments`, {
         method: "POST",
         body: formData,
       });
@@ -354,7 +406,7 @@ export default function ChatScreen() {
         } as never,
       );
       formData.append("voice_duration_seconds", String(durationSeconds));
-      return authorizedRequest(`/mobile/customer/chat/threads/${selectedThread.id}/attachments`, {
+      return authorizedRequest(`/mobile/chat/threads/${selectedThread.id}/attachments`, {
         method: "POST",
         body: formData,
       });
@@ -374,7 +426,7 @@ export default function ChatScreen() {
     (threadsQuery.error instanceof Error ? threadsQuery.error.message : null) ||
     (contactsQuery.error instanceof Error ? contactsQuery.error.message : null);
   const selectedCoach = contacts.find((contact) => contact.id === selectedCoachId) ?? null;
-  const selectedThreadName = selectedThread?.coach.full_name || copy.common.coach;
+  const selectedThreadName = role === "COACH" ? selectedThread?.customer.full_name || copy.common.customer : selectedThread?.coach.full_name || copy.common.coach;
   const voiceNotesAvailable = Boolean(expoAVModule?.Audio);
 
   useEffect(() => {
@@ -523,7 +575,7 @@ export default function ChatScreen() {
       contentPaddingBottom={0}
       leadingAction={
         <Pressable
-          onPress={() => router.back()}
+          onPress={() => router.replace("/(tabs)/home")}
           style={[styles.headerActionButton, { backgroundColor: theme.card, borderColor: theme.border }]}
         >
           <Ionicons name={isRTL ? "chevron-forward" : "chevron-back"} size={18} color={theme.primary} />
@@ -548,41 +600,106 @@ export default function ChatScreen() {
           {!threadsLoading && !threadError ? (
             <>
               {threads.length > 0 ? (
-                <ScrollView
-                  horizontal
-                  showsHorizontalScrollIndicator={false}
-                  contentContainerStyle={[styles.horizontalList, styles.threadStrip, { flexDirection: isRTL ? "row-reverse" : "row" }]}
-                  style={styles.threadRail}
-                >
-                  {threads.map((thread) => {
-                    const active = selectedThread?.id === thread.id;
-                    return (
-                      <Pressable
-                        key={thread.id}
-                        onPress={() => setSelectedThreadId(thread.id)}
+                <View style={styles.threadPickerStack}>
+                  <Input
+                    value={threadSearch}
+                    onChangeText={(value) => {
+                      setThreadSearch(value);
+                      if (!threadDropdownOpen) {
+                        setThreadDropdownOpen(true);
+                      }
+                    }}
+                    onFocus={() => setThreadDropdownOpen(true)}
+                    placeholder={copy.chatScreen.searchThreadsPlaceholder}
+                  />
+                  <Pressable
+                    onPress={() => setThreadDropdownOpen((current) => !current)}
+                    style={[
+                      styles.contactPickerTrigger,
+                      {
+                        backgroundColor: theme.cardAlt,
+                        borderColor: theme.border,
+                        flexDirection: isRTL ? "row-reverse" : "row",
+                      },
+                    ]}
+                  >
+                    <View style={styles.flex}>
+                      <Text
                         style={[
-                          styles.threadChip,
+                          styles.coachRowName,
                           {
-                            backgroundColor: active ? theme.cardAlt : theme.card,
-                            borderColor: active ? theme.primary : theme.border,
+                            color: theme.foreground,
+                            fontFamily: fontSet.body,
+                            textAlign: isRTL ? "right" : "left",
+                            writingDirection: direction,
                           },
                         ]}
                       >
-                        <Text style={[styles.threadName, { color: theme.foreground, fontFamily: fontSet.body }]}>
-                          {thread.coach.full_name || copy.common.coach}
+                        {selectedThread ? selectedThreadName : copy.chatScreen.threadPickerPlaceholder}
+                      </Text>
+                      {selectedThread?.last_message?.text_content ? (
+                        <Text
+                          style={[
+                            styles.coachRowEmail,
+                            {
+                              color: theme.muted,
+                              fontFamily: fontSet.body,
+                              textAlign: isRTL ? "right" : "left",
+                              writingDirection: direction,
+                            },
+                          ]}
+                          numberOfLines={1}
+                        >
+                          {selectedThread.last_message.text_content}
                         </Text>
-                        <Text style={[styles.threadSnippet, { color: theme.muted, fontFamily: fontSet.body }]}>
-                          {thread.last_message?.text_content || copy.common.noMessagesYet}
-                        </Text>
-                        {thread.unread_count > 0 ? (
-                          <View style={[styles.threadUnreadBadge, { backgroundColor: theme.primary }]}>
-                            <Text style={[styles.threadUnreadText, { fontFamily: fontSet.mono }]}>{thread.unread_count}</Text>
-                          </View>
-                        ) : null}
-                      </Pressable>
-                    );
-                  })}
-                </ScrollView>
+                      ) : null}
+                    </View>
+                    <Ionicons name={threadDropdownOpen ? "chevron-up" : "chevron-down"} size={18} color={theme.primary} />
+                  </Pressable>
+                  {threadDropdownOpen ? (
+                    <View style={[styles.contactDropdown, { backgroundColor: theme.cardAlt, borderColor: theme.border }]}>
+                      <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.coachList}>
+                        {filteredThreads.length === 0 ? (
+                          <MutedText>{copy.chatScreen.noMatchingThreads}</MutedText>
+                        ) : (
+                          filteredThreads.map((thread) => {
+                            const active = selectedThread?.id === thread.id;
+                            return (
+                              <Pressable
+                                key={thread.id}
+                                onPress={() => {
+                                  setSelectedThreadId(thread.id);
+                                  setThreadDropdownOpen(false);
+                                }}
+                                style={[
+                                  styles.coachRow,
+                                  {
+                                    backgroundColor: active ? theme.primarySoft : theme.card,
+                                    borderColor: active ? theme.primary : theme.border,
+                                  },
+                                ]}
+                              >
+                                <View style={styles.flex}>
+                                  <Text style={[styles.coachRowName, { color: active ? theme.primary : theme.foreground, fontFamily: fontSet.body }]}>
+                                    {role === "COACH" ? thread.customer.full_name || copy.common.customer : thread.coach.full_name || copy.common.coach}
+                                  </Text>
+                                  <Text style={[styles.coachRowEmail, { color: theme.muted, fontFamily: fontSet.body }]} numberOfLines={1}>
+                                    {thread.last_message?.text_content || copy.common.noMessagesYet}
+                                  </Text>
+                                </View>
+                                {thread.unread_count > 0 ? (
+                                  <View style={[styles.threadUnreadBadge, { backgroundColor: theme.primary }]}>
+                                    <Text style={[styles.threadUnreadText, { fontFamily: fontSet.mono }]}>{thread.unread_count}</Text>
+                                  </View>
+                                ) : null}
+                              </Pressable>
+                            );
+                          })
+                        )}
+                      </ScrollView>
+                    </View>
+                  ) : null}
+                </View>
               ) : (
                 <Card>
                   <MutedText>{copy.chatScreen.noThreads}</MutedText>
@@ -609,7 +726,17 @@ export default function ChatScreen() {
                         </Text>
                         <MutedText>{copy.chatScreen.threadHint}</MutedText>
                       </View>
-                      <View style={[styles.liveDot, { backgroundColor: theme.primary }]} />
+                      <View style={styles.headerActionsStack}>
+                        {role === "COACH" && selectedThread?.customer.id ? (
+                          <Pressable
+                            onPress={() => router.push({ pathname: "/(tabs)/members", params: { memberId: selectedThread.customer.id! } })}
+                            style={[styles.threadActionButton, { backgroundColor: theme.cardAlt, borderColor: theme.border }]}
+                          >
+                            <Ionicons name="person-outline" size={16} color={theme.primary} />
+                          </Pressable>
+                        ) : null}
+                        <View style={[styles.liveDot, { backgroundColor: theme.primary }]} />
+                      </View>
                     </View>
 
                     <ScrollView
@@ -727,7 +854,12 @@ export default function ChatScreen() {
                         value={messageText}
                         onChangeText={setMessageText}
                         placeholder={copy.chatScreen.messagePlaceholder}
-                        style={styles.messageInput}
+                        multiline
+                        onContentSizeChange={(event) => {
+                          const nextHeight = Math.max(44, Math.min(120, event.nativeEvent.contentSize.height + 14));
+                          setComposerHeight(nextHeight);
+                        }}
+                        style={[styles.messageInput, { height: composerHeight }]}
                         editable={!recording}
                       />
                       {recording ? (
@@ -822,55 +954,122 @@ export default function ChatScreen() {
                     {contacts.length === 0 ? (
                       <MutedText>{copy.chatScreen.noCoaches}</MutedText>
                     ) : (
-                      <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.coachList}>
-                        {contacts.map((contact) => {
-                          const active = selectedCoachId === contact.id;
-                          return (
-                            <Pressable
-                              key={contact.id}
-                              onPress={() => setSelectedCoachId(contact.id)}
+                      <View style={styles.contactPickerStack}>
+                        <Input
+                          value={contactSearch}
+                          onChangeText={(value) => {
+                            setContactSearch(value);
+                            if (!contactDropdownOpen) {
+                              setContactDropdownOpen(true);
+                            }
+                          }}
+                          onFocus={() => setContactDropdownOpen(true)}
+                          placeholder={copy.chatScreen.searchContactsPlaceholder}
+                        />
+                        <Pressable
+                          onPress={() => setContactDropdownOpen((current) => !current)}
+                          style={[
+                            styles.contactPickerTrigger,
+                            {
+                              backgroundColor: theme.cardAlt,
+                              borderColor: theme.border,
+                              flexDirection: isRTL ? "row-reverse" : "row",
+                            },
+                          ]}
+                        >
+                          <View style={styles.flex}>
+                            <Text
                               style={[
-                                styles.coachRow,
+                                styles.coachRowName,
                                 {
-                                  backgroundColor: active ? theme.primarySoft : theme.cardAlt,
-                                  borderColor: active ? theme.primary : theme.border,
-                                  flexDirection: isRTL ? "row-reverse" : "row",
+                                  color: theme.foreground,
+                                  fontFamily: fontSet.body,
+                                  textAlign: isRTL ? "right" : "left",
+                                  writingDirection: direction,
                                 },
                               ]}
                             >
-                              <View style={styles.flex}>
-                                <Text
-                                  style={[
-                                    styles.coachRowName,
-                                    {
-                                      color: active ? theme.primary : theme.foreground,
-                                      fontFamily: fontSet.body,
-                                      textAlign: isRTL ? "right" : "left",
-                                      writingDirection: direction,
-                                    },
-                                  ]}
-                                >
-                                  {contact.full_name || contact.email}
-                                </Text>
-                                <Text
-                                  style={[
-                                    styles.coachRowEmail,
-                                    {
-                                      color: theme.muted,
-                                      fontFamily: fontSet.body,
-                                      textAlign: isRTL ? "right" : "left",
-                                      writingDirection: direction,
-                                    },
-                                  ]}
-                                >
-                                  {contact.email}
-                                </Text>
-                              </View>
-                              {active ? <Ionicons name="checkmark-circle" size={22} color={theme.primary} /> : null}
-                            </Pressable>
-                          );
-                        })}
-                      </ScrollView>
+                              {selectedCoach ? selectedCoach.full_name || selectedCoach.email : copy.chatScreen.contactPickerPlaceholder}
+                            </Text>
+                            {selectedCoach ? (
+                              <Text
+                                style={[
+                                  styles.coachRowEmail,
+                                  {
+                                    color: theme.muted,
+                                    fontFamily: fontSet.body,
+                                    textAlign: isRTL ? "right" : "left",
+                                    writingDirection: direction,
+                                  },
+                                ]}
+                              >
+                                {selectedCoach.email}
+                              </Text>
+                            ) : null}
+                          </View>
+                          <Ionicons name={contactDropdownOpen ? "chevron-up" : "chevron-down"} size={18} color={theme.primary} />
+                        </Pressable>
+                        {contactDropdownOpen ? (
+                          <View style={[styles.contactDropdown, { backgroundColor: theme.cardAlt, borderColor: theme.border }]}>
+                            <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.coachList}>
+                              {filteredContacts.length === 0 ? (
+                                <MutedText>{copy.chatScreen.noMatchingContacts}</MutedText>
+                              ) : (
+                                filteredContacts.map((contact) => {
+                                  const active = selectedCoachId === contact.id;
+                                  return (
+                                    <Pressable
+                                      key={contact.id}
+                                      onPress={() => {
+                                        setSelectedCoachId(contact.id);
+                                        setContactDropdownOpen(false);
+                                      }}
+                                      style={[
+                                        styles.coachRow,
+                                        {
+                                          backgroundColor: active ? theme.primarySoft : theme.card,
+                                          borderColor: active ? theme.primary : theme.border,
+                                          flexDirection: isRTL ? "row-reverse" : "row",
+                                        },
+                                      ]}
+                                    >
+                                      <View style={styles.flex}>
+                                        <Text
+                                          style={[
+                                            styles.coachRowName,
+                                            {
+                                              color: active ? theme.primary : theme.foreground,
+                                              fontFamily: fontSet.body,
+                                              textAlign: isRTL ? "right" : "left",
+                                              writingDirection: direction,
+                                            },
+                                          ]}
+                                        >
+                                          {contact.full_name || contact.email}
+                                        </Text>
+                                        <Text
+                                          style={[
+                                            styles.coachRowEmail,
+                                            {
+                                              color: theme.muted,
+                                              fontFamily: fontSet.body,
+                                              textAlign: isRTL ? "right" : "left",
+                                              writingDirection: direction,
+                                            },
+                                          ]}
+                                        >
+                                          {contact.email}
+                                        </Text>
+                                      </View>
+                                      {active ? <Ionicons name="checkmark-circle" size={22} color={theme.primary} /> : null}
+                                    </Pressable>
+                                  );
+                                })
+                              )}
+                            </ScrollView>
+                          </View>
+                        ) : null}
+                      </View>
                     )}
 
                     {selectedCoach ? (
@@ -885,7 +1084,7 @@ export default function ChatScreen() {
                           },
                         ]}
                       >
-                        {copy.chatScreen.selectedCoachLabel} {selectedCoach.full_name || selectedCoach.email}
+                        {copy.chatScreen.selectedContactLabel} {selectedCoach.full_name || selectedCoach.email}
                       </Text>
                     ) : null}
 
@@ -1028,6 +1227,18 @@ const styles = StyleSheet.create({
     paddingVertical: 14,
     borderBottomWidth: 1,
   },
+  headerActionsStack: {
+    alignItems: "center",
+    gap: 10,
+  },
+  threadActionButton: {
+    width: 34,
+    height: 34,
+    borderRadius: 999,
+    borderWidth: 1,
+    alignItems: "center",
+    justifyContent: "center",
+  },
   conversationTitle: {
     fontSize: 19,
     fontWeight: "800",
@@ -1089,15 +1300,15 @@ const styles = StyleSheet.create({
     fontWeight: "700",
   },
   composerBar: {
-    alignItems: "center",
+    alignItems: "flex-end",
     gap: 10,
-    paddingHorizontal: 14,
-    paddingVertical: 12,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
     borderTopWidth: 1,
   },
   iconButton: {
-    width: 44,
-    height: 44,
+    width: 40,
+    height: 40,
     borderWidth: 1,
     borderRadius: 999,
     alignItems: "center",
@@ -1106,13 +1317,14 @@ const styles = StyleSheet.create({
   messageInput: {
     flex: 1,
     minHeight: 44,
-    maxHeight: 96,
-    borderRadius: 999,
-    paddingVertical: 10,
+    maxHeight: 120,
+    borderRadius: 18,
+    paddingVertical: 9,
+    paddingHorizontal: 14,
   },
   sendButton: {
-    width: 44,
-    height: 44,
+    width: 40,
+    height: 40,
     borderRadius: 999,
     alignItems: "center",
     justifyContent: "center",
@@ -1177,9 +1389,29 @@ const styles = StyleSheet.create({
   newChatPanel: {
     borderBottomLeftRadius: 0,
     borderBottomRightRadius: 0,
-    paddingBottom: 28,
-    gap: 14,
-    maxHeight: "62%",
+    paddingBottom: 22,
+    gap: 12,
+    maxHeight: "50%",
+  },
+  contactPickerStack: {
+    gap: 8,
+  },
+  threadPickerStack: {
+    gap: 8,
+  },
+  contactPickerTrigger: {
+    borderWidth: 1,
+    borderRadius: 14,
+    alignItems: "center",
+    gap: 10,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+  },
+  contactDropdown: {
+    borderWidth: 1,
+    borderRadius: 16,
+    maxHeight: 180,
+    padding: 8,
   },
   panelCloseButton: {
     width: 38,
@@ -1190,22 +1422,22 @@ const styles = StyleSheet.create({
     justifyContent: "center",
   },
   coachList: {
-    gap: 10,
+    gap: 8,
   },
   coachRow: {
     borderWidth: 1,
-    borderRadius: 16,
+    borderRadius: 14,
     alignItems: "center",
-    gap: 12,
-    paddingHorizontal: 14,
-    paddingVertical: 12,
+    gap: 10,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
   },
   coachRowName: {
-    fontSize: 15,
+    fontSize: 14,
     fontWeight: "700",
   },
   coachRowEmail: {
-    fontSize: 12,
-    lineHeight: 18,
+    fontSize: 11,
+    lineHeight: 16,
   },
 });

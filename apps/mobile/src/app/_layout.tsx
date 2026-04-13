@@ -71,6 +71,8 @@ function AppNavigator() {
         <Stack.Screen name="lost-found" options={{ headerShown: false, title: copy.common.lostFound }} />
         <Stack.Screen name="profile" options={{ headerShown: false, title: copy.common.profile }} />
         <Stack.Screen name="feedback" options={{ headerShown: false, title: copy.common.feedbackHistory }} />
+        <Stack.Screen name="coach-feedback" options={{ headerShown: false, title: copy.common.feedbackHistory }} />
+        <Stack.Screen name="leaves" options={{ headerShown: false, title: copy.operationsScreen.myLeaves }} />
       </Stack>
     </>
   );

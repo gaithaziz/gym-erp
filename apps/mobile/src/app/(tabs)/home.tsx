@@ -3,13 +3,29 @@ import { useQuery } from "@tanstack/react-query";
 import { useRouter } from "expo-router";
 import { Pressable, StyleSheet, Text, View } from "react-native";
 
-import { Card, InlineStat, MutedText, PrimaryButton, QueryState, Screen, SecondaryButton, SectionTitle, ValueText } from "@/components/ui";
-import { parseEnvelope, parseHomeEnvelope, type MobileGamificationStats } from "@/lib/api";
+import { Card, InlineStat, MutedText, PrimaryButton, QueryState, Screen, SecondaryButton, SecondaryLink, SectionTitle, ValueText } from "@/components/ui";
+import { parseEnvelope, parseHomeEnvelope, parseStaffHomeEnvelope, type MobileGamificationStats } from "@/lib/api";
 import { localeTag, localizeSubscriptionStatus } from "@/lib/mobile-format";
+import { getCurrentRole, isCustomerRole } from "@/lib/mobile-role";
 import { usePreferences } from "@/lib/preferences";
 import { useSession } from "@/lib/session";
 
+const COACH_HOME_ACTIONS = [
+  { id: "shift_qr", label: "Shift QR", route: "/(tabs)/qr" },
+  { id: "feedback", label: "Feedback", route: "/coach-feedback" },
+  { id: "leaves", label: "Leaves", route: "/leaves" },
+  { id: "profile", label: "Profile", route: "/profile" },
+];
+
 export default function HomeTab() {
+  const { bootstrap } = useSession();
+  if (!isCustomerRole(getCurrentRole(bootstrap))) {
+    return <StaffHomeTab />;
+  }
+  return <CustomerHomeTab />;
+}
+
+function CustomerHomeTab() {
   const router = useRouter();
   const { bootstrap, authorizedRequest } = useSession();
   const { copy, direction, fontSet, isRTL, theme } = usePreferences();
@@ -199,6 +215,107 @@ export default function HomeTab() {
       ) : null}
     </Screen>
   );
+}
+
+function StaffHomeTab() {
+  const router = useRouter();
+  const { bootstrap, authorizedRequest } = useSession();
+  const { copy, direction, fontSet, isRTL, theme } = usePreferences();
+  const role = getCurrentRole(bootstrap);
+  const homeQuery = useQuery({
+    queryKey: ["mobile-staff-home", bootstrap?.role],
+    queryFn: async () => parseStaffHomeEnvelope(await authorizedRequest("/mobile/staff/home")).data,
+  });
+  const home = homeQuery.data;
+  const statLabels = copy.staffHome.stats as Record<string, string>;
+  const headlineLabels = copy.staffHome.headlines as Record<string, string>;
+  const actionLabels = copy.staffHome.actions as Record<string, string>;
+  const itemLabels = copy.staffHome.items;
+  const localizedHeadline = home ? headlineLabels[home.role] || home.headline : copy.staffHome.subtitle;
+  const quickActions = home?.role === "COACH" ? COACH_HOME_ACTIONS : home?.quick_actions ?? [];
+  const attendanceItem = home?.items.find((item) => item.id === "attendance");
+  const activityItems = home?.items.filter((item) => item.id !== "attendance") ?? [];
+  const shiftTimestamp = typeof attendanceItem?.meta === "string" && attendanceItem.meta ? new Date(attendanceItem.meta) : null;
+  const locale = localeTag(isRTL);
+
+  return (
+    <Screen title={copy.staffHome.title} subtitle={bootstrap?.gym.gym_name || copy.staffHome.subtitle}>
+      <QueryState loading={homeQuery.isLoading} error={homeQuery.error instanceof Error ? homeQuery.error.message : null} />
+      {home ? (
+        <>
+          <Card style={[styles.heroCard, { backgroundColor: theme.cardAlt, borderColor: theme.border }]}>
+            <SectionTitle>{localizedHeadline}</SectionTitle>
+            <MutedText>{bootstrap?.user.full_name || copy.common.noData}</MutedText>
+            <View style={[styles.actionGrid, { flexDirection: isRTL ? "row-reverse" : "row" }]}>
+              {quickActions.map((action) => (
+                <HomeAction key={action.id} label={actionLabels[action.id] || action.label} onPress={() => action.route && router.push(action.route as never)} />
+              ))}
+            </View>
+          </Card>
+
+          <View style={[styles.statGrid, { flexDirection: isRTL ? "row-reverse" : "row" }]}>
+            {Object.entries(home.stats).map(([key, value]) => (
+              <InlineStat key={key} label={statLabels[key] || key} value={typeof value === "number" ? value : String(value)} />
+            ))}
+          </View>
+
+          <Card>
+            <SectionTitle>{copy.staffHome.shiftStatus}</SectionTitle>
+            <MutedText>{localizeStaffHomeItemSubtitle("attendance", attendanceItem?.subtitle, itemLabels) || copy.staffHome.shiftNotStarted}</MutedText>
+            {shiftTimestamp ? (
+              <MutedText>{`${copy.staffHome.shiftStartedAt}: ${shiftTimestamp.toLocaleString(locale)}`}</MutedText>
+            ) : null}
+            <SecondaryButton onPress={() => router.push("/(tabs)/qr" as never)}>{copy.qr.staffShiftTitle}</SecondaryButton>
+          </Card>
+
+          <Card>
+            <SectionTitle>{copy.staffHome.activity}</SectionTitle>
+            {activityItems.length === 0 ? (
+              <MutedText>{copy.common.noData}</MutedText>
+            ) : (
+              activityItems.map((item, index) => (
+                <View key={String(item.id || index)} style={[styles.listRow, { borderTopColor: theme.border, flexDirection: isRTL ? "row-reverse" : "row" }]}>
+                  <View style={styles.listTextBlock}>
+                    <Text
+                      style={[
+                        styles.listTitle,
+                        { color: theme.foreground, fontFamily: fontSet.body, textAlign: isRTL ? "right" : "left", writingDirection: direction },
+                      ]}
+                    >
+                      {String(item.full_name || localizeStaffHomeItem(item.id, item.title, itemLabels) || item.description || copy.common.noData)}
+                    </Text>
+                    <MutedText>{String(item.email || localizeStaffHomeItemSubtitle(item.id, item.subtitle, itemLabels) || item.status || item.meta || "")}</MutedText>
+                  </View>
+                </View>
+              ))
+            )}
+          </Card>
+
+          <SecondaryLink href="/profile">{copy.common.profile}</SecondaryLink>
+        </>
+      ) : null}
+    </Screen>
+  );
+}
+
+function localizeStaffHomeItem(id: unknown, title: unknown, labels: { attendance: string; member: string }) {
+  if (id === "attendance") {
+    return labels.attendance;
+  }
+  if (title === "Member") {
+    return labels.member;
+  }
+  return typeof title === "string" ? title : null;
+}
+
+function localizeStaffHomeItemSubtitle(id: unknown, subtitle: unknown, labels: { clockedIn: string; notClockedIn: string }) {
+  if (id === "attendance" && subtitle === "Clocked in") {
+    return labels.clockedIn;
+  }
+  if (id === "attendance" && subtitle === "Not clocked in") {
+    return labels.notClockedIn;
+  }
+  return typeof subtitle === "string" ? subtitle : null;
 }
 
 function badgeIcon(type: string) {

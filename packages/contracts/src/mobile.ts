@@ -266,6 +266,245 @@ export const mobileCustomerNotificationsSchema = z.object({
   ),
 });
 
+export const mobileStaffMemberSummarySchema = z.object({
+  id: z.string().uuid(),
+  full_name: z.string().nullable().optional(),
+  email: z.string().email(),
+  phone_number: z.string().nullable().optional(),
+  profile_picture_url: z.string().nullable().optional(),
+  subscription: z.object({
+    status: z.string(),
+    end_date: z.string().nullable().optional(),
+    plan_name: z.string().nullable().optional(),
+  }),
+  latest_biometric_date: z.string().nullable().optional(),
+});
+
+export const mobileStaffMemberRegistrationRequestSchema = z.object({
+  full_name: z.string().min(2).max(120),
+  email: z.string().email(),
+  phone_number: z.string().nullable().optional(),
+  password: z.string().min(6).max(128),
+});
+
+export const mobileStaffMemberRegistrationResultSchema = z.object({
+  member: mobileStaffMemberSummarySchema,
+});
+
+export const mobileStaffMemberDetailSchema = z.object({
+  member: authUserSchema,
+  subscription: z.object({
+    status: z.string(),
+    end_date: z.string().nullable().optional(),
+    plan_name: z.string().nullable().optional(),
+  }),
+  active_workout_plans: z.array(
+    z.object({
+      id: z.string().uuid(),
+      name: z.string(),
+      status: z.string(),
+      creator_id: z.string().uuid(),
+      published_at: z.string().nullable().optional(),
+    }),
+  ),
+  active_diet_plans: z.array(
+    z.object({
+      id: z.string().uuid(),
+      name: z.string(),
+      status: z.string(),
+      creator_id: z.string().uuid(),
+      published_at: z.string().nullable().optional(),
+    }),
+  ),
+  latest_biometric: z
+    .object({
+      id: z.string().uuid(),
+      date: z.string(),
+      weight_kg: z.number().nullable().optional(),
+      height_cm: z.number().nullable().optional(),
+      body_fat_pct: z.number().nullable().optional(),
+      muscle_mass_kg: z.number().nullable().optional(),
+    })
+    .nullable()
+    .optional(),
+  recent_attendance: z.array(
+    z.object({
+      id: z.string().uuid(),
+      scan_time: z.string(),
+      status: z.string(),
+      reason: z.string().nullable().optional(),
+      kiosk_id: z.string().nullable().optional(),
+    }),
+  ),
+  biometrics: z.array(
+    z.object({
+      id: z.string().uuid(),
+      date: z.string(),
+      weight_kg: z.number().nullable().optional(),
+      height_cm: z.number().nullable().optional(),
+      body_fat_pct: z.number().nullable().optional(),
+      muscle_mass_kg: z.number().nullable().optional(),
+    }),
+  ).default([]),
+  recent_workout_sessions: z.array(
+    z.object({
+      id: z.string().uuid(),
+      plan_id: z.string().uuid(),
+      plan_name: z.string().nullable().optional(),
+      performed_at: z.string(),
+      duration_minutes: z.number().int().nullable().optional(),
+      notes: z.string().nullable().optional(),
+    }),
+  ).default([]),
+  workout_feedback: z.array(
+    z.object({
+      id: z.string().uuid(),
+      plan_id: z.string().uuid(),
+      plan_name: z.string().nullable().optional(),
+      date: z.string(),
+      completed: z.boolean(),
+      difficulty_rating: z.number().int().nullable().optional(),
+      comment: z.string().nullable().optional(),
+    }),
+  ).default([]),
+  diet_feedback: z.array(
+    z.object({
+      id: z.string().uuid(),
+      member_id: z.string().uuid().optional(),
+      member_name: z.string().nullable().optional(),
+      diet_plan_id: z.string().uuid(),
+      diet_plan_name: z.string().nullable().optional(),
+      rating: z.number().int(),
+      comment: z.string().nullable().optional(),
+      created_at: z.string(),
+    }),
+  ).default([]),
+  gym_feedback: z.array(
+    z.object({
+      id: z.string().uuid(),
+      member_id: z.string().uuid().optional(),
+      member_name: z.string().nullable().optional(),
+      category: z.string(),
+      rating: z.number().int(),
+      comment: z.string().nullable().optional(),
+      created_at: z.string(),
+    }),
+  ).default([]),
+});
+
+export const mobileCheckInLookupResultSchema = z.object({
+  query: z.string(),
+  items: z.array(mobileStaffMemberSummarySchema),
+});
+
+export const mobileCheckInResultSchema = z.object({
+  member_id: z.string().uuid(),
+  member_name: z.string().nullable().optional(),
+  status: z.string().nullable().optional(),
+  reason: z.string().nullable().optional(),
+  kiosk_id: z.string().nullable().optional(),
+  scan_time: z.string().nullable().optional(),
+});
+
+export const mobileStaffTransactionSummarySchema = z.object({
+  id: z.string().uuid(),
+  date: z.string(),
+  amount: z.number(),
+  category: z.string(),
+  payment_method: z.string(),
+  description: z.string(),
+  member_name: z.string().nullable().optional(),
+});
+
+export const mobilePosSummarySchema = z.object({
+  today_sales_total: z.number(),
+  today_sales_count: z.number().int(),
+  low_stock_count: z.number().int(),
+  recent_transactions: z.array(mobileStaffTransactionSummarySchema),
+});
+
+export const mobileCoachFeedbackSchema = z.object({
+  stats: z.record(z.string(), z.number().int()),
+  workout_feedback: z.array(
+    z.object({
+      id: z.string().uuid(),
+      member_id: z.string().uuid().optional(),
+      member_name: z.string().nullable().optional(),
+      plan_id: z.string().uuid(),
+      plan_name: z.string().nullable().optional(),
+      date: z.string(),
+      completed: z.boolean(),
+      difficulty_rating: z.number().int().nullable().optional(),
+      comment: z.string().nullable().optional(),
+    }),
+  ),
+  diet_feedback: mobileStaffMemberDetailSchema.shape.diet_feedback,
+  gym_feedback: mobileStaffMemberDetailSchema.shape.gym_feedback,
+});
+
+export const mobileCoachPlansSchema = z.object({
+  workouts: z.array(
+    z.object({
+      id: z.string().uuid(),
+      name: z.string(),
+      description: z.string().nullable().optional(),
+      status: z.string(),
+      member_id: z.string().uuid().nullable().optional(),
+      member_name: z.string().nullable().optional(),
+      is_template: z.boolean(),
+      expected_sessions_per_30d: z.number().int().nullable().optional(),
+      published_at: z.string().nullable().optional(),
+      archived_at: z.string().nullable().optional(),
+      exercises: z.array(
+        z.object({
+          id: z.string().uuid(),
+          section_name: z.string().nullable().optional(),
+          exercise_name: z.string().nullable().optional(),
+          sets: z.number().int(),
+          reps: z.number().int(),
+          order: z.number().int().nullable().optional(),
+        }),
+      ).default([]),
+    }),
+  ),
+  diets: z.array(
+    z.object({
+      id: z.string().uuid(),
+      name: z.string(),
+      description: z.string().nullable().optional(),
+      content: z.string().nullable().optional(),
+      status: z.string(),
+      member_id: z.string().uuid().nullable().optional(),
+      member_name: z.string().nullable().optional(),
+      is_template: z.boolean(),
+      published_at: z.string().nullable().optional(),
+      archived_at: z.string().nullable().optional(),
+      content_structured: z.union([z.array(z.any()), z.record(z.string(), z.any())]).nullable().optional(),
+    }),
+  ),
+});
+
+export const mobileStaffHomeSchema = z.object({
+  role: roleSchema,
+  headline: z.string(),
+  stats: z.record(z.string(), z.union([z.number(), z.string(), z.boolean()])),
+  quick_actions: z.array(
+    z.object({
+      id: z.string(),
+      label: z.string(),
+      route: z.string().nullable().optional(),
+    }),
+  ),
+  items: z.array(z.record(z.string(), z.any())),
+});
+
+export const mobileDeviceRegistrationSchema = z.object({
+  device_token: z.string(),
+  platform: z.string(),
+  device_name: z.string().nullable().optional(),
+  registered: z.boolean(),
+});
+
 export const mobileRenewalRequestSchema = z.object({
   id: z.string().uuid(),
   offer_code: z.string(),
@@ -296,6 +535,18 @@ export type MobileCustomerBilling = z.infer<typeof mobileCustomerBillingSchema>;
 export type MobileCustomerPlans = z.infer<typeof mobileCustomerPlansSchema>;
 export type MobileCustomerProgress = z.infer<typeof mobileCustomerProgressSchema>;
 export type MobileCustomerNotifications = z.infer<typeof mobileCustomerNotificationsSchema>;
+export type MobileStaffMemberSummary = z.infer<typeof mobileStaffMemberSummarySchema>;
+export type MobileStaffMemberRegistrationRequest = z.infer<typeof mobileStaffMemberRegistrationRequestSchema>;
+export type MobileStaffMemberRegistrationResult = z.infer<typeof mobileStaffMemberRegistrationResultSchema>;
+export type MobileStaffMemberDetail = z.infer<typeof mobileStaffMemberDetailSchema>;
+export type MobileCheckInLookupResult = z.infer<typeof mobileCheckInLookupResultSchema>;
+export type MobileCheckInResult = z.infer<typeof mobileCheckInResultSchema>;
+export type MobileStaffTransactionSummary = z.infer<typeof mobileStaffTransactionSummarySchema>;
+export type MobilePosSummary = z.infer<typeof mobilePosSummarySchema>;
+export type MobileCoachFeedback = z.infer<typeof mobileCoachFeedbackSchema>;
+export type MobileCoachPlans = z.infer<typeof mobileCoachPlansSchema>;
+export type MobileStaffHome = z.infer<typeof mobileStaffHomeSchema>;
+export type MobileDeviceRegistration = z.infer<typeof mobileDeviceRegistrationSchema>;
 export type MobileRenewalRequest = z.infer<typeof mobileRenewalRequestSchema>;
 export type MobileRenewalRequestList = z.infer<typeof mobileRenewalRequestListSchema>;
 
@@ -321,6 +572,50 @@ export function parseMobileCustomerProgress(input: unknown): MobileCustomerProgr
 
 export function parseMobileCustomerNotifications(input: unknown): MobileCustomerNotifications {
   return mobileCustomerNotificationsSchema.parse(input);
+}
+
+export function parseMobileStaffMemberSummary(input: unknown): MobileStaffMemberSummary {
+  return mobileStaffMemberSummarySchema.parse(input);
+}
+
+export function parseMobileStaffMemberRegistrationResult(input: unknown): MobileStaffMemberRegistrationResult {
+  return mobileStaffMemberRegistrationResultSchema.parse(input);
+}
+
+export function parseMobileStaffMemberDetail(input: unknown): MobileStaffMemberDetail {
+  return mobileStaffMemberDetailSchema.parse(input);
+}
+
+export function parseMobileCheckInLookupResult(input: unknown): MobileCheckInLookupResult {
+  return mobileCheckInLookupResultSchema.parse(input);
+}
+
+export function parseMobileCheckInResult(input: unknown): MobileCheckInResult {
+  return mobileCheckInResultSchema.parse(input);
+}
+
+export function parseMobileCoachFeedback(input: unknown): MobileCoachFeedback {
+  return mobileCoachFeedbackSchema.parse(input);
+}
+
+export function parseMobileCoachPlans(input: unknown): MobileCoachPlans {
+  return mobileCoachPlansSchema.parse(input);
+}
+
+export function parseMobileStaffTransactionSummary(input: unknown): MobileStaffTransactionSummary {
+  return mobileStaffTransactionSummarySchema.parse(input);
+}
+
+export function parseMobilePosSummary(input: unknown): MobilePosSummary {
+  return mobilePosSummarySchema.parse(input);
+}
+
+export function parseMobileStaffHome(input: unknown): MobileStaffHome {
+  return mobileStaffHomeSchema.parse(input);
+}
+
+export function parseMobileDeviceRegistration(input: unknown): MobileDeviceRegistration {
+  return mobileDeviceRegistrationSchema.parse(input);
 }
 
 export function parseMobileRenewalRequest(input: unknown): MobileRenewalRequest {

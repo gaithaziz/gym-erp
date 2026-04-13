@@ -52,7 +52,7 @@ PLAN_STATUSES = {"DRAFT", "PUBLISHED", "ARCHIVED"}
 
 
 def _is_admin_or_coach(user: User) -> bool:
-    return user.role in [Role.ADMIN, Role.COACH]
+    return user.role in [Role.ADMIN, Role.MANAGER, Role.COACH]
 
 
 def _extract_youtube_video_id(url: str) -> str | None:
@@ -174,12 +174,12 @@ async def _get_diet_plan_or_404(
 
 
 def _ensure_plan_owned_by_requester_or_admin(plan: WorkoutPlan, current_user: User, *, action: str) -> None:
-    if current_user.role != Role.ADMIN and plan.creator_id != current_user.id:
+    if current_user.role not in {Role.ADMIN, Role.MANAGER} and plan.creator_id != current_user.id:
         raise HTTPException(status_code=403, detail=f"Cannot {action} plan created by another user")
 
 
 def _ensure_diet_owned_by_requester_or_admin(plan: DietPlan, current_user: User, *, action: str) -> None:
-    if current_user.role != Role.ADMIN and plan.creator_id != current_user.id:
+    if current_user.role not in {Role.ADMIN, Role.MANAGER} and plan.creator_id != current_user.id:
         raise HTTPException(status_code=403, detail=f"Cannot {action} diet plan created by another user")
 
 
@@ -856,15 +856,20 @@ async def list_plan_summaries(
     current_user: Annotated[User, Depends(dependencies.require_active_customer_subscription)],
     db: Annotated[AsyncSession, Depends(get_db)],
     include_archived: bool = Query(False),
+    include_all_creators: bool = Query(False),
+    templates_only: bool = Query(False),
 ):
     if not _is_admin_or_coach(current_user):
-        raise HTTPException(status_code=403, detail="Only admin/coach can access plan summaries")
+        raise HTTPException(status_code=403, detail="Only admin/manager/coach can access plan summaries")
     stmt = (
         select(WorkoutPlan)
-        .where(WorkoutPlan.creator_id == current_user.id)
         .options(selectinload(WorkoutPlan.exercises).selectinload(WorkoutExercise.exercise))
         .order_by(WorkoutPlan.name)
     )
+    if current_user.role not in {Role.ADMIN, Role.MANAGER} or not include_all_creators:
+        stmt = stmt.where(WorkoutPlan.creator_id == current_user.id)
+    if templates_only:
+        stmt = stmt.where(WorkoutPlan.member_id.is_(None))
     if not include_archived:
         stmt = stmt.where(WorkoutPlan.status != "ARCHIVED")
     result = await db.execute(stmt)
@@ -876,7 +881,7 @@ async def list_plan_summaries(
 async def bulk_assign_workout_plan(
     plan_id: uuid.UUID,
     payload: BulkAssignRequest,
-    current_user: Annotated[User, Depends(dependencies.RoleChecker([Role.ADMIN, Role.COACH]))],
+    current_user: Annotated[User, Depends(dependencies.RoleChecker([Role.ADMIN, Role.MANAGER, Role.COACH]))],
     db: Annotated[AsyncSession, Depends(get_db)],
 ):
     source_plan = await _get_workout_plan_or_404(db, plan_id, with_exercises=True)
@@ -1606,7 +1611,7 @@ async def clone_diet_plan(
 async def bulk_assign_diet_plan(
     diet_id: uuid.UUID,
     payload: DietBulkAssignRequest,
-    current_user: Annotated[User, Depends(dependencies.RoleChecker([Role.ADMIN, Role.COACH]))],
+    current_user: Annotated[User, Depends(dependencies.RoleChecker([Role.ADMIN, Role.MANAGER, Role.COACH]))],
     db: Annotated[AsyncSession, Depends(get_db)],
 ):
     source_plan = await _get_diet_plan_or_404(db, diet_id)
@@ -1741,9 +1746,9 @@ async def list_diet_summaries(
     templates_only: bool = Query(False),
 ):
     if not _is_admin_or_coach(current_user):
-        raise HTTPException(status_code=403, detail="Only admin/coach can access diet summaries")
+        raise HTTPException(status_code=403, detail="Only admin/manager/coach can access diet summaries")
     if (
-        current_user.role == Role.ADMIN
+        current_user.role in {Role.ADMIN, Role.MANAGER}
         and include_all_creators
     ):
         stmt = select(DietPlan).order_by(DietPlan.name)

@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { parseMobileStaffMemberRegistrationResult } from "@gym-erp/contracts";
 
 import {
   localizeAccessReason,
@@ -13,7 +14,7 @@ import {
   localizeTicketCategory,
   localizeTicketStatus,
 } from "./mobile-format";
-import { parseScannedKioskId } from "./mobile-scan";
+import { parseScannedKioskId, parseScannedKioskPayload } from "./mobile-scan";
 
 describe("mobile-format", () => {
   it("localizes subscription status for Arabic", () => {
@@ -50,8 +51,34 @@ describe("mobile-format", () => {
     expect(parseScannedKioskId("not valid !!!")).toBeNull();
   });
 
+  it("parses typed kiosk qr payloads", () => {
+    expect(parseScannedKioskPayload('{\"type\":\"staff_check_in\",\"kiosk_id\":\"staff-start-main\"}')).toEqual({
+      kind: "staff_check_in",
+      kioskId: "staff-start-main",
+    });
+    expect(parseScannedKioskPayload("gymerp://kiosk/front-door-01")).toEqual({
+      kind: "client_entry",
+      kioskId: "front-door-01",
+    });
+    expect(parseScannedKioskId('{\"type\":\"staff_check_out\",\"kiosk_id\":\"staff-end-main\"}')).toBeNull();
+  });
+
   it("falls back gracefully for unknown values", () => {
     expect(localizeMessageType("CUSTOM_TYPE", false)).toBe("CUSTOM_TYPE");
     expect(localizePaymentMethod(undefined, true)).toBe("غير معروف");
+  });
+
+  it("parses mobile staff member registration results", () => {
+    const parsed = parseMobileStaffMemberRegistrationResult({
+      member: {
+        id: "11111111-1111-4111-8111-111111111111",
+        full_name: "Registered Member",
+        email: "registered@example.com",
+        phone_number: "+15550001111",
+        subscription: { status: "NONE", end_date: null, plan_name: null },
+        latest_biometric_date: null,
+      },
+    });
+    expect(parsed.member.email).toBe("registered@example.com");
   });
 });

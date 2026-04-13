@@ -19,6 +19,7 @@ import {
 import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { API_BASE_URL, parseHomeEnvelope } from "@/lib/api";
+import { hasCapability, isCustomerRole } from "@/lib/mobile-role";
 import { usePreferences } from "@/lib/preferences";
 import { useSession } from "@/lib/session";
 
@@ -27,15 +28,15 @@ const ASSET_BASE_URL = API_BASE_URL.replace(/\/api\/v1\/?$/, "");
 function FloatingChatButton() {
   const pathname = usePathname();
   const router = useRouter();
-  const { authorizedRequest, status } = useSession();
+  const { authorizedRequest, bootstrap, status } = useSession();
   const { copy, isRTL, theme } = usePreferences();
   const insets = useSafeAreaInsets();
   const tabBarHeight = useContext(BottomTabBarHeightContext);
 
-  const hidden = status !== "signed_in" || pathname === "/login" || pathname.includes("/chat");
+  const hidden = status !== "signed_in" || pathname === "/login" || pathname.includes("/chat") || !hasCapability(bootstrap, "view_chat");
   const homeQuery = useQuery({
     queryKey: ["mobile-home"],
-    enabled: !hidden,
+    enabled: !hidden && isCustomerRole(bootstrap?.role),
     staleTime: 30_000,
     queryFn: async () => parseHomeEnvelope(await authorizedRequest("/mobile/customer/home")).data,
   });
@@ -90,8 +91,6 @@ export function Screen({
   compactTitle = false,
   showSubtitle = false,
   hideFloatingChat = false,
-  accentHeight = 0,
-  accentOpacity = 0,
   contentPaddingBottom,
 }: PropsWithChildren<{
   title: string;
@@ -102,8 +101,6 @@ export function Screen({
   compactTitle?: boolean;
   showSubtitle?: boolean;
   hideFloatingChat?: boolean;
-  accentHeight?: number;
-  accentOpacity?: number;
   contentPaddingBottom?: number;
 }>) {
   const pathname = usePathname();
@@ -124,52 +121,58 @@ export function Screen({
         <Ionicons name={isRTL ? "chevron-forward" : "chevron-back"} size={20} color={theme.foreground} />
       </Pressable>
     ) : null);
+  const headerMain = (
+    <View style={[styles.headerMain, { flexDirection: isRTL ? "row-reverse" : "row" }]}>
+      {resolvedLeadingAction ? <View style={styles.headerLeading}>{resolvedLeadingAction}</View> : null}
+      <View style={styles.headerText}>
+        <Text
+          style={[
+            compactTitle ? styles.screenTitleCompact : styles.screenTitle,
+            {
+              color: theme.foreground,
+              textAlign: isRTL ? "right" : "left",
+              writingDirection: direction,
+              fontFamily: fontSet.display,
+            },
+          ]}
+          numberOfLines={1}
+        >
+          {title}
+        </Text>
+        {showSubtitle && subtitle ? (
+          <Text
+            style={[
+              styles.screenSubtitle,
+              {
+                color: theme.muted,
+                textAlign: isRTL ? "right" : "left",
+                writingDirection: direction,
+                fontFamily: fontSet.body,
+              },
+            ]}
+          >
+            {subtitle}
+          </Text>
+        ) : null}
+      </View>
+    </View>
+  );
+  const headerActions = (
+    <View style={[styles.headerActions, { flexDirection: isRTL ? "row-reverse" : "row" }]}>
+      <Pressable onPress={() => void toggleThemeMode()} style={[styles.controlButton, { backgroundColor: theme.card, borderColor: theme.border }]}>
+        <Ionicons name={themeMode === "dark" ? "moon" : "sunny"} size={16} color={theme.primary} />
+      </Pressable>
+      <Pressable onPress={() => void toggleLocale()} style={[styles.controlButton, { backgroundColor: theme.card, borderColor: theme.border }]}>
+        <Text style={[styles.controlLabel, { color: theme.foreground, fontFamily: fontSet.mono }]}>{locale === "en" ? "AR" : "EN"}</Text>
+      </Pressable>
+      {action}
+    </View>
+  );
   const content = (
     <>
       <View style={styles.headerRow}>
-        <View style={[styles.headerMain, { flexDirection: isRTL ? "row-reverse" : "row" }]}>
-          {resolvedLeadingAction ? <View style={styles.headerLeading}>{resolvedLeadingAction}</View> : null}
-          <View style={styles.headerText}>
-            <Text
-              style={[
-                compactTitle ? styles.screenTitleCompact : styles.screenTitle,
-                {
-                  color: theme.foreground,
-                  textAlign: isRTL ? "right" : "left",
-                  writingDirection: direction,
-                  fontFamily: fontSet.display,
-                },
-              ]}
-              numberOfLines={1}
-            >
-              {title}
-            </Text>
-            {showSubtitle && subtitle ? (
-              <Text
-                style={[
-                  styles.screenSubtitle,
-                  {
-                    color: theme.muted,
-                    textAlign: isRTL ? "right" : "left",
-                    writingDirection: direction,
-                    fontFamily: fontSet.body,
-                  },
-                ]}
-              >
-                {subtitle}
-              </Text>
-            ) : null}
-          </View>
-        </View>
-        <View style={[styles.headerActions, { flexDirection: isRTL ? "row-reverse" : "row" }]}>
-          <Pressable onPress={() => void toggleThemeMode()} style={[styles.controlButton, { backgroundColor: theme.card, borderColor: theme.border }]}>
-            <Ionicons name={themeMode === "dark" ? "moon" : "sunny"} size={16} color={theme.primary} />
-          </Pressable>
-          <Pressable onPress={() => void toggleLocale()} style={[styles.controlButton, { backgroundColor: theme.card, borderColor: theme.border }]}>
-            <Text style={[styles.controlLabel, { color: theme.foreground, fontFamily: fontSet.mono }]}>{locale === "en" ? "AR" : "EN"}</Text>
-          </Pressable>
-          {action}
-        </View>
+        {isRTL ? headerActions : headerMain}
+        {isRTL ? headerMain : headerActions}
       </View>
       {children}
     </>
@@ -177,7 +180,6 @@ export function Screen({
 
   return (
     <SafeAreaView style={[styles.safeArea, { backgroundColor: theme.background }]}>
-      <View style={[styles.topAccent, { backgroundColor: theme.primary, height: accentHeight, opacity: accentOpacity }]} />
       {scrollable ? (
         <ScrollView contentContainerStyle={[styles.screenContent, { paddingBottom: resolvedContentPaddingBottom }]}>{content}</ScrollView>
       ) : (
@@ -446,14 +448,6 @@ export function QueryState({ loading, error, empty, emptyMessage = "No data yet.
 const styles = StyleSheet.create({
   safeArea: {
     flex: 1,
-  },
-  topAccent: {
-    position: "absolute",
-    top: 0,
-    left: 0,
-    right: 0,
-    height: 160,
-    opacity: 0.08,
   },
   screenContent: {
     paddingHorizontal: 20,

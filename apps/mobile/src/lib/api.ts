@@ -1,19 +1,35 @@
 import {
   parseAuthUser,
   parseMobileBootstrap,
+  parseMobileCheckInLookupResult,
+  parseMobileCheckInResult,
+  parseMobileCoachFeedback,
+  parseMobileCoachPlans,
   parseMobileCustomerBilling,
   parseMobileCustomerHome,
   parseMobileCustomerNotifications,
   parseMobileCustomerPlans,
   parseMobileCustomerProgress,
+  parseMobilePosSummary,
+  parseMobileStaffHome,
+  parseMobileStaffMemberDetail,
+  parseMobileStaffMemberRegistrationResult,
   parseTokenPair,
   type AuthUser,
   type MobileBootstrap,
+  type MobileCheckInLookupResult,
+  type MobileCheckInResult,
+  type MobileCoachFeedback,
+  type MobileCoachPlans,
   type MobileCustomerBilling,
   type MobileCustomerHome,
   type MobileCustomerNotifications,
   type MobileCustomerPlans,
   type MobileCustomerProgress,
+  type MobilePosSummary,
+  type MobileStaffHome,
+  type MobileStaffMemberDetail,
+  type MobileStaffMemberRegistrationResult,
   type TokenPair,
 } from "@gym-erp/contracts";
 
@@ -162,5 +178,69 @@ export function parseProfileEnvelope(input: unknown): Envelope<MobileProfile> {
   return {
     ...payload,
     data: parseAuthUser(payload.data),
+  };
+}
+
+export function parseStaffHomeEnvelope(input: unknown): Envelope<MobileStaffHome> {
+  const payload = parseEnvelope<unknown>(input);
+  return {
+    ...payload,
+    data: parseMobileStaffHome(payload.data),
+  };
+}
+
+export function parseStaffMemberDetailEnvelope(input: unknown): Envelope<MobileStaffMemberDetail> {
+  const payload = parseEnvelope<unknown>(input);
+  return {
+    ...payload,
+    data: parseMobileStaffMemberDetail(payload.data),
+  };
+}
+
+export function parseStaffMemberRegistrationEnvelope(input: unknown): Envelope<MobileStaffMemberRegistrationResult> {
+  const payload = parseEnvelope<unknown>(input);
+  return {
+    ...payload,
+    data: parseMobileStaffMemberRegistrationResult(payload.data),
+  };
+}
+
+export function parseCheckInLookupEnvelope(input: unknown): Envelope<MobileCheckInLookupResult> {
+  const payload = parseEnvelope<unknown>(input);
+  return {
+    ...payload,
+    data: parseMobileCheckInLookupResult(payload.data),
+  };
+}
+
+export function parseCheckInResultEnvelope(input: unknown): Envelope<MobileCheckInResult> {
+  const payload = parseEnvelope<unknown>(input);
+  return {
+    ...payload,
+    data: parseMobileCheckInResult(payload.data),
+  };
+}
+
+export function parsePosSummaryEnvelope(input: unknown): Envelope<MobilePosSummary> {
+  const payload = parseEnvelope<unknown>(input);
+  return {
+    ...payload,
+    data: parseMobilePosSummary(payload.data),
+  };
+}
+
+export function parseCoachFeedbackEnvelope(input: unknown): Envelope<MobileCoachFeedback> {
+  const payload = parseEnvelope<unknown>(input);
+  return {
+    ...payload,
+    data: parseMobileCoachFeedback(payload.data),
+  };
+}
+
+export function parseCoachPlansEnvelope(input: unknown): Envelope<MobileCoachPlans> {
+  const payload = parseEnvelope<unknown>(input);
+  return {
+    ...payload,
+    data: parseMobileCoachPlans(payload.data),
   };
 }

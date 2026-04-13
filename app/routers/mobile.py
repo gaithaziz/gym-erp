@@ -2,7 +2,7 @@ import uuid
 from typing import Annotated, Any
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, UploadFile
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, EmailStr, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.auth import dependencies, schemas
@@ -17,6 +17,7 @@ from app.database import get_db
 from app.models.user import User
 from app.routers.chat import (
     MessageCreateRequest as ChatMessageCreateRequest,
+    list_chat_contacts,
     list_thread_messages as list_chat_thread_messages,
     ThreadCreateRequest as ChatThreadCreateRequest,
     create_or_get_thread as create_or_get_chat_thread,
@@ -44,6 +45,7 @@ from app.routers.lost_found import (
 )
 from app.services.mobile_customer_service import MobileCustomerService
 from app.services.mobile_bootstrap_service import MobileBootstrapService
+from app.services.mobile_staff_service import MobileStaffService
 
 router = APIRouter()
 
@@ -99,6 +101,100 @@ class MobileNotificationPreferenceUpdate(BaseModel):
     support_enabled: bool = True
     billing_enabled: bool = True
     announcements_enabled: bool = True
+
+
+class MobileStaffHomeResponse(BaseModel):
+    role: str
+    headline: str
+    stats: dict[str, int | float]
+    quick_actions: list[dict[str, str | None]]
+    items: list[dict[str, Any]]
+
+
+class MobileStaffMemberSummaryResponse(BaseModel):
+    id: uuid.UUID
+    full_name: str | None = None
+    email: str
+    phone_number: str | None = None
+    profile_picture_url: str | None = None
+    subscription: dict[str, Any]
+    latest_biometric_date: str | None = None
+
+
+class MobileStaffMemberDetailResponse(BaseModel):
+    member: dict[str, Any]
+    subscription: dict[str, Any]
+    active_workout_plans: list[dict[str, Any]]
+    active_diet_plans: list[dict[str, Any]]
+    latest_biometric: dict[str, Any] | None = None
+    recent_attendance: list[dict[str, Any]]
+    biometrics: list[dict[str, Any]] = Field(default_factory=list)
+    recent_workout_sessions: list[dict[str, Any]] = Field(default_factory=list)
+    workout_feedback: list[dict[str, Any]] = Field(default_factory=list)
+    diet_feedback: list[dict[str, Any]] = Field(default_factory=list)
+    gym_feedback: list[dict[str, Any]] = Field(default_factory=list)
+
+
+class MobileStaffMemberRegistrationRequest(BaseModel):
+    full_name: str = Field(min_length=2, max_length=120)
+    email: EmailStr
+    phone_number: str | None = Field(default=None, max_length=32, pattern=r"^\+?[0-9][0-9\s\-()]{6,19}$")
+    password: str = Field(min_length=6, max_length=128)
+
+
+class MobileStaffMemberRegistrationResponse(BaseModel):
+    member: MobileStaffMemberSummaryResponse
+
+
+class MobileCheckInProcessRequest(BaseModel):
+    member_id: uuid.UUID
+    kiosk_id: str = Field(min_length=2, max_length=120)
+
+
+class MobileCheckInLookupResponse(BaseModel):
+    query: str
+    items: list[dict[str, Any]]
+
+
+class MobileCheckInResultResponse(BaseModel):
+    member_id: str
+    member_name: str | None = None
+    status: str | None = None
+    reason: str | None = None
+    kiosk_id: str | None = None
+    scan_time: str | None = None
+
+
+class MobileFinanceSummaryResponse(BaseModel):
+    today_sales_total: float
+    today_sales_count: int
+    low_stock_count: int
+    recent_transactions: list[dict[str, Any]]
+
+
+class MobileCoachFeedbackResponse(BaseModel):
+    stats: dict[str, int]
+    workout_feedback: list[dict[str, Any]]
+    diet_feedback: list[dict[str, Any]]
+    gym_feedback: list[dict[str, Any]]
+
+
+class MobileCoachPlansResponse(BaseModel):
+    workouts: list[dict[str, Any]]
+    diets: list[dict[str, Any]]
+
+
+class MobileDeviceRegistrationRequest(BaseModel):
+    device_token: str = Field(min_length=8, max_length=512)
+    platform: str = Field(min_length=2, max_length=32)
+    device_name: str | None = Field(default=None, max_length=120)
+
+
+class MobileDeviceRegistrationResponse(BaseModel):
+    device_token: str
+    platform: str
+    device_name: str | None = None
+    registered: bool
 
 
 @router.get("/bootstrap", response_model=StandardResponse[schemas.MobileBootstrap])
@@ -274,7 +370,16 @@ async def read_customer_support_tickets(
     db: Annotated[AsyncSession, Depends(get_db)],
 ):
     response = type("ResponseStub", (), {"headers": {}})()
-    result = await list_support_tickets(current_user=current_user, db=db, response=response)
+    result = await list_support_tickets(
+        current_user=current_user,
+        db=db,
+        response=response,
+        status_filter=None,
+        is_active=None,
+        category=None,
+        limit=50,
+        offset=0,
+    )
     return result
 
 
@@ -455,3 +560,466 @@ async def read_customer_chat_thread_mark_read(
     db: Annotated[AsyncSession, Depends(get_db)],
 ):
     return await mark_chat_thread_as_read(thread_id=thread_id, current_user=current_user, db=db)
+
+
+@router.get("/me/profile", response_model=StandardResponse[schemas.UserResponse])
+async def read_my_profile(
+    current_user: Annotated[User, Depends(dependencies.get_current_active_user)],
+    db: Annotated[AsyncSession, Depends(get_db)],
+):
+    return await read_current_user_profile(current_user=current_user, db=db)
+
+
+@router.put("/me/profile", response_model=StandardResponse[schemas.UserResponse])
+async def update_my_profile(
+    payload: schemas.UserUpdate,
+    current_user: Annotated[User, Depends(dependencies.get_current_active_user)],
+    db: Annotated[AsyncSession, Depends(get_db)],
+):
+    return await update_current_user_profile(user_update=payload, current_user=current_user, db=db)
+
+
+@router.put("/me/profile/password", response_model=StandardResponse)
+async def update_my_password(
+    payload: schemas.PasswordChange,
+    current_user: Annotated[User, Depends(dependencies.get_current_active_user)],
+    db: Annotated[AsyncSession, Depends(get_db)],
+):
+    return await change_current_user_password(password_data=payload, current_user=current_user, db=db)
+
+
+@router.post("/me/profile/picture", response_model=StandardResponse[schemas.UserResponse])
+async def update_my_profile_picture(
+    current_user: Annotated[User, Depends(dependencies.get_current_active_user)],
+    db: Annotated[AsyncSession, Depends(get_db)],
+    file: UploadFile = File(...),
+):
+    return await upload_current_user_profile_picture(current_user=current_user, db=db, file=file)
+
+
+@router.get("/me/notifications", response_model=StandardResponse[MobileCustomerNotificationsResponse])
+async def read_my_notifications(
+    current_user: Annotated[User, Depends(dependencies.get_current_active_user)],
+    db: Annotated[AsyncSession, Depends(get_db)],
+):
+    items = await MobileCustomerService.get_notifications(current_user=current_user, db=db)
+    return StandardResponse(data=MobileCustomerNotificationsResponse(items=items))
+
+
+@router.get("/me/notification-settings", response_model=StandardResponse[schemas.NotificationPreference])
+async def read_my_notification_settings(
+    current_user: Annotated[User, Depends(dependencies.get_current_active_user)],
+    db: Annotated[AsyncSession, Depends(get_db)],
+):
+    prefs = await MobileStaffService.get_notification_preferences(current_user=current_user, db=db)
+    return StandardResponse(data=schemas.NotificationPreference(**prefs))
+
+
+@router.put("/me/notification-settings", response_model=StandardResponse[schemas.NotificationPreference])
+async def update_my_notification_settings(
+    payload: MobileNotificationPreferenceUpdate,
+    current_user: Annotated[User, Depends(dependencies.get_current_active_user)],
+    db: Annotated[AsyncSession, Depends(get_db)],
+):
+    prefs = await MobileStaffService.update_notification_preferences(
+        current_user=current_user,
+        db=db,
+        **payload.model_dump(),
+    )
+    return StandardResponse(data=schemas.NotificationPreference(**prefs), message="Notification settings updated")
+
+
+@router.get("/chat/contacts", response_model=StandardResponse)
+async def read_chat_contacts(
+    current_user: Annotated[User, Depends(dependencies.get_current_active_user)],
+    db: Annotated[AsyncSession, Depends(get_db)],
+):
+    if current_user.role not in [schemas.Role.CUSTOMER, schemas.Role.COACH, schemas.Role.ADMIN]:
+        raise HTTPException(status_code=403, detail="Chat is not available for this role")
+    if current_user.role == schemas.Role.CUSTOMER:
+        return StandardResponse(data=await MobileCustomerService.list_relevant_chat_coaches(current_user=current_user, db=db))
+    return await list_chat_contacts(current_user=current_user, db=db)
+
+
+@router.get("/chat/threads", response_model=StandardResponse)
+async def read_chat_threads(
+    current_user: Annotated[User, Depends(dependencies.get_current_active_user)],
+    db: Annotated[AsyncSession, Depends(get_db)],
+):
+    return await list_chat_threads(
+        current_user=current_user,
+        db=db,
+        limit=30,
+        offset=0,
+        sort_by="last_message_at",
+        sort_order="desc",
+        coach_id=None,
+        customer_id=None,
+    )
+
+
+@router.post("/chat/threads", response_model=StandardResponse)
+async def create_chat_thread(
+    payload: ChatThreadCreateRequest,
+    current_user: Annotated[User, Depends(dependencies.get_current_active_user)],
+    db: Annotated[AsyncSession, Depends(get_db)],
+):
+    return await create_or_get_chat_thread(data=payload, current_user=current_user, db=db)
+
+
+@router.get("/chat/threads/{thread_id}/messages", response_model=StandardResponse)
+async def read_chat_messages(
+    thread_id: uuid.UUID,
+    current_user: Annotated[User, Depends(dependencies.get_current_active_user)],
+    db: Annotated[AsyncSession, Depends(get_db)],
+    limit: int = Query(50, ge=1, le=100),
+):
+    return await list_chat_thread_messages(thread_id=thread_id, current_user=current_user, db=db, limit=limit, before=None)
+
+
+@router.post("/chat/threads/{thread_id}/messages", response_model=StandardResponse)
+async def create_chat_message(
+    thread_id: uuid.UUID,
+    payload: ChatMessageCreateRequest,
+    current_user: Annotated[User, Depends(dependencies.get_current_active_user)],
+    db: Annotated[AsyncSession, Depends(get_db)],
+):
+    return await send_chat_message(thread_id=thread_id, data=payload, current_user=current_user, db=db)
+
+
+@router.post("/chat/threads/{thread_id}/attachments", response_model=StandardResponse)
+async def create_chat_attachment(
+    thread_id: uuid.UUID,
+    current_user: Annotated[User, Depends(dependencies.get_current_active_user)],
+    db: Annotated[AsyncSession, Depends(get_db)],
+    file: UploadFile = File(...),
+    text_content: str | None = Form(None),
+    voice_duration_seconds: int | None = Form(None),
+):
+    return await upload_chat_attachment(
+        thread_id=thread_id,
+        current_user=current_user,
+        db=db,
+        file=file,
+        text_content=text_content,
+        voice_duration_seconds=voice_duration_seconds,
+    )
+
+
+@router.post("/chat/threads/{thread_id}/read", response_model=StandardResponse)
+async def mark_chat_thread_read(
+    thread_id: uuid.UUID,
+    current_user: Annotated[User, Depends(dependencies.get_current_active_user)],
+    db: Annotated[AsyncSession, Depends(get_db)],
+):
+    return await mark_chat_thread_as_read(thread_id=thread_id, current_user=current_user, db=db)
+
+
+@router.get("/support/tickets", response_model=StandardResponse)
+async def read_support_tickets(
+    current_user: Annotated[User, Depends(dependencies.get_current_active_user)],
+    db: Annotated[AsyncSession, Depends(get_db)],
+):
+    response = type("ResponseStub", (), {"headers": {}})()
+    return await list_support_tickets(
+        current_user=current_user,
+        db=db,
+        response=response,
+        status_filter=None,
+        is_active=None,
+        category=None,
+        limit=50,
+        offset=0,
+    )
+
+
+@router.post("/support/tickets", response_model=StandardResponse)
+async def create_support_ticket_mobile(
+    payload: SupportTicketCreateRequest,
+    current_user: Annotated[User, Depends(dependencies.get_current_active_user)],
+    db: Annotated[AsyncSession, Depends(get_db)],
+):
+    return await create_support_ticket(data=payload, current_user=current_user, db=db)
+
+
+@router.post("/support/tickets/{ticket_id}/messages", response_model=StandardResponse)
+async def create_support_ticket_message_mobile(
+    ticket_id: uuid.UUID,
+    payload: SupportMessageCreateRequest,
+    current_user: Annotated[User, Depends(dependencies.get_current_active_user)],
+    db: Annotated[AsyncSession, Depends(get_db)],
+):
+    return await add_support_ticket_message(ticket_id=ticket_id, data=payload, current_user=current_user, db=db)
+
+
+@router.post("/support/tickets/{ticket_id}/attachments", response_model=StandardResponse)
+async def create_support_ticket_attachment_mobile(
+    ticket_id: uuid.UUID,
+    current_user: Annotated[User, Depends(dependencies.get_current_active_user)],
+    db: Annotated[AsyncSession, Depends(get_db)],
+    file: UploadFile = File(...),
+    message: str | None = Form(None),
+):
+    return await add_support_ticket_attachment(ticket_id=ticket_id, current_user=current_user, db=db, file=file, message=message)
+
+
+@router.get("/lost-found/items", response_model=StandardResponse)
+async def read_lost_found_items_mobile(
+    current_user: Annotated[User, Depends(dependencies.get_current_active_user)],
+    db: Annotated[AsyncSession, Depends(get_db)],
+):
+    return await list_customer_lost_found_items(
+        current_user=current_user,
+        db=db,
+        limit=30,
+        offset=0,
+        status=None,
+        assignee_id=None,
+        reporter_id=None,
+        archived_only=False,
+    )
+
+
+@router.post("/lost-found/items", response_model=StandardResponse)
+async def create_lost_found_item_mobile(
+    payload: LostFoundItemCreateRequest,
+    current_user: Annotated[User, Depends(dependencies.get_current_active_user)],
+    db: Annotated[AsyncSession, Depends(get_db)],
+):
+    return await create_customer_lost_found_item_record(payload=payload, current_user=current_user, db=db)
+
+
+@router.get("/lost-found/items/{item_id}", response_model=StandardResponse)
+async def read_lost_found_item_mobile(
+    item_id: uuid.UUID,
+    current_user: Annotated[User, Depends(dependencies.get_current_active_user)],
+    db: Annotated[AsyncSession, Depends(get_db)],
+):
+    return await get_customer_lost_found_item(item_id=item_id, current_user=current_user, db=db)
+
+
+@router.post("/lost-found/items/{item_id}/comments", response_model=StandardResponse)
+async def create_lost_found_comment_mobile(
+    item_id: uuid.UUID,
+    payload: LostFoundCommentCreateRequest,
+    current_user: Annotated[User, Depends(dependencies.get_current_active_user)],
+    db: Annotated[AsyncSession, Depends(get_db)],
+):
+    return await add_lost_found_comment(item_id=item_id, payload=payload, current_user=current_user, db=db)
+
+
+@router.post("/lost-found/items/{item_id}/media", response_model=StandardResponse)
+async def create_lost_found_media_mobile(
+    item_id: uuid.UUID,
+    current_user: Annotated[User, Depends(dependencies.get_current_active_user)],
+    db: Annotated[AsyncSession, Depends(get_db)],
+    file: UploadFile = File(...),
+):
+    return await upload_customer_lost_found_media(item_id=item_id, current_user=current_user, db=db, file=file)
+
+
+@router.get("/staff/home", response_model=StandardResponse[MobileStaffHomeResponse])
+async def read_staff_home(
+    current_user: Annotated[
+        User,
+        Depends(
+            dependencies.RoleChecker(
+                [schemas.Role.COACH, schemas.Role.RECEPTION, schemas.Role.FRONT_DESK, schemas.Role.CASHIER, schemas.Role.EMPLOYEE]
+            )
+        ),
+    ],
+    db: Annotated[AsyncSession, Depends(get_db)],
+):
+    data = await MobileStaffService.get_home_summary(current_user=current_user, db=db)
+    return StandardResponse(data=MobileStaffHomeResponse(**data))
+
+
+@router.get("/staff/members", response_model=StandardResponse[list[MobileStaffMemberSummaryResponse]])
+async def read_staff_members(
+    current_user: Annotated[
+        User,
+        Depends(
+            dependencies.RoleChecker(
+                [schemas.Role.COACH, schemas.Role.RECEPTION, schemas.Role.FRONT_DESK, schemas.Role.ADMIN, schemas.Role.MANAGER]
+            )
+        ),
+    ],
+    db: Annotated[AsyncSession, Depends(get_db)],
+    q: str | None = Query(default=None),
+):
+    items = await MobileStaffService.list_members(current_user=current_user, db=db, query=q)
+    return StandardResponse(data=[MobileStaffMemberSummaryResponse(**item) for item in items])
+
+
+@router.post("/staff/members/register", response_model=StandardResponse[MobileStaffMemberRegistrationResponse])
+async def register_staff_member(
+    payload: MobileStaffMemberRegistrationRequest,
+    current_user: Annotated[
+        User,
+        Depends(
+            dependencies.RoleChecker(
+                [schemas.Role.RECEPTION, schemas.Role.FRONT_DESK, schemas.Role.ADMIN, schemas.Role.MANAGER]
+            )
+        ),
+    ],
+    db: Annotated[AsyncSession, Depends(get_db)],
+):
+    try:
+        member = await MobileStaffService.register_member(
+            current_user=current_user,
+            db=db,
+            email=payload.email,
+            full_name=payload.full_name,
+            phone_number=payload.phone_number,
+            password=payload.password,
+        )
+    except ValueError as exc:
+        detail = str(exc)
+        status_code = 403 if detail == "Not allowed" else 400
+        raise HTTPException(status_code=status_code, detail=detail) from exc
+    return StandardResponse(
+        data=MobileStaffMemberRegistrationResponse(member=MobileStaffMemberSummaryResponse(**member)),
+        message="Member registered successfully",
+    )
+
+
+@router.get("/staff/members/{member_id}", response_model=StandardResponse[MobileStaffMemberDetailResponse])
+async def read_staff_member_detail(
+    member_id: uuid.UUID,
+    current_user: Annotated[
+        User,
+        Depends(
+            dependencies.RoleChecker(
+                [schemas.Role.COACH, schemas.Role.RECEPTION, schemas.Role.FRONT_DESK, schemas.Role.ADMIN, schemas.Role.MANAGER]
+            )
+        ),
+    ],
+    db: Annotated[AsyncSession, Depends(get_db)],
+):
+    try:
+        data = await MobileStaffService.get_member_detail(current_user=current_user, member_id=member_id, db=db)
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    return StandardResponse(data=MobileStaffMemberDetailResponse(**data))
+
+
+@router.get("/staff/check-in/lookup", response_model=StandardResponse[MobileCheckInLookupResponse])
+async def lookup_staff_check_in(
+    q: str,
+    current_user: Annotated[
+        User,
+        Depends(
+            dependencies.RoleChecker(
+                [schemas.Role.COACH, schemas.Role.RECEPTION, schemas.Role.FRONT_DESK, schemas.Role.ADMIN, schemas.Role.MANAGER]
+            )
+        ),
+    ],
+    db: Annotated[AsyncSession, Depends(get_db)],
+):
+    data = await MobileStaffService.lookup_members(current_user=current_user, db=db, query=q)
+    return StandardResponse(data=MobileCheckInLookupResponse(**data))
+
+
+@router.post("/staff/check-in/process", response_model=StandardResponse[MobileCheckInResultResponse])
+async def process_staff_check_in(
+    payload: MobileCheckInProcessRequest,
+    current_user: Annotated[
+        User,
+        Depends(
+            dependencies.RoleChecker(
+                [schemas.Role.COACH, schemas.Role.RECEPTION, schemas.Role.FRONT_DESK, schemas.Role.ADMIN, schemas.Role.MANAGER]
+            )
+        ),
+    ],
+    db: Annotated[AsyncSession, Depends(get_db)],
+):
+    try:
+        data = await MobileStaffService.process_check_in(
+            current_user=current_user,
+            db=db,
+            member_id=payload.member_id,
+            kiosk_id=payload.kiosk_id,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return StandardResponse(data=MobileCheckInResultResponse(**data))
+
+
+@router.get("/staff/finance/summary", response_model=StandardResponse[MobileFinanceSummaryResponse])
+async def read_staff_finance_summary(
+    current_user: Annotated[
+        User,
+        Depends(dependencies.RoleChecker([schemas.Role.CASHIER, schemas.Role.ADMIN, schemas.Role.MANAGER])),
+    ],
+    db: Annotated[AsyncSession, Depends(get_db)],
+):
+    data = await MobileStaffService.get_finance_summary(current_user=current_user, db=db)
+    return StandardResponse(data=MobileFinanceSummaryResponse(**data))
+
+
+@router.get("/staff/transactions/recent", response_model=StandardResponse[list[dict[str, Any]]])
+async def read_staff_recent_transactions(
+    current_user: Annotated[
+        User,
+        Depends(dependencies.RoleChecker([schemas.Role.CASHIER, schemas.Role.ADMIN, schemas.Role.MANAGER])),
+    ],
+    db: Annotated[AsyncSession, Depends(get_db)],
+    limit: int = Query(20, ge=1, le=100),
+):
+    return StandardResponse(data=await MobileStaffService.get_recent_transactions(current_user=current_user, db=db, limit=limit))
+
+
+@router.get("/staff/coach/feedback", response_model=StandardResponse[MobileCoachFeedbackResponse])
+async def read_coach_feedback_summary(
+    current_user: Annotated[
+        User,
+        Depends(dependencies.RoleChecker([schemas.Role.COACH])),
+    ],
+    db: Annotated[AsyncSession, Depends(get_db)],
+):
+    data = await MobileStaffService.get_coach_feedback_summary(current_user=current_user, db=db)
+    return StandardResponse(data=MobileCoachFeedbackResponse(**data))
+
+
+@router.get("/staff/coach/plans", response_model=StandardResponse[MobileCoachPlansResponse])
+async def read_coach_plans_summary(
+    current_user: Annotated[
+        User,
+        Depends(dependencies.RoleChecker([schemas.Role.COACH])),
+    ],
+    db: Annotated[AsyncSession, Depends(get_db)],
+):
+    data = await MobileStaffService.get_coach_plans_summary(current_user=current_user, db=db)
+    return StandardResponse(data=MobileCoachPlansResponse(**data))
+
+
+@router.post("/devices/register", response_model=StandardResponse[MobileDeviceRegistrationResponse])
+async def register_device(
+    payload: MobileDeviceRegistrationRequest,
+    _current_user: Annotated[User, Depends(dependencies.get_current_active_user)],
+):
+    return StandardResponse(
+        data=MobileDeviceRegistrationResponse(
+            device_token=payload.device_token,
+            platform=payload.platform,
+            device_name=payload.device_name,
+            registered=True,
+        ),
+        message="Device registered",
+    )
+
+
+@router.post("/devices/unregister", response_model=StandardResponse[MobileDeviceRegistrationResponse])
+async def unregister_device(
+    payload: MobileDeviceRegistrationRequest,
+    _current_user: Annotated[User, Depends(dependencies.get_current_active_user)],
+):
+    return StandardResponse(
+        data=MobileDeviceRegistrationResponse(
+            device_token=payload.device_token,
+            platform=payload.platform,
+            device_name=payload.device_name,
+            registered=False,
+        ),
+        message="Device unregistered",
+    )

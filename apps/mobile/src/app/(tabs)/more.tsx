@@ -1,6 +1,7 @@
 import { useRouter } from "expo-router";
 
 import { useSession } from "@/lib/session";
+import { getCurrentRole, hasCapability, isCustomerRole } from "@/lib/mobile-role";
 import { usePreferences } from "@/lib/preferences";
 import { Card, MutedText, PrimaryButton, Screen, SecondaryLink, SectionTitle } from "@/components/ui";
 
@@ -8,6 +9,8 @@ export default function MoreTab() {
   const router = useRouter();
   const { bootstrap, signOut } = useSession();
   const { copy } = usePreferences();
+  const role = getCurrentRole(bootstrap);
+  const customer = isCustomerRole(role);
 
   async function handleSignOut() {
     await signOut();
@@ -17,18 +20,20 @@ export default function MoreTab() {
   return (
     <Screen title={copy.more.title} subtitle={copy.more.subtitle}>
       <Card>
-        <SectionTitle>{bootstrap?.user.full_name || copy.more.customerAccount}</SectionTitle>
+        <SectionTitle>{bootstrap?.user.full_name || (customer ? copy.more.customerAccount : copy.staffMore.account)}</SectionTitle>
         <MutedText>{bootstrap?.user.email}</MutedText>
-        <MutedText>{bootstrap?.subscription.plan_name || copy.common.noActivePlan}</MutedText>
+        <MutedText>{bootstrap?.subscription.plan_name || (customer ? copy.common.noActivePlan : copy.staffMore.noAssignedPlan)}</MutedText>
       </Card>
 
-      <SecondaryLink href="/billing">{copy.more.billing}</SecondaryLink>
+      {customer ? <SecondaryLink href="/billing">{copy.more.billing}</SecondaryLink> : null}
       <SecondaryLink href="/notifications">{copy.more.notifications}</SecondaryLink>
-      <SecondaryLink href="/support">{copy.more.support}</SecondaryLink>
-      <SecondaryLink href="/chat">{copy.more.chat}</SecondaryLink>
-      <SecondaryLink href="/lost-found">{copy.more.lostFound}</SecondaryLink>
+      {hasCapability(bootstrap, "view_support") ? <SecondaryLink href="/support">{copy.more.support}</SecondaryLink> : null}
+      {hasCapability(bootstrap, "view_chat") ? <SecondaryLink href="/chat">{copy.more.chat}</SecondaryLink> : null}
+      {(customer || role === "RECEPTION" || role === "FRONT_DESK" || role === "EMPLOYEE") ? <SecondaryLink href="/lost-found">{copy.more.lostFound}</SecondaryLink> : null}
+      {role === "COACH" || role === "EMPLOYEE" ? <SecondaryLink href="/leaves">{copy.operationsScreen.myLeaves}</SecondaryLink> : null}
+      {role === "COACH" ? <SecondaryLink href="/coach-feedback">{copy.common.feedbackHistory}</SecondaryLink> : null}
       <SecondaryLink href="/profile">{copy.more.profile}</SecondaryLink>
-      <SecondaryLink href="/feedback">{copy.more.feedback}</SecondaryLink>
+      {customer ? <SecondaryLink href="/feedback">{copy.more.feedback}</SecondaryLink> : null}
 
       <PrimaryButton onPress={() => void handleSignOut()}>{copy.common.signOut}</PrimaryButton>
     </Screen>

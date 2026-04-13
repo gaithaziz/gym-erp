@@ -31,6 +31,81 @@ async def _login(client: AsyncClient, email: str, password: str = "password123")
 
 
 @pytest.mark.asyncio
+async def test_mobile_staff_members_coach_scope_and_registration(client: AsyncClient, db_session: AsyncSession):
+    coach = User(
+        email="coach-scope@example.com",
+        hashed_password=security.get_password_hash("password123"),
+        role=Role.COACH,
+        full_name="Scope Coach",
+        is_active=True,
+    )
+    customer = User(
+        email="unassigned-member@example.com",
+        hashed_password=security.get_password_hash("password123"),
+        role=Role.CUSTOMER,
+        full_name="Unassigned Member",
+        is_active=True,
+    )
+    admin = User(
+        email="admin-mobile-members@example.com",
+        hashed_password=security.get_password_hash("password123"),
+        role=Role.ADMIN,
+        full_name="Mobile Admin",
+        is_active=True,
+    )
+    db_session.add_all([coach, customer, admin])
+    await db_session.commit()
+
+    coach_headers = await _login(client, coach.email)
+    list_response = await client.get(f"{settings.API_V1_STR}/mobile/staff/members", headers=coach_headers)
+    assert list_response.status_code == 200
+    assert list_response.json()["data"] == []
+
+    detail_response = await client.get(f"{settings.API_V1_STR}/mobile/staff/members/{customer.id}", headers=coach_headers)
+    assert detail_response.status_code == 404
+
+    admin_headers = await _login(client, admin.email)
+    register_response = await client.post(
+        f"{settings.API_V1_STR}/mobile/staff/members/register",
+        headers=admin_headers,
+        json={
+            "full_name": "Registered Mobile Member",
+            "email": "registered-mobile-member@example.com",
+            "phone_number": "+15550009999",
+            "password": "password123",
+        },
+    )
+    assert register_response.status_code == 200
+    registered = register_response.json()["data"]["member"]
+    assert registered["email"] == "registered-mobile-member@example.com"
+    assert registered["subscription"]["status"] == "NONE"
+
+    duplicate_response = await client.post(
+        f"{settings.API_V1_STR}/mobile/staff/members/register",
+        headers=admin_headers,
+        json={
+            "full_name": "Duplicate Mobile Member",
+            "email": "registered-mobile-member@example.com",
+            "phone_number": "+15550008888",
+            "password": "password123",
+        },
+    )
+    assert duplicate_response.status_code == 400
+
+    invalid_phone_response = await client.post(
+        f"{settings.API_V1_STR}/mobile/staff/members/register",
+        headers=admin_headers,
+        json={
+            "full_name": "Invalid Phone Member",
+            "email": "invalid-phone-member@example.com",
+            "phone_number": "abc-invalid",
+            "password": "password123",
+        },
+    )
+    assert invalid_phone_response.status_code == 422
+
+
+@pytest.mark.asyncio
 async def test_mobile_customer_home_and_billing(client: AsyncClient, db_session: AsyncSession):
     now = datetime.now(timezone.utc)
     customer = User(

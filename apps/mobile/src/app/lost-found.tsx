@@ -57,7 +57,7 @@ export default function LostFoundScreen() {
 
   const itemsQuery = useQuery({
     queryKey: ["mobile-lost-found"],
-    queryFn: async () => (await authorizedRequest<LostFoundItem[]>("/mobile/customer/lost-found/items")).data,
+    queryFn: async () => (await authorizedRequest<LostFoundItem[]>("/mobile/lost-found/items")).data,
   });
   const items = itemsQuery.data ?? [];
   const selectedItem = useMemo(() => items.find((item) => item.id === selectedItemId) ?? items[0] ?? null, [items, selectedItemId]);
@@ -65,7 +65,7 @@ export default function LostFoundScreen() {
   const itemDetailQuery = useQuery({
     queryKey: ["mobile-lost-found-detail", selectedItem?.id],
     enabled: Boolean(selectedItem?.id),
-    queryFn: async () => (await authorizedRequest<LostFoundItem>(`/mobile/customer/lost-found/items/${selectedItem?.id}`)).data,
+    queryFn: async () => (await authorizedRequest<LostFoundItem>(`/mobile/lost-found/items/${selectedItem?.id}`)).data,
   });
 
   async function uploadItemPhoto(itemId: string, photo: PendingPhoto) {
@@ -75,7 +75,7 @@ export default function LostFoundScreen() {
       name: photo.name,
       type: photo.mimeType ?? "image/jpeg",
     } as never);
-    return authorizedRequest(`/mobile/customer/lost-found/items/${itemId}/media`, {
+    return authorizedRequest(`/mobile/lost-found/items/${itemId}/media`, {
       method: "POST",
       body: formData,
     });
@@ -97,7 +97,7 @@ export default function LostFoundScreen() {
       if (unsupported) {
         throw new Error(copy.lostFoundScreen.unsupportedPhoto);
       }
-      const created = await authorizedRequest("/mobile/customer/lost-found/items", {
+      const created = await authorizedRequest("/mobile/lost-found/items", {
         method: "POST",
         body: JSON.stringify({
           title,
@@ -134,7 +134,7 @@ export default function LostFoundScreen() {
       if (!selectedItem) {
         throw new Error(copy.lostFoundScreen.noItems);
       }
-      return authorizedRequest(`/mobile/customer/lost-found/items/${selectedItem.id}/comments`, {
+      return authorizedRequest(`/mobile/lost-found/items/${selectedItem.id}/comments`, {
         method: "POST",
         body: JSON.stringify({ text: comment }),
       });

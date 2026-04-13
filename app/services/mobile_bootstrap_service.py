@@ -99,7 +99,7 @@ class MobileBootstrapService:
 
     _ROLE_MODULES: dict[Role, tuple[schemas.EnabledModuleValue, ...]] = {
         Role.CUSTOMER: ("home", "qr", "plans", "progress", "support", "chat", "profile", "notifications"),
-        Role.COACH: ("home", "members", "plans", "support", "chat", "profile", "notifications"),
+        Role.COACH: ("home", "qr", "members", "plans", "support", "chat", "profile", "notifications"),
         Role.RECEPTION: ("home", "qr", "members", "support", "profile", "notifications"),
         Role.FRONT_DESK: ("home", "qr", "members", "support", "profile", "notifications"),
         Role.CASHIER: ("home", "finance", "qr", "profile", "notifications"),
