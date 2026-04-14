@@ -1,7 +1,7 @@
 import { Ionicons } from "@expo/vector-icons";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useLocalSearchParams, useRouter } from "expo-router";
-import { useEffect, useMemo, useState, type ReactNode } from "react";
+import { useFocusEffect, useLocalSearchParams, useRouter } from "expo-router";
+import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
 import { Pressable, StyleSheet, Text, View } from "react-native";
 
 import { Card, Input, MutedText, PrimaryButton, QueryState, Screen, SecondaryButton, SectionTitle } from "@/components/ui";
@@ -10,6 +10,7 @@ import { localeTag, localizeAccessStatus, localizeSubscriptionStatus } from "@/l
 import { getCurrentRole, hasCapability } from "@/lib/mobile-role";
 import { usePreferences } from "@/lib/preferences";
 import { useSession } from "@/lib/session";
+import type { MobileStaffMemberDetail } from "@gym-erp/contracts";
 
 type StaffMemberSummary = {
   id: string;
@@ -31,20 +32,22 @@ type PlanSummary = {
 
 type Notice = { kind: "success" | "error"; message: string };
 const SECTION_PREVIEW_LIMIT = 3;
+const MEMBER_DROPDOWN_LIMIT = 8;
 
-function visibleItems<T>(items: T[], expanded?: boolean) {
-  return expanded ? items : items.slice(0, SECTION_PREVIEW_LIMIT);
+function visibleItems<T>(items: T[], expanded?: boolean, limit = SECTION_PREVIEW_LIMIT) {
+  return expanded ? items : items.slice(0, limit);
 }
 
 export default function MembersTab() {
   const router = useRouter();
   const params = useLocalSearchParams<{ memberId?: string }>();
   const { authorizedRequest, bootstrap } = useSession();
-  const { copy, isRTL } = usePreferences();
+  const { copy, direction, fontSet, isRTL, theme } = usePreferences();
   const locale = localeTag(isRTL);
   const role = getCurrentRole(bootstrap);
   const queryClient = useQueryClient();
   const [search, setSearch] = useState("");
+  const [memberDropdownOpen, setMemberDropdownOpen] = useState(false);
   const [selectedMemberId, setSelectedMemberId] = useState<string | null>(null);
   const [notice, setNotice] = useState<Notice | null>(null);
   const [expandedSections, setExpandedSections] = useState<Record<string, boolean>>({});
@@ -62,6 +65,16 @@ export default function MembersTab() {
       (await authorizedRequest<StaffMemberSummary[]>(`/mobile/staff/members${search.trim() ? `?q=${encodeURIComponent(search.trim())}` : ""}`)).data,
   });
   const members = membersQuery.data ?? [];
+  const dropdownMembers = members.slice(0, MEMBER_DROPDOWN_LIMIT);
+
+  useFocusEffect(
+    useCallback(() => {
+      void queryClient.invalidateQueries({ queryKey: ["mobile-staff-members"] });
+      if (selectedMemberId) {
+        void queryClient.invalidateQueries({ queryKey: ["mobile-staff-member-detail", selectedMemberId] });
+      }
+    }, [queryClient, selectedMemberId]),
+  );
 
   useEffect(() => {
     if (params.memberId && typeof params.memberId === "string") {
@@ -89,6 +102,22 @@ export default function MembersTab() {
   const selectedMember = detailQuery.data?.member
     ? { id: detailQuery.data.member.id, email: detailQuery.data.member.email, full_name: detailQuery.data.member.full_name }
     : selectedMemberFromList;
+  const selectedMemberSummary =
+    selectedMemberFromList ??
+    (selectedMember
+      ? {
+          id: selectedMember.id,
+          email: selectedMember.email,
+          full_name: selectedMember.full_name,
+          phone_number: null,
+          subscription: {
+            status: detailQuery.data?.subscription.status ?? "NONE",
+            end_date: detailQuery.data?.subscription.end_date,
+            plan_name: detailQuery.data?.subscription.plan_name,
+          },
+        }
+      : null);
+  const selectedSubscription = detailQuery.data?.subscription ?? selectedMemberSummary?.subscription ?? null;
 
   const workoutPlansQuery = useQuery({
     queryKey: ["mobile-coach-plan-summaries", role],
@@ -153,14 +182,53 @@ export default function MembersTab() {
   return (
     <Screen title={copy.membersScreen.title} subtitle={copy.membersScreen.subtitle} showSubtitle={role === "COACH"}>
       <Card style={styles.searchCard}>
+        <View style={[styles.sectionHeader, { flexDirection: isRTL ? "row-reverse" : "row" }]}>
+          <SectionTitle>{copy.staffTabs.members}</SectionTitle>
+          <StatusPill label={String(members.length)} />
+        </View>
         <View style={[styles.searchHeader, { flexDirection: isRTL ? "row-reverse" : "row" }]}>
           <View style={{ flex: 1 }}>
-            <Input value={search} onChangeText={setSearch} placeholder={copy.membersScreen.search} />
+            <Input
+              value={search}
+              onChangeText={(value) => {
+                setSearch(value);
+                setMemberDropdownOpen(true);
+              }}
+              onFocus={() => setMemberDropdownOpen(true)}
+              placeholder={copy.membersScreen.search}
+            />
           </View>
           {canRegister ? (
             <SecondaryButton onPress={() => router.push("/member-register")}>{copy.membersScreen.quickRegister}</SecondaryButton>
           ) : null}
         </View>
+        {selectedMember ? (
+          <Pressable
+            onPress={() => setMemberDropdownOpen((current) => !current)}
+            style={[
+              styles.selectedMemberTrigger,
+              {
+                backgroundColor: theme.cardAlt,
+                borderColor: memberDropdownOpen ? theme.primary : theme.border,
+                flexDirection: isRTL ? "row-reverse" : "row",
+              },
+            ]}
+          >
+            <Avatar name={selectedMember.full_name} email={selectedMember.email} compact />
+            <View style={styles.selectedMemberText}>
+              <Text
+                style={{ color: theme.foreground, fontFamily: fontSet.body, fontWeight: "800", textAlign: isRTL ? "right" : "left", writingDirection: direction }}
+                numberOfLines={1}
+              >
+                {selectedMember.full_name || selectedMember.email}
+              </Text>
+              <MutedText>
+                {formatSubscriptionSummary(selectedSubscription, locale, isRTL)}
+              </MutedText>
+            </View>
+            <Ionicons name={memberDropdownOpen ? "chevron-up" : "chevron-down"} size={18} color={theme.primary} />
+          </Pressable>
+        ) : null}
       </Card>
 
       <QueryState
@@ -170,14 +238,16 @@ export default function MembersTab() {
         emptyMessage={copy.membersScreen.noMembers}
       />
 
-      {members.length > 0 ? (
-        <Card>
+      {memberDropdownOpen ? (
+        <Card style={styles.memberDropdown}>
           <View style={[styles.sectionHeader, { flexDirection: isRTL ? "row-reverse" : "row" }]}>
-            <SectionTitle>{copy.staffTabs.members}</SectionTitle>
-            <StatusPill label={String(members.length)} />
+            <MutedText>{search.trim() ? copy.membersScreen.search : copy.membersScreen.pickMember}</MutedText>
+            <Pressable onPress={() => setMemberDropdownOpen(false)}>
+              <Text style={[styles.dropdownCloseText, { color: theme.primary, fontFamily: fontSet.body }]}>{copy.common.cancel}</Text>
+            </Pressable>
           </View>
           {members.length >= 50 ? <MutedText>{copy.membersScreen.searchMoreHint}</MutedText> : null}
-          {members.map((member) => {
+          {dropdownMembers.map((member) => {
             const active = member.id === selectedMemberId;
             return (
               <MemberListItem
@@ -189,10 +259,13 @@ export default function MembersTab() {
                   setNotice(null);
                   setExpandedSections({});
                   setSelectedMemberId(member.id);
+                  setMemberDropdownOpen(false);
+                  setSearch("");
                 }}
               />
             );
           })}
+          {members.length > MEMBER_DROPDOWN_LIMIT ? <MutedText>{copy.membersScreen.searchMoreHint}</MutedText> : null}
         </Card>
       ) : null}
 
@@ -223,6 +296,8 @@ export default function MembersTab() {
               {role === "COACH" ? <ActionPill icon="clipboard-outline" label={copy.membersScreen.viewFeedbackQueue} onPress={() => router.push("/coach-feedback")} /> : null}
             </View>
           </Card>
+
+          <ProgressSnapshotCard detail={detailQuery.data} locale={locale} />
 
           <DataCard title={copy.membersScreen.workoutPlans}>
             {detailQuery.data.active_workout_plans.length === 0 ? (
@@ -454,12 +529,22 @@ function StatusPill({ label }: { label: string }) {
 }
 
 function MiniMetric({ label, value }: { label: string; value: string | number }) {
-  const { fontSet, theme } = usePreferences();
+  const { direction, fontSet, isRTL, theme } = usePreferences();
   return (
     <View style={[styles.miniMetric, { backgroundColor: theme.cardAlt, borderColor: theme.border }]}>
-      <Text style={{ color: theme.foreground, fontFamily: fontSet.display, fontSize: 20, fontWeight: "800" }}>{value}</Text>
-      <Text style={{ color: theme.muted, fontFamily: fontSet.body, fontSize: 11 }} numberOfLines={1}>
+      <Text
+        style={[styles.miniMetricLabel, { color: theme.muted, fontFamily: fontSet.body, textAlign: isRTL ? "right" : "left", writingDirection: direction }]}
+        numberOfLines={2}
+      >
         {label}
+      </Text>
+      <Text
+        style={[styles.miniMetricValue, { color: theme.foreground, fontFamily: fontSet.display, textAlign: isRTL ? "right" : "left", writingDirection: direction }]}
+        numberOfLines={1}
+        adjustsFontSizeToFit
+        minimumFontScale={0.74}
+      >
+        {value}
       </Text>
     </View>
   );
@@ -514,9 +599,286 @@ function PlanAssignRow({ plan, disabled, onPress }: { plan: PlanSummary; disable
   );
 }
 
-function OverflowToggle({ total, expanded, onPress }: { total: number; expanded: boolean; onPress: () => void }) {
+function ProgressSnapshotCard({ detail, locale }: { detail: MobileStaffMemberDetail; locale: string }) {
+  const { copy, isRTL } = usePreferences();
+  const biometrics = [...detail.biometrics].reverse().slice(-8);
+  const latest = detail.latest_biometric ?? biometrics.at(-1) ?? null;
+  const age = calculateAge(detail.member.date_of_birth);
+  const workoutTrend = buildSessionCountTrend(detail.recent_workout_sessions, locale);
+
+  return (
+    <Card style={styles.progressCard}>
+      <View style={[styles.sectionHeader, { flexDirection: isRTL ? "row-reverse" : "row" }]}>
+        <SectionTitle>{copy.progress.title}</SectionTitle>
+        <StatusPill label={detail.subscription.plan_name || localizeSubscriptionStatus(detail.subscription.status, isRTL)} />
+      </View>
+      <MutedText>{copy.progress.subtitle}</MutedText>
+
+      <View style={[styles.metricGrid, { flexDirection: isRTL ? "row-reverse" : "row" }]}>
+        <MiniMetric label={copy.progress.age} value={age ?? "--"} />
+        <MiniMetric label={copy.progress.lastHeight} value={latest?.height_cm != null ? `${latest.height_cm} cm` : "--"} />
+        <MiniMetric label={copy.progress.lastWeight} value={latest?.weight_kg != null ? `${latest.weight_kg} kg` : "--"} />
+        <MiniMetric label={copy.progress.lastBodyFat} value={latest?.body_fat_pct != null ? `${latest.body_fat_pct}%` : "--"} />
+      </View>
+      <View style={[styles.metricGrid, { flexDirection: isRTL ? "row-reverse" : "row" }]}>
+        <MiniMetric label={copy.progress.recentSessions} value={detail.recent_workout_sessions.length} />
+        <MiniMetric label={copy.membersScreen.biometrics} value={detail.biometrics.length} />
+      </View>
+
+      <SparklineChart
+        title={copy.progress.weightTrend}
+        points={biometrics.map((entry) => ({ label: new Date(entry.date).toLocaleDateString(locale, { month: "short", day: "numeric" }), value: entry.weight_kg }))}
+        unit=" kg"
+        emptyMessage={copy.progress.graphNoData}
+      />
+      <SparklineChart
+        title={copy.progress.bodyFatTrend}
+        points={biometrics.map((entry) => ({ label: new Date(entry.date).toLocaleDateString(locale, { month: "short", day: "numeric" }), value: entry.body_fat_pct }))}
+        unit="%"
+        emptyMessage={copy.progress.graphNoData}
+      />
+      <SparklineChart
+        title={copy.progress.muscleTrend}
+        points={biometrics.map((entry) => ({ label: new Date(entry.date).toLocaleDateString(locale, { month: "short", day: "numeric" }), value: entry.muscle_mass_kg }))}
+        unit=" kg"
+        emptyMessage={copy.progress.graphNoData}
+      />
+      <CountBarChart title={copy.progress.workoutTrend} points={workoutTrend} unit="" emptyMessage={copy.progress.noTrend} />
+    </Card>
+  );
+}
+
+function ChartSummary({
+  title,
+  latest,
+  min,
+  max,
+  delta,
+  unit,
+}: {
+  title: string;
+  latest: number;
+  min: number;
+  max: number;
+  delta?: number | null;
+  unit: string;
+}) {
+  const { copy, direction, fontSet, isRTL, theme } = usePreferences();
+  const formattedLatest = `${formatChartNumber(latest)}${unit}`;
+  const formattedDelta = typeof delta === "number" ? `${delta > 0 ? "+" : ""}${formatChartNumber(delta)}${unit}` : "--";
+  return (
+    <>
+      <View style={[styles.chartHeader, { flexDirection: isRTL ? "row-reverse" : "row" }]}>
+        <Text style={[styles.chartTitle, { color: theme.foreground, fontFamily: fontSet.body, textAlign: isRTL ? "right" : "left", writingDirection: direction }]}>{title}</Text>
+        <Text style={[styles.chartLatest, { color: theme.primary, fontFamily: fontSet.mono }]}>{formattedLatest}</Text>
+      </View>
+      <View style={[styles.chartMeta, { flexDirection: isRTL ? "row-reverse" : "row" }]}>
+        <MutedText>
+          {copy.progress.range}: {formatChartNumber(min)}
+          {unit} - {formatChartNumber(max)}
+          {unit}
+        </MutedText>
+        <Text style={[styles.chartDelta, { color: !delta ? theme.muted : theme.primary, fontFamily: fontSet.mono }]}>
+          {copy.progress.change}: {formattedDelta}
+        </Text>
+      </View>
+    </>
+  );
+}
+
+function SparklineChart({
+  title,
+  points,
+  unit,
+  emptyMessage,
+}: {
+  title: string;
+  points: Array<{ label: string; value?: number | null }>;
+  unit: string;
+  emptyMessage: string;
+}) {
+  const { fontSet, isRTL, theme } = usePreferences();
+  const [chartWidth, setChartWidth] = useState(0);
+  const visiblePoints = points.filter((point): point is { label: string; value: number } => typeof point.value === "number");
+  if (visiblePoints.length === 0) {
+    return <MutedText>{emptyMessage}</MutedText>;
+  }
+  const values = visiblePoints.map((point) => point.value);
+  const min = Math.min(...values);
+  const max = Math.max(...values);
+  const rawRange = max - min;
+  const range = rawRange || 1;
+  const latest = visiblePoints[visiblePoints.length - 1];
+  const previous = visiblePoints[visiblePoints.length - 2];
+  const delta = previous ? latest.value - previous.value : null;
+  const chartHeight = 118;
+  const paddingX = 12;
+  const paddingY = 14;
+  const usableWidth = Math.max(chartWidth - paddingX * 2, 1);
+  const usableHeight = chartHeight - paddingY * 2;
+  const coordinates = visiblePoints.map((point, index) => {
+    const x = paddingX + (visiblePoints.length === 1 ? usableWidth / 2 : (index / (visiblePoints.length - 1)) * usableWidth);
+    const y = paddingY + (1 - (rawRange === 0 ? 0.5 : (point.value - min) / range)) * usableHeight;
+    return { ...point, x, y };
+  });
+
+  return (
+    <View style={styles.chartBlock}>
+      <ChartSummary title={title} latest={latest.value} min={min} max={max} delta={delta} unit={unit} />
+      <View onLayout={(event) => setChartWidth(event.nativeEvent.layout.width)} style={[styles.sparklineFrame, { backgroundColor: theme.primarySoft, borderColor: theme.border }]}>
+        <View style={[styles.sparklineGuide, { top: chartHeight / 2, backgroundColor: theme.border }]} />
+        {chartWidth > 0
+          ? coordinates.slice(0, -1).map((point, index) => {
+              const next = coordinates[index + 1];
+              const dx = next.x - point.x;
+              const dy = next.y - point.y;
+              const length = Math.sqrt(dx * dx + dy * dy);
+              const angle = `${Math.atan2(dy, dx)}rad`;
+              return (
+                <View
+                  key={`${point.label}-${next.label}`}
+                  style={[
+                    styles.sparklineSegment,
+                    {
+                      width: length,
+                      left: point.x,
+                      top: point.y,
+                      backgroundColor: theme.primary,
+                      transform: [{ rotate: angle }],
+                    },
+                  ]}
+                />
+              );
+            })
+          : null}
+        {chartWidth > 0
+          ? coordinates.map((point, index) => (
+              <View
+                key={`${point.label}-${point.value}`}
+                style={[
+                  styles.sparklineDot,
+                  {
+                    left: point.x - 4,
+                    top: point.y - 4,
+                    backgroundColor: index === coordinates.length - 1 ? theme.primary : theme.background,
+                    borderColor: theme.primary,
+                  },
+                ]}
+              />
+            ))
+          : null}
+      </View>
+      <View style={[styles.chartEdgeLabels, { flexDirection: isRTL ? "row-reverse" : "row" }]}>
+        <Text style={[styles.chartLabel, { color: theme.muted, fontFamily: fontSet.body }]} numberOfLines={1}>
+          {visiblePoints[0].label}
+        </Text>
+        <Text style={[styles.chartLabel, { color: theme.muted, fontFamily: fontSet.body }]} numberOfLines={1}>
+          {latest.label}
+        </Text>
+      </View>
+    </View>
+  );
+}
+
+function CountBarChart({
+  title,
+  points,
+  unit,
+  emptyMessage,
+}: {
+  title: string;
+  points: Array<{ label: string; value?: number | null }>;
+  unit: string;
+  emptyMessage: string;
+}) {
+  const { fontSet, isRTL, theme } = usePreferences();
+  const visiblePoints = points.filter((point): point is { label: string; value: number } => typeof point.value === "number");
+  if (visiblePoints.length === 0) {
+    return <MutedText>{emptyMessage}</MutedText>;
+  }
+  const values = visiblePoints.map((point) => point.value);
+  const min = Math.min(...values);
+  const max = Math.max(...values);
+  const rawRange = max - min;
+  const range = rawRange || 1;
+  const latest = visiblePoints[visiblePoints.length - 1];
+  const previous = visiblePoints[visiblePoints.length - 2];
+  const delta = previous ? latest.value - previous.value : null;
+
+  return (
+    <View style={styles.chartBlock}>
+      <ChartSummary title={title} latest={latest.value} min={min} max={max} delta={delta} unit={unit} />
+      <View style={[styles.chartRow, { flexDirection: isRTL ? "row-reverse" : "row" }]}>
+        {visiblePoints.map((point) => {
+          const normalized = rawRange === 0 ? 0.5 : (point.value - min) / range;
+          const height = 24 + normalized * 66;
+          return (
+            <View key={`${point.label}-${point.value}`} style={styles.chartColumn}>
+              <View style={[styles.chartTrack, { backgroundColor: theme.primarySoft }]}>
+                <View style={[styles.chartBar, { height, backgroundColor: theme.primary }]} />
+              </View>
+              <Text style={[styles.chartLabel, { color: theme.muted, fontFamily: fontSet.body }]} numberOfLines={1}>
+                {point.label}
+              </Text>
+            </View>
+          );
+        })}
+      </View>
+    </View>
+  );
+}
+
+function buildSessionCountTrend(sessions: MobileStaffMemberDetail["recent_workout_sessions"], locale: string) {
+  const byDate = new Map<string, number>();
+  for (const session of sessions) {
+    const key = session.performed_at.slice(0, 10);
+    byDate.set(key, (byDate.get(key) ?? 0) + 1);
+  }
+  return Array.from(byDate.entries())
+    .sort(([a], [b]) => a.localeCompare(b))
+    .slice(-8)
+    .map(([date, value]) => ({ label: new Date(date).toLocaleDateString(locale, { month: "short", day: "numeric" }), value }));
+}
+
+function calculateAge(dateOfBirth?: string | null) {
+  if (!dateOfBirth) {
+    return null;
+  }
+  const birthDate = new Date(dateOfBirth);
+  if (Number.isNaN(birthDate.getTime())) {
+    return null;
+  }
+  const today = new Date();
+  let age = today.getFullYear() - birthDate.getFullYear();
+  const monthDelta = today.getMonth() - birthDate.getMonth();
+  if (monthDelta < 0 || (monthDelta === 0 && today.getDate() < birthDate.getDate())) {
+    age -= 1;
+  }
+  return age;
+}
+
+function formatChartNumber(value: number) {
+  return Number.isInteger(value) ? String(value) : value.toFixed(1);
+}
+
+function formatSubscriptionSummary(
+  subscription: { status?: string | null; end_date?: string | null; plan_name?: string | null } | null,
+  locale: string,
+  isRTL: boolean,
+) {
+  const status = localizeSubscriptionStatus(subscription?.status ?? undefined, isRTL);
+  const plan = subscription?.plan_name || (isRTL ? "لا توجد خطة" : "No plan");
+  const endDate = subscription?.end_date ? new Date(subscription.end_date) : null;
+  const validEndDate = endDate && !Number.isNaN(endDate.getTime()) ? endDate.toLocaleDateString(locale) : null;
+  if (!validEndDate) {
+    return isRTL ? `${plan} · ${status}` : `${plan} · ${status}`;
+  }
+  return isRTL ? `${plan} · ${status} · ينتهي ${validEndDate}` : `${plan} · ${status} · ends ${validEndDate}`;
+}
+
+function OverflowToggle({ total, expanded, onPress, previewLimit = SECTION_PREVIEW_LIMIT }: { total: number; expanded: boolean; onPress: () => void; previewLimit?: number }) {
   const { copy, fontSet, theme } = usePreferences();
-  const hiddenCount = total - SECTION_PREVIEW_LIMIT;
+  const hiddenCount = total - previewLimit;
   if (hiddenCount <= 0) {
     return null;
   }
@@ -556,6 +918,7 @@ function SimpleRow({ title, subtitle, note }: { title: string; subtitle: string;
 const styles = StyleSheet.create({
   searchCard: {
     borderRadius: 24,
+    gap: 12,
   },
   sectionHeader: {
     alignItems: "center",
@@ -563,6 +926,10 @@ const styles = StyleSheet.create({
     gap: 10,
   },
   heroCard: {
+    gap: 14,
+    borderRadius: 28,
+  },
+  progressCard: {
     gap: 14,
     borderRadius: 28,
   },
@@ -601,16 +968,52 @@ const styles = StyleSheet.create({
     flex: 1,
     gap: 3,
   },
-  metricGrid: {
-    gap: 8,
-  },
-  miniMetric: {
-    flex: 1,
+  selectedMemberTrigger: {
+    alignItems: "center",
     borderWidth: 1,
     borderRadius: 18,
-    paddingHorizontal: 10,
+    gap: 12,
+    paddingHorizontal: 12,
+    paddingVertical: 11,
+  },
+  selectedMemberText: {
+    flex: 1,
+    gap: 3,
+  },
+  memberDropdown: {
+    gap: 8,
+    borderRadius: 22,
+    marginTop: -4,
+  },
+  dropdownCloseText: {
+    fontSize: 12,
+    fontWeight: "800",
+  },
+  metricGrid: {
+    gap: 8,
+    flexWrap: "wrap",
+  },
+  miniMetric: {
+    width: "48%",
+    minHeight: 64,
+    borderWidth: 1,
+    borderRadius: 16,
+    paddingHorizontal: 12,
     paddingVertical: 10,
-    alignItems: "center",
+    justifyContent: "space-between",
+    gap: 8,
+  },
+  miniMetricValue: {
+    fontSize: 17,
+    fontWeight: "800",
+    lineHeight: 20,
+    width: "100%",
+  },
+  miniMetricLabel: {
+    fontSize: 11,
+    fontWeight: "800",
+    lineHeight: 14,
+    width: "100%",
   },
   statusPill: {
     alignSelf: "flex-start",
@@ -633,6 +1036,86 @@ const styles = StyleSheet.create({
     gap: 6,
     paddingHorizontal: 13,
     paddingVertical: 10,
+  },
+  chartBlock: {
+    gap: 8,
+  },
+  chartHeader: {
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: 10,
+  },
+  chartTitle: {
+    fontSize: 14,
+    fontWeight: "700",
+  },
+  chartLatest: {
+    fontSize: 13,
+    fontWeight: "800",
+  },
+  chartMeta: {
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: 10,
+  },
+  chartDelta: {
+    fontSize: 11,
+    fontWeight: "800",
+  },
+  chartRow: {
+    alignItems: "flex-end",
+    gap: 8,
+  },
+  chartColumn: {
+    flex: 1,
+    minWidth: 36,
+    alignItems: "center",
+    gap: 5,
+  },
+  chartTrack: {
+    width: "100%",
+    height: 90,
+    borderRadius: 999,
+    justifyContent: "flex-end",
+    overflow: "hidden",
+  },
+  chartBar: {
+    width: "100%",
+    borderRadius: 999,
+  },
+  chartLabel: {
+    fontSize: 10,
+    maxWidth: 58,
+  },
+  sparklineFrame: {
+    height: 118,
+    borderWidth: 1,
+    borderRadius: 16,
+    overflow: "hidden",
+  },
+  sparklineGuide: {
+    position: "absolute",
+    left: 12,
+    right: 12,
+    height: 1,
+    opacity: 0.7,
+  },
+  sparklineSegment: {
+    position: "absolute",
+    height: 3,
+    borderRadius: 999,
+    transformOrigin: "left center",
+  },
+  sparklineDot: {
+    position: "absolute",
+    width: 8,
+    height: 8,
+    borderRadius: 999,
+    borderWidth: 2,
+  },
+  chartEdgeLabels: {
+    justifyContent: "space-between",
+    gap: 12,
   },
   planAssignRow: {
     alignItems: "center",

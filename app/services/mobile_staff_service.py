@@ -40,28 +40,6 @@ class MobileStaffService:
     async def list_members(*, current_user: User, db: AsyncSession, query: str | None = None) -> list[dict]:
         stmt = select(User).where(User.role == Role.CUSTOMER)
 
-        if current_user.role == Role.COACH:
-            workout_member_ids = (
-                await db.execute(
-                    select(WorkoutPlan.member_id).where(
-                        WorkoutPlan.creator_id == current_user.id,
-                        WorkoutPlan.member_id.is_not(None),
-                    )
-                )
-            ).scalars().all()
-            diet_member_ids = (
-                await db.execute(
-                    select(DietPlan.member_id).where(
-                        DietPlan.creator_id == current_user.id,
-                        DietPlan.member_id.is_not(None),
-                    )
-                )
-            ).scalars().all()
-            member_ids = [member_id for member_id in {*(workout_member_ids or []), *(diet_member_ids or [])} if member_id]
-            if not member_ids:
-                return []
-            stmt = stmt.where(User.id.in_(member_ids))
-
         if query:
             search = f"%{query.strip()}%"
             stmt = stmt.where(
@@ -82,22 +60,6 @@ class MobileStaffService:
         if not member or member.role != Role.CUSTOMER:
             raise ValueError("Member not found")
 
-        if current_user.role == Role.COACH:
-            coach_assignment = await db.execute(
-                select(func.count())
-                .select_from(WorkoutPlan)
-                .where(WorkoutPlan.creator_id == current_user.id, WorkoutPlan.member_id == member.id)
-            )
-            workout_count = int(coach_assignment.scalar() or 0)
-            coach_diet_assignment = await db.execute(
-                select(func.count())
-                .select_from(DietPlan)
-                .where(DietPlan.creator_id == current_user.id, DietPlan.member_id == member.id)
-            )
-            assignment_total = workout_count + int(coach_diet_assignment.scalar() or 0)
-            if assignment_total == 0:
-                raise ValueError("Member not found")
-
         user_payload = await MobileBootstrapService.build_user_response(current_user=member, db=db)
 
         workout_stmt = select(WorkoutPlan).where(
@@ -108,9 +70,6 @@ class MobileStaffService:
             DietPlan.member_id == member.id,
             DietPlan.status != "ARCHIVED",
         )
-        if current_user.role == Role.COACH:
-            workout_stmt = workout_stmt.where(WorkoutPlan.creator_id == current_user.id)
-            diet_stmt = diet_stmt.where(DietPlan.creator_id == current_user.id)
 
         workout_plans = (await db.execute(workout_stmt.order_by(WorkoutPlan.published_at.desc().nullslast(), WorkoutPlan.name.asc()))).scalars().all()
         diet_plans = (await db.execute(diet_stmt.order_by(DietPlan.published_at.desc().nullslast(), DietPlan.name.asc()))).scalars().all()
@@ -149,8 +108,6 @@ class MobileStaffService:
             .order_by(WorkoutSession.performed_at.desc())
             .limit(8)
         )
-        if current_user.role == Role.COACH:
-            workout_sessions_stmt = workout_sessions_stmt.where(WorkoutPlan.creator_id == current_user.id)
         workout_sessions = (await db.execute(workout_sessions_stmt)).all()
 
         workout_feedback_stmt = (
@@ -163,8 +120,6 @@ class MobileStaffService:
             .order_by(WorkoutLog.date.desc())
             .limit(8)
         )
-        if current_user.role == Role.COACH:
-            workout_feedback_stmt = workout_feedback_stmt.where(WorkoutPlan.creator_id == current_user.id)
         workout_feedback_rows = (await db.execute(workout_feedback_stmt)).all()
 
         diet_feedback_stmt = (
@@ -174,8 +129,6 @@ class MobileStaffService:
             .order_by(DietFeedback.created_at.desc())
             .limit(8)
         )
-        if current_user.role == Role.COACH:
-            diet_feedback_stmt = diet_feedback_stmt.where(DietPlan.creator_id == current_user.id)
         diet_feedback_rows = (await db.execute(diet_feedback_stmt)).all()
 
         gym_feedback_rows = (
@@ -470,7 +423,7 @@ class MobileStaffService:
                 "role": role.value,
                 "headline": "Coach control center",
                 "stats": {
-                    "assigned_members": len(members),
+                    "members": len(members),
                     "active_workout_plans": int(workout_total or 0),
                     "active_diet_plans": int(diet_total or 0),
                     "feedback_items": int(feedback_total or 0),

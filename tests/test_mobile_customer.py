@@ -31,7 +31,7 @@ async def _login(client: AsyncClient, email: str, password: str = "password123")
 
 
 @pytest.mark.asyncio
-async def test_mobile_staff_members_coach_scope_and_registration(client: AsyncClient, db_session: AsyncSession):
+async def test_mobile_staff_members_coach_full_customer_view_and_registration(client: AsyncClient, db_session: AsyncSession):
     coach = User(
         email="coach-scope@example.com",
         hashed_password=security.get_password_hash("password123"),
@@ -59,10 +59,12 @@ async def test_mobile_staff_members_coach_scope_and_registration(client: AsyncCl
     coach_headers = await _login(client, coach.email)
     list_response = await client.get(f"{settings.API_V1_STR}/mobile/staff/members", headers=coach_headers)
     assert list_response.status_code == 200
-    assert list_response.json()["data"] == []
+    coach_members = list_response.json()["data"]
+    assert any(item["email"] == customer.email for item in coach_members)
 
     detail_response = await client.get(f"{settings.API_V1_STR}/mobile/staff/members/{customer.id}", headers=coach_headers)
-    assert detail_response.status_code == 404
+    assert detail_response.status_code == 200
+    assert detail_response.json()["data"]["member"]["email"] == customer.email
 
     admin_headers = await _login(client, admin.email)
     register_response = await client.post(
