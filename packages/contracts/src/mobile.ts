@@ -414,6 +414,38 @@ export const mobileStaffTransactionSummarySchema = z.object({
   payment_method: z.string(),
   description: z.string(),
   member_name: z.string().nullable().optional(),
+  receipt_url: z.string().optional(),
+  receipt_print_url: z.string().optional(),
+  receipt_export_url: z.string().optional(),
+  receipt_export_pdf_url: z.string().optional(),
+});
+
+export const mobilePosCheckoutSchema = z.object({
+  transaction_id: z.string().uuid(),
+  date: z.string(),
+  total: z.number(),
+  payment_method: z.string(),
+  member_name: z.string().nullable().optional(),
+  line_items: z.array(
+    z.object({
+      product_id: z.string().uuid().nullable().optional(),
+      product_name: z.string(),
+      unit_price: z.number(),
+      quantity: z.number().int(),
+      line_total: z.number(),
+    }),
+  ),
+  remaining_stock: z.array(
+    z.object({
+      product_id: z.string().uuid(),
+      product_name: z.string(),
+      remaining_stock: z.number().int(),
+    }),
+  ),
+  receipt_url: z.string(),
+  receipt_print_url: z.string(),
+  receipt_export_url: z.string(),
+  receipt_export_pdf_url: z.string(),
 });
 
 export const mobilePosSummarySchema = z.object({
@@ -543,6 +575,7 @@ export type MobileCheckInLookupResult = z.infer<typeof mobileCheckInLookupResult
 export type MobileCheckInResult = z.infer<typeof mobileCheckInResultSchema>;
 export type MobileStaffTransactionSummary = z.infer<typeof mobileStaffTransactionSummarySchema>;
 export type MobilePosSummary = z.infer<typeof mobilePosSummarySchema>;
+export type MobilePosCheckout = z.infer<typeof mobilePosCheckoutSchema>;
 export type MobileCoachFeedback = z.infer<typeof mobileCoachFeedbackSchema>;
 export type MobileCoachPlans = z.infer<typeof mobileCoachPlansSchema>;
 export type MobileStaffHome = z.infer<typeof mobileStaffHomeSchema>;
@@ -608,6 +641,10 @@ export function parseMobileStaffTransactionSummary(input: unknown): MobileStaffT
 
 export function parseMobilePosSummary(input: unknown): MobilePosSummary {
   return mobilePosSummarySchema.parse(input);
+}
+
+export function parseMobilePosCheckout(input: unknown): MobilePosCheckout {
+  return mobilePosCheckoutSchema.parse(input);
 }
 
 export function parseMobileStaffHome(input: unknown): MobileStaffHome {

@@ -15,8 +15,7 @@ from app.models.fitness import BiometricLog, DietPlan, WorkoutPlan
 from app.models.enums import Role
 from app.models.support import SupportTicket, TicketStatus
 from app.models.user import User
-from app.models.notification import WhatsAppDeliveryLog
-from app.models.notification import MobileNotificationPreference
+from app.models.notification import MobileNotificationPreference, PushDeliveryLog, WhatsAppDeliveryLog
 from app.models.access import RenewalRequestStatus, Subscription, SubscriptionRenewalRequest
 from app.models.workout_log import WorkoutSession, WorkoutSessionEntry
 from app.models.workout_log import DietFeedback, GymFeedback, WorkoutLog
@@ -555,7 +554,7 @@ class MobileCustomerService:
 
     @staticmethod
     async def get_notifications(*, current_user: User, db: AsyncSession, limit: int = 20) -> list[dict]:
-        logs = (
+        whatsapp_logs = (
             await db.execute(
                 select(WhatsAppDeliveryLog)
                 .where(WhatsAppDeliveryLog.user_id == current_user.id)
@@ -563,7 +562,15 @@ class MobileCustomerService:
                 .limit(limit)
             )
         ).scalars().all()
-        return [
+        push_logs = (
+            await db.execute(
+                select(PushDeliveryLog)
+                .where(PushDeliveryLog.user_id == current_user.id)
+                .order_by(PushDeliveryLog.created_at.desc())
+                .limit(limit)
+            )
+        ).scalars().all()
+        items = [
             {
                 "id": str(log.id),
                 "title": log.trigger_name if hasattr(log, "trigger_name") else log.event_type.replace("_", " ").title(),
@@ -572,8 +579,21 @@ class MobileCustomerService:
                 "status": log.status,
                 "created_at": log.created_at.isoformat() if log.created_at else None,
             }
-            for log in logs
+            for log in whatsapp_logs
         ]
+        items.extend(
+            {
+                "id": str(log.id),
+                "title": log.title,
+                "body": log.body,
+                "event_type": log.event_type,
+                "status": log.status,
+                "created_at": log.created_at.isoformat() if log.created_at else None,
+            }
+            for log in push_logs
+        )
+        items.sort(key=lambda item: item["created_at"] or "", reverse=True)
+        return items[:limit]
 
     @staticmethod
     async def get_notification_preferences(*, current_user: User, db: AsyncSession) -> dict:

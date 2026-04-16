@@ -14,6 +14,7 @@ from app.auth.router import (
 )
 from app.core.responses import StandardResponse
 from app.database import get_db
+from app.models.finance import PaymentMethod
 from app.models.user import User
 from app.routers.chat import (
     MessageCreateRequest as ChatMessageCreateRequest,
@@ -170,6 +171,32 @@ class MobileFinanceSummaryResponse(BaseModel):
     today_sales_count: int
     low_stock_count: int
     recent_transactions: list[dict[str, Any]]
+
+
+class MobilePOSCheckoutItem(BaseModel):
+    product_id: uuid.UUID
+    quantity: int = Field(ge=1, le=999)
+
+
+class MobilePOSCheckoutRequest(BaseModel):
+    items: list[MobilePOSCheckoutItem] = Field(min_length=1, max_length=50)
+    payment_method: PaymentMethod = PaymentMethod.CASH
+    member_id: uuid.UUID | None = None
+    idempotency_key: str | None = Field(default=None, min_length=8, max_length=160)
+
+
+class MobilePOSCheckoutResponse(BaseModel):
+    transaction_id: uuid.UUID
+    date: str
+    total: float
+    payment_method: str
+    member_name: str | None = None
+    line_items: list[dict[str, Any]]
+    remaining_stock: list[dict[str, Any]]
+    receipt_url: str
+    receipt_print_url: str
+    receipt_export_url: str
+    receipt_export_pdf_url: str
 
 
 class MobileCoachFeedbackResponse(BaseModel):
@@ -957,6 +984,29 @@ async def read_staff_finance_summary(
     return StandardResponse(data=MobileFinanceSummaryResponse(**data))
 
 
+@router.post("/staff/pos/checkout", response_model=StandardResponse[MobilePOSCheckoutResponse])
+async def checkout_staff_pos_cart(
+    payload: MobilePOSCheckoutRequest,
+    current_user: Annotated[
+        User,
+        Depends(dependencies.RoleChecker([schemas.Role.CASHIER, schemas.Role.ADMIN, schemas.Role.MANAGER])),
+    ],
+    db: Annotated[AsyncSession, Depends(get_db)],
+):
+    try:
+        data = await MobileStaffService.checkout_pos_cart(
+            current_user=current_user,
+            db=db,
+            items=[item.model_dump() for item in payload.items],
+            payment_method=payload.payment_method,
+            member_id=payload.member_id,
+            idempotency_key=payload.idempotency_key,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return StandardResponse(data=MobilePOSCheckoutResponse(**data))
+
+
 @router.get("/staff/transactions/recent", response_model=StandardResponse[list[dict[str, Any]]])
 async def read_staff_recent_transactions(
     current_user: Annotated[
@@ -996,15 +1046,18 @@ async def read_coach_plans_summary(
 @router.post("/devices/register", response_model=StandardResponse[MobileDeviceRegistrationResponse])
 async def register_device(
     payload: MobileDeviceRegistrationRequest,
-    _current_user: Annotated[User, Depends(dependencies.get_current_active_user)],
+    current_user: Annotated[User, Depends(dependencies.get_current_active_user)],
+    db: Annotated[AsyncSession, Depends(get_db)],
 ):
+    data = await MobileStaffService.register_device(
+        current_user=current_user,
+        db=db,
+        device_token=payload.device_token,
+        platform=payload.platform,
+        device_name=payload.device_name,
+    )
     return StandardResponse(
-        data=MobileDeviceRegistrationResponse(
-            device_token=payload.device_token,
-            platform=payload.platform,
-            device_name=payload.device_name,
-            registered=True,
-        ),
+        data=MobileDeviceRegistrationResponse(**data),
         message="Device registered",
     )
 
@@ -1012,14 +1065,17 @@ async def register_device(
 @router.post("/devices/unregister", response_model=StandardResponse[MobileDeviceRegistrationResponse])
 async def unregister_device(
     payload: MobileDeviceRegistrationRequest,
-    _current_user: Annotated[User, Depends(dependencies.get_current_active_user)],
+    current_user: Annotated[User, Depends(dependencies.get_current_active_user)],
+    db: Annotated[AsyncSession, Depends(get_db)],
 ):
+    data = await MobileStaffService.unregister_device(
+        current_user=current_user,
+        db=db,
+        device_token=payload.device_token,
+        platform=payload.platform,
+        device_name=payload.device_name,
+    )
     return StandardResponse(
-        data=MobileDeviceRegistrationResponse(
-            device_token=payload.device_token,
-            platform=payload.platform,
-            device_name=payload.device_name,
-            registered=False,
-        ),
+        data=MobileDeviceRegistrationResponse(**data),
         message="Device unregistered",
     )

@@ -85,11 +85,23 @@ export default function OperationsTab() {
           </Card>
           <Card>
             <View style={styles.actionRow}>
+              <Pressable onPress={() => router.push("/(tabs)/qr" as never)} style={[styles.actionChip, { backgroundColor: theme.cardAlt, borderColor: theme.border }]}>
+                <Text style={{ color: theme.foreground, fontFamily: fontSet.body }}>{copy.staffHome.actions.qr}</Text>
+              </Pressable>
+              <Pressable onPress={() => router.push("/leaves")} style={[styles.actionChip, { backgroundColor: theme.cardAlt, borderColor: theme.border }]}>
+                <Text style={{ color: theme.foreground, fontFamily: fontSet.body }}>{copy.operationsScreen.myLeaves}</Text>
+              </Pressable>
               <Pressable onPress={() => router.push("/profile")} style={[styles.actionChip, { backgroundColor: theme.cardAlt, borderColor: theme.border }]}>
                 <Text style={{ color: theme.foreground, fontFamily: fontSet.body }}>{copy.operationsScreen.openProfile}</Text>
               </Pressable>
               <Pressable onPress={() => router.push("/lost-found")} style={[styles.actionChip, { backgroundColor: theme.cardAlt, borderColor: theme.border }]}>
                 <Text style={{ color: theme.foreground, fontFamily: fontSet.body }}>{copy.operationsScreen.openLostFound}</Text>
+              </Pressable>
+              <Pressable onPress={() => router.push("/support")} style={[styles.actionChip, { backgroundColor: theme.cardAlt, borderColor: theme.border }]}>
+                <Text style={{ color: theme.foreground, fontFamily: fontSet.body }}>{copy.more.support}</Text>
+              </Pressable>
+              <Pressable onPress={() => router.push("/notifications")} style={[styles.actionChip, { backgroundColor: theme.cardAlt, borderColor: theme.border }]}>
+                <Text style={{ color: theme.foreground, fontFamily: fontSet.body }}>{copy.more.notifications}</Text>
               </Pressable>
             </View>
           </Card>

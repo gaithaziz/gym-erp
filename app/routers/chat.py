@@ -18,6 +18,7 @@ from app.database import AsyncSessionLocal, get_db
 from app.models.chat import ChatMessage, ChatReadReceipt, ChatThread
 from app.models.enums import Role
 from app.models.user import User
+from app.services.push_service import PushNotificationService
 from app.services.subscription_status_service import SubscriptionStatusService
 
 router = APIRouter()
@@ -502,8 +503,24 @@ async def send_text_message(
     await _ensure_sender_allowed(current_user, thread)
 
     message = await _persist_message(db, thread, current_user, message_type="TEXT", text_content=cleaned)
-    await ws_manager.broadcast_thread(thread, await _build_message_payload(db, thread, message, "chat.message.created"))
-    return StandardResponse(data=MessageResponse.model_validate(message))
+    response_payload = MessageResponse.model_validate(message)
+    ws_payload = await _build_message_payload(db, thread, message, "chat.message.created")
+    recipient_id = thread.coach_id if current_user.id == thread.customer_id else thread.customer_id
+    recipient = await db.get(User, recipient_id)
+    if recipient:
+        await PushNotificationService.queue_and_send(
+            db=db,
+            user=recipient,
+            title="New chat message",
+            body=f"{current_user.full_name or current_user.email}: {cleaned[:120]}",
+            template_key="chat_message",
+            event_type="CHAT_MESSAGE",
+            event_ref=str(message.id),
+            params={"thread_id": str(thread.id), "message": cleaned[:240]},
+            idempotency_key=f"chat-message:{message.id}",
+        )
+    await ws_manager.broadcast_thread(thread, ws_payload)
+    return StandardResponse(data=response_payload)
 
 
 @router.post("/threads/{thread_id}/attachments", response_model=StandardResponse[MessageResponse])
@@ -567,8 +584,24 @@ async def upload_attachment(
         media_size_bytes=total,
         voice_duration_seconds=voice_duration_seconds if message_type == "VOICE" else None,
     )
-    await ws_manager.broadcast_thread(thread, await _build_message_payload(db, thread, message, "chat.message.created"))
-    return StandardResponse(data=MessageResponse.model_validate(message))
+    response_payload = MessageResponse.model_validate(message)
+    ws_payload = await _build_message_payload(db, thread, message, "chat.message.created")
+    recipient_id = thread.coach_id if current_user.id == thread.customer_id else thread.customer_id
+    recipient = await db.get(User, recipient_id)
+    if recipient:
+        await PushNotificationService.queue_and_send(
+            db=db,
+            user=recipient,
+            title="New chat attachment",
+            body=f"{current_user.full_name or current_user.email} sent an attachment",
+            template_key="chat_attachment",
+            event_type="CHAT_MESSAGE",
+            event_ref=str(message.id),
+            params={"thread_id": str(thread.id), "message": message_type.lower()},
+            idempotency_key=f"chat-message:{message.id}",
+        )
+    await ws_manager.broadcast_thread(thread, ws_payload)
+    return StandardResponse(data=response_payload)
 
 
 @router.post("/threads/{thread_id}/read", response_model=StandardResponse)

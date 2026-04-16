@@ -235,6 +235,7 @@ function StaffHomeTab() {
   const quickActions = home?.role === "COACH" ? COACH_HOME_ACTIONS : home?.quick_actions ?? [];
   const attendanceItem = home?.items.find((item) => item.id === "attendance");
   const activityItems = home?.items.filter((item) => item.id !== "attendance") ?? [];
+  const activityTitle = home?.role === "COACH" ? copy.staffHome.coachActivity : home?.role === "CASHIER" ? copy.financeScreen.recentTransactions : copy.staffHome.activity;
   const shiftTimestamp = typeof attendanceItem?.meta === "string" && attendanceItem.meta ? new Date(attendanceItem.meta) : null;
   const locale = localeTag(isRTL);
 
@@ -269,7 +270,7 @@ function StaffHomeTab() {
           </Card>
 
           <Card>
-            <SectionTitle>{copy.staffHome.activity}</SectionTitle>
+            <SectionTitle>{activityTitle}</SectionTitle>
             {activityItems.length === 0 ? (
               <MutedText>{copy.common.noData}</MutedText>
             ) : (
@@ -282,9 +283,9 @@ function StaffHomeTab() {
                         { color: theme.foreground, fontFamily: fontSet.body, textAlign: isRTL ? "right" : "left", writingDirection: direction },
                       ]}
                     >
-                      {String(item.full_name || localizeStaffHomeItem(item.id, item.title, itemLabels) || item.description || copy.common.noData)}
+                      {formatStaffHomeItemTitle(item, itemLabels, copy.common.noData)}
                     </Text>
-                    <MutedText>{String(item.email || localizeStaffHomeItemSubtitle(item.id, item.subtitle, itemLabels) || item.status || item.meta || "")}</MutedText>
+                    <MutedText>{formatStaffHomeItemSubtitle(item, itemLabels, locale)}</MutedText>
                   </View>
                 </View>
               ))
@@ -316,6 +317,22 @@ function localizeStaffHomeItemSubtitle(id: unknown, subtitle: unknown, labels: {
     return labels.notClockedIn;
   }
   return typeof subtitle === "string" ? subtitle : null;
+}
+
+function formatStaffHomeItemTitle(item: Record<string, unknown>, labels: { attendance: string; member: string }, fallback: string) {
+  if (typeof item.description === "string" && item.kind === "pos_transaction") {
+    return item.description;
+  }
+  return String(item.full_name || localizeStaffHomeItem(item.id, item.title, labels) || item.title || fallback);
+}
+
+function formatStaffHomeItemSubtitle(item: Record<string, unknown>, labels: { clockedIn: string; notClockedIn: string }, locale: string) {
+  const parts = [
+    localizeStaffHomeItemSubtitle(item.id, item.subtitle, labels) || item.subtitle || item.status || item.member_name || item.payment_method,
+    typeof item.amount === "number" ? new Intl.NumberFormat(locale, { maximumFractionDigits: 2 }).format(item.amount) : null,
+    typeof item.meta === "string" ? new Date(item.meta).toLocaleString(locale) : typeof item.date === "string" ? new Date(item.date).toLocaleString(locale) : null,
+  ].filter(Boolean);
+  return parts.join(" - ");
 }
 
 function badgeIcon(type: string) {

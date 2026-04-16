@@ -10,6 +10,8 @@ from app.auth.security import get_password_hash
 from app.config import settings
 from app.models.access import Subscription, SubscriptionStatus
 from app.models.enums import Role
+from app.models.finance import POSTransactionItem, Transaction
+from app.models.inventory import Product
 from app.models.notification import WhatsAppDeliveryLog
 from app.models.notification import WhatsAppAutomationRule
 from app.models.user import User
@@ -86,6 +88,86 @@ async def test_cashier_can_process_pos_sale(client: AsyncClient, db_session: Asy
         headers=cashier_headers,
     )
     assert sale.status_code == 200
+
+
+@pytest.mark.asyncio
+async def test_cashier_mobile_cart_checkout_receipt_and_bootstrap(client: AsyncClient, db_session: AsyncSession):
+    password = "password123"
+    hashed = get_password_hash(password)
+    admin = User(email="admin_mobile_pos@gym.com", hashed_password=hashed, role=Role.ADMIN, full_name="Admin Mobile POS", is_active=True)
+    cashier = User(email="cashier_mobile_pos@gym.com", hashed_password=hashed, role=Role.CASHIER, full_name="Cashier Mobile POS", is_active=True)
+    employee = User(email="employee_mobile_ops@gym.com", hashed_password=hashed, role=Role.EMPLOYEE, full_name="Employee Ops", is_active=True)
+    customer = User(email="member_mobile_pos@gym.com", hashed_password=hashed, role=Role.CUSTOMER, full_name="Member POS", is_active=True)
+    db_session.add_all([admin, cashier, employee, customer])
+    await db_session.commit()
+
+    admin_login = await client.post(f"{settings.API_V1_STR}/auth/login", json={"email": admin.email, "password": password})
+    admin_headers = {"Authorization": f"Bearer {admin_login.json()['data']['access_token']}"}
+    water_resp = await client.post(
+        f"{settings.API_V1_STR}/inventory/products",
+        json={"name": "Water Cart", "category": "DRINK", "price": 1.5, "stock_quantity": 5, "low_stock_threshold": 1},
+        headers=admin_headers,
+    )
+    bar_resp = await client.post(
+        f"{settings.API_V1_STR}/inventory/products",
+        json={"name": "Protein Bar Cart", "category": "SNACK", "price": 2.0, "stock_quantity": 4, "low_stock_threshold": 1},
+        headers=admin_headers,
+    )
+    water_id = water_resp.json()["data"]["id"]
+    bar_id = bar_resp.json()["data"]["id"]
+
+    cashier_login = await client.post(f"{settings.API_V1_STR}/auth/login", json={"email": cashier.email, "password": password})
+    cashier_headers = {"Authorization": f"Bearer {cashier_login.json()['data']['access_token']}"}
+
+    bootstrap = await client.get(f"{settings.API_V1_STR}/mobile/bootstrap", headers=cashier_headers)
+    assert bootstrap.status_code == 200
+    assert "operations" in bootstrap.json()["data"]["enabled_modules"]
+    assert "qr" in bootstrap.json()["data"]["enabled_modules"]
+
+    employee_login = await client.post(f"{settings.API_V1_STR}/auth/login", json={"email": employee.email, "password": password})
+    employee_headers = {"Authorization": f"Bearer {employee_login.json()['data']['access_token']}"}
+    employee_bootstrap = await client.get(f"{settings.API_V1_STR}/mobile/bootstrap", headers=employee_headers)
+    assert employee_bootstrap.status_code == 200
+    assert "operations" in employee_bootstrap.json()["data"]["enabled_modules"]
+
+    checkout_payload = {
+        "items": [{"product_id": water_id, "quantity": 2}, {"product_id": bar_id, "quantity": 1}],
+        "payment_method": "CARD",
+        "member_id": str(customer.id),
+        "idempotency_key": "mobile-cart-test-1",
+    }
+    checkout = await client.post(f"{settings.API_V1_STR}/mobile/staff/pos/checkout", json=checkout_payload, headers=cashier_headers)
+    assert checkout.status_code == 200
+    data = checkout.json()["data"]
+    assert data["total"] == 5.0
+    assert len(data["line_items"]) == 2
+    assert data["receipt_export_pdf_url"].endswith("/receipt/export-pdf")
+
+    duplicate = await client.post(f"{settings.API_V1_STR}/mobile/staff/pos/checkout", json=checkout_payload, headers=cashier_headers)
+    assert duplicate.status_code == 200
+    assert duplicate.json()["data"]["transaction_id"] == data["transaction_id"]
+
+    tx = await db_session.get(Transaction, uuid.UUID(data["transaction_id"]))
+    assert tx is not None
+    assert float(tx.amount) == 5.0
+    item_rows = (
+        await db_session.execute(select(POSTransactionItem).where(POSTransactionItem.transaction_id == tx.id))
+    ).scalars().all()
+    assert len(item_rows) == 2
+    water = await db_session.get(Product, uuid.UUID(water_id))
+    assert water is not None
+    assert water.stock_quantity == 3
+
+    receipt = await client.get(f"{settings.API_V1_STR}/finance/transactions/{tx.id}/receipt", headers=cashier_headers)
+    assert receipt.status_code == 200
+    assert len(receipt.json()["data"]["line_items"]) == 2
+
+    insufficient = await client.post(
+        f"{settings.API_V1_STR}/mobile/staff/pos/checkout",
+        json={"items": [{"product_id": water_id, "quantity": 99}], "payment_method": "CASH"},
+        headers=cashier_headers,
+    )
+    assert insufficient.status_code == 400
 
 
 @pytest.mark.asyncio

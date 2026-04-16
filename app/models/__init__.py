@@ -1,6 +1,6 @@
 from app.models.chat import ChatMessage, ChatReadReceipt, ChatThread
 from app.models.lost_found import LostFoundComment, LostFoundItem, LostFoundMedia
-from app.models.notification import MobileNotificationPreference
+from app.models.notification import MobileDevice, MobileNotificationPreference, PushDeliveryLog
 from app.models.access import RenewalRequestStatus, SubscriptionRenewalRequest
 from app.models.support import SupportTicket, SupportMessage, TicketCategory, TicketStatus
 
@@ -13,6 +13,8 @@ __all__ = [
     "LostFoundMedia",
     "LostFoundComment",
     "MobileNotificationPreference",
+    "MobileDevice",
+    "PushDeliveryLog",
     "RenewalRequestStatus",
     "SubscriptionRenewalRequest",
     "SupportTicket",

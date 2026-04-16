@@ -12,6 +12,7 @@
     },
     "ios": {
       "infoPlist": {
+        "NSUserNotificationUsageDescription": "Send gym updates, chat replies, support updates, and receipt notifications.",
         "NSMicrophoneUsageDescription": "Record voice notes in gym chat conversations.",
         "NSAppTransportSecurity": {
           "NSAllowsArbitraryLoads": true,
@@ -39,6 +40,7 @@
     "plugins": [
       "expo-router",
       "expo-secure-store",
+      "expo-notifications",
       [
         "expo-splash-screen",
         {

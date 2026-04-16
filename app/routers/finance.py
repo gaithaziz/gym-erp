@@ -15,7 +15,7 @@ from app.database import get_db
 from app.auth import dependencies
 from app.models.user import User
 from app.models.enums import Role
-from app.models.finance import Transaction, TransactionType, TransactionCategory, PaymentMethod
+from app.models.finance import PaymentMethod, POSTransactionItem, Transaction, TransactionCategory, TransactionType
 from app.services.audit_service import AuditService
 from app.core.responses import StandardResponse
 import uuid
@@ -307,6 +307,69 @@ def _finance_copy(locale: str | None) -> dict[str, str]:
 def _finance_label(locale: str | None, value: str) -> str:
     copy = _finance_copy(locale)
     return copy.get(value.lower(), value.replace("_", " ").title())
+
+
+def _can_access_receipt(current_user: User, transaction: Transaction) -> bool:
+    return (
+        current_user.role in {Role.ADMIN, Role.MANAGER, Role.CASHIER}
+        or current_user.id == transaction.user_id
+    )
+
+
+def _serialize_pos_line_items(items: list[POSTransactionItem]) -> list[dict]:
+    return [
+        {
+            "product_id": str(item.product_id) if item.product_id else None,
+            "product_name": item.product_name,
+            "unit_price": float(item.unit_price),
+            "quantity": item.quantity,
+            "line_total": float(item.line_total),
+        }
+        for item in items
+    ]
+
+
+async def _get_pos_line_items(db: AsyncSession, transaction_id: uuid.UUID) -> list[POSTransactionItem]:
+    return (
+        await db.execute(
+            select(POSTransactionItem)
+            .where(POSTransactionItem.transaction_id == transaction_id)
+            .order_by(POSTransactionItem.product_name.asc())
+        )
+    ).scalars().all()
+
+
+def _pos_items_html(items: list[POSTransactionItem], locale: str | None = "en") -> str:
+    if not items:
+        return ""
+    copy = _finance_copy(locale)
+    rows = "".join(
+        f"""
+        <tr>
+          <td>{escape(item.product_name)}</td>
+          <td class="num">{item.quantity}</td>
+          <td class="num">{escape(_format_money(item.unit_price))}</td>
+          <td class="num">{escape(_format_money(item.line_total))}</td>
+        </tr>
+        """
+        for item in items
+    )
+    return f"""
+    <section class="section">
+      <h2>{escape(copy["transactions"])}</h2>
+      <table>
+        <thead>
+          <tr>
+            <th>{escape(copy["description"])}</th>
+            <th class="num">Qty</th>
+            <th class="num">Unit</th>
+            <th class="num">{escape(copy["amount"])}</th>
+          </tr>
+        </thead>
+        <tbody>{rows}</tbody>
+      </table>
+    </section>
+    """
 
 
 def _render_print_document(
@@ -661,8 +724,7 @@ async def generate_receipt(
     if not transaction:
         raise HTTPException(status_code=404, detail="Transaction not found")
         
-    current_admin_or_owner = current_user.role == Role.ADMIN or current_user.id == transaction.user_id
-    if not current_admin_or_owner:
+    if not _can_access_receipt(current_user, transaction):
         raise HTTPException(status_code=403, detail="Not authorized to view this receipt")
         
     user_name = "Guest/System"
@@ -673,16 +735,18 @@ async def generate_receipt(
         if u:
             user_name = u.full_name
             
+    line_items = await _get_pos_line_items(db, transaction.id)
     receipt_data = {
         "receipt_no": str(transaction.id).split('-')[0].upper(),
         "date": transaction.date.isoformat(),
-        "amount": transaction.amount,
+        "amount": float(transaction.amount),
         "type": transaction.type.value,
         "category": transaction.category.value,
         "payment_method": transaction.payment_method.value,
         "description": transaction.description or "Gym Service/Item",
         "billed_to": user_name,
         "gym_name": "Gym ERP Management",
+        "line_items": _serialize_pos_line_items(line_items),
     }
     return StandardResponse(data=receipt_data)
 
@@ -701,8 +765,7 @@ async def generate_receipt_printable(
     if not transaction:
         raise HTTPException(status_code=404, detail="Transaction not found")
 
-    current_admin_or_owner = current_user.role == Role.ADMIN or current_user.id == transaction.user_id
-    if not current_admin_or_owner:
+    if not _can_access_receipt(current_user, transaction):
         raise HTTPException(status_code=403, detail="Not authorized to view this receipt")
 
     user_name = "Guest/System"
@@ -714,6 +777,7 @@ async def generate_receipt_printable(
             user_name = user.full_name
 
     copy = _finance_copy(locale)
+    line_items = await _get_pos_line_items(db, transaction.id)
     receipt_no = str(transaction.id)[:8].upper()
     amount_text = _format_money(transaction.amount)
     html = _render_print_document(
@@ -738,6 +802,7 @@ async def generate_receipt_printable(
         locale=locale,
         details_heading=copy["details_heading"],
         summary_heading=copy["summary_heading"],
+        sections_html=_pos_items_html(line_items, locale),
     )
     return HTMLResponse(content=html)
 
@@ -755,8 +820,7 @@ async def export_receipt(
     if not transaction:
         raise HTTPException(status_code=404, detail="Transaction not found")
 
-    current_admin_or_owner = current_user.role == Role.ADMIN or current_user.id == transaction.user_id
-    if not current_admin_or_owner:
+    if not _can_access_receipt(current_user, transaction):
         raise HTTPException(status_code=403, detail="Not authorized to export this receipt")
 
     user_name = "Guest/System"
@@ -769,6 +833,7 @@ async def export_receipt(
 
     receipt_no = str(transaction.id)[:8].upper()
     amount_text = _format_money(transaction.amount)
+    line_items = await _get_pos_line_items(db, transaction.id)
     html = _render_print_document(
         title="Gym ERP Receipt",
         subtitle=f"Receipt for {user_name}",
@@ -788,6 +853,7 @@ async def export_receipt(
         ],
         total_label="Total",
         total_value=amount_text,
+        sections_html=_pos_items_html(line_items, "en"),
     )
     return Response(
         content=html,
@@ -976,8 +1042,7 @@ async def export_receipt_pdf(
     if not transaction:
         raise HTTPException(status_code=404, detail="Transaction not found")
 
-    current_admin_or_owner = current_user.role == Role.ADMIN or current_user.id == transaction.user_id
-    if not current_admin_or_owner:
+    if not _can_access_receipt(current_user, transaction):
         raise HTTPException(status_code=403, detail="Not authorized to export this receipt")
 
     user_name = "Guest/System"
@@ -989,8 +1054,21 @@ async def export_receipt_pdf(
             user_name = user.full_name
 
     copy = _finance_copy(locale)
+    line_items = await _get_pos_line_items(db, transaction.id)
     receipt_no = str(transaction.id)[:8].upper()
     amount_text = _format_money(transaction.amount)
+    table_rows = (
+        [
+            [
+                item.product_name,
+                str(item.quantity),
+                _format_money(item.unit_price),
+                _format_money(item.line_total),
+            ]
+            for item in line_items
+        ]
+        or [[transaction.description or copy["gym_service_item"], "1", amount_text, amount_text]]
+    )
     content = _pdf_table_bytes(
         title=copy["receipt_title"],
         subtitle=f"{copy['receipt_subtitle']}: {user_name}",
@@ -1008,14 +1086,8 @@ async def export_receipt_pdf(
             (copy["total"], amount_text),
         ],
         table_title=copy["transactions"],
-        table_headers=[copy["description"], copy["category"], copy["type"], copy["payment_method"], copy["amount"]],
-        table_rows=[[
-            transaction.description or copy["gym_service_item"],
-            _finance_label(locale, transaction.category.value),
-            _finance_label(locale, transaction.type.value),
-            _finance_label(locale, transaction.payment_method.value),
-            amount_text,
-        ]],
+        table_headers=[copy["description"], "Qty", "Unit", copy["amount"]],
+        table_rows=table_rows,
         locale=locale,
     )
     return Response(

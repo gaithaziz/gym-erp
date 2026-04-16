@@ -8,9 +8,11 @@ import {
   parseLoginEnvelope,
   type Envelope,
 } from "@/lib/api";
+import { getPushRegistration, type PushRegistration } from "@/lib/push-notifications";
 import type { MobileBootstrap, TokenPair } from "@gym-erp/contracts";
 
 const TOKEN_STORAGE_KEY = "gym-erp.mobile.tokens";
+const PUSH_STORAGE_KEY = "gym-erp.mobile.push-registration";
 
 type SessionStatus = "loading" | "signed_out" | "signed_in";
 
@@ -77,6 +79,34 @@ async function loadTokenPair() {
   return JSON.parse(raw) as TokenPair;
 }
 
+async function persistPushRegistration(value: PushRegistration | null) {
+  if (!value) {
+    await SecureStore.deleteItemAsync(PUSH_STORAGE_KEY);
+    return;
+  }
+  await SecureStore.setItemAsync(PUSH_STORAGE_KEY, JSON.stringify(value));
+}
+
+async function loadPushRegistration() {
+  const raw = await SecureStore.getItemAsync(PUSH_STORAGE_KEY);
+  if (!raw) {
+    return null;
+  }
+  return JSON.parse(raw) as PushRegistration;
+}
+
+async function sendDeviceRegistration(path: string, accessToken: string, registration: PushRegistration) {
+  await fetch(`${API_BASE_URL}${path}`, {
+    method: "POST",
+    headers: {
+      Accept: "application/json",
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${accessToken}`,
+    },
+    body: JSON.stringify(registration),
+  });
+}
+
 export function SessionProvider({ children }: PropsWithChildren) {
   const [status, setStatus] = useState<SessionStatus>("loading");
   const [error, setError] = useState<string | null>(null);
@@ -89,11 +119,17 @@ export function SessionProvider({ children }: PropsWithChildren) {
   }, [tokenPair]);
 
   const signOut = useCallback(async () => {
+    const current = tokenPairRef.current;
+    const registration = await loadPushRegistration();
+    if (current?.access_token && registration) {
+      await sendDeviceRegistration("/mobile/devices/unregister", current.access_token, registration).catch(() => undefined);
+    }
     setTokenPair(null);
     setBootstrap(null);
     setError(null);
     tokenPairRef.current = null;
     await persistTokenPair(null);
+    await persistPushRegistration(null);
     setStatus("signed_out");
   }, []);
 
@@ -157,6 +193,20 @@ export function SessionProvider({ children }: PropsWithChildren) {
     setBootstrap(parsed.data);
   }, [authorizedRequest]);
 
+  const registerCurrentDevice = useCallback(async (accessToken: string) => {
+    try {
+      const registration = await getPushRegistration();
+      if (!registration) {
+        await persistPushRegistration(null);
+        return;
+      }
+      await sendDeviceRegistration("/mobile/devices/register", accessToken, registration);
+      await persistPushRegistration(registration);
+    } catch {
+      await persistPushRegistration(null);
+    }
+  }, []);
+
   const signIn = useCallback(
     async (email: string, password: string) => {
       setError(null);
@@ -190,8 +240,9 @@ export function SessionProvider({ children }: PropsWithChildren) {
 
       setBootstrap(bootstrapPayload.data);
       setStatus("signed_in");
+      void registerCurrentDevice(payload.data.access_token);
     },
-    [],
+    [registerCurrentDevice],
   );
 
   useEffect(() => {
@@ -233,6 +284,7 @@ export function SessionProvider({ children }: PropsWithChildren) {
           if (alive) {
             setBootstrap(payload.data);
             setStatus("signed_in");
+            void registerCurrentDevice(refreshed.access_token);
           }
           return;
         }
@@ -245,6 +297,7 @@ export function SessionProvider({ children }: PropsWithChildren) {
         if (alive) {
           setBootstrap(payload.data);
           setStatus("signed_in");
+          void registerCurrentDevice(stored.access_token);
         }
       } catch (caught) {
         if (!alive) {
@@ -260,7 +313,7 @@ export function SessionProvider({ children }: PropsWithChildren) {
     return () => {
       alive = false;
     };
-  }, [refreshAccessToken, signOut]);
+  }, [refreshAccessToken, registerCurrentDevice, signOut]);
 
   const value = useMemo<SessionContextValue>(
     () => ({

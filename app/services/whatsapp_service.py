@@ -10,6 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.config import settings
 from app.models.notification import WhatsAppAutomationRule, WhatsAppDeliveryLog
 from app.models.user import User
+from app.services.push_service import PushNotificationService
 
 
 @dataclass
@@ -107,6 +108,17 @@ class WhatsAppNotificationService:
             log.error_message = "Automation rule disabled"
             log.failed_at = datetime.now(timezone.utc)
             await db.commit()
+            await PushNotificationService.queue_and_send(
+                db=db,
+                user=user,
+                title=None,
+                body=None,
+                template_key=resolved_template_key,
+                event_type=event_type,
+                event_ref=event_ref,
+                params=params,
+                idempotency_key=f"push:{idempotency_key}",
+            )
             return log
 
         if not phone_number:
@@ -114,6 +126,17 @@ class WhatsAppNotificationService:
             log.error_message = "No phone number"
             log.failed_at = datetime.now(timezone.utc)
             await db.commit()
+            await PushNotificationService.queue_and_send(
+                db=db,
+                user=user,
+                title=None,
+                body=None,
+                template_key=resolved_template_key,
+                event_type=event_type,
+                event_ref=event_ref,
+                params=params,
+                idempotency_key=f"push:{idempotency_key}",
+            )
             return log
 
         provider = _get_provider()
@@ -133,4 +156,15 @@ class WhatsAppNotificationService:
             log.failed_at = now
 
         await db.commit()
+        await PushNotificationService.queue_and_send(
+            db=db,
+            user=user,
+            title=None,
+            body=None,
+            template_key=resolved_template_key,
+            event_type=event_type,
+            event_ref=event_ref,
+            params=params,
+            idempotency_key=f"push:{idempotency_key}",
+        )
         return log

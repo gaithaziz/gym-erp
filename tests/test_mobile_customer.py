@@ -3,6 +3,7 @@ from datetime import datetime, timedelta, timezone
 
 import pytest
 from httpx import AsyncClient
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.auth import security
@@ -12,10 +13,11 @@ from app.models.chat import ChatMessage, ChatThread
 from app.models.enums import Role
 from app.models.finance import PaymentMethod, Transaction, TransactionCategory, TransactionType
 from app.models.fitness import BiometricLog, DietPlan, WorkoutPlan
-from app.models.notification import WhatsAppDeliveryLog
+from app.models.notification import MobileDevice, PushDeliveryLog, WhatsAppDeliveryLog
 from app.models.subscription_enums import SubscriptionStatus
 from app.models.support import SupportTicket, TicketCategory, TicketStatus
 from app.models.user import User
+from app.services.push_service import PushNotificationService
 from app.models.workout_log import WorkoutSession, WorkoutSessionEntry
 from app.models.workout_log import DietFeedback, GymFeedback, WorkoutLog
 
@@ -476,7 +478,7 @@ async def test_mobile_customer_scan_session_flow(client: AsyncClient, db_session
 
 
 @pytest.mark.asyncio
-async def test_mobile_customer_write_flows(client: AsyncClient, db_session: AsyncSession):
+async def test_mobile_customer_write_flows(client: AsyncClient, db_session: AsyncSession, monkeypatch: pytest.MonkeyPatch):
     now = datetime.now(timezone.utc)
     customer = User(
         email="customer-write@example.com",
@@ -555,6 +557,43 @@ async def test_mobile_customer_write_flows(client: AsyncClient, db_session: Asyn
     bootstrap = await client.get(f"{settings.API_V1_STR}/mobile/bootstrap", headers=headers)
     assert bootstrap.status_code == 200
     assert bootstrap.json()["data"]["notification_settings"]["chat_enabled"] is False
+
+    device_payload = {"device_token": "ExponentPushToken[test-mobile-device]", "platform": "ios", "device_name": "iPhone Test"}
+    device_register = await client.post(f"{settings.API_V1_STR}/mobile/devices/register", headers=headers, json=device_payload)
+    assert device_register.status_code == 200
+    assert device_register.json()["data"]["registered"] is True
+    device = (
+        await db_session.execute(select(MobileDevice).where(MobileDevice.device_token == device_payload["device_token"]))
+    ).scalar_one_or_none()
+    assert device is not None
+    assert device.is_active is True
+
+    device_unregister = await client.post(f"{settings.API_V1_STR}/mobile/devices/unregister", headers=headers, json=device_payload)
+    assert device_unregister.status_code == 200
+    assert device_unregister.json()["data"]["registered"] is False
+    await db_session.refresh(device)
+    assert device.is_active is False
+
+    monkeypatch.setattr(settings, "PUSH_ENABLED", True)
+    monkeypatch.setattr(settings, "PUSH_DRY_RUN", True)
+    device_register_again = await client.post(f"{settings.API_V1_STR}/mobile/devices/register", headers=headers, json=device_payload)
+    assert device_register_again.status_code == 200
+    await PushNotificationService.queue_and_send(
+        db=db_session,
+        user=customer,
+        title="Support replied",
+        body="We replied to your support ticket.",
+        template_key="support_reply",
+        event_type="SUPPORT_REPLY",
+        event_ref="test-support-ref",
+        params={"message": "We replied to your support ticket."},
+        idempotency_key=f"test-push:{customer.id}",
+    )
+    push_log = (
+        await db_session.execute(select(PushDeliveryLog).where(PushDeliveryLog.event_type == "SUPPORT_REPLY"))
+    ).scalar_one()
+    assert push_log.status == "SENT"
+    assert push_log.provider_message_id == "dry-run"
 
     renewal_request = await client.post(
         f"{settings.API_V1_STR}/mobile/customer/billing/renewal-requests",

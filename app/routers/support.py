@@ -15,6 +15,7 @@ from app.database import get_db
 from app.models.enums import Role
 from app.models.support import SupportTicket, SupportMessage, TicketCategory, TicketStatus
 from app.models.user import User
+from app.services.push_service import PushNotificationService
 
 router = APIRouter()
 
@@ -77,7 +78,7 @@ class SupportTicketStatusUpdate(BaseModel):
 
 
 def _is_staff_role(role: Role) -> bool:
-    return role in [Role.ADMIN, Role.RECEPTION]
+    return role in [Role.ADMIN, Role.RECEPTION, Role.FRONT_DESK]
 
 
 def _serialize_ticket(ticket: SupportTicket) -> dict:
@@ -107,6 +108,43 @@ def _serialize_ticket(ticket: SupportTicket) -> dict:
             for m in ticket.messages
         ]
     return d
+
+
+async def _notify_support_staff(db: AsyncSession, ticket: SupportTicket, message: str) -> None:
+    staff = (
+        await db.execute(
+            select(User).where(User.role.in_([Role.ADMIN, Role.RECEPTION, Role.FRONT_DESK]), User.is_active.is_(True))
+        )
+    ).scalars().all()
+    for user in staff:
+        await PushNotificationService.queue_and_send(
+            db=db,
+            user=user,
+            title="New support ticket",
+            body=f"{ticket.subject}: {message[:120]}",
+            template_key="support_ticket",
+            event_type="SUPPORT_TICKET_CREATED",
+            event_ref=str(ticket.id),
+            params={"ticket_id": str(ticket.id), "message": message[:240]},
+            idempotency_key=f"support-ticket:{ticket.id}:{user.id}",
+        )
+
+
+async def _notify_support_customer(db: AsyncSession, ticket: SupportTicket, message: SupportMessage) -> None:
+    customer = await db.get(User, ticket.customer_id)
+    if not customer:
+        return
+    await PushNotificationService.queue_and_send(
+        db=db,
+        user=customer,
+        title="Support replied",
+        body=message.message[:160],
+        template_key="support_reply",
+        event_type="SUPPORT_REPLY",
+        event_ref=str(message.id),
+        params={"ticket_id": str(ticket.id), "message": message.message[:240]},
+        idempotency_key=f"support-reply:{message.id}",
+    )
 
 
 @router.post("/tickets", response_model=StandardResponse[SupportTicketResponse])
@@ -151,6 +189,7 @@ async def create_ticket(
     )
     result = await db.execute(stmt)
     loaded_ticket = result.scalar_one()
+    await _notify_support_staff(db, loaded_ticket, data.message)
 
     return StandardResponse(data=_serialize_ticket(loaded_ticket))
 
@@ -271,8 +310,11 @@ async def add_ticket_message(
     ticket.updated_at = now
     await db.commit()
     await db.refresh(new_message)
+    response_payload = SupportMessageResponse.model_validate(new_message)
+    if current_user.role != Role.CUSTOMER:
+        await _notify_support_customer(db, ticket, new_message)
 
-    return StandardResponse(data=SupportMessageResponse.model_validate(new_message))
+    return StandardResponse(data=response_payload)
 
 
 @router.post("/tickets/{ticket_id}/attachments", response_model=StandardResponse[SupportMessageResponse])
@@ -347,8 +389,11 @@ async def add_ticket_attachment(
     ticket.updated_at = now
     await db.commit()
     await db.refresh(new_message)
+    response_payload = SupportMessageResponse.model_validate(new_message)
+    if current_user.role != Role.CUSTOMER:
+        await _notify_support_customer(db, ticket, new_message)
 
-    return StandardResponse(data=SupportMessageResponse.model_validate(new_message))
+    return StandardResponse(data=response_payload)
 
 
 @router.patch("/tickets/{ticket_id}/status", response_model=StandardResponse[SupportTicketResponse])

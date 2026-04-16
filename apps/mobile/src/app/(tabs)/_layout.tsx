@@ -21,6 +21,7 @@ export default function TabsLayout() {
   const supportTitle = role === "COACH" ? copy.common.chat : copy.common.support;
   const financeTitle = role === "CASHIER" ? copy.staffTabs.pos : copy.staffTabs.finance;
   const operationsTitle = role === "CASHIER" ? copy.staffTabs.transactions : copy.staffTabs.tasks;
+  const qrTitle = role === "RECEPTION" || role === "FRONT_DESK" ? copy.staffTabs.checkIn : copy.tabs.qr;
 
   return (
     <Tabs
@@ -53,7 +54,9 @@ export default function TabsLayout() {
       <Tabs.Screen
         name="qr"
         options={{
-          href: null,
+          href: hidden("qr") ? null : undefined,
+          title: qrTitle,
+          tabBarIcon: ({ color, size }) => <Ionicons name="qr-code-outline" size={size} color={color} />,
         }}
       />
       <Tabs.Screen

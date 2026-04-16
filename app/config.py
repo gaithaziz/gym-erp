@@ -44,6 +44,11 @@ class Settings(BaseSettings):
     WHATSAPP_API_URL: Optional[str] = None
     WHATSAPP_API_TOKEN: Optional[str] = None
     WHATSAPP_TIMEOUT_SECONDS: int = 10
+    PUSH_ENABLED: bool = False
+    PUSH_DRY_RUN: bool = True
+    PUSH_PROVIDER: str = "expo"
+    PUSH_API_URL: str = "https://exp.host/--/api/v2/push/send"
+    PUSH_TIMEOUT_SECONDS: int = 10
 
     # Database
     POSTGRES_HOST: str

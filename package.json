@@ -31,5 +31,13 @@
     "typecheck:web": "npm run typecheck --workspace frontend",
     "lint:web": "npm run lint --workspace frontend",
     "test:web": "npm run test:e2e:fast --workspace frontend"
+  },
+  "overrides": {
+    "react": "19.2.0",
+    "react-dom": "19.2.0"
+  },
+  "devDependencies": {
+    "react": "19.2.0",
+    "react-dom": "19.2.0"
   }
 }

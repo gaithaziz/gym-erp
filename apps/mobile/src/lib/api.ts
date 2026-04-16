@@ -10,6 +10,7 @@ import {
   parseMobileCustomerNotifications,
   parseMobileCustomerPlans,
   parseMobileCustomerProgress,
+  parseMobilePosCheckout,
   parseMobilePosSummary,
   parseMobileStaffHome,
   parseMobileStaffMemberDetail,
@@ -27,6 +28,7 @@ import {
   type MobileCustomerPlans,
   type MobileCustomerProgress,
   type MobilePosSummary,
+  type MobilePosCheckout,
   type MobileStaffHome,
   type MobileStaffMemberDetail,
   type MobileStaffMemberRegistrationResult,
@@ -226,6 +228,14 @@ export function parsePosSummaryEnvelope(input: unknown): Envelope<MobilePosSumma
   return {
     ...payload,
     data: parseMobilePosSummary(payload.data),
+  };
+}
+
+export function parsePosCheckoutEnvelope(input: unknown): Envelope<MobilePosCheckout> {
+  const payload = parseEnvelope<unknown>(input);
+  return {
+    ...payload,
+    data: parseMobilePosCheckout(payload.data),
   };
 }
 

@@ -102,8 +102,8 @@ class MobileBootstrapService:
         Role.COACH: ("home", "qr", "members", "plans", "support", "chat", "profile", "notifications"),
         Role.RECEPTION: ("home", "qr", "members", "support", "profile", "notifications"),
         Role.FRONT_DESK: ("home", "qr", "members", "support", "profile", "notifications"),
-        Role.CASHIER: ("home", "finance", "qr", "profile", "notifications"),
-        Role.EMPLOYEE: ("home", "qr", "support", "profile", "notifications"),
+        Role.CASHIER: ("home", "finance", "operations", "qr", "profile", "notifications"),
+        Role.EMPLOYEE: ("home", "qr", "operations", "support", "profile", "notifications"),
         Role.MANAGER: ("home", "members", "operations", "finance", "inventory", "audit", "support", "chat", "profile", "notifications"),
         Role.ADMIN: ("home", "members", "operations", "finance", "inventory", "audit", "support", "chat", "profile", "notifications"),
     }

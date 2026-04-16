@@ -2,7 +2,7 @@ import uuid
 from datetime import datetime
 from enum import Enum
 from decimal import Decimal
-from sqlalchemy import String, Enum as SAEnum, ForeignKey, DateTime, Numeric
+from sqlalchemy import String, Enum as SAEnum, ForeignKey, DateTime, Numeric, Integer
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from app.database import Base
 
@@ -46,3 +46,19 @@ class Transaction(Base):
     payment_method: Mapped[PaymentMethod] = mapped_column(SAEnum(PaymentMethod, native_enum=False), default=PaymentMethod.CASH, nullable=False)
 
     user = relationship("User")
+    pos_items = relationship("POSTransactionItem", back_populates="transaction", cascade="all, delete-orphan")
+
+
+class POSTransactionItem(Base):
+    __tablename__ = "pos_transaction_items"
+
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
+    transaction_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("transactions.id"), nullable=False, index=True)
+    product_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("products.id"), nullable=True)
+    product_name: Mapped[str] = mapped_column(String, nullable=False)
+    unit_price: Mapped[Decimal] = mapped_column(Numeric(12, 2), nullable=False)
+    quantity: Mapped[int] = mapped_column(Integer, nullable=False)
+    line_total: Mapped[Decimal] = mapped_column(Numeric(12, 2), nullable=False)
+
+    transaction = relationship("Transaction", back_populates="pos_items")
+    product = relationship("Product")

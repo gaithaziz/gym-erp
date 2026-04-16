@@ -11,12 +11,12 @@ from sqlalchemy.orm import selectinload
 from app.auth import security
 from app.models.access import AccessLog, AttendanceLog, Subscription
 from app.models.enums import Role
-from app.models.finance import Transaction, TransactionCategory, TransactionType
+from app.models.finance import PaymentMethod, POSTransactionItem, Transaction, TransactionCategory, TransactionType
 from app.models.fitness import BiometricLog, DietPlan, WorkoutPlan
 from app.models.hr import LeaveRequest
 from app.models.inventory import Product
 from app.models.lost_found import LostFoundItem, LostFoundStatus
-from app.models.notification import MobileNotificationPreference
+from app.models.notification import MobileDevice, MobileNotificationPreference
 from app.models.support import SupportTicket, TicketStatus
 from app.models.user import User
 from app.models.workout_log import DietFeedback, GymFeedback, WorkoutLog, WorkoutSession
@@ -33,6 +33,16 @@ def _as_float(value: Decimal | float | int | None) -> float:
 def _start_of_today() -> datetime:
     now = datetime.utcnow()
     return now.replace(hour=0, minute=0, second=0, microsecond=0)
+
+
+def _receipt_urls(transaction_id: uuid.UUID) -> dict[str, str]:
+    base = f"/api/v1/finance/transactions/{transaction_id}/receipt"
+    return {
+        "receipt_url": base,
+        "receipt_print_url": f"{base}/print",
+        "receipt_export_url": f"{base}/export",
+        "receipt_export_pdf_url": f"{base}/export-pdf",
+    }
 
 
 class MobileStaffService:
@@ -371,15 +381,150 @@ class MobileStaffService:
         return [
             {
                 "id": str(transaction.id),
+                "kind": "pos_transaction",
                 "date": transaction.date.isoformat(),
                 "amount": _as_float(transaction.amount),
                 "category": transaction.category.value if hasattr(transaction.category, "value") else str(transaction.category),
                 "payment_method": transaction.payment_method.value if hasattr(transaction.payment_method, "value") else str(transaction.payment_method),
                 "description": transaction.description or "POS sale",
                 "member_name": member_name,
+                **_receipt_urls(transaction.id),
             }
             for transaction, member_name in rows
         ]
+
+    @staticmethod
+    async def checkout_pos_cart(
+        *,
+        current_user: User,
+        db: AsyncSession,
+        items: list[dict],
+        payment_method: PaymentMethod,
+        member_id: uuid.UUID | None = None,
+        idempotency_key: str | None = None,
+    ) -> dict:
+        if current_user.role not in {Role.ADMIN, Role.MANAGER, Role.CASHIER}:
+            raise ValueError("Not allowed")
+        if not items:
+            raise ValueError("Cart is empty")
+
+        quantities: dict[uuid.UUID, int] = {}
+        for item in items:
+            product_id = item["product_id"]
+            quantity = int(item["quantity"])
+            if quantity < 1:
+                raise ValueError("Quantity must be at least 1")
+            if product_id in quantities:
+                raise ValueError("Duplicate products are not allowed")
+            quantities[product_id] = quantity
+
+        if idempotency_key:
+            existing = (
+                await db.execute(
+                    select(Transaction)
+                    .where(Transaction.idempotency_key == idempotency_key)
+                    .options(selectinload(Transaction.pos_items))
+                )
+            ).scalar_one_or_none()
+            if existing:
+                return MobileStaffService._serialize_pos_checkout(transaction=existing, line_items=list(existing.pos_items))
+
+        member: User | None = None
+        if member_id:
+            member = await db.get(User, member_id)
+            if not member or member.role != Role.CUSTOMER:
+                raise ValueError("Member not found")
+
+        products = (
+            await db.execute(
+                select(Product)
+                .where(Product.id.in_(list(quantities.keys())))
+                .with_for_update()
+            )
+        ).scalars().all()
+        products_by_id = {product.id: product for product in products}
+        if len(products_by_id) != len(quantities):
+            raise ValueError("Product not found")
+
+        line_items: list[POSTransactionItem] = []
+        total = Decimal("0")
+        remaining_stock: list[dict] = []
+        for product_id, quantity in quantities.items():
+            product = products_by_id[product_id]
+            if not product.is_active:
+                raise ValueError(f"{product.name} is no longer available")
+            if product.stock_quantity < quantity:
+                raise ValueError(f"Insufficient stock for {product.name}. Available: {product.stock_quantity}")
+
+            unit_price = Decimal(str(product.price))
+            line_total = unit_price * quantity
+            total += line_total
+            product.stock_quantity -= quantity
+            remaining_stock.append(
+                {
+                    "product_id": str(product.id),
+                    "product_name": product.name,
+                    "remaining_stock": product.stock_quantity,
+                }
+            )
+            line_items.append(
+                POSTransactionItem(
+                    product_id=product.id,
+                    product_name=product.name,
+                    unit_price=unit_price,
+                    quantity=quantity,
+                    line_total=line_total,
+                )
+            )
+
+        item_count = sum(quantities.values())
+        description = f"POS cart: {item_count} item{'s' if item_count != 1 else ''}"
+        transaction = Transaction(
+            amount=total,
+            type=TransactionType.INCOME,
+            category=TransactionCategory.POS_SALE,
+            description=description,
+            payment_method=payment_method,
+            user_id=member.id if member else None,
+            idempotency_key=idempotency_key,
+            date=datetime.utcnow(),
+        )
+        transaction.pos_items = line_items
+        db.add(transaction)
+        await db.flush()
+        await AuditService.log_action(
+            db=db,
+            user_id=current_user.id,
+            action="MOBILE_POS_CHECKOUT",
+            target_id=str(transaction.id),
+            details=f"Processed mobile POS cart for {item_count} items, total {total}",
+        )
+        payload = MobileStaffService._serialize_pos_checkout(transaction=transaction, line_items=line_items)
+        payload["remaining_stock"] = remaining_stock
+        payload["member_name"] = member.full_name if member else None
+        await db.commit()
+        return payload
+
+    @staticmethod
+    def _serialize_pos_checkout(*, transaction: Transaction, line_items: list[POSTransactionItem]) -> dict:
+        return {
+            "transaction_id": str(transaction.id),
+            "date": transaction.date.isoformat(),
+            "total": _as_float(transaction.amount),
+            "payment_method": transaction.payment_method.value if hasattr(transaction.payment_method, "value") else str(transaction.payment_method),
+            "line_items": [
+                {
+                    "product_id": str(item.product_id) if item.product_id else None,
+                    "product_name": item.product_name,
+                    "unit_price": _as_float(item.unit_price),
+                    "quantity": item.quantity,
+                    "line_total": _as_float(item.line_total),
+                }
+                for item in line_items
+            ],
+            "remaining_stock": [],
+            **_receipt_urls(transaction.id),
+        }
 
     @staticmethod
     async def get_home_summary(*, current_user: User, db: AsyncSession) -> dict:
@@ -419,6 +564,47 @@ class MobileStaffService:
                     )
                 )
             ).scalar()
+            recent_sessions = (
+                await db.execute(
+                    select(WorkoutSession, WorkoutPlan.name, User.full_name)
+                    .join(WorkoutPlan, WorkoutPlan.id == WorkoutSession.plan_id)
+                    .join(User, User.id == WorkoutSession.member_id)
+                    .where(WorkoutPlan.creator_id == current_user.id)
+                    .order_by(WorkoutSession.performed_at.desc())
+                    .limit(5)
+                )
+            ).all()
+            recent_feedback = (
+                await db.execute(
+                    select(DietFeedback, DietPlan.name, User.full_name)
+                    .join(DietPlan, DietPlan.id == DietFeedback.diet_plan_id)
+                    .join(User, User.id == DietFeedback.member_id)
+                    .where(DietPlan.creator_id == current_user.id)
+                    .order_by(DietFeedback.created_at.desc())
+                    .limit(5)
+                )
+            ).all()
+            activity_items = [
+                {
+                    "id": str(session.id),
+                    "kind": "workout_session",
+                    "title": member_name or "Member",
+                    "subtitle": plan_name or "Workout session",
+                    "meta": session.performed_at.isoformat(),
+                }
+                for session, plan_name, member_name in recent_sessions
+            ]
+            activity_items.extend(
+                {
+                    "id": str(feedback.id),
+                    "kind": "diet_feedback",
+                    "title": member_name or "Member",
+                    "subtitle": f"{plan_name or 'Diet feedback'} - {feedback.rating}/5",
+                    "meta": feedback.created_at.isoformat(),
+                }
+                for feedback, plan_name, member_name in recent_feedback
+            )
+            activity_items.sort(key=lambda item: item["meta"] or "", reverse=True)
             return {
                 "role": role.value,
                 "headline": "Coach control center",
@@ -435,7 +621,7 @@ class MobileStaffService:
                     {"id": "leaves", "label": "Leaves", "route": "/leaves"},
                     {"id": "chat", "label": "Chat", "route": "/chat"},
                 ],
-                "items": members[:6],
+                "items": activity_items[:6],
             }
 
         if role in {Role.RECEPTION, Role.FRONT_DESK}:
@@ -483,6 +669,7 @@ class MobileStaffService:
                 "items": [
                     {
                         "id": str(log.id),
+                        "kind": "access_scan",
                         "title": full_name or "Member",
                         "subtitle": log.status,
                         "meta": log.scan_time.isoformat(),
@@ -541,6 +728,7 @@ class MobileStaffService:
             "items": [
                 {
                     "id": "attendance",
+                    "kind": "attendance",
                     "title": "Attendance",
                     "subtitle": "Clocked in" if attendance_open else "Not clocked in",
                     "meta": attendance_open.check_in_time.isoformat() if attendance_open else None,
@@ -581,6 +769,85 @@ class MobileStaffService:
             "support_enabled": pref.support_enabled,
             "billing_enabled": pref.billing_enabled,
             "announcements_enabled": pref.announcements_enabled,
+        }
+
+    @staticmethod
+    async def register_device(
+        *,
+        current_user: User,
+        db: AsyncSession,
+        device_token: str,
+        platform: str,
+        device_name: str | None = None,
+    ) -> dict:
+        now = datetime.utcnow()
+        device = (
+            await db.execute(select(MobileDevice).where(MobileDevice.device_token == device_token))
+        ).scalar_one_or_none()
+        if device is None:
+            device = MobileDevice(
+                user_id=current_user.id,
+                device_token=device_token,
+                platform=platform,
+                device_name=device_name,
+                is_active=True,
+                registered_at=now,
+                last_seen_at=now,
+            )
+            db.add(device)
+        else:
+            device.user_id = current_user.id
+            device.platform = platform
+            device.device_name = device_name
+            device.is_active = True
+            device.unregistered_at = None
+            device.last_seen_at = now
+        await db.commit()
+        return {
+            "device_token": device.device_token,
+            "platform": device.platform,
+            "device_name": device.device_name,
+            "registered": device.is_active,
+        }
+
+    @staticmethod
+    async def unregister_device(
+        *,
+        current_user: User,
+        db: AsyncSession,
+        device_token: str,
+        platform: str,
+        device_name: str | None = None,
+    ) -> dict:
+        now = datetime.utcnow()
+        device = (
+            await db.execute(select(MobileDevice).where(MobileDevice.device_token == device_token))
+        ).scalar_one_or_none()
+        if device is None:
+            device = MobileDevice(
+                user_id=current_user.id,
+                device_token=device_token,
+                platform=platform,
+                device_name=device_name,
+                is_active=False,
+                registered_at=now,
+                unregistered_at=now,
+                last_seen_at=now,
+            )
+            db.add(device)
+        else:
+            device.user_id = current_user.id
+            device.platform = platform
+            device.device_name = device_name
+            device.is_active = False
+            device.unregistered_at = now
+            device.last_seen_at = now
+        await db.commit()
+        return {
+            "device_token": device.device_token,
+            "platform": device.platform,
+            "device_name": device.device_name,
+            "registered": device.is_active,
         }
 
     @staticmethod
