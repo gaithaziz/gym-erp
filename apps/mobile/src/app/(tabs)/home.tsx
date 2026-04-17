@@ -235,7 +235,8 @@ function StaffHomeTab() {
   const quickActions = home?.role === "COACH" ? COACH_HOME_ACTIONS : home?.quick_actions ?? [];
   const attendanceItem = home?.items.find((item) => item.id === "attendance");
   const activityItems = home?.items.filter((item) => item.id !== "attendance") ?? [];
-  const activityTitle = home?.role === "COACH" ? copy.staffHome.coachActivity : home?.role === "CASHIER" ? copy.financeScreen.recentTransactions : copy.staffHome.activity;
+  const activityTitle = getStaffActivityTitle(home?.role, copy);
+  const showActivityCard = home?.role !== "EMPLOYEE" || activityItems.length > 0;
   const shiftTimestamp = typeof attendanceItem?.meta === "string" && attendanceItem.meta ? new Date(attendanceItem.meta) : null;
   const locale = localeTag(isRTL);
 
@@ -269,28 +270,30 @@ function StaffHomeTab() {
             <SecondaryButton onPress={() => router.push("/(tabs)/qr" as never)}>{copy.qr.staffShiftTitle}</SecondaryButton>
           </Card>
 
-          <Card>
-            <SectionTitle>{activityTitle}</SectionTitle>
-            {activityItems.length === 0 ? (
-              <MutedText>{copy.common.noData}</MutedText>
-            ) : (
-              activityItems.map((item, index) => (
-                <View key={String(item.id || index)} style={[styles.listRow, { borderTopColor: theme.border, flexDirection: isRTL ? "row-reverse" : "row" }]}>
-                  <View style={styles.listTextBlock}>
-                    <Text
-                      style={[
-                        styles.listTitle,
-                        { color: theme.foreground, fontFamily: fontSet.body, textAlign: isRTL ? "right" : "left", writingDirection: direction },
-                      ]}
-                    >
-                      {formatStaffHomeItemTitle(item, itemLabels, copy.common.noData)}
-                    </Text>
-                    <MutedText>{formatStaffHomeItemSubtitle(item, itemLabels, locale)}</MutedText>
+          {showActivityCard ? (
+            <Card>
+              <SectionTitle>{activityTitle}</SectionTitle>
+              {activityItems.length === 0 ? (
+                <MutedText>{copy.common.noData}</MutedText>
+              ) : (
+                activityItems.map((item, index) => (
+                  <View key={String(item.id || index)} style={[styles.listRow, { borderTopColor: theme.border, flexDirection: isRTL ? "row-reverse" : "row" }]}>
+                    <View style={styles.listTextBlock}>
+                      <Text
+                        style={[
+                          styles.listTitle,
+                          { color: theme.foreground, fontFamily: fontSet.body, textAlign: isRTL ? "right" : "left", writingDirection: direction },
+                        ]}
+                      >
+                        {formatStaffHomeItemTitle(item, itemLabels, copy.common.noData)}
+                      </Text>
+                      <MutedText>{formatStaffHomeItemSubtitle(item, itemLabels, locale)}</MutedText>
+                    </View>
                   </View>
-                </View>
-              ))
-            )}
-          </Card>
+                ))
+              )}
+            </Card>
+          ) : null}
 
           <SecondaryLink href="/profile">{copy.common.profile}</SecondaryLink>
         </>
@@ -317,6 +320,13 @@ function localizeStaffHomeItemSubtitle(id: unknown, subtitle: unknown, labels: {
     return labels.notClockedIn;
   }
   return typeof subtitle === "string" ? subtitle : null;
+}
+
+function getStaffActivityTitle(role: string | undefined, copy: ReturnType<typeof usePreferences>["copy"]) {
+  if (role === "COACH") return copy.staffHome.coachActivity;
+  if (role === "CASHIER") return copy.financeScreen.recentTransactions;
+  if (role === "RECEPTION" || role === "FRONT_DESK") return copy.staffHome.receptionActivity;
+  return copy.staffHome.activity;
 }
 
 function formatStaffHomeItemTitle(item: Record<string, unknown>, labels: { attendance: string; member: string }, fallback: string) {

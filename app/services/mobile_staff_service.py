@@ -13,7 +13,7 @@ from app.models.access import AccessLog, AttendanceLog, Subscription
 from app.models.enums import Role
 from app.models.finance import PaymentMethod, POSTransactionItem, Transaction, TransactionCategory, TransactionType
 from app.models.fitness import BiometricLog, DietPlan, WorkoutPlan
-from app.models.hr import LeaveRequest
+from app.models.hr import LeaveRequest, LeaveStatus
 from app.models.inventory import Product
 from app.models.lost_found import LostFoundItem, LostFoundStatus
 from app.models.notification import MobileDevice, MobileNotificationPreference
@@ -712,6 +712,87 @@ class MobileStaffService:
             )
         ).scalar()
         lost_found_allowed = current_user.role in {Role.EMPLOYEE, Role.ADMIN, Role.MANAGER, Role.RECEPTION, Role.FRONT_DESK}
+        recent_attendance = (
+            await db.execute(
+                select(AttendanceLog)
+                .where(AttendanceLog.user_id == current_user.id, AttendanceLog.check_out_time.is_not(None))
+                .order_by(AttendanceLog.check_in_time.desc())
+                .limit(2)
+            )
+        ).scalars().all()
+        upcoming_leaves = (
+            await db.execute(
+                select(LeaveRequest)
+                .where(
+                    LeaveRequest.user_id == current_user.id,
+                    LeaveRequest.start_date >= date.today(),
+                    LeaveRequest.status.in_([LeaveStatus.PENDING, LeaveStatus.APPROVED]),
+                )
+                .order_by(LeaveRequest.start_date.asc())
+                .limit(2)
+            )
+        ).scalars().all()
+        lost_found_items: list[LostFoundItem] = []
+        if lost_found_allowed:
+            lost_found_items = (
+                await db.execute(
+                    select(LostFoundItem)
+                    .where(
+                        or_(
+                            LostFoundItem.reporter_id == current_user.id,
+                            LostFoundItem.assignee_id == current_user.id,
+                        ),
+                        LostFoundItem.status.in_(
+                            [
+                                LostFoundStatus.REPORTED,
+                                LostFoundStatus.UNDER_REVIEW,
+                                LostFoundStatus.READY_FOR_PICKUP,
+                            ]
+                        ),
+                    )
+                    .order_by(LostFoundItem.updated_at.desc())
+                    .limit(2)
+                )
+            ).scalars().all()
+        activity_items = [
+            {
+                "id": "attendance",
+                "kind": "attendance",
+                "title": "Attendance",
+                "subtitle": "Clocked in" if attendance_open else "Not clocked in",
+                "meta": attendance_open.check_in_time.isoformat() if attendance_open else None,
+            }
+        ]
+        activity_items.extend(
+            {
+                "id": str(log.id),
+                "kind": "shift_summary",
+                "title": "Completed shift",
+                "subtitle": f"{log.hours_worked:.1f}h worked",
+                "meta": log.check_out_time.isoformat() if log.check_out_time else log.check_in_time.isoformat(),
+            }
+            for log in recent_attendance
+        )
+        activity_items.extend(
+            {
+                "id": str(leave.id),
+                "kind": "leave_request",
+                "title": f"{leave.leave_type.value.title()} leave",
+                "subtitle": leave.status.value.title(),
+                "meta": leave.start_date.isoformat(),
+            }
+            for leave in upcoming_leaves
+        )
+        activity_items.extend(
+            {
+                "id": str(item.id),
+                "kind": "lost_found",
+                "title": item.title,
+                "subtitle": item.status.value.replace("_", " ").title(),
+                "meta": item.updated_at.isoformat(),
+            }
+            for item in lost_found_items
+        )
         return {
             "role": role.value,
             "headline": "Personal operations",
@@ -725,15 +806,7 @@ class MobileStaffService:
                 {"id": "tasks", "label": "Tasks", "route": "/(tabs)/operations"},
                 {"id": "profile", "label": "Profile", "route": "/profile"},
             ],
-            "items": [
-                {
-                    "id": "attendance",
-                    "kind": "attendance",
-                    "title": "Attendance",
-                    "subtitle": "Clocked in" if attendance_open else "Not clocked in",
-                    "meta": attendance_open.check_in_time.isoformat() if attendance_open else None,
-                }
-            ],
+            "items": activity_items,
         }
 
     @staticmethod

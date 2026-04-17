@@ -577,6 +577,10 @@ function CoachPlansTab() {
   const [creatingDiet, setCreatingDiet] = useState(false);
   const [selectedWorkoutId, setSelectedWorkoutId] = useState<string | null>(null);
   const [selectedDietId, setSelectedDietId] = useState<string | null>(null);
+  const [workoutDropdownOpen, setWorkoutDropdownOpen] = useState(false);
+  const [dietDropdownOpen, setDietDropdownOpen] = useState(false);
+  const [workoutSearch, setWorkoutSearch] = useState("");
+  const [dietSearch, setDietSearch] = useState("");
   const [workoutName, setWorkoutName] = useState("");
   const [workoutDescription, setWorkoutDescription] = useState("");
   const [workoutExpectedSessions, setWorkoutExpectedSessions] = useState("12");
@@ -600,6 +604,14 @@ function CoachPlansTab() {
   const selectedDiet = dietPlans.find((plan) => plan.id === selectedDietId) ?? null;
   const workoutTemplateCount = useMemo(() => workoutPlans.filter((plan) => plan.is_template).length, [workoutPlans]);
   const dietTemplateCount = useMemo(() => dietPlans.filter((plan) => plan.is_template).length, [dietPlans]);
+  const filteredWorkoutPlans = useMemo(
+    () => workoutPlans.filter((plan) => matchesPlanSearch(plan, workoutSearch, copy.coachPlans.template)),
+    [copy.coachPlans.template, workoutPlans, workoutSearch],
+  );
+  const filteredDietPlans = useMemo(
+    () => dietPlans.filter((plan) => matchesPlanSearch(plan, dietSearch, copy.coachPlans.template)),
+    [copy.coachPlans.template, dietPlans, dietSearch],
+  );
 
   useEffect(() => {
     if (!creatingWorkout && !selectedWorkoutId && workoutPlans.length > 0) {
@@ -833,6 +845,7 @@ function CoachPlansTab() {
               if (editorMode === "workout") {
                 setCreatingWorkout(true);
                 setSelectedWorkoutId(null);
+                setWorkoutDropdownOpen(false);
                 setWorkoutName("");
                 setWorkoutDescription("");
                 setWorkoutExpectedSessions("12");
@@ -841,6 +854,7 @@ function CoachPlansTab() {
               }
               setCreatingDiet(true);
               setSelectedDietId(null);
+              setDietDropdownOpen(false);
               setDietName("");
               setDietDescription("");
               setDietContent("");
@@ -859,19 +873,28 @@ function CoachPlansTab() {
                 onPress={() => undefined}
               />
             ) : null}
-            {workoutPlans.map((plan) => (
-              <PlanPickerRow
-                key={plan.id}
-                title={plan.name}
-                subtitle={`${plan.status} • ${plan.member_name || copy.coachPlans.template}`}
-                active={selectedWorkoutId === plan.id}
-                onPress={() => {
+            {workoutPlans.length > 0 ? (
+              <SearchablePlanDropdown
+                open={workoutDropdownOpen}
+                onToggle={() => setWorkoutDropdownOpen((current) => !current)}
+                search={workoutSearch}
+                onSearchChange={setWorkoutSearch}
+                placeholder={copy.coachPlans.searchWorkoutPlans}
+                selectLabel={copy.coachPlans.selectWorkoutPlan}
+                noResultsLabel={copy.coachPlans.noMatchingPlans}
+                selectedTitle={selectedWorkout?.name || copy.coachPlans.selectWorkoutPlan}
+                selectedSubtitle={selectedWorkout ? `${selectedWorkout.status} • ${selectedWorkout.member_name || copy.coachPlans.template}` : copy.coachPlans.searchWorkoutPlans}
+                plans={filteredWorkoutPlans}
+                selectedId={selectedWorkoutId}
+                templateLabel={copy.coachPlans.template}
+                onSelect={(planId) => {
                   setEditorMode("workout");
                   setCreatingWorkout(false);
-                  setSelectedWorkoutId(plan.id);
+                  setSelectedWorkoutId(planId);
+                  setWorkoutDropdownOpen(false);
                 }}
               />
-            ))}
+            ) : null}
           </>
         ) : (
           <>
@@ -884,19 +907,28 @@ function CoachPlansTab() {
                 onPress={() => undefined}
               />
             ) : null}
-            {dietPlans.map((plan) => (
-              <PlanPickerRow
-                key={plan.id}
-                title={plan.name}
-                subtitle={`${plan.status} • ${plan.member_name || copy.coachPlans.template}`}
-                active={selectedDietId === plan.id}
-                onPress={() => {
+            {dietPlans.length > 0 ? (
+              <SearchablePlanDropdown
+                open={dietDropdownOpen}
+                onToggle={() => setDietDropdownOpen((current) => !current)}
+                search={dietSearch}
+                onSearchChange={setDietSearch}
+                placeholder={copy.coachPlans.searchDietPlans}
+                selectLabel={copy.coachPlans.selectDietPlan}
+                noResultsLabel={copy.coachPlans.noMatchingPlans}
+                selectedTitle={selectedDiet?.name || copy.coachPlans.selectDietPlan}
+                selectedSubtitle={selectedDiet ? `${selectedDiet.status} • ${selectedDiet.member_name || copy.coachPlans.template}` : copy.coachPlans.searchDietPlans}
+                plans={filteredDietPlans}
+                selectedId={selectedDietId}
+                templateLabel={copy.coachPlans.template}
+                onSelect={(planId) => {
                   setEditorMode("diet");
                   setCreatingDiet(false);
-                  setSelectedDietId(plan.id);
+                  setSelectedDietId(planId);
+                  setDietDropdownOpen(false);
                 }}
               />
-            ))}
+            ) : null}
           </>
         )}
       </Card>
@@ -1132,6 +1164,97 @@ function CompactAddButton({ label, onPress }: { label: string; onPress: () => vo
         {label}
       </Text>
     </Pressable>
+  );
+}
+
+type SearchablePlanOption = {
+  id: string;
+  name: string;
+  status: string;
+  member_name?: string | null;
+  is_template: boolean;
+};
+
+function matchesPlanSearch(plan: SearchablePlanOption, search: string, templateLabel: string) {
+  const needle = search.trim().toLowerCase();
+  if (!needle) return true;
+  return [plan.name, plan.member_name, plan.status, plan.is_template ? templateLabel : null]
+    .filter(Boolean)
+    .some((value) => String(value).toLowerCase().includes(needle));
+}
+
+function SearchablePlanDropdown({
+  open,
+  onToggle,
+  search,
+  onSearchChange,
+  placeholder,
+  selectLabel,
+  noResultsLabel,
+  selectedTitle,
+  selectedSubtitle,
+  plans,
+  selectedId,
+  templateLabel,
+  onSelect,
+}: {
+  open: boolean;
+  onToggle: () => void;
+  search: string;
+  onSearchChange: (value: string) => void;
+  placeholder: string;
+  selectLabel: string;
+  noResultsLabel: string;
+  selectedTitle: string;
+  selectedSubtitle: string;
+  plans: SearchablePlanOption[];
+  selectedId: string | null;
+  templateLabel: string;
+  onSelect: (planId: string) => void;
+}) {
+  const { theme, fontSet, direction, isRTL } = usePreferences();
+  const visiblePlans = plans.slice(0, 8);
+
+  return (
+    <View style={{ marginTop: 10 }}>
+      <Pressable
+        onPress={onToggle}
+        style={{
+          borderWidth: 1,
+          borderColor: open ? theme.primary : theme.border,
+          backgroundColor: theme.cardAlt,
+          paddingVertical: 12,
+          paddingHorizontal: 12,
+          borderRadius: 16,
+        }}
+      >
+        <View style={{ flexDirection: isRTL ? "row-reverse" : "row", justifyContent: "space-between", alignItems: "center", gap: 12 }}>
+          <View style={{ flex: 1, gap: 4 }}>
+            <Text style={{ color: theme.foreground, fontFamily: fontSet.body, fontWeight: "800", textAlign: isRTL ? "right" : "left", writingDirection: direction }} numberOfLines={1}>
+              {selectedTitle}
+            </Text>
+            <MutedText>{selectedSubtitle || selectLabel}</MutedText>
+          </View>
+          <Ionicons name={open ? "chevron-up" : "chevron-down"} size={20} color={theme.primary} />
+        </View>
+      </Pressable>
+
+      {open ? (
+        <View style={{ marginTop: 10, gap: 8 }}>
+          <Input value={search} onChangeText={onSearchChange} placeholder={placeholder} />
+          {visiblePlans.length === 0 ? <MutedText>{noResultsLabel}</MutedText> : null}
+          {visiblePlans.map((plan) => (
+            <PlanPickerRow
+              key={plan.id}
+              title={plan.name}
+              subtitle={`${plan.status} • ${plan.member_name || templateLabel}`}
+              active={selectedId === plan.id}
+              onPress={() => onSelect(plan.id)}
+            />
+          ))}
+        </View>
+      ) : null}
+    </View>
   );
 }
 

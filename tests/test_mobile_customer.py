@@ -8,11 +8,13 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.auth import security
 from app.config import settings
-from app.models.access import AccessLog, RenewalRequestStatus, Subscription, SubscriptionRenewalRequest
+from app.models.access import AccessLog, AttendanceLog, RenewalRequestStatus, Subscription, SubscriptionRenewalRequest
 from app.models.chat import ChatMessage, ChatThread
 from app.models.enums import Role
 from app.models.finance import PaymentMethod, Transaction, TransactionCategory, TransactionType
 from app.models.fitness import BiometricLog, DietPlan, WorkoutPlan
+from app.models.hr import LeaveRequest, LeaveStatus, LeaveType
+from app.models.lost_found import LostFoundItem, LostFoundStatus
 from app.models.notification import MobileDevice, PushDeliveryLog, WhatsAppDeliveryLog
 from app.models.subscription_enums import SubscriptionStatus
 from app.models.support import SupportTicket, TicketCategory, TicketStatus
@@ -107,6 +109,139 @@ async def test_mobile_staff_members_coach_full_customer_view_and_registration(cl
         },
     )
     assert invalid_phone_response.status_code == 422
+
+
+@pytest.mark.asyncio
+async def test_mobile_staff_home_coach_uses_real_activity_not_member_summaries(client: AsyncClient, db_session: AsyncSession):
+    now = datetime.utcnow()
+    coach = User(
+        email="coach-home-activity@example.com",
+        hashed_password=security.get_password_hash("password123"),
+        role=Role.COACH,
+        full_name="Activity Coach",
+        is_active=True,
+    )
+    active_member = User(
+        email="active-home-member@example.com",
+        hashed_password=security.get_password_hash("password123"),
+        role=Role.CUSTOMER,
+        full_name="Active Home Member",
+        is_active=True,
+    )
+    quiet_member = User(
+        email="quiet-home-member@example.com",
+        hashed_password=security.get_password_hash("password123"),
+        role=Role.CUSTOMER,
+        full_name="Quiet Home Member",
+        is_active=True,
+    )
+    db_session.add_all([coach, active_member, quiet_member])
+    await db_session.flush()
+
+    workout_plan = WorkoutPlan(
+        name="Activity Strength",
+        creator_id=coach.id,
+        member_id=active_member.id,
+        is_template=False,
+        status="PUBLISHED",
+        version=1,
+        expected_sessions_per_30d=12,
+        published_at=now - timedelta(days=2),
+    )
+    diet_plan = DietPlan(
+        name="Activity Nutrition",
+        creator_id=coach.id,
+        member_id=active_member.id,
+        content="Protein and vegetables",
+        is_template=False,
+        status="PUBLISHED",
+        version=1,
+        published_at=now - timedelta(days=2),
+    )
+    db_session.add_all([workout_plan, diet_plan])
+    await db_session.flush()
+    db_session.add_all(
+        [
+            WorkoutSession(
+                member_id=active_member.id,
+                plan_id=workout_plan.id,
+                performed_at=now - timedelta(hours=1),
+                duration_minutes=45,
+            ),
+            DietFeedback(
+                member_id=active_member.id,
+                diet_plan_id=diet_plan.id,
+                coach_id=coach.id,
+                rating=4,
+                comment="Good adherence",
+                created_at=now - timedelta(minutes=30),
+            ),
+        ]
+    )
+    await db_session.commit()
+
+    headers = await _login(client, coach.email)
+    response = await client.get(f"{settings.API_V1_STR}/mobile/staff/home", headers=headers)
+    assert response.status_code == 200
+    home = response.json()["data"]
+    assert home["role"] == "COACH"
+    assert {item["kind"] for item in home["items"]} == {"workout_session", "diet_feedback"}
+    assert any(item["title"] == active_member.full_name for item in home["items"])
+    assert all("email" not in item for item in home["items"])
+    assert quiet_member.full_name not in {item.get("title") for item in home["items"]}
+
+
+@pytest.mark.asyncio
+async def test_mobile_staff_home_employee_includes_real_operational_reminders(client: AsyncClient, db_session: AsyncSession):
+    now = datetime.now(timezone.utc)
+    employee = User(
+        email="employee-home-activity@example.com",
+        hashed_password=security.get_password_hash("password123"),
+        role=Role.EMPLOYEE,
+        full_name="Activity Employee",
+        is_active=True,
+    )
+    db_session.add(employee)
+    await db_session.flush()
+    db_session.add_all(
+        [
+            AttendanceLog(
+                user_id=employee.id,
+                check_in_time=now - timedelta(days=1, hours=8),
+                check_out_time=now - timedelta(days=1),
+                hours_worked=8.0,
+            ),
+            LeaveRequest(
+                user_id=employee.id,
+                start_date=(now + timedelta(days=3)).date(),
+                end_date=(now + timedelta(days=4)).date(),
+                leave_type=LeaveType.VACATION,
+                status=LeaveStatus.PENDING,
+                reason="Family trip",
+            ),
+            LostFoundItem(
+                reporter_id=employee.id,
+                assignee_id=employee.id,
+                status=LostFoundStatus.UNDER_REVIEW,
+                title="Locker keys",
+                description="Found near reception",
+                category="Keys",
+                found_date=now.date(),
+                found_location="Reception",
+            ),
+        ]
+    )
+    await db_session.commit()
+
+    headers = await _login(client, employee.email)
+    response = await client.get(f"{settings.API_V1_STR}/mobile/staff/home", headers=headers)
+    assert response.status_code == 200
+    home = response.json()["data"]
+    kinds = {item["kind"] for item in home["items"]}
+    assert home["role"] == "EMPLOYEE"
+    assert {"attendance", "shift_summary", "leave_request", "lost_found"}.issubset(kinds)
+    assert any(item["title"] == "Locker keys" for item in home["items"])
+    assert any(item["subtitle"] == "Pending" for item in home["items"])
 
 
 @pytest.mark.asyncio

@@ -403,10 +403,13 @@ export default function MembersTab() {
             <AssignmentCard
               title={copy.membersScreen.assignWorkout}
               hint={copy.membersScreen.pickWorkout}
+              searchPlaceholder={copy.membersScreen.searchWorkoutPlans}
+              selectLabel={copy.membersScreen.selectWorkoutPlan}
               plans={workoutPlansQuery.data ?? []}
               loading={workoutPlansQuery.isLoading}
               error={workoutPlansQuery.error instanceof Error ? workoutPlansQuery.error.message : null}
               emptyMessage={copy.membersScreen.noAssignablePlans}
+              noResultsMessage={copy.membersScreen.noMatchingPlans}
               pending={assignWorkoutMutation.isPending}
               onAssign={(planId) => assignWorkoutMutation.mutate(planId)}
             />
@@ -416,10 +419,13 @@ export default function MembersTab() {
             <AssignmentCard
               title={copy.membersScreen.assignDiet}
               hint={copy.membersScreen.pickDiet}
+              searchPlaceholder={copy.membersScreen.searchDietPlans}
+              selectLabel={copy.membersScreen.selectDietPlan}
               plans={dietPlansQuery.data ?? []}
               loading={dietPlansQuery.isLoading}
               error={dietPlansQuery.error instanceof Error ? dietPlansQuery.error.message : null}
               emptyMessage={copy.membersScreen.noAssignableDiets}
+              noResultsMessage={copy.membersScreen.noMatchingPlans}
               pending={assignDietMutation.isPending}
               onAssign={(planId) => assignDietMutation.mutate(planId)}
             />
@@ -447,30 +453,89 @@ function DataCard({ title, children }: { title: string; children: ReactNode }) {
 function AssignmentCard({
   title,
   hint,
+  searchPlaceholder,
+  selectLabel,
   plans,
   loading,
   error,
   emptyMessage,
+  noResultsMessage,
   pending,
   onAssign,
 }: {
   title: string;
   hint: string;
+  searchPlaceholder: string;
+  selectLabel: string;
   plans: PlanSummary[];
   loading: boolean;
   error: string | null;
   emptyMessage: string;
+  noResultsMessage: string;
   pending: boolean;
   onAssign: (planId: string) => void;
 }) {
+  const { direction, fontSet, isRTL, theme } = usePreferences();
+  const [open, setOpen] = useState(false);
+  const [search, setSearch] = useState("");
+  const filteredPlans = useMemo(() => {
+    const needle = search.trim().toLowerCase();
+    if (!needle) return plans;
+    return plans.filter((plan) => [plan.name, plan.status].some((value) => value.toLowerCase().includes(needle)));
+  }, [plans, search]);
+  const visiblePlans = filteredPlans.slice(0, 8);
+
   return (
     <Card style={styles.assignmentCard}>
       <SectionTitle>{title}</SectionTitle>
       <MutedText>{hint}</MutedText>
       <QueryState loading={loading} error={error} empty={!loading && plans.length === 0} emptyMessage={emptyMessage} />
-      {plans.map((plan) => (
-        <PlanAssignRow key={plan.id} plan={plan} disabled={pending} onPress={() => onAssign(plan.id)} />
-      ))}
+      {plans.length > 0 ? (
+        <>
+          <Pressable
+            onPress={() => setOpen((current) => !current)}
+            style={[
+              styles.assignmentTrigger,
+              {
+                borderColor: open ? theme.primary : theme.border,
+                backgroundColor: theme.cardAlt,
+                flexDirection: isRTL ? "row-reverse" : "row",
+              },
+            ]}
+          >
+            <View style={styles.memberCardText}>
+              <Text
+                style={{ color: theme.foreground, fontFamily: fontSet.body, fontWeight: "800", textAlign: isRTL ? "right" : "left", writingDirection: direction }}
+                numberOfLines={1}
+              >
+                {selectLabel}
+              </Text>
+              <MutedText>{searchPlaceholder}</MutedText>
+            </View>
+            <Ionicons name={open ? "chevron-up" : "chevron-down"} size={20} color={theme.primary} />
+          </Pressable>
+
+          {open ? (
+            <View style={styles.assignmentDropdown}>
+              <Input value={search} onChangeText={setSearch} placeholder={searchPlaceholder} />
+              {visiblePlans.length === 0 ? <MutedText>{noResultsMessage}</MutedText> : null}
+              {visiblePlans.map((plan) => (
+                <PlanAssignRow
+                  key={plan.id}
+                  plan={plan}
+                  disabled={pending}
+                  onPress={() => {
+                    onAssign(plan.id);
+                    setOpen(false);
+                    setSearch("");
+                  }}
+                />
+              ))}
+              {filteredPlans.length > visiblePlans.length ? <MutedText>{`${visiblePlans.length}/${filteredPlans.length}`}</MutedText> : null}
+            </View>
+          ) : null}
+        </>
+      ) : null}
     </Card>
   );
 }
@@ -1027,6 +1092,17 @@ const styles = StyleSheet.create({
   },
   assignmentCard: {
     gap: 10,
+  },
+  assignmentTrigger: {
+    alignItems: "center",
+    borderWidth: 1,
+    borderRadius: 18,
+    gap: 12,
+    paddingHorizontal: 12,
+    paddingVertical: 12,
+  },
+  assignmentDropdown: {
+    gap: 8,
   },
   actionPill: {
     borderWidth: 1,
