@@ -307,6 +307,9 @@ Phase acceptance:
 
 ## Phase 5: Native Features, Offline Support, and Release Hardening
 
+Planning artifacts:
+- `docs/ANDROID_QA_PLAN.md`
+
 Goal:
 - Finish the mobile-native experience, improve reliability, and verify launch readiness across platforms and roles
 
