@@ -78,7 +78,7 @@ class SupportTicketStatusUpdate(BaseModel):
 
 
 def _is_staff_role(role: Role) -> bool:
-    return role in [Role.ADMIN, Role.RECEPTION, Role.FRONT_DESK]
+    return role in [Role.ADMIN, Role.MANAGER, Role.RECEPTION, Role.FRONT_DESK]
 
 
 def _serialize_ticket(ticket: SupportTicket) -> dict:
@@ -113,7 +113,7 @@ def _serialize_ticket(ticket: SupportTicket) -> dict:
 async def _notify_support_staff(db: AsyncSession, ticket: SupportTicket, message: str) -> None:
     staff = (
         await db.execute(
-            select(User).where(User.role.in_([Role.ADMIN, Role.RECEPTION, Role.FRONT_DESK]), User.is_active.is_(True))
+            select(User).where(User.role.in_([Role.ADMIN, Role.MANAGER, Role.RECEPTION, Role.FRONT_DESK]), User.is_active.is_(True))
         )
     ).scalars().all()
     for user in staff:

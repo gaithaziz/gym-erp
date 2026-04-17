@@ -1,23 +1,24 @@
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import datetime, timedelta, timezone
 from decimal import Decimal
 from typing import Any
 
-from sqlalchemy import func, select
+from sqlalchemy import or_, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.access import AccessLog, AttendanceLog, Subscription, SubscriptionRenewalRequest, RenewalRequestStatus
 from app.models.audit import AuditLog
 from app.models.enums import Role
-from app.models.finance import Transaction, TransactionType
+from app.models.finance import PaymentMethod, Transaction, TransactionCategory, TransactionType
 from app.models.hr import LeaveRequest, LeaveStatus
-from app.models.inventory import Product
+from app.models.inventory import Product, ProductCategory
 from app.models.lost_found import LostFoundItem, LostFoundStatus
 from app.models.notification import PushDeliveryLog, WhatsAppAutomationRule
 from app.models.subscription_enums import SubscriptionStatus
 from app.models.support import SupportTicket, TicketStatus
 from app.models.user import User
+from app.services.audit_service import AuditService
 
 
 ADMIN_CONTROL_ROLES = {Role.ADMIN, Role.MANAGER}
@@ -85,7 +86,7 @@ class MobileAdminService:
                 "title": "Renewal requests",
                 "subtitle": "Cash renewals waiting for staff approval",
                 "count": operations["approvals"]["pending_renewals"],
-                "route": "/billing",
+                "route": "/approvals",
             },
             {
                 "id": "leave_requests",
@@ -93,7 +94,7 @@ class MobileAdminService:
                 "title": "Leave requests",
                 "subtitle": "Staff leave requests awaiting review",
                 "count": operations["approvals"]["pending_leaves"],
-                "route": "/leaves",
+                "route": "/approvals",
             },
         ]
 
@@ -385,6 +386,308 @@ class MobileAdminService:
                 }
                 for product in low_stock_products
             ],
+        }
+
+    @classmethod
+    async def get_approvals(cls, *, current_user: User, db: AsyncSession) -> dict[str, Any]:
+        cls._ensure_allowed(current_user)
+
+        renewal_rows = (
+            await db.execute(
+                select(SubscriptionRenewalRequest, User)
+                .join(User, User.id == SubscriptionRenewalRequest.user_id)
+                .where(SubscriptionRenewalRequest.status == RenewalRequestStatus.PENDING)
+                .order_by(SubscriptionRenewalRequest.requested_at.asc())
+                .limit(50)
+            )
+        ).all()
+        leave_rows = (
+            await db.execute(
+                select(LeaveRequest, User)
+                .join(User, User.id == LeaveRequest.user_id)
+                .where(LeaveRequest.status == LeaveStatus.PENDING)
+                .order_by(LeaveRequest.start_date.asc())
+                .limit(50)
+            )
+        ).all()
+
+        return {
+            "renewals": [cls._serialize_renewal_approval(request, member) for request, member in renewal_rows],
+            "leaves": [cls._serialize_leave_approval(leave, staff) for leave, staff in leave_rows],
+        }
+
+    @classmethod
+    async def approve_renewal_request(
+        cls,
+        *,
+        current_user: User,
+        db: AsyncSession,
+        request_id,
+        amount_paid: float,
+        payment_method: PaymentMethod,
+        reviewer_note: str | None = None,
+    ) -> dict[str, Any]:
+        cls._ensure_allowed(current_user)
+        renewal = await db.get(SubscriptionRenewalRequest, request_id)
+        if not renewal:
+            raise ValueError("Renewal request not found")
+        if renewal.status != RenewalRequestStatus.PENDING:
+            raise ValueError("Renewal request is not pending")
+        if amount_paid <= 0:
+            raise ValueError("Amount paid must be greater than zero")
+
+        now = datetime.now(timezone.utc)
+        result = await db.execute(select(Subscription).where(Subscription.user_id == renewal.user_id))
+        subscription = result.scalar_one_or_none()
+        start_date = max(subscription.end_date, now) if subscription and subscription.end_date and subscription.end_date > now else now
+        end_date = start_date + timedelta(days=renewal.duration_days)
+
+        if subscription:
+            subscription.plan_name = renewal.plan_name
+            subscription.start_date = start_date
+            subscription.end_date = end_date
+            subscription.status = SubscriptionStatus.ACTIVE
+        else:
+            subscription = Subscription(
+                user_id=renewal.user_id,
+                plan_name=renewal.plan_name,
+                start_date=start_date,
+                end_date=end_date,
+                status=SubscriptionStatus.ACTIVE,
+            )
+            db.add(subscription)
+
+        transaction = Transaction(
+            amount=Decimal(str(amount_paid)),
+            type=TransactionType.INCOME,
+            category=TransactionCategory.SUBSCRIPTION,
+            payment_method=payment_method,
+            description=f"Mobile renewal approval - {renewal.plan_name}",
+            user_id=renewal.user_id,
+            date=now,
+        )
+        db.add(transaction)
+        renewal.status = RenewalRequestStatus.APPROVED
+        renewal.reviewed_at = now
+        renewal.reviewed_by_user_id = current_user.id
+        renewal.reviewer_note = reviewer_note
+
+        await AuditService.log_action(
+            db,
+            current_user.id,
+            "MOBILE_RENEWAL_APPROVED",
+            str(renewal.id),
+            f"Approved renewal for {renewal.user_id} with {amount_paid} via {payment_method.value}",
+        )
+        await db.commit()
+        await db.refresh(renewal)
+        await db.refresh(subscription)
+        await db.refresh(transaction)
+
+        return {
+            "status": "APPROVED",
+            "request_id": str(renewal.id),
+            "subscription_id": str(subscription.id),
+            "transaction_id": str(transaction.id),
+        }
+
+    @classmethod
+    async def reject_renewal_request(
+        cls,
+        *,
+        current_user: User,
+        db: AsyncSession,
+        request_id,
+        reviewer_note: str | None = None,
+    ) -> dict[str, Any]:
+        cls._ensure_allowed(current_user)
+        renewal = await db.get(SubscriptionRenewalRequest, request_id)
+        if not renewal:
+            raise ValueError("Renewal request not found")
+        if renewal.status != RenewalRequestStatus.PENDING:
+            raise ValueError("Renewal request is not pending")
+
+        renewal.status = RenewalRequestStatus.REJECTED
+        renewal.reviewed_at = datetime.now(timezone.utc)
+        renewal.reviewed_by_user_id = current_user.id
+        renewal.reviewer_note = reviewer_note
+        await AuditService.log_action(
+            db,
+            current_user.id,
+            "MOBILE_RENEWAL_REJECTED",
+            str(renewal.id),
+            f"Rejected renewal for {renewal.user_id}",
+        )
+        await db.commit()
+        await db.refresh(renewal)
+        return {"status": "REJECTED", "request_id": str(renewal.id), "subscription_id": None, "transaction_id": None}
+
+    @classmethod
+    async def list_inventory_products(
+        cls,
+        *,
+        current_user: User,
+        db: AsyncSession,
+        search: str | None = None,
+        category: ProductCategory | None = None,
+        status_filter: str = "all",
+    ) -> dict[str, Any]:
+        cls._ensure_allowed(current_user)
+        stmt = select(Product)
+        if status_filter == "active":
+            stmt = stmt.where(Product.is_active.is_(True))
+        elif status_filter == "inactive":
+            stmt = stmt.where(Product.is_active.is_(False))
+        elif status_filter != "all":
+            raise ValueError("Invalid status filter")
+        if category:
+            stmt = stmt.where(Product.category == category)
+        if search:
+            like = f"%{search.strip()}%"
+            stmt = stmt.where(or_(Product.name.ilike(like), Product.sku.ilike(like)))
+        products = (await db.execute(stmt.order_by(Product.name.asc()))).scalars().all()
+        return {"items": [cls._serialize_product(product) for product in products]}
+
+    @classmethod
+    async def get_inventory_product(cls, *, current_user: User, db: AsyncSession, product_id) -> dict[str, Any]:
+        cls._ensure_allowed(current_user)
+        product = await cls._get_product(db, product_id)
+        return cls._serialize_product(product)
+
+    @classmethod
+    async def create_inventory_product(cls, *, current_user: User, db: AsyncSession, data: dict[str, Any]) -> dict[str, Any]:
+        cls._ensure_allowed(current_user)
+        product = Product(**data)
+        db.add(product)
+        await db.flush()
+        await AuditService.log_action(
+            db,
+            current_user.id,
+            "MOBILE_PRODUCT_CREATED",
+            str(product.id),
+            f"Created product {product.name}",
+        )
+        await db.commit()
+        await db.refresh(product)
+        return cls._serialize_product(product)
+
+    @classmethod
+    async def update_inventory_product(cls, *, current_user: User, db: AsyncSession, product_id, data: dict[str, Any]) -> dict[str, Any]:
+        cls._ensure_allowed(current_user)
+        product = await cls._get_product(db, product_id)
+        update_data = {key: value for key, value in data.items() if value is not None}
+        for key, value in update_data.items():
+            setattr(product, key, value)
+        await AuditService.log_action(
+            db,
+            current_user.id,
+            "MOBILE_PRODUCT_UPDATED",
+            str(product.id),
+            f"Updated product {product.name}. Fields: {list(update_data.keys())}",
+        )
+        await db.commit()
+        await db.refresh(product)
+        return cls._serialize_product(product)
+
+    @classmethod
+    async def deactivate_inventory_product(cls, *, current_user: User, db: AsyncSession, product_id) -> dict[str, Any]:
+        cls._ensure_allowed(current_user)
+        product = await cls._get_product(db, product_id)
+        product.is_active = False
+        await AuditService.log_action(
+            db,
+            current_user.id,
+            "MOBILE_PRODUCT_DEACTIVATED",
+            str(product.id),
+            f"Deactivated product {product.name}",
+        )
+        await db.commit()
+        await db.refresh(product)
+        return cls._serialize_product(product)
+
+    @classmethod
+    async def acknowledge_low_stock(cls, *, current_user: User, db: AsyncSession, product_id) -> dict[str, Any]:
+        cls._ensure_allowed(current_user)
+        product = await cls._get_product(db, product_id)
+        product.low_stock_acknowledged_at = datetime.now(timezone.utc)
+        await AuditService.log_action(db, current_user.id, "MOBILE_LOW_STOCK_ACKNOWLEDGED", str(product.id), f"Acknowledged {product.name}")
+        await db.commit()
+        await db.refresh(product)
+        return cls._serialize_product(product)
+
+    @classmethod
+    async def snooze_low_stock(cls, *, current_user: User, db: AsyncSession, product_id, hours: int) -> dict[str, Any]:
+        cls._ensure_allowed(current_user)
+        product = await cls._get_product(db, product_id)
+        product.low_stock_snoozed_until = datetime.now(timezone.utc) + timedelta(hours=hours)
+        await AuditService.log_action(db, current_user.id, "MOBILE_LOW_STOCK_SNOOZED", str(product.id), f"Snoozed {product.name} for {hours} hours")
+        await db.commit()
+        await db.refresh(product)
+        return cls._serialize_product(product)
+
+    @classmethod
+    async def set_low_stock_restock_target(cls, *, current_user: User, db: AsyncSession, product_id, target_quantity: int) -> dict[str, Any]:
+        cls._ensure_allowed(current_user)
+        product = await cls._get_product(db, product_id)
+        product.low_stock_restock_target = target_quantity
+        await AuditService.log_action(db, current_user.id, "MOBILE_LOW_STOCK_RESTOCK_TARGET_SET", str(product.id), f"Set target to {target_quantity}")
+        await db.commit()
+        await db.refresh(product)
+        return cls._serialize_product(product)
+
+    @staticmethod
+    async def _get_product(db: AsyncSession, product_id) -> Product:
+        product = await db.get(Product, product_id)
+        if not product:
+            raise ValueError("Product not found")
+        return product
+
+    @staticmethod
+    def _serialize_product(product: Product) -> dict[str, Any]:
+        return {
+            "id": str(product.id),
+            "name": product.name,
+            "sku": product.sku,
+            "category": product.category.value if hasattr(product.category, "value") else str(product.category),
+            "price": _as_float(product.price),
+            "cost_price": _as_float(product.cost_price) if product.cost_price is not None else None,
+            "stock_quantity": product.stock_quantity,
+            "low_stock_threshold": product.low_stock_threshold,
+            "low_stock_restock_target": product.low_stock_restock_target,
+            "low_stock_acknowledged_at": product.low_stock_acknowledged_at.isoformat() if product.low_stock_acknowledged_at else None,
+            "low_stock_snoozed_until": product.low_stock_snoozed_until.isoformat() if product.low_stock_snoozed_until else None,
+            "is_active": product.is_active,
+            "image_url": product.image_url,
+            "created_at": product.created_at.isoformat() if product.created_at else None,
+        }
+
+    @staticmethod
+    def _serialize_renewal_approval(request: SubscriptionRenewalRequest, member: User) -> dict[str, Any]:
+        return {
+            "id": str(request.id),
+            "member_id": str(member.id),
+            "member_name": member.full_name,
+            "member_email": member.email,
+            "offer_code": request.offer_code,
+            "plan_name": request.plan_name,
+            "duration_days": request.duration_days,
+            "status": request.status.value if hasattr(request.status, "value") else str(request.status),
+            "customer_note": request.customer_note,
+            "requested_at": request.requested_at.isoformat() if request.requested_at else None,
+        }
+
+    @staticmethod
+    def _serialize_leave_approval(leave: LeaveRequest, staff: User) -> dict[str, Any]:
+        return {
+            "id": str(leave.id),
+            "staff_id": str(staff.id),
+            "staff_name": staff.full_name,
+            "staff_email": staff.email,
+            "start_date": leave.start_date.isoformat(),
+            "end_date": leave.end_date.isoformat(),
+            "leave_type": leave.leave_type.value if hasattr(leave.leave_type, "value") else str(leave.leave_type),
+            "status": leave.status.value if hasattr(leave.status, "value") else str(leave.status),
+            "reason": leave.reason,
         }
 
     @staticmethod

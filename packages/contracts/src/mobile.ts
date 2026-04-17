@@ -698,6 +698,83 @@ export const mobileAdminInventorySummarySchema = z.object({
   low_stock_products: z.array(mobileInventoryRiskItemSchema),
 });
 
+export const mobileRenewalApprovalItemSchema = z.object({
+  id: z.string().uuid(),
+  member_id: z.string().uuid(),
+  member_name: z.string().nullable().optional(),
+  member_email: z.string(),
+  offer_code: z.string(),
+  plan_name: z.string(),
+  duration_days: z.number().int(),
+  status: z.string(),
+  customer_note: z.string().nullable().optional(),
+  requested_at: z.string().nullable().optional(),
+});
+
+export const mobileLeaveApprovalItemSchema = z.object({
+  id: z.string().uuid(),
+  staff_id: z.string().uuid(),
+  staff_name: z.string().nullable().optional(),
+  staff_email: z.string(),
+  start_date: z.string(),
+  end_date: z.string(),
+  leave_type: z.string(),
+  status: z.string(),
+  reason: z.string().nullable().optional(),
+});
+
+export const mobileAdminApprovalsSchema = z.object({
+  renewals: z.array(mobileRenewalApprovalItemSchema),
+  leaves: z.array(mobileLeaveApprovalItemSchema),
+});
+
+export const mobileApprovalActionResultSchema = z.object({
+  status: z.string(),
+  request_id: z.string().uuid(),
+  subscription_id: z.string().uuid().nullable().optional(),
+  transaction_id: z.string().uuid().nullable().optional(),
+});
+
+export const mobileInventoryProductSchema = z.object({
+  id: z.string().uuid(),
+  name: z.string(),
+  sku: z.string().nullable().optional(),
+  category: z.string(),
+  price: z.number(),
+  cost_price: z.number().nullable().optional(),
+  stock_quantity: z.number().int(),
+  low_stock_threshold: z.number().int(),
+  low_stock_restock_target: z.number().int().nullable().optional(),
+  low_stock_acknowledged_at: z.string().nullable().optional(),
+  low_stock_snoozed_until: z.string().nullable().optional(),
+  is_active: z.boolean(),
+  image_url: z.string().nullable().optional(),
+  created_at: z.string().nullable().optional(),
+});
+
+export const mobileInventoryProductsSchema = z.object({
+  items: z.array(mobileInventoryProductSchema),
+});
+
+export const mobileInventoryProductCreateSchema = z.object({
+  name: z.string().min(1),
+  sku: z.string().nullable().optional(),
+  category: z.string(),
+  price: z.number(),
+  cost_price: z.number().nullable().optional(),
+  stock_quantity: z.number().int(),
+  low_stock_threshold: z.number().int(),
+  low_stock_restock_target: z.number().int().nullable().optional(),
+  image_url: z.string().nullable().optional(),
+  is_active: z.boolean().optional(),
+});
+
+export const mobileInventoryProductUpdateSchema = mobileInventoryProductCreateSchema.partial();
+
+export const mobileSupportTicketStatusUpdateSchema = z.object({
+  status: z.string(),
+});
+
 export const mobileDeviceRegistrationSchema = z.object({
   device_token: z.string(),
   platform: z.string(),
@@ -760,6 +837,15 @@ export type MobileAuditEvent = z.infer<typeof mobileAuditEventSchema>;
 export type MobileAdminAuditSummary = z.infer<typeof mobileAdminAuditSummarySchema>;
 export type MobileInventoryRiskItem = z.infer<typeof mobileInventoryRiskItemSchema>;
 export type MobileAdminInventorySummary = z.infer<typeof mobileAdminInventorySummarySchema>;
+export type MobileRenewalApprovalItem = z.infer<typeof mobileRenewalApprovalItemSchema>;
+export type MobileLeaveApprovalItem = z.infer<typeof mobileLeaveApprovalItemSchema>;
+export type MobileAdminApprovals = z.infer<typeof mobileAdminApprovalsSchema>;
+export type MobileApprovalActionResult = z.infer<typeof mobileApprovalActionResultSchema>;
+export type MobileInventoryProduct = z.infer<typeof mobileInventoryProductSchema>;
+export type MobileInventoryProducts = z.infer<typeof mobileInventoryProductsSchema>;
+export type MobileInventoryProductCreate = z.infer<typeof mobileInventoryProductCreateSchema>;
+export type MobileInventoryProductUpdate = z.infer<typeof mobileInventoryProductUpdateSchema>;
+export type MobileSupportTicketStatusUpdate = z.infer<typeof mobileSupportTicketStatusUpdateSchema>;
 export type MobileDeviceRegistration = z.infer<typeof mobileDeviceRegistrationSchema>;
 export type MobileRenewalRequest = z.infer<typeof mobileRenewalRequestSchema>;
 export type MobileRenewalRequestList = z.infer<typeof mobileRenewalRequestListSchema>;
@@ -854,6 +940,26 @@ export function parseMobileAdminAuditSummary(input: unknown): MobileAdminAuditSu
 
 export function parseMobileAdminInventorySummary(input: unknown): MobileAdminInventorySummary {
   return mobileAdminInventorySummarySchema.parse(input);
+}
+
+export function parseMobileAdminApprovals(input: unknown): MobileAdminApprovals {
+  return mobileAdminApprovalsSchema.parse(input);
+}
+
+export function parseMobileApprovalActionResult(input: unknown): MobileApprovalActionResult {
+  return mobileApprovalActionResultSchema.parse(input);
+}
+
+export function parseMobileInventoryProduct(input: unknown): MobileInventoryProduct {
+  return mobileInventoryProductSchema.parse(input);
+}
+
+export function parseMobileInventoryProducts(input: unknown): MobileInventoryProducts {
+  return mobileInventoryProductsSchema.parse(input);
+}
+
+export function parseMobileSupportTicketStatusUpdate(input: unknown): MobileSupportTicketStatusUpdate {
+  return mobileSupportTicketStatusUpdateSchema.parse(input);
 }
 
 export function parseMobileDeviceRegistration(input: unknown): MobileDeviceRegistration {

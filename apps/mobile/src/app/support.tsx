@@ -27,36 +27,48 @@ type SupportTicket = {
 };
 
 const CATEGORIES = ["GENERAL", "TECHNICAL", "BILLING", "SUBSCRIPTION"] as const;
+const QUEUE_FILTERS = ["all", "active", "resolvedClosed"] as const;
+const STAFF_STATUSES = ["OPEN", "IN_PROGRESS", "RESOLVED", "CLOSED"] as const;
 
-function subscriptionSupportSubject(type: string, isRTL: boolean) {
-  const labels: Record<string, { en: string; ar: string }> = {
-    freeze: { en: "Subscription freeze request", ar: "طلب تجميد الاشتراك" },
-    unfreeze: { en: "Subscription unfreeze request", ar: "طلب إلغاء تجميد الاشتراك" },
-    extend: { en: "Subscription extension request", ar: "طلب تمديد الاشتراك" },
-    support: { en: "Subscription support request", ar: "طلب دعم الاشتراك" },
-  };
-  return (labels[type] ?? labels.support)[isRTL ? "ar" : "en"];
+function subscriptionSupportSubject(type: string, copy: ReturnType<typeof usePreferences>["copy"]) {
+  if (type === "freeze") {
+    return copy.supportScreen.subscriptionFreezeSubject;
+  }
+  if (type === "unfreeze") {
+    return copy.supportScreen.subscriptionUnfreezeSubject;
+  }
+  if (type === "extend") {
+    return copy.supportScreen.subscriptionExtendSubject;
+  }
+  return copy.supportScreen.subscriptionSupportSubject;
 }
 
-function subscriptionSupportMessage(type: string, isRTL: boolean) {
-  const labels: Record<string, { en: string; ar: string }> = {
-    freeze: { en: "I want to request freezing my subscription.", ar: "أريد طلب تجميد اشتراكي." },
-    unfreeze: { en: "I want to request unfreezing my subscription.", ar: "أريد طلب إلغاء تجميد اشتراكي." },
-    extend: { en: "I want to request activating or extending my subscription.", ar: "أريد طلب تفعيل أو تمديد اشتراكي." },
-    support: { en: "I need help with my subscription.", ar: "أحتاج مساعدة بخصوص اشتراكي." },
-  };
-  return (labels[type] ?? labels.support)[isRTL ? "ar" : "en"];
+function subscriptionSupportMessage(type: string, copy: ReturnType<typeof usePreferences>["copy"]) {
+  if (type === "freeze") {
+    return copy.supportScreen.subscriptionFreezeMessage;
+  }
+  if (type === "unfreeze") {
+    return copy.supportScreen.subscriptionUnfreezeMessage;
+  }
+  if (type === "extend") {
+    return copy.supportScreen.subscriptionExtendMessage;
+  }
+  return copy.supportScreen.subscriptionSupportMessage;
 }
 
 export default function SupportScreen() {
   const params = useLocalSearchParams<{ type?: string; ticketId?: string }>();
   const { authorizedRequest, bootstrap } = useSession();
   const { copy, direction, fontSet, isRTL, theme } = usePreferences();
-  const customer = isCustomerRole(getCurrentRole(bootstrap));
+  const role = getCurrentRole(bootstrap);
+  const customer = isCustomerRole(role);
+  const canHandleSupport = role === "ADMIN" || role === "MANAGER" || role === "RECEPTION" || role === "FRONT_DESK";
   const queryClient = useQueryClient();
   const locale = localeTag(isRTL);
   const [subject, setSubject] = useState("");
   const [category, setCategory] = useState<(typeof CATEGORIES)[number]>("GENERAL");
+  const [queueFilter, setQueueFilter] = useState<(typeof QUEUE_FILTERS)[number]>("active");
+  const [categoryFilter, setCategoryFilter] = useState<"ALL" | (typeof CATEGORIES)[number]>("ALL");
   const [message, setMessage] = useState("");
   const [selectedTicketId, setSelectedTicketId] = useState<string | null>(null);
   const [replyMessage, setReplyMessage] = useState("");
@@ -68,14 +80,30 @@ export default function SupportScreen() {
     }
     const requestType = String(params.type);
     setCategory("SUBSCRIPTION");
-    setSubject(subscriptionSupportSubject(requestType, isRTL));
-    setMessage(subscriptionSupportMessage(requestType, isRTL));
-  }, [isRTL, message, params.type, subject]);
+    setSubject(subscriptionSupportSubject(requestType, copy));
+    setMessage(subscriptionSupportMessage(requestType, copy));
+  }, [copy, message, params.type, subject]);
+
+  const ticketQueryString = useMemo(() => {
+    const search = new URLSearchParams();
+    if (queueFilter === "active") {
+      search.set("is_active", "true");
+    }
+    if (queueFilter === "resolvedClosed") {
+      search.set("is_active", "false");
+    }
+    if (categoryFilter !== "ALL") {
+      search.set("category", categoryFilter);
+    }
+    return search.toString();
+  }, [categoryFilter, queueFilter]);
+
+  const supportPath = ticketQueryString ? `/mobile/support/tickets?${ticketQueryString}` : "/mobile/support/tickets";
 
   const supportQuery = useQuery({
-    queryKey: ["mobile-support"],
+    queryKey: ["mobile-support", ticketQueryString],
     retry: 1,
-    queryFn: async () => (await authorizedRequest<SupportTicket[]>("/mobile/support/tickets")).data,
+    queryFn: async () => (await authorizedRequest<SupportTicket[]>(supportPath)).data,
   });
   const tickets = supportQuery.data ?? [];
   const selectedTicket = useMemo(() => tickets.find((ticket) => ticket.id === selectedTicketId) ?? tickets[0] ?? null, [selectedTicketId, tickets]);
@@ -105,6 +133,21 @@ export default function SupportScreen() {
         setSelectedTicketId(data.id);
       }
       await queryClient.invalidateQueries({ queryKey: ["mobile-support"] });
+    },
+    onError: (error) => setFeedback(error instanceof Error ? error.message : copy.common.errorTryAgain),
+  });
+
+  const statusMutation = useMutation({
+    mutationFn: async ({ status, ticketId }: { status: (typeof STAFF_STATUSES)[number]; ticketId: string }) =>
+      authorizedRequest(`/mobile/support/tickets/${ticketId}/status`, {
+        method: "PATCH",
+        body: JSON.stringify({ status }),
+      }),
+    onSuccess: async () => {
+      setFeedback(copy.common.successUpdated);
+      await queryClient.invalidateQueries({ queryKey: ["mobile-support"] });
+      await queryClient.invalidateQueries({ queryKey: ["mobile-admin-operations-summary"] });
+      await queryClient.invalidateQueries({ queryKey: ["mobile-admin-home"] });
     },
     onError: (error) => setFeedback(error instanceof Error ? error.message : copy.common.errorTryAgain),
   });
@@ -190,6 +233,22 @@ export default function SupportScreen() {
         </Card>
       ) : null}
 
+      {!customer ? (
+        <Card>
+          <SectionTitle>{copy.supportScreen.filters}</SectionTitle>
+          <ChipRow
+            items={QUEUE_FILTERS.map((item) => ({ id: item, label: queueFilterLabel(item, copy) }))}
+            activeId={queueFilter}
+            onSelect={(id) => setQueueFilter(id as typeof queueFilter)}
+          />
+          <ChipRow
+            items={["ALL", ...CATEGORIES].map((item) => ({ id: item, label: item === "ALL" ? copy.supportScreen.all : localizeTicketCategory(item, isRTL) }))}
+            activeId={categoryFilter}
+            onSelect={(id) => setCategoryFilter(id as typeof categoryFilter)}
+          />
+        </Card>
+      ) : null}
+
       <QueryState
         loading={supportQuery.isLoading && !supportQuery.data}
         error={supportQuery.error instanceof Error ? supportQuery.error.message : null}
@@ -226,6 +285,17 @@ export default function SupportScreen() {
           {selectedTicket ? (
             <Card>
               <SectionTitle>{selectedTicket.subject}</SectionTitle>
+              {canHandleSupport ? (
+                <>
+                  <MutedText>{copy.supportScreen.setStatus}</MutedText>
+                  <ChipRow
+                    items={STAFF_STATUSES.map((status) => ({ id: status, label: supportStatusActionLabel(status, copy) }))}
+                    activeId={selectedTicket.status}
+                    onSelect={(status) => statusMutation.mutate({ ticketId: selectedTicket.id, status: status as (typeof STAFF_STATUSES)[number] })}
+                    disabled={statusMutation.isPending}
+                  />
+                </>
+              ) : null}
               {selectedTicket.messages.length === 0 ? (
                 <MutedText>{copy.common.noMessagesYet}</MutedText>
               ) : (
@@ -262,6 +332,60 @@ export default function SupportScreen() {
   );
 }
 
+function ChipRow({
+  activeId,
+  disabled,
+  items,
+  onSelect,
+}: {
+  activeId: string;
+  disabled?: boolean;
+  items: Array<{ id: string; label: string }>;
+  onSelect: (id: string) => void;
+}) {
+  const { fontSet, isRTL, theme } = usePreferences();
+  return (
+    <View style={[styles.categoryList, { flexDirection: isRTL ? "row-reverse" : "row" }]}>
+      {items.map((item) => {
+        const active = item.id === activeId;
+        return (
+          <Pressable
+            key={item.id}
+            disabled={disabled}
+            onPress={() => onSelect(item.id)}
+            style={[styles.chip, { backgroundColor: active ? theme.primarySoft : theme.cardAlt, borderColor: theme.border, opacity: disabled ? 0.6 : 1 }]}
+          >
+            <Text style={{ color: active ? theme.primary : theme.foreground, fontFamily: fontSet.mono }}>{item.label}</Text>
+          </Pressable>
+        );
+      })}
+    </View>
+  );
+}
+
+function queueFilterLabel(filter: string, copy: ReturnType<typeof usePreferences>["copy"]) {
+  if (filter === "active") {
+    return copy.supportScreen.active;
+  }
+  if (filter === "resolvedClosed") {
+    return copy.supportScreen.resolvedClosed;
+  }
+  return copy.supportScreen.all;
+}
+
+function supportStatusActionLabel(status: string, copy: ReturnType<typeof usePreferences>["copy"]) {
+  if (status === "IN_PROGRESS") {
+    return copy.supportScreen.inProgressStatus;
+  }
+  if (status === "RESOLVED") {
+    return copy.supportScreen.resolvedStatus;
+  }
+  if (status === "CLOSED") {
+    return copy.supportScreen.closedStatus;
+  }
+  return copy.supportScreen.openStatus;
+}
+
 const styles = StyleSheet.create({
   categoryList: {
     flexDirection: "row",
@@ -270,7 +394,7 @@ const styles = StyleSheet.create({
   },
   chip: {
     borderWidth: 1,
-    borderRadius: 999,
+    borderRadius: 8,
     paddingHorizontal: 12,
     paddingVertical: 8,
   },
@@ -281,7 +405,7 @@ const styles = StyleSheet.create({
     paddingTop: 10,
     paddingHorizontal: 10,
     paddingBottom: 10,
-    borderRadius: 10,
+    borderRadius: 8,
   },
   ticketHead: {
     justifyContent: "space-between",
@@ -297,7 +421,7 @@ const styles = StyleSheet.create({
     paddingTop: 10,
     paddingHorizontal: 10,
     paddingBottom: 10,
-    borderRadius: 10,
+    borderRadius: 8,
   },
   actionRow: {
     gap: 10,

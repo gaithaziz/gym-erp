@@ -8,17 +8,26 @@ From the repo root:
 
 ```bash
 npm install
-EXPO_PUBLIC_API_BASE_URL=http://127.0.0.1:8000/api/v1 npm run dev:mobile
+npm run dev:mobile
 ```
 
 Or from this folder:
 
 ```bash
 npm install
-EXPO_PUBLIC_API_BASE_URL=http://127.0.0.1:8000/api/v1 npm run start
+npm run start
 ```
 
-If you are testing on a physical device, replace `127.0.0.1` with your computer's LAN IP.
+The default API URL is platform-aware:
+
+- iOS Simulator and web: `http://localhost:8000/api/v1`
+- Android Emulator: `http://10.0.2.2:8000/api/v1`
+
+If you are testing on a physical device, use your computer's LAN IP:
+
+```bash
+EXPO_PUBLIC_API_BASE_URL=http://YOUR_LAN_IP:8000/api/v1 npm run dev:mobile
+```
 
 ## Current Scope
 

@@ -4,7 +4,7 @@ import { Text, View } from "react-native";
 
 import { Card, Input, MutedText, PrimaryButton, QueryState, Screen, SectionTitle, TextArea } from "@/components/ui";
 import { parseEnvelope } from "@/lib/api";
-import { localeTag } from "@/lib/mobile-format";
+import { localeTag, localizeLeaveStatus } from "@/lib/mobile-format";
 import { usePreferences } from "@/lib/preferences";
 import { useSession } from "@/lib/session";
 
@@ -80,14 +80,19 @@ export default function LeavesScreen() {
         {(leavesQuery.data ?? []).map((leave) => (
           <View key={leave.id} style={{ borderTopWidth: 1, borderTopColor: theme.border, marginTop: 12, paddingTop: 12, gap: 4 }}>
             <Text style={{ color: theme.foreground, fontFamily: fontSet.body, textAlign: isRTL ? "right" : "left", writingDirection: direction }}>
-              {leave.leave_type}
+              {leaveTypeLabel(leave.leave_type, copy)}
             </Text>
             <MutedText>{`${new Date(leave.start_date).toLocaleDateString(locale)} - ${new Date(leave.end_date).toLocaleDateString(locale)}`}</MutedText>
-            <MutedText>{`${copy.common.status}: ${leave.status}`}</MutedText>
+            <MutedText>{`${copy.common.status}: ${localizeLeaveStatus(leave.status, isRTL)}`}</MutedText>
             {leave.reason ? <MutedText>{leave.reason}</MutedText> : null}
           </View>
         ))}
       </Card>
     </Screen>
   );
+}
+
+function leaveTypeLabel(leaveType: string, copy: ReturnType<typeof usePreferences>["copy"]) {
+  const labels = copy.adminControl.leaveTypes as Record<string, string>;
+  return labels[leaveType] ?? leaveType;
 }

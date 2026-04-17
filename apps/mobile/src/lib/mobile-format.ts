@@ -80,6 +80,24 @@ export function localizeTicketCategory(category: string | undefined, isRTL: bool
   );
 }
 
+export function localizeLeaveStatus(status: string | undefined, isRTL: boolean) {
+  return localizeValue(
+    status,
+    isRTL
+      ? {
+          PENDING: "قيد الانتظار",
+          APPROVED: "موافق عليه",
+          DENIED: "مرفوض",
+        }
+      : {
+          PENDING: "Pending",
+          APPROVED: "Approved",
+          DENIED: "Denied",
+        },
+    isRTL,
+  );
+}
+
 export function localizePaymentMethod(value: string | undefined, isRTL: boolean) {
   return localizeValue(
     value,
@@ -88,11 +106,13 @@ export function localizePaymentMethod(value: string | undefined, isRTL: boolean)
           CASH: "نقداً",
           CARD: "بطاقة",
           BANK_TRANSFER: "تحويل بنكي",
+          TRANSFER: "تحويل",
         }
       : {
           CASH: "Cash",
           CARD: "Card",
           BANK_TRANSFER: "Bank transfer",
+          TRANSFER: "Transfer",
         },
     isRTL,
   );

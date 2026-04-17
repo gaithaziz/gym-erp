@@ -30,6 +30,7 @@ export default function MoreTab() {
       {adminControl ? <SecondaryLink href="/(tabs)/members">{copy.adminControl.peopleSummary}</SecondaryLink> : null}
       {adminControl ? <SecondaryLink href="/(tabs)/operations">{copy.adminControl.operationsSummary}</SecondaryLink> : null}
       {adminControl ? <SecondaryLink href="/(tabs)/finance">{copy.adminControl.financeSummary}</SecondaryLink> : null}
+      {adminControl ? <SecondaryLink href="/approvals">{copy.adminControl.approvalQueue}</SecondaryLink> : null}
       {role === "ADMIN" ? <SecondaryLink href="/admin-audit">{copy.adminControl.auditSummary}</SecondaryLink> : null}
       {adminControl ? <SecondaryLink href="/inventory-summary">{copy.adminControl.inventorySummary}</SecondaryLink> : null}
       <SecondaryLink href="/notifications">{copy.more.notifications}</SecondaryLink>

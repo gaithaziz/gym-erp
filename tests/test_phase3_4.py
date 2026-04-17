@@ -3,7 +3,18 @@ from decimal import Decimal
 
 import pytest
 from httpx import AsyncClient
+from sqlalchemy import select
+
+from app.auth.security import get_password_hash
+from app.database import set_rls_context
+from app.models.access import RenewalRequestStatus, Subscription, SubscriptionRenewalRequest
+from app.models.audit import AuditLog
 from app.models.enums import Role
+from app.models.finance import Transaction, TransactionCategory, TransactionType
+from app.models.hr import LeaveRequest, LeaveStatus, LeaveType
+from app.models.inventory import Product
+from app.models.support import SupportTicket, TicketCategory, TicketStatus
+from app.models.user import User
 
 
 async def _auth_headers_for_role(client: AsyncClient, db_session, role: Role, email: str) -> dict[str, str]:
@@ -283,3 +294,348 @@ async def test_mobile_admin_summary_endpoints_reject_non_admin_control_roles(cli
     for endpoint in endpoints:
         response = await client.get(endpoint, headers=customer_headers)
         assert response.status_code == 403, endpoint
+
+
+@pytest.mark.asyncio
+async def test_mobile_admin_approvals_workflow_allows_admin_and_manager(client: AsyncClient, db_session):
+    hashed = get_password_hash("password")
+    admin = User(email="phase4-approval-admin@test.com", hashed_password=hashed, full_name="Approval Admin", role=Role.ADMIN, is_active=True)
+    manager = User(email="phase4-approval-manager@test.com", hashed_password=hashed, full_name="Approval Manager", role=Role.MANAGER, is_active=True)
+    cashier = User(email="phase4-approval-cashier@test.com", hashed_password=hashed, full_name="Approval Cashier", role=Role.CASHIER, is_active=True)
+    member = User(email="phase4-approval-member@test.com", hashed_password=hashed, full_name="Approval Member", role=Role.CUSTOMER, is_active=True)
+    staff = User(email="phase4-approval-staff@test.com", hashed_password=hashed, full_name="Approval Staff", role=Role.EMPLOYEE, is_active=True)
+    db_session.add_all([admin, manager, cashier, member, staff])
+    await db_session.flush()
+
+    renewal = SubscriptionRenewalRequest(
+        user_id=member.id,
+        offer_code="mobile-monthly",
+        plan_name="Mobile Monthly",
+        duration_days=30,
+        customer_note="Paid at front desk",
+        status=RenewalRequestStatus.PENDING,
+    )
+    rejected_renewal = SubscriptionRenewalRequest(
+        user_id=member.id,
+        offer_code="mobile-quarterly",
+        plan_name="Mobile Quarterly",
+        duration_days=90,
+        status=RenewalRequestStatus.PENDING,
+    )
+    leave = LeaveRequest(
+        user_id=staff.id,
+        start_date=(datetime.now(timezone.utc) + timedelta(days=3)).date(),
+        end_date=(datetime.now(timezone.utc) + timedelta(days=4)).date(),
+        leave_type=LeaveType.SICK,
+        status=LeaveStatus.PENDING,
+        reason="Mobile approval test",
+    )
+    db_session.add_all([renewal, rejected_renewal, leave])
+    await db_session.commit()
+
+    admin_headers = await _login(client, admin.email)
+    manager_headers = await _login(client, manager.email)
+    cashier_headers = await _login(client, cashier.email)
+
+    admin_list = await client.get("/api/v1/mobile/admin/approvals", headers=admin_headers)
+    assert admin_list.status_code == 200
+    assert any(item["id"] == str(renewal.id) for item in admin_list.json()["data"]["renewals"])
+    assert any(item["id"] == str(leave.id) for item in admin_list.json()["data"]["leaves"])
+
+    manager_list = await client.get("/api/v1/mobile/admin/approvals", headers=manager_headers)
+    assert manager_list.status_code == 200
+
+    forbidden = await client.get("/api/v1/mobile/admin/approvals", headers=cashier_headers)
+    assert forbidden.status_code == 403
+
+    approve = await client.post(
+        f"/api/v1/mobile/admin/approvals/renewals/{renewal.id}/approve",
+        headers=manager_headers,
+        json={"amount_paid": 88.5, "payment_method": "CASH", "reviewer_note": "Confirmed at desk"},
+    )
+    assert approve.status_code == 200
+    approve_data = approve.json()["data"]
+    assert approve_data["status"] == "APPROVED"
+    assert approve_data["subscription_id"] is not None
+    assert approve_data["transaction_id"] is not None
+
+    await db_session.refresh(renewal)
+    assert renewal.status == RenewalRequestStatus.APPROVED
+    assert renewal.reviewed_by_user_id == manager.id
+    assert renewal.reviewer_note == "Confirmed at desk"
+
+    subscription = (await db_session.execute(select(Subscription).where(Subscription.user_id == member.id))).scalar_one_or_none()
+    assert subscription is not None
+    assert subscription.plan_name == "Mobile Monthly"
+
+    transaction = (await db_session.execute(select(Transaction).where(Transaction.user_id == member.id))).scalar_one_or_none()
+    assert transaction is not None
+    assert float(transaction.amount) == 88.5
+    assert transaction.type == TransactionType.INCOME
+    assert transaction.category == TransactionCategory.SUBSCRIPTION
+
+    await set_rls_context(db_session, role=Role.ADMIN.value)
+    approve_audit = (
+        await db_session.execute(select(AuditLog).where(AuditLog.action == "MOBILE_RENEWAL_APPROVED", AuditLog.target_id == str(renewal.id)))
+    ).scalar_one_or_none()
+    assert approve_audit is not None
+
+    reject = await client.post(
+        f"/api/v1/mobile/admin/approvals/renewals/{rejected_renewal.id}/reject",
+        headers=admin_headers,
+        json={"reviewer_note": "Payment not found"},
+    )
+    assert reject.status_code == 200
+    await db_session.refresh(rejected_renewal)
+    assert rejected_renewal.status == RenewalRequestStatus.REJECTED
+    assert rejected_renewal.reviewed_by_user_id == admin.id
+
+    reject_transaction = (
+        await db_session.execute(
+            select(Transaction).where(
+                Transaction.user_id == member.id,
+                Transaction.description.ilike("%Mobile Quarterly%"),
+            )
+        )
+    ).scalar_one_or_none()
+    assert reject_transaction is None
+
+    leave_update = await client.put(
+        f"/api/v1/mobile/admin/approvals/leaves/{leave.id}",
+        headers=manager_headers,
+        json={"status": "APPROVED"},
+    )
+    assert leave_update.status_code == 200
+    await db_session.refresh(leave)
+    assert leave.status == LeaveStatus.APPROVED
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("role", [Role.CUSTOMER, Role.COACH, Role.CASHIER, Role.EMPLOYEE])
+async def test_mobile_admin_approval_mutations_reject_non_admin_control_roles(client: AsyncClient, db_session, role: Role):
+    headers = await _auth_headers_for_role(client, db_session, role, f"phase4-approval-denied-{role.value.lower()}@test.com")
+    request_id = "11111111-1111-4111-8111-111111111111"
+    leave_id = "22222222-2222-4222-8222-222222222222"
+
+    checks = [
+        await client.get("/api/v1/mobile/admin/approvals", headers=headers),
+        await client.post(
+            f"/api/v1/mobile/admin/approvals/renewals/{request_id}/approve",
+            headers=headers,
+            json={"amount_paid": 20.0, "payment_method": "CASH"},
+        ),
+        await client.post(
+            f"/api/v1/mobile/admin/approvals/renewals/{request_id}/reject",
+            headers=headers,
+            json={"reviewer_note": "No"},
+        ),
+        await client.put(
+            f"/api/v1/mobile/admin/approvals/leaves/{leave_id}",
+            headers=headers,
+            json={"status": "APPROVED"},
+        ),
+    ]
+
+    assert all(response.status_code == 403 for response in checks)
+
+
+@pytest.mark.asyncio
+async def test_mobile_admin_inventory_product_management(client: AsyncClient, db_session):
+    hashed = get_password_hash("password")
+    manager = User(email="phase4-inventory-manager@test.com", hashed_password=hashed, full_name="Inventory Manager", role=Role.MANAGER, is_active=True)
+    employee = User(email="phase4-inventory-employee@test.com", hashed_password=hashed, full_name="Inventory Employee", role=Role.EMPLOYEE, is_active=True)
+    db_session.add_all([manager, employee])
+    await db_session.commit()
+
+    manager_headers = await _login(client, manager.email)
+    employee_headers = await _login(client, employee.email)
+
+    denied_create = await client.post(
+        "/api/v1/mobile/admin/inventory/products",
+        headers=employee_headers,
+        json={"name": "Denied Product", "sku": "MOB-DENIED", "category": "OTHER", "price": 1.0},
+    )
+    assert denied_create.status_code == 403
+
+    create = await client.post(
+        "/api/v1/mobile/admin/inventory/products",
+        headers=manager_headers,
+        json={
+            "name": "Mobile Whey",
+            "sku": "MOB-WHEY",
+            "category": "SUPPLEMENT",
+            "price": 45.0,
+            "cost_price": 25.0,
+            "stock_quantity": 2,
+            "low_stock_threshold": 5,
+            "low_stock_restock_target": 12,
+            "image_url": "https://example.com/whey.png",
+        },
+    )
+    assert create.status_code == 200
+    product_id = create.json()["data"]["id"]
+
+    list_response = await client.get("/api/v1/mobile/admin/inventory/products?search=whey&category=SUPPLEMENT&status_filter=active", headers=manager_headers)
+    assert list_response.status_code == 200
+    assert [item["id"] for item in list_response.json()["data"]["items"]] == [product_id]
+
+    detail = await client.get(f"/api/v1/mobile/admin/inventory/products/{product_id}", headers=manager_headers)
+    assert detail.status_code == 200
+    assert detail.json()["data"]["sku"] == "MOB-WHEY"
+
+    update = await client.put(
+        f"/api/v1/mobile/admin/inventory/products/{product_id}",
+        headers=manager_headers,
+        json={"name": "Mobile Whey Plus", "stock_quantity": 6, "low_stock_threshold": 3, "is_active": True},
+    )
+    assert update.status_code == 200
+    assert update.json()["data"]["stock_quantity"] == 6
+
+    summary_after_stock_fix = await client.get("/api/v1/mobile/admin/inventory/summary", headers=manager_headers)
+    assert summary_after_stock_fix.status_code == 200
+    assert all(item["id"] != product_id for item in summary_after_stock_fix.json()["data"]["low_stock_products"])
+
+    threshold_update = await client.put(
+        f"/api/v1/mobile/admin/inventory/products/{product_id}",
+        headers=manager_headers,
+        json={"low_stock_threshold": 10},
+    )
+    assert threshold_update.status_code == 200
+
+    summary_after_threshold_raise = await client.get("/api/v1/mobile/admin/inventory/summary", headers=manager_headers)
+    assert summary_after_threshold_raise.status_code == 200
+    assert any(item["id"] == product_id for item in summary_after_threshold_raise.json()["data"]["low_stock_products"])
+
+    ack = await client.post(f"/api/v1/mobile/admin/inventory/products/{product_id}/low-stock/ack", headers=manager_headers)
+    assert ack.status_code == 200
+    assert ack.json()["data"]["low_stock_acknowledged_at"] is not None
+
+    snooze = await client.post(
+        f"/api/v1/mobile/admin/inventory/products/{product_id}/low-stock/snooze",
+        headers=manager_headers,
+        json={"hours": 4},
+    )
+    assert snooze.status_code == 200
+    assert snooze.json()["data"]["low_stock_snoozed_until"] is not None
+
+    target = await client.put(
+        f"/api/v1/mobile/admin/inventory/products/{product_id}/low-stock-target",
+        headers=manager_headers,
+        json={"target_quantity": 20},
+    )
+    assert target.status_code == 200
+    assert target.json()["data"]["low_stock_restock_target"] == 20
+
+    deactivate = await client.delete(f"/api/v1/mobile/admin/inventory/products/{product_id}", headers=manager_headers)
+    assert deactivate.status_code == 200
+    assert deactivate.json()["data"]["is_active"] is False
+
+    inactive_list = await client.get("/api/v1/mobile/admin/inventory/products?status_filter=inactive", headers=manager_headers)
+    assert inactive_list.status_code == 200
+    assert any(item["id"] == product_id for item in inactive_list.json()["data"]["items"])
+
+    default_list = await client.get("/api/v1/mobile/admin/inventory/products", headers=manager_headers)
+    assert default_list.status_code == 200
+    assert any(item["id"] == product_id for item in default_list.json()["data"]["items"])
+
+    stored_product = await db_session.get(Product, product_id)
+    assert stored_product is not None
+    assert stored_product.is_active is False
+
+
+@pytest.mark.asyncio
+async def test_mobile_support_status_wrapper_allows_staff_and_rejects_customer_staff_status(client: AsyncClient, db_session):
+    hashed = get_password_hash("password")
+    manager = User(email="phase4-support-manager@test.com", hashed_password=hashed, full_name="Support Manager", role=Role.MANAGER, is_active=True)
+    customer = User(email="phase4-support-customer@test.com", hashed_password=hashed, full_name="Support Customer", role=Role.CUSTOMER, is_active=True)
+    db_session.add_all([manager, customer])
+    await db_session.flush()
+
+    ticket = SupportTicket(
+        customer_id=customer.id,
+        subject="Mobile status wrapper",
+        category=TicketCategory.GENERAL,
+        status=TicketStatus.OPEN,
+        created_at=datetime.now(timezone.utc),
+        updated_at=datetime.now(timezone.utc),
+    )
+    db_session.add(ticket)
+    await db_session.commit()
+
+    manager_headers = await _login(client, manager.email)
+    customer_headers = await _login(client, customer.email)
+
+    customer_staff_status = await client.patch(
+        f"/api/v1/mobile/support/tickets/{ticket.id}/status",
+        headers=customer_headers,
+        json={"status": "IN_PROGRESS"},
+    )
+    assert customer_staff_status.status_code == 403
+
+    manager_update = await client.patch(
+        f"/api/v1/mobile/support/tickets/{ticket.id}/status",
+        headers=manager_headers,
+        json={"status": "IN_PROGRESS"},
+    )
+    assert manager_update.status_code == 200
+    assert manager_update.json()["data"]["status"] == "IN_PROGRESS"
+
+
+@pytest.mark.asyncio
+async def test_mobile_support_queue_filters_for_staff(client: AsyncClient, db_session):
+    hashed = get_password_hash("password")
+    manager = User(email="phase4-support-filter-manager@test.com", hashed_password=hashed, full_name="Support Filter Manager", role=Role.MANAGER, is_active=True)
+    customer = User(email="phase4-support-filter-customer@test.com", hashed_password=hashed, full_name="Support Filter Customer", role=Role.CUSTOMER, is_active=True)
+    db_session.add_all([manager, customer])
+    await db_session.flush()
+
+    now = datetime.now(timezone.utc)
+    db_session.add_all(
+        [
+            SupportTicket(
+                customer_id=customer.id,
+                subject="Active general",
+                category=TicketCategory.GENERAL,
+                status=TicketStatus.OPEN,
+                created_at=now,
+                updated_at=now,
+            ),
+            SupportTicket(
+                customer_id=customer.id,
+                subject="Resolved billing",
+                category=TicketCategory.BILLING,
+                status=TicketStatus.RESOLVED,
+                created_at=now,
+                updated_at=now,
+            ),
+            SupportTicket(
+                customer_id=customer.id,
+                subject="Closed subscription",
+                category=TicketCategory.SUBSCRIPTION,
+                status=TicketStatus.CLOSED,
+                created_at=now,
+                updated_at=now,
+            ),
+        ]
+    )
+    await db_session.commit()
+
+    manager_headers = await _login(client, manager.email)
+
+    active = await client.get("/api/v1/mobile/support/tickets?is_active=true", headers=manager_headers)
+    assert active.status_code == 200
+    assert [ticket["subject"] for ticket in active.json()["data"]] == ["Active general"]
+
+    resolved_closed = await client.get("/api/v1/mobile/support/tickets?is_active=false", headers=manager_headers)
+    assert resolved_closed.status_code == 200
+    assert {ticket["subject"] for ticket in resolved_closed.json()["data"]} == {"Resolved billing", "Closed subscription"}
+
+    billing = await client.get("/api/v1/mobile/support/tickets?category=BILLING", headers=manager_headers)
+    assert billing.status_code == 200
+    assert [ticket["subject"] for ticket in billing.json()["data"]] == ["Resolved billing"]
+
+
+async def _login(client: AsyncClient, email: str) -> dict[str, str]:
+    response = await client.post("/api/v1/auth/login", json={"email": email, "password": "password"})
+    assert response.status_code == 200
+    return {"Authorization": f"Bearer {response.json()['data']['access_token']}"}

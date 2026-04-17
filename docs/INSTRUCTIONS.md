@@ -154,7 +154,7 @@ From the repo root, after `npm run dev:web` is already running:
 
 ```bash
 npm install
-EXPO_PUBLIC_API_BASE_URL=http://127.0.0.1:8000/api/v1 npm run dev:mobile
+npm run dev:mobile
 ```
 
 Useful related commands:
@@ -166,7 +166,7 @@ npm run typecheck:mobile
 ```
 
 Use the correct API base URL for your device:
-- iPhone simulator on the same Mac: `http://127.0.0.1:8000/api/v1`
+- iPhone simulator on the same Mac: `http://localhost:8000/api/v1`
 - Android emulator: `http://10.0.2.2:8000/api/v1`
 - Physical phone on the same Wi-Fi: `http://YOUR_LAN_IP:8000/api/v1`
 
@@ -185,6 +185,23 @@ ipconfig getifaddr en1
 Demo mobile login:
 - `alice@client.com` / `GymPass123!`
 
+Stop the Expo / Metro mobile process with `Ctrl+C` in the terminal where it is running.
+
+If Expo was started in a detached `screen` session, stop it without leaving a background session:
+
+```bash
+screen -S gym-erp-expo -X quit
+```
+
+Confirm Metro is fully stopped:
+
+```bash
+lsof -nP -iTCP:8081 -sTCP:LISTEN
+screen -ls
+```
+
+If `lsof` prints nothing and `screen -ls` does not show `gym-erp-expo`, the mobile server is fully shut down.
+
 ## 6. Safe Shutdown
 
 Stop the Expo / Metro mobile process with:
@@ -197,6 +214,12 @@ If Expo was left running in another terminal and you want to terminate it safely
 
 ```bash
 pkill -f "expo start"
+```
+
+If Expo was left running in the detached `screen` session:
+
+```bash
+screen -S gym-erp-expo -X quit
 ```
 
 Stop the Docker services but keep data:

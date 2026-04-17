@@ -15,6 +15,9 @@ from app.auth.router import (
 from app.core.responses import StandardResponse
 from app.database import get_db
 from app.models.finance import PaymentMethod
+from app.models.hr import LeaveStatus
+from app.models.inventory import ProductCategory
+from app.models.support import TicketCategory, TicketStatus
 from app.models.user import User
 from app.routers.chat import (
     MessageCreateRequest as ChatMessageCreateRequest,
@@ -29,12 +32,15 @@ from app.routers.chat import (
 )
 from app.routers.support import (
     SupportMessageCreateRequest,
+    SupportTicketStatusUpdate,
     SupportTicketCreateRequest,
     add_ticket_attachment as add_support_ticket_attachment,
     add_ticket_message as add_support_ticket_message,
     create_ticket as create_support_ticket,
     list_tickets as list_support_tickets,
+    update_ticket_status as update_support_ticket_status,
 )
+from app.routers.hr import LeaveRequestUpdate, update_leave_status as update_hr_leave_status
 from app.routers.lost_found import (
     LostFoundCommentCreateRequest,
     LostFoundItemCreateRequest,
@@ -302,6 +308,70 @@ class MobileAdminInventorySummaryResponse(BaseModel):
     low_stock_count: int
     out_of_stock_count: int
     low_stock_products: list[dict[str, Any]]
+
+
+class MobileAdminApprovalsResponse(BaseModel):
+    renewals: list[dict[str, Any]]
+    leaves: list[dict[str, Any]]
+
+
+class MobileRenewalApprovalActionRequest(BaseModel):
+    reviewer_note: str | None = Field(default=None, max_length=500)
+    amount_paid: float = Field(default=0, ge=0)
+    payment_method: PaymentMethod = PaymentMethod.CASH
+
+
+class MobileRenewalRejectRequest(BaseModel):
+    reviewer_note: str | None = Field(default=None, max_length=500)
+
+
+class MobileLeaveApprovalRequest(BaseModel):
+    status: LeaveStatus
+
+
+class MobileApprovalActionResultResponse(BaseModel):
+    status: str
+    request_id: str
+    subscription_id: str | None = None
+    transaction_id: str | None = None
+
+
+class MobileInventoryProductPayload(BaseModel):
+    name: str = Field(min_length=1, max_length=160)
+    sku: str | None = Field(default=None, max_length=80)
+    category: ProductCategory = ProductCategory.OTHER
+    price: float = Field(ge=0)
+    cost_price: float | None = Field(default=None, ge=0)
+    stock_quantity: int = Field(default=0, ge=0)
+    low_stock_threshold: int = Field(default=5, ge=0)
+    low_stock_restock_target: int | None = Field(default=None, ge=0)
+    image_url: str | None = Field(default=None, max_length=500)
+    is_active: bool = True
+
+
+class MobileInventoryProductUpdatePayload(BaseModel):
+    name: str | None = Field(default=None, min_length=1, max_length=160)
+    sku: str | None = Field(default=None, max_length=80)
+    category: ProductCategory | None = None
+    price: float | None = Field(default=None, ge=0)
+    cost_price: float | None = Field(default=None, ge=0)
+    stock_quantity: int | None = Field(default=None, ge=0)
+    low_stock_threshold: int | None = Field(default=None, ge=0)
+    low_stock_restock_target: int | None = Field(default=None, ge=0)
+    image_url: str | None = Field(default=None, max_length=500)
+    is_active: bool | None = None
+
+
+class MobileInventoryProductsResponse(BaseModel):
+    items: list[dict[str, Any]]
+
+
+class MobileLowStockSnoozeRequest(BaseModel):
+    hours: int = Field(default=24, ge=1, le=168)
+
+
+class MobileLowStockRestockTargetRequest(BaseModel):
+    target_quantity: int = Field(ge=0)
 
 
 @router.get("/bootstrap", response_model=StandardResponse[schemas.MobileBootstrap])
@@ -826,15 +896,18 @@ async def mark_chat_thread_read(
 async def read_support_tickets(
     current_user: Annotated[User, Depends(dependencies.get_current_active_user)],
     db: Annotated[AsyncSession, Depends(get_db)],
+    status_filter: TicketStatus | None = Query(None),
+    is_active: bool | None = Query(None),
+    category: TicketCategory | None = Query(None),
 ):
     response = type("ResponseStub", (), {"headers": {}})()
     return await list_support_tickets(
         current_user=current_user,
         db=db,
         response=response,
-        status_filter=None,
-        is_active=None,
-        category=None,
+        status_filter=status_filter,
+        is_active=is_active,
+        category=category,
         limit=50,
         offset=0,
     )
@@ -868,6 +941,16 @@ async def create_support_ticket_attachment_mobile(
     message: str | None = Form(None),
 ):
     return await add_support_ticket_attachment(ticket_id=ticket_id, current_user=current_user, db=db, file=file, message=message)
+
+
+@router.patch("/support/tickets/{ticket_id}/status", response_model=StandardResponse)
+async def update_support_ticket_status_mobile(
+    ticket_id: uuid.UUID,
+    payload: SupportTicketStatusUpdate,
+    current_user: Annotated[User, Depends(dependencies.get_current_active_user)],
+    db: Annotated[AsyncSession, Depends(get_db)],
+):
+    return await update_support_ticket_status(ticket_id=ticket_id, data=payload, current_user=current_user, db=db)
 
 
 @router.get("/lost-found/items", response_model=StandardResponse)
@@ -977,6 +1060,194 @@ async def read_admin_mobile_inventory_summary(
 ):
     data = await MobileAdminService.get_inventory_summary(current_user=current_user, db=db)
     return StandardResponse(data=MobileAdminInventorySummaryResponse(**data))
+
+
+@router.get("/admin/approvals", response_model=StandardResponse[MobileAdminApprovalsResponse])
+async def read_admin_mobile_approvals(
+    current_user: Annotated[User, Depends(dependencies.RoleChecker([schemas.Role.ADMIN, schemas.Role.MANAGER]))],
+    db: Annotated[AsyncSession, Depends(get_db)],
+):
+    data = await MobileAdminService.get_approvals(current_user=current_user, db=db)
+    return StandardResponse(data=MobileAdminApprovalsResponse(**data))
+
+
+@router.post("/admin/approvals/renewals/{request_id}/approve", response_model=StandardResponse[MobileApprovalActionResultResponse])
+async def approve_admin_mobile_renewal(
+    request_id: uuid.UUID,
+    payload: MobileRenewalApprovalActionRequest,
+    current_user: Annotated[User, Depends(dependencies.RoleChecker([schemas.Role.ADMIN, schemas.Role.MANAGER]))],
+    db: Annotated[AsyncSession, Depends(get_db)],
+):
+    try:
+        data = await MobileAdminService.approve_renewal_request(
+            current_user=current_user,
+            db=db,
+            request_id=request_id,
+            amount_paid=payload.amount_paid,
+            payment_method=payload.payment_method,
+            reviewer_note=payload.reviewer_note,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return StandardResponse(data=MobileApprovalActionResultResponse(**data), message="Renewal approved")
+
+
+@router.post("/admin/approvals/renewals/{request_id}/reject", response_model=StandardResponse[MobileApprovalActionResultResponse])
+async def reject_admin_mobile_renewal(
+    request_id: uuid.UUID,
+    payload: MobileRenewalRejectRequest,
+    current_user: Annotated[User, Depends(dependencies.RoleChecker([schemas.Role.ADMIN, schemas.Role.MANAGER]))],
+    db: Annotated[AsyncSession, Depends(get_db)],
+):
+    try:
+        data = await MobileAdminService.reject_renewal_request(
+            current_user=current_user,
+            db=db,
+            request_id=request_id,
+            reviewer_note=payload.reviewer_note,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return StandardResponse(data=MobileApprovalActionResultResponse(**data), message="Renewal rejected")
+
+
+@router.put("/admin/approvals/leaves/{leave_id}", response_model=StandardResponse)
+async def update_admin_mobile_leave(
+    leave_id: uuid.UUID,
+    payload: MobileLeaveApprovalRequest,
+    current_user: Annotated[User, Depends(dependencies.RoleChecker([schemas.Role.ADMIN, schemas.Role.MANAGER]))],
+    db: Annotated[AsyncSession, Depends(get_db)],
+):
+    if payload.status not in [LeaveStatus.APPROVED, LeaveStatus.DENIED]:
+        raise HTTPException(status_code=400, detail="Leave status must be APPROVED or DENIED")
+    return await update_hr_leave_status(
+        leave_id=leave_id,
+        request=LeaveRequestUpdate(status=payload.status),
+        current_user=current_user,
+        db=db,
+    )
+
+
+@router.get("/admin/inventory/products", response_model=StandardResponse[MobileInventoryProductsResponse])
+async def list_admin_mobile_inventory_products(
+    current_user: Annotated[User, Depends(dependencies.RoleChecker([schemas.Role.ADMIN, schemas.Role.MANAGER]))],
+    db: Annotated[AsyncSession, Depends(get_db)],
+    search: str | None = Query(None),
+    category: ProductCategory | None = Query(None),
+    status_filter: str = Query("all", pattern="^(active|inactive|all)$"),
+):
+    try:
+        data = await MobileAdminService.list_inventory_products(
+            current_user=current_user,
+            db=db,
+            search=search,
+            category=category,
+            status_filter=status_filter,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return StandardResponse(data=MobileInventoryProductsResponse(**data))
+
+
+@router.get("/admin/inventory/products/{product_id}", response_model=StandardResponse[dict[str, Any]])
+async def read_admin_mobile_inventory_product(
+    product_id: uuid.UUID,
+    current_user: Annotated[User, Depends(dependencies.RoleChecker([schemas.Role.ADMIN, schemas.Role.MANAGER]))],
+    db: Annotated[AsyncSession, Depends(get_db)],
+):
+    try:
+        data = await MobileAdminService.get_inventory_product(current_user=current_user, db=db, product_id=product_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    return StandardResponse(data=data)
+
+
+@router.post("/admin/inventory/products", response_model=StandardResponse[dict[str, Any]])
+async def create_admin_mobile_inventory_product(
+    payload: MobileInventoryProductPayload,
+    current_user: Annotated[User, Depends(dependencies.RoleChecker([schemas.Role.ADMIN, schemas.Role.MANAGER]))],
+    db: Annotated[AsyncSession, Depends(get_db)],
+):
+    data = await MobileAdminService.create_inventory_product(current_user=current_user, db=db, data=payload.model_dump())
+    return StandardResponse(data=data, message="Product created")
+
+
+@router.put("/admin/inventory/products/{product_id}", response_model=StandardResponse[dict[str, Any]])
+async def update_admin_mobile_inventory_product(
+    product_id: uuid.UUID,
+    payload: MobileInventoryProductUpdatePayload,
+    current_user: Annotated[User, Depends(dependencies.RoleChecker([schemas.Role.ADMIN, schemas.Role.MANAGER]))],
+    db: Annotated[AsyncSession, Depends(get_db)],
+):
+    try:
+        data = await MobileAdminService.update_inventory_product(
+            current_user=current_user,
+            db=db,
+            product_id=product_id,
+            data=payload.model_dump(exclude_unset=True),
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    return StandardResponse(data=data, message="Product updated")
+
+
+@router.delete("/admin/inventory/products/{product_id}", response_model=StandardResponse[dict[str, Any]])
+async def deactivate_admin_mobile_inventory_product(
+    product_id: uuid.UUID,
+    current_user: Annotated[User, Depends(dependencies.RoleChecker([schemas.Role.ADMIN, schemas.Role.MANAGER]))],
+    db: Annotated[AsyncSession, Depends(get_db)],
+):
+    try:
+        data = await MobileAdminService.deactivate_inventory_product(current_user=current_user, db=db, product_id=product_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    return StandardResponse(data=data, message="Product deactivated")
+
+
+@router.post("/admin/inventory/products/{product_id}/low-stock/ack", response_model=StandardResponse[dict[str, Any]])
+async def acknowledge_admin_mobile_low_stock(
+    product_id: uuid.UUID,
+    current_user: Annotated[User, Depends(dependencies.RoleChecker([schemas.Role.ADMIN, schemas.Role.MANAGER]))],
+    db: Annotated[AsyncSession, Depends(get_db)],
+):
+    try:
+        data = await MobileAdminService.acknowledge_low_stock(current_user=current_user, db=db, product_id=product_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    return StandardResponse(data=data, message="Low stock acknowledged")
+
+
+@router.post("/admin/inventory/products/{product_id}/low-stock/snooze", response_model=StandardResponse[dict[str, Any]])
+async def snooze_admin_mobile_low_stock(
+    product_id: uuid.UUID,
+    payload: MobileLowStockSnoozeRequest,
+    current_user: Annotated[User, Depends(dependencies.RoleChecker([schemas.Role.ADMIN, schemas.Role.MANAGER]))],
+    db: Annotated[AsyncSession, Depends(get_db)],
+):
+    try:
+        data = await MobileAdminService.snooze_low_stock(current_user=current_user, db=db, product_id=product_id, hours=payload.hours)
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    return StandardResponse(data=data, message="Low stock snoozed")
+
+
+@router.put("/admin/inventory/products/{product_id}/low-stock-target", response_model=StandardResponse[dict[str, Any]])
+async def set_admin_mobile_low_stock_target(
+    product_id: uuid.UUID,
+    payload: MobileLowStockRestockTargetRequest,
+    current_user: Annotated[User, Depends(dependencies.RoleChecker([schemas.Role.ADMIN, schemas.Role.MANAGER]))],
+    db: Annotated[AsyncSession, Depends(get_db)],
+):
+    try:
+        data = await MobileAdminService.set_low_stock_restock_target(
+            current_user=current_user,
+            db=db,
+            product_id=product_id,
+            target_quantity=payload.target_quantity,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    return StandardResponse(data=data, message="Restock target updated")
 
 
 @router.get("/staff/home", response_model=StandardResponse[MobileStaffHomeResponse])

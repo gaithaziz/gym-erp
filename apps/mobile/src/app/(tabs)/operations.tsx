@@ -4,6 +4,7 @@ import { Pressable, StyleSheet, Text, View } from "react-native";
 
 import { Card, InlineStat, MutedText, QueryState, Screen, SectionTitle } from "@/components/ui";
 import { parseAdminAuditSummaryEnvelope, parseAdminInventorySummaryEnvelope, parseAdminOperationsSummaryEnvelope } from "@/lib/api";
+import { localizeLeaveStatus } from "@/lib/mobile-format";
 import { getCurrentRole, isAdminControlRole } from "@/lib/mobile-role";
 import { usePreferences } from "@/lib/preferences";
 import { useSession } from "@/lib/session";
@@ -28,7 +29,7 @@ type TransactionRow = {
 export default function OperationsTab() {
   const router = useRouter();
   const { authorizedRequest, bootstrap } = useSession();
-  const { copy, fontSet, theme } = usePreferences();
+  const { copy, fontSet, isRTL, theme } = usePreferences();
   const role = getCurrentRole(bootstrap);
 
   if (isAdminControlRole(role)) {
@@ -81,10 +82,10 @@ export default function OperationsTab() {
             {(leavesQuery.data ?? []).map((leave) => (
               <View key={leave.id} style={[styles.row, { borderTopColor: theme.border }]}>
                 <View style={styles.textColumn}>
-                  <Text style={{ color: theme.foreground, fontFamily: fontSet.body }}>{leave.leave_type}</Text>
+                  <Text style={{ color: theme.foreground, fontFamily: fontSet.body }}>{leaveTypeLabel(leave.leave_type, copy)}</Text>
                   <MutedText>{`${leave.start_date} - ${leave.end_date}`}</MutedText>
                 </View>
-                <Text style={{ color: theme.primary, fontFamily: fontSet.mono }}>{leave.status}</Text>
+                <Text style={{ color: theme.primary, fontFamily: fontSet.mono }}>{localizeLeaveStatus(leave.status, isRTL)}</Text>
               </View>
             ))}
           </Card>
@@ -114,6 +115,16 @@ export default function OperationsTab() {
       )}
     </Screen>
   );
+}
+
+function leaveTypeLabel(leaveType: string, copy: ReturnType<typeof usePreferences>["copy"]) {
+  const labels = copy.adminControl.leaveTypes as Record<string, string>;
+  return labels[leaveType] ?? leaveType;
+}
+
+function productCategoryLabel(category: string, copy: ReturnType<typeof usePreferences>["copy"]) {
+  const labels = copy.adminControl.productCategories as Record<string, string>;
+  return labels[category] ?? category;
 }
 
 function AdminOperationsTab() {
@@ -165,6 +176,7 @@ function AdminOperationsTab() {
               <InlineStat label={copy.adminControl.leaves} value={operations.approvals.pending_leaves} />
             </View>
             <View style={styles.actionRow}>
+              <ActionChip label={copy.adminControl.approvalQueue} onPress={() => router.push("/approvals")} />
               <ActionChip label={copy.adminControl.openSupport} onPress={() => router.push("/support")} />
               <ActionChip label={copy.common.lostFound} onPress={() => router.push("/lost-found")} />
               <ActionChip label={copy.more.notifications} onPress={() => router.push("/notifications")} />
@@ -215,7 +227,7 @@ function AdminOperationsTab() {
                 <Text style={{ color: theme.foreground, fontFamily: fontSet.body, textAlign: isRTL ? "right" : "left", writingDirection: direction }}>
                   {product.name}
                 </Text>
-                <MutedText>{`${product.category} - ${copy.adminControl.threshold} ${product.low_stock_threshold}`}</MutedText>
+                <MutedText>{`${productCategoryLabel(product.category, copy)} - ${copy.adminControl.threshold} ${product.low_stock_threshold}`}</MutedText>
               </View>
               <Text style={{ color: theme.primary, fontFamily: fontSet.mono }}>{product.stock_quantity}</Text>
             </View>

@@ -11,10 +11,10 @@ import { usePreferences } from "@/lib/preferences";
 import { useSession } from "@/lib/session";
 
 const COACH_HOME_ACTIONS = [
-  { id: "shift_qr", label: "Shift QR", route: "/(tabs)/qr" },
-  { id: "feedback", label: "Feedback", route: "/coach-feedback" },
-  { id: "leaves", label: "Leaves", route: "/leaves" },
-  { id: "profile", label: "Profile", route: "/profile" },
+  { id: "shift_qr", route: "/(tabs)/qr" },
+  { id: "feedback", route: "/coach-feedback" },
+  { id: "leaves", route: "/leaves" },
+  { id: "profile", route: "/profile" },
 ];
 
 export default function HomeTab() {
@@ -254,7 +254,7 @@ function StaffHomeTab() {
             <MutedText>{bootstrap?.user.full_name || copy.common.noData}</MutedText>
             <View style={[styles.actionGrid, { flexDirection: isRTL ? "row-reverse" : "row" }]}>
               {quickActions.map((action) => (
-                <HomeAction key={action.id} label={actionLabels[action.id] || action.label} onPress={() => action.route && router.push(action.route as never)} />
+                <HomeAction key={action.id} label={actionLabels[action.id] || action.id} onPress={() => action.route && router.push(action.route as never)} />
               ))}
             </View>
           </Card>
@@ -328,6 +328,7 @@ function AdminHomeTab() {
               <HomeAction label={copy.adminControl.peopleSummary} onPress={() => router.push("/(tabs)/members" as never)} />
               <HomeAction label={copy.adminControl.operationsSummary} onPress={() => router.push("/(tabs)/operations" as never)} />
               <HomeAction label={copy.adminControl.financeSummary} onPress={() => router.push("/(tabs)/finance" as never)} />
+              <HomeAction label={copy.adminControl.approvalQueue} onPress={() => router.push("/approvals")} />
               <HomeAction label={copy.more.support} onPress={() => router.push("/support")} />
             </View>
           </Card>

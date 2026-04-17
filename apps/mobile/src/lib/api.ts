@@ -6,16 +6,20 @@ import {
   parseMobileCoachFeedback,
   parseMobileCoachPlans,
   parseMobileAdminAuditSummary,
+  parseMobileAdminApprovals,
   parseMobileAdminFinanceSummary,
   parseMobileAdminHome,
   parseMobileAdminInventorySummary,
   parseMobileAdminOperationsSummary,
   parseMobileAdminPeopleSummary,
+  parseMobileApprovalActionResult,
   parseMobileCustomerBilling,
   parseMobileCustomerHome,
   parseMobileCustomerNotifications,
   parseMobileCustomerPlans,
   parseMobileCustomerProgress,
+  parseMobileInventoryProduct,
+  parseMobileInventoryProducts,
   parseMobilePosCheckout,
   parseMobilePosSummary,
   parseMobileStaffHome,
@@ -24,11 +28,13 @@ import {
   parseTokenPair,
   type AuthUser,
   type MobileAdminAuditSummary,
+  type MobileAdminApprovals,
   type MobileAdminFinanceSummary,
   type MobileAdminHome,
   type MobileAdminInventorySummary,
   type MobileAdminOperationsSummary,
   type MobileAdminPeopleSummary,
+  type MobileApprovalActionResult,
   type MobileBootstrap,
   type MobileCheckInLookupResult,
   type MobileCheckInResult,
@@ -39,6 +45,8 @@ import {
   type MobileCustomerNotifications,
   type MobileCustomerPlans,
   type MobileCustomerProgress,
+  type MobileInventoryProduct,
+  type MobileInventoryProducts,
   type MobilePosSummary,
   type MobilePosCheckout,
   type MobileStaffHome,
@@ -46,8 +54,11 @@ import {
   type MobileStaffMemberRegistrationResult,
   type TokenPair,
 } from "@gym-erp/contracts";
+import { Platform } from "react-native";
 
-const DEFAULT_API_BASE_URL = "http://127.0.0.1:8000/api/v1";
+const LOCALHOST_API_BASE_URL = "http://localhost:8000/api/v1";
+const ANDROID_EMULATOR_API_BASE_URL = "http://10.0.2.2:8000/api/v1";
+const DEFAULT_API_BASE_URL = Platform.OS === "android" ? ANDROID_EMULATOR_API_BASE_URL : LOCALHOST_API_BASE_URL;
 
 export const API_BASE_URL = process.env.EXPO_PUBLIC_API_BASE_URL ?? DEFAULT_API_BASE_URL;
 
@@ -248,6 +259,38 @@ export function parseAdminInventorySummaryEnvelope(input: unknown): Envelope<Mob
   return {
     ...payload,
     data: parseMobileAdminInventorySummary(payload.data),
+  };
+}
+
+export function parseAdminApprovalsEnvelope(input: unknown): Envelope<MobileAdminApprovals> {
+  const payload = parseEnvelope<unknown>(input);
+  return {
+    ...payload,
+    data: parseMobileAdminApprovals(payload.data),
+  };
+}
+
+export function parseApprovalActionResultEnvelope(input: unknown): Envelope<MobileApprovalActionResult> {
+  const payload = parseEnvelope<unknown>(input);
+  return {
+    ...payload,
+    data: parseMobileApprovalActionResult(payload.data),
+  };
+}
+
+export function parseInventoryProductsEnvelope(input: unknown): Envelope<MobileInventoryProducts> {
+  const payload = parseEnvelope<unknown>(input);
+  return {
+    ...payload,
+    data: parseMobileInventoryProducts(payload.data),
+  };
+}
+
+export function parseInventoryProductEnvelope(input: unknown): Envelope<MobileInventoryProduct> {
+  const payload = parseEnvelope<unknown>(input);
+  return {
+    ...payload,
+    data: parseMobileInventoryProduct(payload.data),
   };
 }
 

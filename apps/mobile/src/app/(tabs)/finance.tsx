@@ -4,6 +4,7 @@ import { Alert, Pressable, Share, StyleSheet, Text, View } from "react-native";
 
 import { Card, Input, MutedText, PrimaryButton, QueryState, Screen, SecondaryButton, SectionTitle } from "@/components/ui";
 import { parseAdminFinanceSummaryEnvelope, parseEnvelope, parsePosCheckoutEnvelope, parsePosSummaryEnvelope } from "@/lib/api";
+import { localizePaymentMethod } from "@/lib/mobile-format";
 import { getCurrentRole, isAdminControlRole } from "@/lib/mobile-role";
 import { usePreferences } from "@/lib/preferences";
 import { useSession } from "@/lib/session";
@@ -217,7 +218,7 @@ export default function FinanceTab() {
                 <Text style={[styles.titleText, { color: theme.foreground, fontFamily: fontSet.body, textAlign: isRTL ? "right" : "left", writingDirection: direction }]}>
                   {product.name}
                 </Text>
-                <MutedText>{`${product.category} - ${formatMoney(product.price, locale)} - ${copy.financeScreen.stock}: ${product.stock_quantity}`}</MutedText>
+                <MutedText>{`${productCategoryLabel(product.category, copy)} - ${formatMoney(product.price, locale)} - ${copy.financeScreen.stock}: ${product.stock_quantity}`}</MutedText>
               </View>
               <View style={[styles.qtyControls, { flexDirection: isRTL ? "row-reverse" : "row" }]}>
                 <QtyButton label="-" disabled={quantity < 1} onPress={() => setLine(product, quantity - 1)} />
@@ -249,7 +250,7 @@ export default function FinanceTab() {
               onPress={() => setPaymentMethod(method)}
               style={[styles.paymentChip, { backgroundColor: paymentMethod === method ? theme.primary : theme.cardAlt, borderColor: theme.border }]}
             >
-              <Text style={{ color: paymentMethod === method ? "#FFFFFF" : theme.foreground, fontFamily: fontSet.body }}>{method}</Text>
+              <Text style={{ color: paymentMethod === method ? "#FFFFFF" : theme.foreground, fontFamily: fontSet.body }}>{localizePaymentMethod(method, isRTL)}</Text>
             </Pressable>
           ))}
         </View>
@@ -331,6 +332,11 @@ function QtyButton({ label, disabled, onPress }: { label: string; disabled: bool
 
 function formatMoney(value: number, locale: string) {
   return new Intl.NumberFormat(locale, { maximumFractionDigits: 2 }).format(value);
+}
+
+function productCategoryLabel(category: string, copy: ReturnType<typeof usePreferences>["copy"]) {
+  const labels = copy.adminControl.productCategories as Record<string, string>;
+  return labels[category] ?? category;
 }
 
 const styles = StyleSheet.create({
