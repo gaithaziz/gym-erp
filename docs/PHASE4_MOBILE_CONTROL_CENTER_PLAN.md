@@ -1,6 +1,6 @@
 # Phase 4 Mobile Control Center Plan
 
-Status: Phase 4 implementation slice complete
+Status: Phase 4 implementation and hardening complete
 
 Source roadmap: `docs/PLAN.md` Phase 4, "Admin and Manager Mobile Control Center".
 
@@ -244,8 +244,32 @@ Tasks:
 Acceptance:
 
 - [x] Finance is useful for admin/manager without requiring a POS checkout flow.
-- [x] Audit is reachable from Operations or More.
+- [x] Audit is reachable from Operations or More for admins.
 - [x] Backend and mobile verification commands pass.
+
+### Sub-phase 4F: Drill-Downs, Permissions, Copy, And Coverage
+
+Goal:
+
+- Finish the practical polish items needed before mobile QA.
+
+Tasks:
+
+- [x] Add true drill-down screens for audit and inventory summaries.
+- [x] Make audit summary `ADMIN`-only and remove audit capability/module from `MANAGER`.
+- [x] Hide audit links and audit activity for `MANAGER`.
+- [x] Move Phase 4 user-facing labels into mobile copy for English and Arabic.
+- [x] Add seeded-count backend tests for support, audit, inventory, finance, approvals, and attendance summaries.
+- [x] Run web typecheck and lint.
+
+Acceptance:
+
+- [x] `/admin-audit` shows admin audit details and blocks manager with a neutral message.
+- [x] `/inventory-summary` shows low-stock drill-down details for admin/manager.
+- [x] `MANAGER` cannot call `/mobile/admin/audit/summary`.
+- [x] Phase 4 labels are no longer hardcoded in screen components.
+- [x] Backend tests assert populated summary counts, not only successful responses.
+- [x] Web typecheck passes and web lint has no new errors.
 
 ## Verification Plan
 
@@ -253,7 +277,7 @@ Backend:
 
 - Add tests covering:
   - `ADMIN` can access all `/mobile/admin/*` summaries.
-  - `MANAGER` can access all `/mobile/admin/*` summaries.
+  - `MANAGER` can access mobile admin summaries except audit.
   - `CUSTOMER`, `COACH`, `RECEPTION`, `FRONT_DESK`, `CASHIER`, and `EMPLOYEE` cannot access `/mobile/admin/*`.
   - Summary payloads remain valid with empty data.
   - Summary payloads include seeded data for people, finance, operations, inventory, support, and audit.
@@ -264,13 +288,15 @@ Mobile:
 - Manually verify admin/manager login lands on control-center home.
 - Confirm tabs visible for admin/manager: Home, People, Operations, Finance, More.
 - Confirm Finance does not make POS the only useful admin/manager workflow.
-- Confirm Manager gets the same summary access unless deliberately restricted.
+- Confirm Manager does not see audit entry points.
 
 Suggested commands:
 
 ```bash
-pytest tests/test_phase3_4.py tests/test_mobile_customer.py
+.venv/bin/pytest tests/test_phase3_4.py
 npm run typecheck:mobile
+npm run typecheck:web
+npm run lint:web
 ```
 
 ## Acceptance Mapping
@@ -288,11 +314,15 @@ Concrete acceptance checklist:
 - [x] More or Operations exposes audit summary.
 - [x] Restricted roles cannot open admin/manager summaries.
 - [x] Mobile contracts validate all Phase 4 payloads.
-- [x] Backend and mobile verification commands pass for the completed 4A-4C slice.
+- [x] Backend and mobile verification commands pass for the completed Phase 4 slice.
+- [x] Admin has audit drill-down access.
+- [x] Manager does not have audit drill-down access.
+- [x] Inventory has a drill-down screen.
+- [x] Web verification passes with no new errors.
 
 ## Open Decisions
 
-- Whether `MANAGER` should see audit summary by default in production, since existing web audit endpoints are admin-only.
-- Whether admin/manager should be able to run POS checkout on mobile in v1 or only view finance summaries.
-- Whether notification automation needs a new backend summary or can start as notification counts plus recent items.
-- Whether inventory drill-down should use existing `/inventory/products` directly or a mobile-specific low-stock endpoint.
+- Resolved: `MANAGER` does not see audit summaries by default; audit remains `ADMIN`-only.
+- Resolved: admin/manager finance is summary-first; POS is available behind an explicit action when capability allows it.
+- Resolved for v1: notification automation starts as counts plus recent summary indicators.
+- Resolved for v1: inventory drill-down uses the mobile admin inventory summary payload.

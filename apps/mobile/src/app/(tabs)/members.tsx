@@ -194,18 +194,18 @@ export default function MembersTab() {
           {adminSummaryQuery.data ? (
             <Card style={styles.adminSummaryCard}>
               <View style={[styles.sectionHeader, { flexDirection: isRTL ? "row-reverse" : "row" }]}>
-                <SectionTitle>People snapshot</SectionTitle>
+                <SectionTitle>{copy.adminControl.peopleSnapshot}</SectionTitle>
                 <StatusPill label={role || "ADMIN"} />
               </View>
               <View style={[styles.adminStatGrid, { flexDirection: isRTL ? "row-reverse" : "row" }]}>
-                <InlineStat label="Members" value={adminSummaryQuery.data.members.total} />
-                <InlineStat label="Active" value={adminSummaryQuery.data.members.active} />
-                <InlineStat label="Blocked" value={adminSummaryQuery.data.members.blocked_or_inactive} />
-                <InlineStat label="Staff" value={adminSummaryQuery.data.staff.total} />
+                <InlineStat label={copy.adminControl.members} value={adminSummaryQuery.data.members.total} />
+                <InlineStat label={copy.adminControl.active} value={adminSummaryQuery.data.members.active} />
+                <InlineStat label={copy.adminControl.blocked} value={adminSummaryQuery.data.members.blocked_or_inactive} />
+                <InlineStat label={copy.adminControl.staff} value={adminSummaryQuery.data.staff.total} />
               </View>
               <View style={[styles.metricGrid, { flexDirection: isRTL ? "row-reverse" : "row" }]}>
-                <MiniMetric label="Staff in today" value={adminSummaryQuery.data.attendance.staff_checked_in_today} />
-                <MiniMetric label="Member scans" value={adminSummaryQuery.data.attendance.member_scans_today} />
+                <MiniMetric label={copy.adminControl.staffInToday} value={adminSummaryQuery.data.attendance.staff_checked_in_today} />
+                <MiniMetric label={copy.adminControl.memberScans} value={adminSummaryQuery.data.attendance.member_scans_today} />
               </View>
               {adminSummaryQuery.data.staff.by_role.length ? (
                 <View style={styles.roleList}>

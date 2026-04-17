@@ -146,18 +146,18 @@ export default function FinanceTab() {
           {adminFinance ? (
             <>
               <Card>
-                <SectionTitle>Finance snapshot</SectionTitle>
+                <SectionTitle>{copy.adminControl.financeSnapshot}</SectionTitle>
                 <View style={[styles.statRow, { flexDirection: isRTL ? "row-reverse" : "row" }]}>
-                  <Metric label="Today revenue" value={formatMoney(adminFinance.today.revenue, locale)} />
-                  <Metric label="Today expenses" value={formatMoney(adminFinance.today.expenses, locale)} />
-                  <Metric label="Today net" value={formatMoney(adminFinance.today.net, locale)} />
+                  <Metric label={copy.adminControl.todayRevenue} value={formatMoney(adminFinance.today.revenue, locale)} />
+                  <Metric label={copy.adminControl.todayExpenses} value={formatMoney(adminFinance.today.expenses, locale)} />
+                  <Metric label={copy.adminControl.todayNet} value={formatMoney(adminFinance.today.net, locale)} />
                 </View>
                 <View style={[styles.statRow, { flexDirection: isRTL ? "row-reverse" : "row" }]}>
-                  <Metric label="Month revenue" value={formatMoney(adminFinance.month.revenue, locale)} />
-                  <Metric label="Month expenses" value={formatMoney(adminFinance.month.expenses, locale)} />
-                  <Metric label="Month net" value={formatMoney(adminFinance.month.net, locale)} />
+                  <Metric label={copy.adminControl.monthRevenue} value={formatMoney(adminFinance.month.revenue, locale)} />
+                  <Metric label={copy.adminControl.monthExpenses} value={formatMoney(adminFinance.month.expenses, locale)} />
+                  <Metric label={copy.adminControl.monthNet} value={formatMoney(adminFinance.month.net, locale)} />
                 </View>
-                <MutedText>{`Low stock: ${adminFinance.low_stock_count}`}</MutedText>
+                <MutedText>{`${copy.adminControl.lowStockCount}: ${adminFinance.low_stock_count}`}</MutedText>
               </Card>
 
               <Card>
@@ -177,9 +177,9 @@ export default function FinanceTab() {
               </Card>
 
               <Card>
-                <SectionTitle>POS</SectionTitle>
-                <MutedText>Use POS when you need to complete a gym-side sale.</MutedText>
-                <SecondaryButton onPress={() => setShowAdminPos((current) => !current)}>{showAdminPos ? "Hide POS" : "Open POS"}</SecondaryButton>
+                <SectionTitle>{copy.adminControl.pos}</SectionTitle>
+                <MutedText>{copy.adminControl.posHint}</MutedText>
+                <SecondaryButton onPress={() => setShowAdminPos((current) => !current)}>{showAdminPos ? copy.adminControl.hidePos : copy.adminControl.openPos}</SecondaryButton>
               </Card>
             </>
           ) : null}

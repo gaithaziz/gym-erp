@@ -119,8 +119,9 @@ export default function OperationsTab() {
 function AdminOperationsTab() {
   const router = useRouter();
   const { authorizedRequest, bootstrap } = useSession();
-  const { direction, fontSet, isRTL, locale, theme } = usePreferences();
+  const { copy, direction, fontSet, isRTL, locale, theme } = usePreferences();
   const role = getCurrentRole(bootstrap);
+  const canViewAudit = role === "ADMIN";
 
   const operationsQuery = useQuery({
     queryKey: ["mobile-admin-operations-summary", role],
@@ -129,6 +130,7 @@ function AdminOperationsTab() {
 
   const auditQuery = useQuery({
     queryKey: ["mobile-admin-audit-summary", role],
+    enabled: canViewAudit,
     queryFn: async () => parseAdminAuditSummaryEnvelope(await authorizedRequest("/mobile/admin/audit/summary")).data,
   });
 
@@ -142,45 +144,47 @@ function AdminOperationsTab() {
   const inventory = inventoryQuery.data;
 
   return (
-    <Screen title="Operations" subtitle="Daily control center" showSubtitle>
+    <Screen title={copy.operationsScreen.title} subtitle={copy.adminControl.subtitle} showSubtitle>
       <QueryState loading={operationsQuery.isLoading} error={operationsQuery.error instanceof Error ? operationsQuery.error.message : null} />
       {operations ? (
         <>
           <Card>
-            <SectionTitle>Today</SectionTitle>
+            <SectionTitle>{copy.adminControl.today}</SectionTitle>
             <View style={[styles.statGrid, { flexDirection: isRTL ? "row-reverse" : "row" }]}>
-              <InlineStat label="Check-ins" value={operations.attendance.checkins_today} />
-              <InlineStat label="Denied" value={operations.attendance.denied_today} />
-              <InlineStat label="Support" value={operations.support.open_tickets} />
-              <InlineStat label="Lost items" value={operations.support.lost_found_open} />
+              <InlineStat label={copy.adminControl.checkIns} value={operations.attendance.checkins_today} />
+              <InlineStat label={copy.adminControl.denied} value={operations.attendance.denied_today} />
+              <InlineStat label={copy.common.support} value={operations.support.open_tickets} />
+              <InlineStat label={copy.adminControl.lostItems} value={operations.support.lost_found_open} />
             </View>
           </Card>
 
           <Card>
-            <SectionTitle>Approvals</SectionTitle>
+            <SectionTitle>{copy.adminControl.approvals}</SectionTitle>
             <View style={[styles.statGrid, { flexDirection: isRTL ? "row-reverse" : "row" }]}>
-              <InlineStat label="Renewals" value={operations.approvals.pending_renewals} />
-              <InlineStat label="Leaves" value={operations.approvals.pending_leaves} />
+              <InlineStat label={copy.adminControl.renewals} value={operations.approvals.pending_renewals} />
+              <InlineStat label={copy.adminControl.leaves} value={operations.approvals.pending_leaves} />
             </View>
             <View style={styles.actionRow}>
-              <ActionChip label="Open support" onPress={() => router.push("/support")} />
-              <ActionChip label="Lost and found" onPress={() => router.push("/lost-found")} />
-              <ActionChip label="Notifications" onPress={() => router.push("/notifications")} />
+              <ActionChip label={copy.adminControl.openSupport} onPress={() => router.push("/support")} />
+              <ActionChip label={copy.common.lostFound} onPress={() => router.push("/lost-found")} />
+              <ActionChip label={copy.more.notifications} onPress={() => router.push("/notifications")} />
+              <ActionChip label={copy.adminControl.inventorySummary} onPress={() => router.push("/inventory-summary")} />
+              {canViewAudit ? <ActionChip label={copy.adminControl.auditSummary} onPress={() => router.push("/admin-audit")} /> : null}
             </View>
           </Card>
 
           <Card>
-            <SectionTitle>Notifications</SectionTitle>
+            <SectionTitle>{copy.more.notifications}</SectionTitle>
             <View style={[styles.statGrid, { flexDirection: isRTL ? "row-reverse" : "row" }]}>
-              <InlineStat label="Queued push" value={operations.notifications.queued_push} />
-              <InlineStat label="Failed push" value={operations.notifications.failed_push} />
-              <InlineStat label="Automation" value={operations.notifications.enabled_automation_rules} />
+              <InlineStat label={copy.adminControl.queuedPush} value={operations.notifications.queued_push} />
+              <InlineStat label={copy.adminControl.failedPush} value={operations.notifications.failed_push} />
+              <InlineStat label={copy.adminControl.automation} value={operations.notifications.enabled_automation_rules} />
             </View>
           </Card>
 
           <Card>
-            <SectionTitle>Recent support</SectionTitle>
-            {operations.recent_support_tickets.length === 0 ? <MutedText>No open support activity</MutedText> : null}
+            <SectionTitle>{copy.adminControl.recentSupport}</SectionTitle>
+            {operations.recent_support_tickets.length === 0 ? <MutedText>{copy.adminControl.noSupportActivity}</MutedText> : null}
             {operations.recent_support_tickets.map((ticket) => (
               <View key={ticket.id} style={[styles.rowBetween, { borderTopColor: theme.border, flexDirection: isRTL ? "row-reverse" : "row" }]}>
                 <View style={styles.textColumn}>
@@ -198,20 +202,20 @@ function AdminOperationsTab() {
       <QueryState loading={inventoryQuery.isLoading} error={inventoryQuery.error instanceof Error ? inventoryQuery.error.message : null} />
       {inventory ? (
         <Card>
-          <SectionTitle>Inventory</SectionTitle>
+          <SectionTitle>{copy.adminControl.inventory}</SectionTitle>
           <View style={[styles.statGrid, { flexDirection: isRTL ? "row-reverse" : "row" }]}>
-            <InlineStat label="Active SKUs" value={inventory.total_active_products} />
-            <InlineStat label="Low stock" value={inventory.low_stock_count} />
-            <InlineStat label="Out" value={inventory.out_of_stock_count} />
+            <InlineStat label={copy.adminControl.activeSkus} value={inventory.total_active_products} />
+            <InlineStat label={copy.adminControl.lowStock} value={inventory.low_stock_count} />
+            <InlineStat label={copy.adminControl.outOfStock} value={inventory.out_of_stock_count} />
           </View>
-          {inventory.low_stock_products.length === 0 ? <MutedText>Stock levels are clear</MutedText> : null}
+          {inventory.low_stock_products.length === 0 ? <MutedText>{copy.adminControl.stockClear}</MutedText> : null}
           {inventory.low_stock_products.slice(0, 5).map((product) => (
             <View key={product.id} style={[styles.rowBetween, { borderTopColor: theme.border, flexDirection: isRTL ? "row-reverse" : "row" }]}>
               <View style={styles.textColumn}>
                 <Text style={{ color: theme.foreground, fontFamily: fontSet.body, textAlign: isRTL ? "right" : "left", writingDirection: direction }}>
                   {product.name}
                 </Text>
-                <MutedText>{`${product.category} - threshold ${product.low_stock_threshold}`}</MutedText>
+                <MutedText>{`${product.category} - ${copy.adminControl.threshold} ${product.low_stock_threshold}`}</MutedText>
               </View>
               <Text style={{ color: theme.primary, fontFamily: fontSet.mono }}>{product.stock_quantity}</Text>
             </View>
@@ -219,22 +223,22 @@ function AdminOperationsTab() {
         </Card>
       ) : null}
 
-      <QueryState loading={auditQuery.isLoading} error={auditQuery.error instanceof Error ? auditQuery.error.message : null} />
-      {audit ? (
+      {canViewAudit ? <QueryState loading={auditQuery.isLoading} error={auditQuery.error instanceof Error ? auditQuery.error.message : null} /> : null}
+      {canViewAudit && audit ? (
         <Card>
-          <SectionTitle>Audit</SectionTitle>
+          <SectionTitle>{copy.adminControl.audit}</SectionTitle>
           <View style={[styles.statGrid, { flexDirection: isRTL ? "row-reverse" : "row" }]}>
-            <InlineStat label="Events" value={audit.total_events} />
-            <InlineStat label="Actions" value={audit.action_counts.length} />
+            <InlineStat label={copy.adminControl.events} value={audit.total_events} />
+            <InlineStat label={copy.adminControl.actions} value={audit.action_counts.length} />
           </View>
-          {audit.recent_events.length === 0 ? <MutedText>No audit events yet</MutedText> : null}
+          {audit.recent_events.length === 0 ? <MutedText>{copy.adminControl.noAuditEvents}</MutedText> : null}
           {audit.recent_events.slice(0, 5).map((event) => (
             <View key={event.id} style={[styles.rowBetween, { borderTopColor: theme.border, flexDirection: isRTL ? "row-reverse" : "row" }]}>
               <View style={styles.textColumn}>
                 <Text style={{ color: theme.foreground, fontFamily: fontSet.body, textAlign: isRTL ? "right" : "left", writingDirection: direction }}>
                   {event.action}
                 </Text>
-                <MutedText>{[event.actor_name || "System", formatDateTime(event.timestamp, locale)].filter(Boolean).join(" - ")}</MutedText>
+                <MutedText>{[event.actor_name || copy.adminControl.system, formatDateTime(event.timestamp, locale)].filter(Boolean).join(" - ")}</MutedText>
               </View>
             </View>
           ))}

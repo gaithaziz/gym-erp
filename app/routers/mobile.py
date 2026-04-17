@@ -963,7 +963,7 @@ async def read_admin_mobile_finance_summary(
 
 @router.get("/admin/audit/summary", response_model=StandardResponse[MobileAdminAuditSummaryResponse])
 async def read_admin_mobile_audit_summary(
-    current_user: Annotated[User, Depends(dependencies.RoleChecker([schemas.Role.ADMIN, schemas.Role.MANAGER]))],
+    current_user: Annotated[User, Depends(dependencies.RoleChecker([schemas.Role.ADMIN]))],
     db: Annotated[AsyncSession, Depends(get_db)],
 ):
     data = await MobileAdminService.get_audit_summary(current_user=current_user, db=db)

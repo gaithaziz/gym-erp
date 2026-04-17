@@ -309,7 +309,7 @@ function StaffHomeTab() {
 function AdminHomeTab() {
   const router = useRouter();
   const { bootstrap, authorizedRequest } = useSession();
-  const { direction, fontSet, isRTL, locale, theme } = usePreferences();
+  const { copy, direction, fontSet, isRTL, locale, theme } = usePreferences();
   const homeQuery = useQuery({
     queryKey: ["mobile-admin-home", bootstrap?.role],
     queryFn: async () => parseAdminHomeEnvelope(await authorizedRequest("/mobile/admin/home")).data,
@@ -317,7 +317,7 @@ function AdminHomeTab() {
   const home = homeQuery.data;
 
   return (
-    <Screen title="Control center" subtitle={bootstrap?.gym.gym_name || "Admin"} showSubtitle>
+    <Screen title={copy.adminControl.title} subtitle={bootstrap?.gym.gym_name || copy.adminControl.admin} showSubtitle>
       <QueryState loading={homeQuery.isLoading} error={homeQuery.error instanceof Error ? homeQuery.error.message : null} />
       {home ? (
         <>
@@ -325,10 +325,10 @@ function AdminHomeTab() {
             <SectionTitle>{home.headline}</SectionTitle>
             <MutedText>{bootstrap?.user.full_name || bootstrap?.role || "Admin"}</MutedText>
             <View style={[styles.actionGrid, { flexDirection: isRTL ? "row-reverse" : "row" }]}>
-              <HomeAction label="People" onPress={() => router.push("/(tabs)/members" as never)} />
-              <HomeAction label="Operations" onPress={() => router.push("/(tabs)/operations" as never)} />
-              <HomeAction label="Finance" onPress={() => router.push("/(tabs)/finance" as never)} />
-              <HomeAction label="Support" onPress={() => router.push("/support")} />
+              <HomeAction label={copy.adminControl.peopleSummary} onPress={() => router.push("/(tabs)/members" as never)} />
+              <HomeAction label={copy.adminControl.operationsSummary} onPress={() => router.push("/(tabs)/operations" as never)} />
+              <HomeAction label={copy.adminControl.financeSummary} onPress={() => router.push("/(tabs)/finance" as never)} />
+              <HomeAction label={copy.more.support} onPress={() => router.push("/support")} />
             </View>
           </Card>
 
@@ -339,8 +339,8 @@ function AdminHomeTab() {
           </View>
 
           <Card>
-            <SectionTitle>Alerts</SectionTitle>
-            {home.alerts.length === 0 ? <MutedText>No alerts right now</MutedText> : null}
+            <SectionTitle>{copy.adminControl.alerts}</SectionTitle>
+            {home.alerts.length === 0 ? <MutedText>{copy.adminControl.noAlerts}</MutedText> : null}
             {home.alerts.map((alert) => (
               <Pressable
                 key={alert.id}
@@ -364,7 +364,7 @@ function AdminHomeTab() {
           </Card>
 
           <Card>
-            <SectionTitle>Approvals</SectionTitle>
+            <SectionTitle>{copy.adminControl.approvals}</SectionTitle>
             {home.approvals.map((approval) => (
               <Pressable
                 key={approval.id}
@@ -380,7 +380,7 @@ function AdminHomeTab() {
                   >
                     {approval.title}
                   </Text>
-                  <MutedText>{approval.subtitle || "No pending action"}</MutedText>
+                  <MutedText>{approval.subtitle || copy.adminControl.noPendingAction}</MutedText>
                 </View>
                 <Text style={[styles.amountText, { color: theme.primary, fontFamily: fontSet.mono }]}>{approval.count}</Text>
               </Pressable>
@@ -388,8 +388,8 @@ function AdminHomeTab() {
           </Card>
 
           <Card>
-            <SectionTitle>Recent activity</SectionTitle>
-            {home.recent_activity.length === 0 ? <MutedText>No recent activity</MutedText> : null}
+            <SectionTitle>{copy.adminControl.recentActivity}</SectionTitle>
+            {home.recent_activity.length === 0 ? <MutedText>{copy.adminControl.noRecentActivity}</MutedText> : null}
             {home.recent_activity.map((item) => (
               <Pressable
                 key={`${item.kind}-${item.id}`}

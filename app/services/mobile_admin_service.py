@@ -45,6 +45,11 @@ class MobileAdminService:
         if current_user.role not in ADMIN_CONTROL_ROLES:
             raise ValueError("Not allowed")
 
+    @staticmethod
+    def _ensure_audit_allowed(current_user: User) -> None:
+        if current_user.role != Role.ADMIN:
+            raise ValueError("Not allowed")
+
     @classmethod
     async def get_home_summary(cls, *, current_user: User, db: AsyncSession) -> dict[str, Any]:
         cls._ensure_allowed(current_user)
@@ -52,7 +57,7 @@ class MobileAdminService:
         people = await cls.get_people_summary(current_user=current_user, db=db)
         operations = await cls.get_operations_summary(current_user=current_user, db=db)
         finance = await cls.get_finance_summary(current_user=current_user, db=db)
-        audit = await cls.get_audit_summary(current_user=current_user, db=db)
+        audit = await cls.get_audit_summary(current_user=current_user, db=db) if current_user.role == Role.ADMIN else {"recent_events": []}
 
         alerts = [
             {
@@ -305,7 +310,7 @@ class MobileAdminService:
 
     @classmethod
     async def get_audit_summary(cls, *, current_user: User, db: AsyncSession) -> dict[str, Any]:
-        cls._ensure_allowed(current_user)
+        cls._ensure_audit_allowed(current_user)
 
         recent_events = (
             await db.execute(

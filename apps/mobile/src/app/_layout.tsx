@@ -73,6 +73,8 @@ function AppNavigator() {
         <Stack.Screen name="feedback" options={{ headerShown: false, title: copy.common.feedbackHistory }} />
         <Stack.Screen name="coach-feedback" options={{ headerShown: false, title: copy.common.feedbackHistory }} />
         <Stack.Screen name="leaves" options={{ headerShown: false, title: copy.operationsScreen.myLeaves }} />
+        <Stack.Screen name="admin-audit" options={{ headerShown: false, title: copy.adminControl.auditSummary }} />
+        <Stack.Screen name="inventory-summary" options={{ headerShown: false, title: copy.adminControl.inventorySummary }} />
       </Stack>
     </>
   );

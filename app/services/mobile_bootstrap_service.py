@@ -74,7 +74,6 @@ class MobileBootstrapService:
             "use_pos",
             "manage_inventory",
             "handle_support_queue",
-            "view_audit_summary",
             "view_profile",
             "view_notifications",
             "view_chat",
@@ -104,7 +103,7 @@ class MobileBootstrapService:
         Role.FRONT_DESK: ("home", "qr", "members", "support", "profile", "notifications"),
         Role.CASHIER: ("home", "finance", "operations", "qr", "profile", "notifications"),
         Role.EMPLOYEE: ("home", "qr", "operations", "support", "profile", "notifications"),
-        Role.MANAGER: ("home", "members", "operations", "finance", "inventory", "audit", "support", "chat", "profile", "notifications"),
+        Role.MANAGER: ("home", "members", "operations", "finance", "inventory", "support", "chat", "profile", "notifications"),
         Role.ADMIN: ("home", "members", "operations", "finance", "inventory", "audit", "support", "chat", "profile", "notifications"),
     }
 
