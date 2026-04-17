@@ -4,7 +4,7 @@ import { Alert, Pressable, Share, StyleSheet, Text, View } from "react-native";
 
 import { Card, Input, MutedText, PrimaryButton, QueryState, Screen, SecondaryButton, SectionTitle } from "@/components/ui";
 import { parseAdminFinanceSummaryEnvelope, parseEnvelope, parsePosCheckoutEnvelope, parsePosSummaryEnvelope } from "@/lib/api";
-import { localizePaymentMethod } from "@/lib/mobile-format";
+import { localizeFinanceCategory, localizeFinanceTransactionType, localizePaymentMethod } from "@/lib/mobile-format";
 import { getCurrentRole, isAdminControlRole } from "@/lib/mobile-role";
 import { usePreferences } from "@/lib/preferences";
 import { useSession } from "@/lib/session";
@@ -38,6 +38,29 @@ type ReceiptDetail = {
 };
 
 const PAYMENT_METHODS = ["CASH", "CARD", "TRANSFER"] as const;
+
+function systemTransactionTitle(
+  description: string | undefined,
+  category: string | undefined,
+  type: string | undefined,
+  isRTL: boolean,
+  copy: ReturnType<typeof usePreferences>["copy"],
+) {
+  const normalized = (description ?? "").toUpperCase();
+  if (normalized.includes("POS")) return copy.adminControl.pos;
+  if (normalized.includes("MEMBERSHIP") || normalized.includes("SUBSCRIPTION") || normalized.includes("RENEWAL")) {
+    return localizeFinanceCategory("SUBSCRIPTION", isRTL);
+  }
+  if (normalized.includes("SALARY")) return localizeFinanceCategory("SALARY", isRTL);
+  if (category) return localizeFinanceCategory(category, isRTL);
+  return localizeFinanceTransactionType(type, isRTL);
+}
+
+function posTransactionTitle(description: string | undefined, copy: ReturnType<typeof usePreferences>["copy"]) {
+  const normalized = (description ?? "").toUpperCase();
+  if (normalized.includes("POS") || normalized.includes("[DEMO]")) return copy.adminControl.pos;
+  return description || copy.adminControl.pos;
+}
 
 export default function FinanceTab() {
   const { authorizedRequest, bootstrap } = useSession();
@@ -133,7 +156,7 @@ export default function FinanceTab() {
     const lines = [
       `${copy.billingScreen.receipts} #${receipt.receipt_no}`,
       `${copy.financeScreen.total}: ${formatMoney(receipt.amount, locale)}`,
-      `${copy.financeScreen.paymentMethod}: ${receipt.payment_method}`,
+      `${copy.financeScreen.paymentMethod}: ${localizePaymentMethod(receipt.payment_method, isRTL)}`,
       ...(receipt.line_items ?? []).map((item) => `${item.quantity}x ${item.product_name} - ${formatMoney(item.line_total, locale)}`),
     ];
     await Share.share({ message: lines.join("\n") });
@@ -168,9 +191,11 @@ export default function FinanceTab() {
                   <View key={item.id} style={[styles.rowBetween, { borderTopColor: theme.border, flexDirection: isRTL ? "row-reverse" : "row" }]}>
                     <View style={styles.textColumn}>
                       <Text style={[styles.titleText, { color: theme.foreground, fontFamily: fontSet.body, textAlign: isRTL ? "right" : "left" }]}>
-                        {item.description}
+                        {systemTransactionTitle(item.description, item.category, item.type, isRTL, copy)}
                       </Text>
-                      <MutedText>{[item.type, item.category, item.member_name || item.payment_method].filter(Boolean).join(" - ")}</MutedText>
+                      <MutedText>
+                        {[localizeFinanceTransactionType(item.type, isRTL), localizeFinanceCategory(item.category, isRTL), item.member_name || localizePaymentMethod(item.payment_method, isRTL)].filter(Boolean).join(" - ")}
+                      </MutedText>
                     </View>
                     <Text style={[styles.amountText, { color: theme.primary, fontFamily: fontSet.mono }]}>{formatMoney(item.amount, locale)}</Text>
                   </View>
@@ -297,8 +322,10 @@ export default function FinanceTab() {
           {summary.recent_transactions.map((item) => (
             <Pressable key={item.id} onPress={() => setSelectedReceiptId(item.id)} style={[styles.rowBetween, { borderTopColor: theme.border, flexDirection: isRTL ? "row-reverse" : "row" }]}>
               <View style={styles.textColumn}>
-                <Text style={[styles.titleText, { color: theme.foreground, fontFamily: fontSet.body, textAlign: isRTL ? "right" : "left" }]}>{item.description}</Text>
-                <MutedText>{item.member_name || item.payment_method}</MutedText>
+                <Text style={[styles.titleText, { color: theme.foreground, fontFamily: fontSet.body, textAlign: isRTL ? "right" : "left" }]}>
+                  {posTransactionTitle(item.description, copy)}
+                </Text>
+                <MutedText>{item.member_name || localizePaymentMethod(item.payment_method, isRTL)}</MutedText>
               </View>
               <Text style={[styles.amountText, { color: theme.primary, fontFamily: fontSet.mono }]}>{formatMoney(item.amount, locale)}</Text>
             </Pressable>

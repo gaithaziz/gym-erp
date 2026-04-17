@@ -70,7 +70,7 @@ export default function CoachFeedbackScreen() {
             items={feedback.gym_feedback.map((item) => ({
               id: item.id,
               memberId: item.member_id,
-              title: item.category,
+              title: localizeGymFeedbackCategory(item.category, copy.feedbackScreen),
               subtitle: `${copy.feedbackScreen.member}: ${item.member_name || copy.common.customer}`,
               meta: `${item.rating}/5`,
               comment: item.comment || copy.common.noComment,
@@ -83,6 +83,17 @@ export default function CoachFeedbackScreen() {
       ) : null}
     </Screen>
   );
+}
+
+function localizeGymFeedbackCategory(category: string, copy: { equipment: string; cleanliness: string; staff: string; classes: string; general: string }) {
+  const map: Record<string, string> = {
+    EQUIPMENT: copy.equipment,
+    CLEANLINESS: copy.cleanliness,
+    STAFF: copy.staff,
+    CLASSES: copy.classes,
+    GENERAL: copy.general,
+  };
+  return map[category] ?? category;
 }
 
 function FeedbackSection({

@@ -4,11 +4,15 @@ import { parseMobileStaffMemberRegistrationResult } from "@gym-erp/contracts";
 import {
   localizeAccessReason,
   localizeAccessStatus,
+  localizeAuditAction,
+  localizeFinanceCategory,
+  localizeFinanceTransactionType,
   localizeLostFoundStatus,
   localizeMessageType,
   localizeNotificationEventType,
   localizeNotificationStatus,
   localizePaymentMethod,
+  localizeRole,
   localizeRenewalStatus,
   localizeSubscriptionStatus,
   localizeTicketCategory,
@@ -35,6 +39,13 @@ describe("mobile-format", () => {
   it("localizes payment and message types", () => {
     expect(localizePaymentMethod("CASH", true)).toBe("نقداً");
     expect(localizeMessageType("VOICE", false)).toBe("Voice note");
+  });
+
+  it("localizes admin operational values", () => {
+    expect(localizeRole("FRONT_DESK", false)).toBe("Front desk");
+    expect(localizeFinanceTransactionType("EXPENSE", true)).toBe("مصروف");
+    expect(localizeFinanceCategory("POS_SALE", false)).toBe("POS sale");
+    expect(localizeAuditAction("PAYROLL_AUTOMATION_RUN", true)).toBe("تشغيل أتمتة الرواتب");
   });
 
   it("localizes access and notification values", () => {

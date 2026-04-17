@@ -140,7 +140,7 @@ function CustomerQrTab() {
                     },
                   ]}
                 >
-                  {scanResult.status}
+                  {localizeAccessStatus(scanResult.status, isRTL)}
                 </Text>
               </View>
               <View style={styles.metaGroup}>

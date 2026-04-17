@@ -102,6 +102,17 @@ export default function StaffSummaryPage() {
             leaveRecords: 'سجلات الإجازات',
             printLeaves: 'طباعة ملخص الإجازات',
             noLeaves: 'لا توجد سجلات إجازات',
+            role: 'الدور',
+            contract: 'العقد',
+            noContract: 'بدون عقد',
+            fullTimeContract: 'دوام كامل',
+            coach: 'مدرب',
+            employee: 'موظف',
+            cashier: 'كاشير',
+            reception: 'استقبال',
+            frontDesk: 'مكتب أمامي',
+            manager: 'مشرف',
+            admin: 'مدير',
         }
         : {
             missingId: 'Missing staff id in route.',
@@ -148,6 +159,17 @@ export default function StaffSummaryPage() {
             leaveRecords: 'Leave Records',
             printLeaves: 'Print Leaves Summary',
             noLeaves: 'No leave records',
+            role: 'Role',
+            contract: 'Contract',
+            noContract: 'No contract',
+            fullTimeContract: 'Full time',
+            coach: 'Coach',
+            employee: 'Employee',
+            cashier: 'Cashier',
+            reception: 'Reception',
+            frontDesk: 'Front desk',
+            manager: 'Manager',
+            admin: 'Admin',
         };
     const params = useParams();
     const router = useRouter();
@@ -256,6 +278,37 @@ export default function StaffSummaryPage() {
                 return status;
         }
     };
+    const roleLabel = (role: string) => {
+        switch (role) {
+            case 'ADMIN':
+                return txt.admin;
+            case 'MANAGER':
+                return txt.manager;
+            case 'COACH':
+                return txt.coach;
+            case 'EMPLOYEE':
+                return txt.employee;
+            case 'CASHIER':
+                return txt.cashier;
+            case 'RECEPTION':
+                return txt.reception;
+            case 'FRONT_DESK':
+                return txt.frontDesk;
+            default:
+                return role.replace(/_/g, ' ');
+        }
+    };
+    const contractTypeLabel = (type: string | null) => {
+        switch (type) {
+            case 'FULL_TIME':
+                return txt.fullTimeContract;
+            case null:
+            case '':
+                return txt.noContract;
+            default:
+                return String(type).replace(/_/g, ' ');
+        }
+    };
 
     const printSection = (type: 'attendance' | 'leaves') => {
         if (!summary) return;
@@ -310,7 +363,7 @@ export default function StaffSummaryPage() {
             body: `
                 <section class="header">
                     <div>
-                        <p class="eyebrow">${escapePrintHtml(employee.role)}</p>
+                        <p class="eyebrow">${escapePrintHtml(roleLabel(employee.role))}</p>
                         <h1 class="title">${escapePrintHtml(title)}</h1>
                         <p class="subtitle">${escapePrintHtml(employee.full_name)} | ${escapePrintHtml(employee.email)}</p>
                     </div>
@@ -324,12 +377,12 @@ export default function StaffSummaryPage() {
                             <span class="value">${escapePrintHtml(rangeText)}</span>
                         </div>
                         <div class="meta-item">
-                            <span class="label">${escapePrintHtml(txt.type)}</span>
-                            <span class="value">${escapePrintHtml(employee.contract_type || '-')}</span>
+                            <span class="label">${escapePrintHtml(txt.contract)}</span>
+                            <span class="value">${escapePrintHtml(contractTypeLabel(employee.contract_type))}</span>
                         </div>
                         <div class="meta-item">
-                            <span class="label">${escapePrintHtml(txt.status)}</span>
-                            <span class="value">${escapePrintHtml(employee.role)}</span>
+                            <span class="label">${escapePrintHtml(txt.role)}</span>
+                            <span class="value">${escapePrintHtml(roleLabel(employee.role))}</span>
                         </div>
                     </div>
                 </section>
@@ -397,7 +450,7 @@ export default function StaffSummaryPage() {
 
             <div>
                 <h1 className="text-2xl font-bold text-foreground">{summary.employee.full_name}</h1>
-                <p className="text-sm text-muted-foreground mt-1">{summary.employee.email} • {summary.employee.role}</p>
+                <p className="text-sm text-muted-foreground mt-1">{summary.employee.email} • {roleLabel(summary.employee.role)} • {contractTypeLabel(summary.employee.contract_type)}</p>
             </div>
 
             <div className="chart-card p-4 border border-border space-y-3">

@@ -6,7 +6,7 @@ import { Pressable, StyleSheet, Text, View } from "react-native";
 
 import { Card, InlineStat, Input, MutedText, PrimaryButton, QueryState, Screen, SecondaryButton, SectionTitle } from "@/components/ui";
 import { parseAdminPeopleSummaryEnvelope, parseStaffMemberDetailEnvelope } from "@/lib/api";
-import { localeTag, localizeAccessStatus, localizeSubscriptionStatus } from "@/lib/mobile-format";
+import { localeTag, localizeAccessStatus, localizePlanStatus, localizeRole, localizeSubscriptionStatus } from "@/lib/mobile-format";
 import { getCurrentRole, hasCapability, isAdminControlRole } from "@/lib/mobile-role";
 import { usePreferences } from "@/lib/preferences";
 import { useSession } from "@/lib/session";
@@ -195,7 +195,7 @@ export default function MembersTab() {
             <Card style={styles.adminSummaryCard}>
               <View style={[styles.sectionHeader, { flexDirection: isRTL ? "row-reverse" : "row" }]}>
                 <SectionTitle>{copy.adminControl.peopleSnapshot}</SectionTitle>
-                <StatusPill label={role || "ADMIN"} />
+                <StatusPill label={localizeRole(role || "ADMIN", isRTL)} />
               </View>
               <View style={[styles.adminStatGrid, { flexDirection: isRTL ? "row-reverse" : "row" }]}>
                 <InlineStat label={copy.adminControl.members} value={adminSummaryQuery.data.members.total} />
@@ -210,7 +210,7 @@ export default function MembersTab() {
               {adminSummaryQuery.data.staff.by_role.length ? (
                 <View style={styles.roleList}>
                   {adminSummaryQuery.data.staff.by_role.map((item) => (
-                    <SimpleRow key={item.id} title={item.label} subtitle={`${item.value}`} />
+                    <SimpleRow key={item.id} title={localizeRole(item.id || item.label, isRTL)} subtitle={`${item.value}`} />
                   ))}
                 </View>
               ) : null}
@@ -261,7 +261,7 @@ export default function MembersTab() {
                 {selectedMember.full_name || selectedMember.email}
               </Text>
               <MutedText>
-                {formatSubscriptionSummary(selectedSubscription, locale, isRTL)}
+                {formatSubscriptionSummary(selectedSubscription, locale, isRTL, copy)}
               </MutedText>
             </View>
             <Ionicons name={memberDropdownOpen ? "chevron-up" : "chevron-down"} size={18} color={theme.primary} />
@@ -342,7 +342,7 @@ export default function MembersTab() {
               <MutedText>{copy.common.noData}</MutedText>
             ) : (
               visibleItems(detailQuery.data.active_workout_plans, expandedSections.workouts).map((plan) => (
-                <SimpleRow key={plan.id} title={plan.name} subtitle={plan.status} />
+                <SimpleRow key={plan.id} title={plan.name} subtitle={localizePlanStatus(plan.status, isRTL)} />
               ))
             )}
             <OverflowToggle total={detailQuery.data.active_workout_plans.length} expanded={!!expandedSections.workouts} onPress={() => setExpandedSections((current) => ({ ...current, workouts: !current.workouts }))} />
@@ -353,7 +353,7 @@ export default function MembersTab() {
               <MutedText>{copy.common.noData}</MutedText>
             ) : (
               visibleItems(detailQuery.data.active_diet_plans, expandedSections.diets).map((plan) => (
-                <SimpleRow key={plan.id} title={plan.name} subtitle={plan.status} />
+                <SimpleRow key={plan.id} title={plan.name} subtitle={localizePlanStatus(plan.status, isRTL)} />
               ))
             )}
             <OverflowToggle total={detailQuery.data.active_diet_plans.length} expanded={!!expandedSections.diets} onPress={() => setExpandedSections((current) => ({ ...current, diets: !current.diets }))} />
@@ -426,7 +426,7 @@ export default function MembersTab() {
                   ) : (
                     <SimpleRow
                       key={item.id}
-                      title={item.category}
+                      title={feedbackCategoryLabel(item.category, copy)}
                       subtitle={`${item.rating}/5 • ${new Date(item.created_at).toLocaleDateString(locale)}`}
                       note={item.comment}
                     />
@@ -695,7 +695,7 @@ function PlanAssignRow({ plan, disabled, onPress }: { plan: PlanSummary; disable
         <Text style={{ color: theme.foreground, fontFamily: fontSet.body, fontWeight: "800", textAlign: isRTL ? "right" : "left", writingDirection: direction }} numberOfLines={1}>
           {plan.name}
         </Text>
-        <MutedText>{plan.status}</MutedText>
+        <MutedText>{localizePlanStatus(plan.status, isRTL)}</MutedText>
       </View>
       <Ionicons name="add-circle-outline" size={20} color={theme.primary} />
     </Pressable>
@@ -968,15 +968,39 @@ function formatSubscriptionSummary(
   subscription: { status?: string | null; end_date?: string | null; plan_name?: string | null } | null,
   locale: string,
   isRTL: boolean,
+  copy: ReturnType<typeof usePreferences>["copy"],
 ) {
   const status = localizeSubscriptionStatus(subscription?.status ?? undefined, isRTL);
-  const plan = subscription?.plan_name || (isRTL ? "لا توجد خطة" : "No plan");
+  const plan = subscription?.plan_name || copy.common.noCurrentPlan;
   const endDate = subscription?.end_date ? new Date(subscription.end_date) : null;
   const validEndDate = endDate && !Number.isNaN(endDate.getTime()) ? endDate.toLocaleDateString(locale) : null;
   if (!validEndDate) {
     return isRTL ? `${plan} · ${status}` : `${plan} · ${status}`;
   }
-  return isRTL ? `${plan} · ${status} · ينتهي ${validEndDate}` : `${plan} · ${status} · ends ${validEndDate}`;
+  return `${plan} · ${status} · ${copy.common.ends} ${validEndDate}`;
+}
+
+function feedbackCategoryLabel(category: string, copy: ReturnType<typeof usePreferences>["copy"]) {
+  const normalized = category.toUpperCase();
+  if (normalized === "WORKOUT" || normalized === "GYM" || normalized === "SERVICE") {
+    return copy.feedbackScreen.gym;
+  }
+  if (normalized === "EQUIPMENT") {
+    return copy.feedbackScreen.equipment;
+  }
+  if (normalized === "CLEANLINESS") {
+    return copy.feedbackScreen.cleanliness;
+  }
+  if (normalized === "STAFF") {
+    return copy.feedbackScreen.staff;
+  }
+  if (normalized === "CLASSES") {
+    return copy.feedbackScreen.classes;
+  }
+  if (normalized === "GENERAL") {
+    return copy.feedbackScreen.general;
+  }
+  return category;
 }
 
 function OverflowToggle({ total, expanded, onPress, previewLimit = SECTION_PREVIEW_LIMIT }: { total: number; expanded: boolean; onPress: () => void; previewLimit?: number }) {

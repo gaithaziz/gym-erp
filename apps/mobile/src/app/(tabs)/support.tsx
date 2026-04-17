@@ -49,9 +49,9 @@ export default function SupportTab() {
             <View key={ticket.id} style={[styles.row, { borderTopColor: theme.border }]}>
               <View style={styles.textColumn}>
                 <Text style={{ color: theme.foreground, fontFamily: fontSet.body }}>{ticket.subject}</Text>
-                <MutedText>{ticket.customer?.full_name || ticket.category}</MutedText>
+                <MutedText>{ticket.customer?.full_name || localizeTicketCategory(ticket.category, isRTL)}</MutedText>
               </View>
-              <Text style={{ color: theme.primary, fontFamily: fontSet.mono }}>{ticket.status}</Text>
+              <Text style={{ color: theme.primary, fontFamily: fontSet.mono }}>{localizeTicketStatus(ticket.status, isRTL)}</Text>
             </View>
           ))}
         </Card>

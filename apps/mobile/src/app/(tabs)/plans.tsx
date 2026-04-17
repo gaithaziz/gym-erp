@@ -5,6 +5,7 @@ import { Pressable, Text, View } from "react-native";
 
 import { Card, Input, MutedText, PrimaryButton, QueryState, Screen, SectionTitle, SecondaryButton, TextArea } from "@/components/ui";
 import { parseCoachPlansEnvelope } from "@/lib/api";
+import { localizePlanStatus } from "@/lib/mobile-format";
 import { getCurrentRole } from "@/lib/mobile-role";
 import { usePreferences } from "@/lib/preferences";
 import { useSession } from "@/lib/session";
@@ -883,7 +884,7 @@ function CoachPlansTab() {
                 selectLabel={copy.coachPlans.selectWorkoutPlan}
                 noResultsLabel={copy.coachPlans.noMatchingPlans}
                 selectedTitle={selectedWorkout?.name || copy.coachPlans.selectWorkoutPlan}
-                selectedSubtitle={selectedWorkout ? `${selectedWorkout.status} • ${selectedWorkout.member_name || copy.coachPlans.template}` : copy.coachPlans.searchWorkoutPlans}
+                selectedSubtitle={selectedWorkout ? `${localizePlanStatus(selectedWorkout.status, isRTL)} • ${selectedWorkout.member_name || copy.coachPlans.template}` : copy.coachPlans.searchWorkoutPlans}
                 plans={filteredWorkoutPlans}
                 selectedId={selectedWorkoutId}
                 templateLabel={copy.coachPlans.template}
@@ -917,7 +918,7 @@ function CoachPlansTab() {
                 selectLabel={copy.coachPlans.selectDietPlan}
                 noResultsLabel={copy.coachPlans.noMatchingPlans}
                 selectedTitle={selectedDiet?.name || copy.coachPlans.selectDietPlan}
-                selectedSubtitle={selectedDiet ? `${selectedDiet.status} • ${selectedDiet.member_name || copy.coachPlans.template}` : copy.coachPlans.searchDietPlans}
+                selectedSubtitle={selectedDiet ? `${localizePlanStatus(selectedDiet.status, isRTL)} • ${selectedDiet.member_name || copy.coachPlans.template}` : copy.coachPlans.searchDietPlans}
                 plans={filteredDietPlans}
                 selectedId={selectedDietId}
                 templateLabel={copy.coachPlans.template}
@@ -1247,7 +1248,7 @@ function SearchablePlanDropdown({
             <PlanPickerRow
               key={plan.id}
               title={plan.name}
-              subtitle={`${plan.status} • ${plan.member_name || templateLabel}`}
+              subtitle={`${localizePlanStatus(plan.status, isRTL)} • ${plan.member_name || templateLabel}`}
               active={selectedId === plan.id}
               onPress={() => onSelect(plan.id)}
             />

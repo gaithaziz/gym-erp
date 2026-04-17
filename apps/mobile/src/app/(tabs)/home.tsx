@@ -5,7 +5,7 @@ import { Pressable, StyleSheet, Text, View } from "react-native";
 
 import { Card, InlineStat, MutedText, PrimaryButton, QueryState, Screen, SecondaryButton, SecondaryLink, SectionTitle, ValueText } from "@/components/ui";
 import { parseAdminHomeEnvelope, parseEnvelope, parseHomeEnvelope, parseStaffHomeEnvelope, type MobileGamificationStats } from "@/lib/api";
-import { localeTag, localizeSubscriptionStatus } from "@/lib/mobile-format";
+import { localeTag, localizeAuditAction, localizeFinanceCategory, localizeFinanceTransactionType, localizePaymentMethod, localizeRole, localizeSubscriptionStatus, localizeTicketStatus } from "@/lib/mobile-format";
 import { getCurrentRole, isAdminControlRole, isCustomerRole } from "@/lib/mobile-role";
 import { usePreferences } from "@/lib/preferences";
 import { useSession } from "@/lib/session";
@@ -291,7 +291,7 @@ function StaffHomeTab() {
                       >
                         {formatStaffHomeItemTitle(item, itemLabels, copy.common.noData)}
                       </Text>
-                      <MutedText>{formatStaffHomeItemSubtitle(item, itemLabels, locale)}</MutedText>
+                      <MutedText>{formatStaffHomeItemSubtitle(item, itemLabels, locale, isRTL)}</MutedText>
                     </View>
                   </View>
                 ))
@@ -322,8 +322,8 @@ function AdminHomeTab() {
       {home ? (
         <>
           <Card style={[styles.heroCard, { backgroundColor: theme.cardAlt, borderColor: theme.border }]}>
-            <SectionTitle>{home.headline}</SectionTitle>
-            <MutedText>{bootstrap?.user.full_name || bootstrap?.role || "Admin"}</MutedText>
+            <SectionTitle>{copy.adminControl.title}</SectionTitle>
+            <MutedText>{bootstrap?.user.full_name || localizeRole(bootstrap?.role || "ADMIN", isRTL)}</MutedText>
             <View style={[styles.actionGrid, { flexDirection: isRTL ? "row-reverse" : "row" }]}>
               <HomeAction label={copy.adminControl.peopleSummary} onPress={() => router.push("/(tabs)/members" as never)} />
               <HomeAction label={copy.adminControl.operationsSummary} onPress={() => router.push("/(tabs)/operations" as never)} />
@@ -335,7 +335,7 @@ function AdminHomeTab() {
 
           <View style={[styles.statGrid, { flexDirection: isRTL ? "row-reverse" : "row" }]}>
             {home.metrics.map((metric) => (
-              <InlineStat key={metric.id} label={metric.label} value={formatAdminMetric(metric.value, locale)} />
+              <InlineStat key={metric.id} label={adminMetricLabel(metric.id, metric.label, copy)} value={formatAdminMetric(metric.value, locale)} />
             ))}
           </View>
 
@@ -355,9 +355,9 @@ function AdminHomeTab() {
                       { color: theme.foreground, fontFamily: fontSet.body, textAlign: isRTL ? "right" : "left", writingDirection: direction },
                     ]}
                   >
-                    {alert.title}
+                    {adminAlertTitle(alert.id, alert.title, copy)}
                   </Text>
-                  <MutedText>{alert.body}</MutedText>
+                  <MutedText>{adminAlertBody(alert.id, alert.body, alert.count, copy)}</MutedText>
                 </View>
                 <Text style={[styles.amountText, { color: theme.primary, fontFamily: fontSet.mono }]}>{alert.count}</Text>
               </Pressable>
@@ -379,9 +379,9 @@ function AdminHomeTab() {
                       { color: theme.foreground, fontFamily: fontSet.body, textAlign: isRTL ? "right" : "left", writingDirection: direction },
                     ]}
                   >
-                    {approval.title}
+                    {adminApprovalTitle(approval.id, approval.title, copy)}
                   </Text>
-                  <MutedText>{approval.subtitle || copy.adminControl.noPendingAction}</MutedText>
+                  <MutedText>{adminApprovalSubtitle(approval.id, approval.subtitle, copy)}</MutedText>
                 </View>
                 <Text style={[styles.amountText, { color: theme.primary, fontFamily: fontSet.mono }]}>{approval.count}</Text>
               </Pressable>
@@ -404,9 +404,9 @@ function AdminHomeTab() {
                       { color: theme.foreground, fontFamily: fontSet.body, textAlign: isRTL ? "right" : "left", writingDirection: direction },
                     ]}
                   >
-                    {item.title}
+                    {adminActivityTitle(item, isRTL, copy)}
                   </Text>
-                  <MutedText>{formatAdminActivitySubtitle(item.subtitle, item.timestamp, locale)}</MutedText>
+                  <MutedText>{formatAdminActivitySubtitle(item, isRTL, locale, copy)}</MutedText>
                 </View>
               </Pressable>
             ))}
@@ -434,12 +434,79 @@ function formatAdminMetric(value: number | string, locale: string) {
   return value;
 }
 
-function formatAdminActivitySubtitle(subtitle: string | null | undefined, timestamp: string | null | undefined, locale: string) {
+function adminMetricLabel(id: string, fallback: string, copy: ReturnType<typeof usePreferences>["copy"]) {
+  if (id === "members") return copy.adminControl.members;
+  if (id === "active_members") return copy.adminControl.active;
+  if (id === "today_checkins") return copy.adminControl.checkIns;
+  if (id === "month_net") return copy.adminControl.monthNet;
+  if (id === "open_support") return copy.common.support;
+  return fallback;
+}
+
+function adminAlertTitle(id: string, fallback: string, copy: ReturnType<typeof usePreferences>["copy"]) {
+  if (id === "low_stock") return copy.adminControl.lowStock;
+  if (id === "support_queue") return copy.adminControl.openSupport;
+  return fallback;
+}
+
+function adminAlertBody(id: string, fallback: string, count: number, copy: ReturnType<typeof usePreferences>["copy"]) {
+  if (id === "low_stock") return `${count} ${copy.adminControl.lowStock}`;
+  if (id === "support_queue") return `${count} ${copy.adminControl.openSupport}`;
+  return fallback;
+}
+
+function adminApprovalTitle(id: string, fallback: string, copy: ReturnType<typeof usePreferences>["copy"]) {
+  if (id === "renewals") return copy.adminControl.renewalRequests;
+  if (id === "leave_requests") return copy.adminControl.leaveRequests;
+  return fallback;
+}
+
+function adminApprovalSubtitle(id: string, fallback: string | null | undefined, copy: ReturnType<typeof usePreferences>["copy"]) {
+  if (id === "renewals") return copy.billingScreen.requestHelp;
+  if (id === "leave_requests") return copy.adminControl.noPendingAction;
+  return fallback || copy.adminControl.noPendingAction;
+}
+
+function adminActivityTitle(item: { kind: string; title: string; subtitle?: string | null }, isRTL: boolean, copy: ReturnType<typeof usePreferences>["copy"]) {
+  if (item.kind === "audit") return localizeAuditAction(item.title, isRTL);
+  if (item.kind === "finance") return financeActivityTitle(item.title, item.subtitle, isRTL);
+  if (item.kind === "support") return copy.common.support;
+  return item.title;
+}
+
+function formatAdminActivitySubtitle(item: { kind: string; subtitle?: string | null; timestamp?: string | null }, isRTL: boolean, locale: string, copy: ReturnType<typeof usePreferences>["copy"]) {
+  let subtitle = item.subtitle;
+  if (item.kind === "finance" && subtitle) {
+    const [type, ...rest] = subtitle.split(" ");
+    subtitle = [localizeFinanceTransactionType(type, isRTL), rest.join(" ")].filter(Boolean).join(" ");
+  } else if (item.kind === "support") {
+    subtitle = localizeTicketStatus(subtitle ?? undefined, isRTL);
+  } else if (item.kind === "audit" && subtitle === "System") {
+    subtitle = copy.adminControl.system;
+  }
   const parts = [
     subtitle,
-    timestamp ? new Date(timestamp).toLocaleString(locale) : null,
+    item.timestamp ? new Date(item.timestamp).toLocaleString(locale) : null,
   ].filter(Boolean);
   return parts.join(" - ");
+}
+
+function financeActivityTitle(title: string, subtitle: string | null | undefined, isRTL: boolean) {
+  const normalizedTitle = title.toUpperCase();
+  if (normalizedTitle.includes("POS")) {
+    return localizeFinanceCategory("POS_SALE", isRTL);
+  }
+  if (normalizedTitle.includes("MEMBERSHIP") || normalizedTitle.includes("SUBSCRIPTION") || normalizedTitle.includes("RENEWAL")) {
+    return localizeFinanceCategory("SUBSCRIPTION", isRTL);
+  }
+  if (normalizedTitle.includes("SALARY")) {
+    return localizeFinanceCategory("SALARY", isRTL);
+  }
+  if (normalizedTitle.includes("OPERATING EXPENSE")) {
+    return localizeFinanceTransactionType("EXPENSE", isRTL);
+  }
+  const [type] = (subtitle ?? "").split(" ");
+  return localizeFinanceTransactionType(type || undefined, isRTL);
 }
 
 function localizeStaffHomeItemSubtitle(id: unknown, subtitle: unknown, labels: { clockedIn: string; notClockedIn: string }) {
@@ -466,9 +533,11 @@ function formatStaffHomeItemTitle(item: Record<string, unknown>, labels: { atten
   return String(item.full_name || localizeStaffHomeItem(item.id, item.title, labels) || item.title || fallback);
 }
 
-function formatStaffHomeItemSubtitle(item: Record<string, unknown>, labels: { clockedIn: string; notClockedIn: string }, locale: string) {
+function formatStaffHomeItemSubtitle(item: Record<string, unknown>, labels: { clockedIn: string; notClockedIn: string }, locale: string, isRTL: boolean) {
+  const paymentMethod = typeof item.payment_method === "string" ? localizePaymentMethod(item.payment_method, isRTL) : null;
+  const status = typeof item.status === "string" ? localizeTicketStatus(item.status, isRTL) : null;
   const parts = [
-    localizeStaffHomeItemSubtitle(item.id, item.subtitle, labels) || item.subtitle || item.status || item.member_name || item.payment_method,
+    localizeStaffHomeItemSubtitle(item.id, item.subtitle, labels) || item.subtitle || status || item.member_name || paymentMethod,
     typeof item.amount === "number" ? new Intl.NumberFormat(locale, { maximumFractionDigits: 2 }).format(item.amount) : null,
     typeof item.meta === "string" ? new Date(item.meta).toLocaleString(locale) : typeof item.date === "string" ? new Date(item.date).toLocaleString(locale) : null,
   ].filter(Boolean);

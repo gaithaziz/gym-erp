@@ -126,6 +126,8 @@ export default function StaffPage() {
             payrollGenerated: 'تم إنشاء مسير الرواتب بنجاح',
             basePay: 'الأجر الأساسي',
             overtimePay: 'أجر العمل الإضافي',
+            deductions: 'الخصومات',
+            netPay: 'الصافي',
             close: 'إغلاق',
             downloadSlip: 'تنزيل القسيمة',
             currency: 'دينار',
@@ -182,10 +184,12 @@ export default function StaffPage() {
             payrollGenerated: 'Payroll Generated Successfully',
             basePay: 'Base Pay',
             overtimePay: 'Overtime Pay',
+            deductions: 'Deductions',
+            netPay: 'Net Pay',
             close: 'Close',
             downloadSlip: 'Download Slip',
             currency: 'JOD',
-            fullTimeContract: 'FULL_TIME',
+            fullTimeContract: 'Full time',
         };
 
     const roleLabelsLocalized: Record<StaffRole, string> = {
@@ -653,6 +657,14 @@ export default function StaffPage() {
                                 <p className="text-xs text-muted-foreground">{txt.overtimePay}</p>
                                 <p className="font-mono font-semibold text-foreground">{payrollResult.overtime_pay?.toFixed(2)} {txt.currency}</p>
                             </div>
+                            <div className="rounded-lg p-3 bg-card border border-border">
+                                <p className="text-xs text-muted-foreground">{txt.deductions}</p>
+                                <p className="font-mono font-semibold text-red-400">-{Number(payrollResult.deductions || 0).toFixed(2)} {txt.currency}</p>
+                            </div>
+                            <div className="rounded-lg p-3 bg-card border border-border">
+                                <p className="text-xs text-muted-foreground">{txt.netPay}</p>
+                                <p className="font-mono font-semibold text-foreground">{Number(payrollResult.total_pay || 0).toFixed(2)} {txt.currency}</p>
+                            </div>
                         </div>
                         <div className="grid grid-cols-2 gap-3 mt-4">
                             <button onClick={() => { setIsPayrollOpen(false); setPayrollResult(null); }} className="btn-ghost w-full">{txt.close}</button>
@@ -666,5 +678,4 @@ export default function StaffPage() {
         </div>
     );
 }
-
 

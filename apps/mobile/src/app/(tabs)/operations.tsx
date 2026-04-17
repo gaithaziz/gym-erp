@@ -4,7 +4,7 @@ import { Pressable, StyleSheet, Text, View } from "react-native";
 
 import { Card, InlineStat, MutedText, QueryState, Screen, SectionTitle } from "@/components/ui";
 import { parseAdminAuditSummaryEnvelope, parseAdminInventorySummaryEnvelope, parseAdminOperationsSummaryEnvelope } from "@/lib/api";
-import { localizeLeaveStatus } from "@/lib/mobile-format";
+import { localizeAuditAction, localizeLeaveStatus, localizePaymentMethod, localizeTicketStatus } from "@/lib/mobile-format";
 import { getCurrentRole, isAdminControlRole } from "@/lib/mobile-role";
 import { usePreferences } from "@/lib/preferences";
 import { useSession } from "@/lib/session";
@@ -25,6 +25,12 @@ type TransactionRow = {
   payment_method: string;
   member_name?: string | null;
 };
+
+function staffTransactionTitle(description: string | undefined, copy: ReturnType<typeof usePreferences>["copy"]) {
+  const normalized = (description ?? "").toUpperCase();
+  if (normalized.includes("POS") || normalized.includes("[DEMO]")) return copy.adminControl.pos;
+  return description || copy.operationsScreen.recentTransactions;
+}
 
 export default function OperationsTab() {
   const router = useRouter();
@@ -62,8 +68,8 @@ export default function OperationsTab() {
           {(transactionsQuery.data ?? []).map((item) => (
             <View key={item.id} style={[styles.row, { borderTopColor: theme.border }]}>
               <View style={styles.textColumn}>
-                <Text style={{ color: theme.foreground, fontFamily: fontSet.body }}>{item.description}</Text>
-                <MutedText>{item.member_name || item.payment_method}</MutedText>
+                <Text style={{ color: theme.foreground, fontFamily: fontSet.body }}>{staffTransactionTitle(item.description, copy)}</Text>
+                <MutedText>{item.member_name || localizePaymentMethod(item.payment_method, isRTL)}</MutedText>
               </View>
               <Text style={{ color: theme.primary, fontFamily: fontSet.mono }}>{item.amount}</Text>
             </View>
@@ -203,7 +209,7 @@ function AdminOperationsTab() {
                   <Text style={{ color: theme.foreground, fontFamily: fontSet.body, textAlign: isRTL ? "right" : "left", writingDirection: direction }}>
                     {ticket.subject}
                   </Text>
-                  <MutedText>{[ticket.customer_name, ticket.status, formatDateTime(ticket.created_at, locale)].filter(Boolean).join(" - ")}</MutedText>
+                  <MutedText>{[ticket.customer_name, localizeTicketStatus(ticket.status, isRTL), formatDateTime(ticket.created_at, locale)].filter(Boolean).join(" - ")}</MutedText>
                 </View>
               </View>
             ))}
@@ -248,7 +254,7 @@ function AdminOperationsTab() {
             <View key={event.id} style={[styles.rowBetween, { borderTopColor: theme.border, flexDirection: isRTL ? "row-reverse" : "row" }]}>
               <View style={styles.textColumn}>
                 <Text style={{ color: theme.foreground, fontFamily: fontSet.body, textAlign: isRTL ? "right" : "left", writingDirection: direction }}>
-                  {event.action}
+                  {localizeAuditAction(event.action, isRTL)}
                 </Text>
                 <MutedText>{[event.actor_name || copy.adminControl.system, formatDateTime(event.timestamp, locale)].filter(Boolean).join(" - ")}</MutedText>
               </View>

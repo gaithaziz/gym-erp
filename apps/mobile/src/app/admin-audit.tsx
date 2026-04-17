@@ -3,6 +3,7 @@ import { StyleSheet, Text, View } from "react-native";
 
 import { Card, InlineStat, MutedText, QueryState, Screen, SectionTitle } from "@/components/ui";
 import { parseAdminAuditSummaryEnvelope } from "@/lib/api";
+import { localizeAuditAction } from "@/lib/mobile-format";
 import { getCurrentRole } from "@/lib/mobile-role";
 import { usePreferences } from "@/lib/preferences";
 import { useSession } from "@/lib/session";
@@ -41,7 +42,7 @@ export default function AdminAuditScreen() {
               <InlineStat label={copy.adminControl.events} value={audit.total_events} />
               <InlineStat label={copy.adminControl.actions} value={audit.action_counts.length} />
             </View>
-            <MutedText>{audit.security.summary}</MutedText>
+            <MutedText>{audit.security.status === "not_run" ? copy.adminControl.securityAuditWebOnly : audit.security.summary}</MutedText>
           </Card>
 
           <Card>
@@ -50,7 +51,7 @@ export default function AdminAuditScreen() {
             {audit.action_counts.map((item) => (
               <View key={item.id} style={[styles.row, { borderTopColor: theme.border, flexDirection: isRTL ? "row-reverse" : "row" }]}>
                 <Text style={[styles.title, { color: theme.foreground, fontFamily: fontSet.body, textAlign: isRTL ? "right" : "left", writingDirection: direction }]}>
-                  {item.label}
+                  {localizeAuditAction(item.id || item.label, isRTL)}
                 </Text>
                 <Text style={[styles.value, { color: theme.primary, fontFamily: fontSet.mono }]}>{item.value}</Text>
               </View>
@@ -63,10 +64,9 @@ export default function AdminAuditScreen() {
             {audit.recent_events.map((event) => (
               <View key={event.id} style={[styles.eventRow, { borderTopColor: theme.border }]}>
                 <Text style={[styles.eventTitle, { color: theme.foreground, fontFamily: fontSet.body, textAlign: isRTL ? "right" : "left", writingDirection: direction }]}>
-                  {event.action}
+                  {localizeAuditAction(event.action, isRTL)}
                 </Text>
                 <MutedText>{[event.actor_name || copy.adminControl.system, formatDateTime(event.timestamp, locale)].filter(Boolean).join(" - ")}</MutedText>
-                {event.details ? <MutedText>{event.details}</MutedText> : null}
               </View>
             ))}
           </Card>

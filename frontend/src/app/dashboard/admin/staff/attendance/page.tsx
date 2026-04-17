@@ -249,8 +249,8 @@ export default function AttendancePage() {
     return (
         <div className="space-y-8">
             <div>
-                <h1 className="text-2xl font-bold text-white">{txt.attendanceTimesheet}</h1>
-                <p className="text-sm text-[#6B6B6B] mt-1">{txt.attendanceSubtitle}</p>
+                <h1 className="text-2xl font-bold text-foreground">{txt.attendanceTimesheet}</h1>
+                <p className="text-sm text-muted-foreground mt-1">{txt.attendanceSubtitle}</p>
                 <button className="btn-ghost mt-3" onClick={printAttendance}><Printer size={14} /> {txt.printAttendanceSummary}</button>
             </div>
 
@@ -295,7 +295,7 @@ export default function AttendancePage() {
                 </div>
             </div>
 
-            <div className="chart-card overflow-hidden !p-0">
+            <div className="chart-card overflow-hidden !p-0 border border-border">
                 <div className="px-4 py-3 border-b border-border flex items-center justify-between">
                     <span className="text-xs text-muted-foreground">{txt.totalRecords} {totalLogs}</span>
                     <span className="text-xs text-muted-foreground">{txt.page} {page} {txt.of} {totalPages}</span>
@@ -313,11 +313,11 @@ export default function AttendancePage() {
                         </thead>
                         <tbody>
                             {filteredLogs.length === 0 && (
-                                <tr><td colSpan={5} className="text-center py-8 text-[#333] text-sm">{txt.noAttendance}</td></tr>
+                                <tr><td colSpan={5} className="text-center py-8 text-muted-foreground text-sm">{txt.noAttendance}</td></tr>
                             )}
                             {filteredLogs.map((log) => (
                                 <tr key={log.id}>
-                                    <td className="!text-white font-medium">{log.user_name}</td>
+                                    <td className="!text-foreground font-medium">{log.user_name}</td>
                                     <td>
                                         {editingId === log.id ? (
                                             <input type="datetime-local" className="input-dark !p-1.5 text-xs !rounded-lg" value={editIn} onChange={e => setEditIn(e.target.value)} />
@@ -328,7 +328,7 @@ export default function AttendancePage() {
                                             <input type="datetime-local" className="input-dark !p-1.5 text-xs !rounded-lg" value={editOut} onChange={e => setEditOut(e.target.value)} />
                                         ) : fmt(log.check_out_time)}
                                     </td>
-                                    <td className="text-end font-mono text-sm !text-white">
+                                    <td className="text-end font-mono text-sm !text-foreground">
                                         {log.hours_worked != null ? `${log.hours_worked}h` : '-'}
                                     </td>
                                     <td className="text-center">
@@ -368,4 +368,3 @@ export default function AttendancePage() {
         </div>
     );
 }
-

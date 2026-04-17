@@ -135,6 +135,9 @@ export default function FinancePage() {
             netTotal: 'الإجمالي الصافي',
             amountPlaceholder: 'المبلغ',
             notePlaceholder: 'ملاحظة (اختياري)',
+            draft: 'مسودة',
+            partial: 'جزئي',
+            paid: 'مدفوع',
         }
         : {
             categorySubscription: 'Subscription',
@@ -163,6 +166,9 @@ export default function FinancePage() {
             netTotal: 'Net Total',
             amountPlaceholder: 'Amount',
             notePlaceholder: 'Note (optional)',
+            draft: 'Draft',
+            partial: 'Partial',
+            paid: 'Paid',
         };
     const jodCode = 'JOD';
     const paymentHistoryLabel = locale === 'ar' ? 'سجل المدفوعات' : 'Payment History';
@@ -188,6 +194,11 @@ export default function FinancePage() {
     };
     const getCategoryLabel = (category: string) => categoryLabelMap[category] || category.replace(/_/g, ' ');
     const getPaymentMethodLabel = (method: string) => paymentMethodLabelMap[method] || method;
+    const getPayrollStatusLabel = (status: PayrollItem['status']) => {
+        if (status === 'PAID') return txt.paid;
+        if (status === 'PARTIAL') return txt.partial;
+        return txt.draft;
+    };
 
     const fetchTransactions = useCallback(async () => {
         const params: Record<string, string | number> = {
@@ -524,7 +535,7 @@ export default function FinancePage() {
                                         <tr key={item.id}>
                                             <td><p className="text-foreground font-medium">{item.user_name}</p><p className="text-xs text-muted-foreground">{item.user_email}</p></td>
                                             <td>{String(item.month).padStart(2, '0')}/{item.year}</td>
-                                            <td><span className={`badge ${item.status === 'PAID' ? 'badge-green' : item.status === 'PARTIAL' ? 'badge-blue' : 'badge-amber'}`}>{item.status === 'PAID' ? t('finance.paid') : item.status === 'PARTIAL' ? t('finance.partial') : t('finance.draft')}</span></td>
+                                            <td><span className={`badge ${item.status === 'PAID' ? 'badge-green' : item.status === 'PARTIAL' ? 'badge-blue' : 'badge-amber'}`}>{getPayrollStatusLabel(item.status)}</span></td>
                                             <td className="text-end font-mono text-foreground">{formatCurrency(item.total_pay, 'JOD', { currencyDisplay: 'code' })}</td>
                                             <td className="text-end font-mono text-foreground">{formatCurrency(item.paid_amount, 'JOD', { currencyDisplay: 'code' })}</td>
                                             <td className={`text-end font-mono ${item.pending_amount > 0 ? 'text-amber-400' : 'text-emerald-400'}`}>{formatCurrency(item.pending_amount, 'JOD', { currencyDisplay: 'code' })}</td>
@@ -577,7 +588,7 @@ export default function FinancePage() {
             {selectedPayroll && (
                 <div className="fixed inset-0 bg-background/80 backdrop-blur-sm flex items-center justify-center p-4 z-50">
                     <div className="rounded-sm p-6 w-full max-w-lg shadow-2xl bg-card border border-border space-y-4">
-                        <div className="flex items-start justify-between gap-4"><div><h2 className="text-lg font-bold text-foreground flex items-center gap-2"><CircleDollarSign size={18} /> {t('finance.details')}</h2><p className="text-sm text-muted-foreground">{selectedPayroll.user_name} - {String(selectedPayroll.month).padStart(2, '0')}/{selectedPayroll.year}</p></div><button className="btn-ghost !px-2 !py-1 text-xs" onClick={() => setSelectedPayroll(null)}>{t('finance.close')}</button></div>
+                        <div className="flex items-start justify-between gap-4"><div><h2 className="text-lg font-bold text-foreground flex items-center gap-2"><CircleDollarSign size={18} /> {t('finance.details')}</h2><p className="text-sm text-muted-foreground">{selectedPayroll.user_name} - {String(selectedPayroll.month).padStart(2, '0')}/{selectedPayroll.year} - {getPayrollStatusLabel(selectedPayroll.status)}</p></div><button className="btn-ghost !px-2 !py-1 text-xs" onClick={() => setSelectedPayroll(null)}>{t('finance.close')}</button></div>
                         <div className="grid grid-cols-2 gap-3 text-sm">
                             <div className="rounded-lg p-3 bg-card border border-border"><p className="text-xs text-muted-foreground">{txt.basePay}</p><p className="font-mono font-semibold text-foreground">{selectedPayroll.base_pay.toFixed(2)} JOD</p></div>
                             <div className="rounded-lg p-3 bg-card border border-border"><p className="text-xs text-muted-foreground">{txt.overtimePay}</p><p className="font-mono font-semibold text-foreground">{selectedPayroll.overtime_pay.toFixed(2)} JOD</p></div>
@@ -615,7 +626,7 @@ export default function FinancePage() {
                                         <p className="text-foreground font-medium">{`${payment.amount.toFixed(2)} ${jodCode} - ${getPaymentMethodLabel(payment.payment_method)}`}</p>
                                         <p className="text-muted-foreground">{payment.description || salaryPaymentDefault}</p>
                                     </div>
-                                    <p className="text-muted-foreground">{new Date(payment.paid_at).toLocaleString()}</p>
+                                    <p className="text-muted-foreground">{formatDate(payment.paid_at, { year: 'numeric', month: '2-digit', day: '2-digit', hour: 'numeric', minute: '2-digit' })}</p>
                                 </div>
                             ))}
                         </div>
@@ -625,4 +636,3 @@ export default function FinancePage() {
         </div>
     );
 }
-
