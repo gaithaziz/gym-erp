@@ -5,6 +5,12 @@ import {
   parseMobileCheckInResult,
   parseMobileCoachFeedback,
   parseMobileCoachPlans,
+  parseMobileAdminAuditSummary,
+  parseMobileAdminFinanceSummary,
+  parseMobileAdminHome,
+  parseMobileAdminInventorySummary,
+  parseMobileAdminOperationsSummary,
+  parseMobileAdminPeopleSummary,
   parseMobileCustomerBilling,
   parseMobileCustomerHome,
   parseMobileCustomerNotifications,
@@ -17,6 +23,12 @@ import {
   parseMobileStaffMemberRegistrationResult,
   parseTokenPair,
   type AuthUser,
+  type MobileAdminAuditSummary,
+  type MobileAdminFinanceSummary,
+  type MobileAdminHome,
+  type MobileAdminInventorySummary,
+  type MobileAdminOperationsSummary,
+  type MobileAdminPeopleSummary,
   type MobileBootstrap,
   type MobileCheckInLookupResult,
   type MobileCheckInResult,
@@ -188,6 +200,54 @@ export function parseStaffHomeEnvelope(input: unknown): Envelope<MobileStaffHome
   return {
     ...payload,
     data: parseMobileStaffHome(payload.data),
+  };
+}
+
+export function parseAdminHomeEnvelope(input: unknown): Envelope<MobileAdminHome> {
+  const payload = parseEnvelope<unknown>(input);
+  return {
+    ...payload,
+    data: parseMobileAdminHome(payload.data),
+  };
+}
+
+export function parseAdminPeopleSummaryEnvelope(input: unknown): Envelope<MobileAdminPeopleSummary> {
+  const payload = parseEnvelope<unknown>(input);
+  return {
+    ...payload,
+    data: parseMobileAdminPeopleSummary(payload.data),
+  };
+}
+
+export function parseAdminOperationsSummaryEnvelope(input: unknown): Envelope<MobileAdminOperationsSummary> {
+  const payload = parseEnvelope<unknown>(input);
+  return {
+    ...payload,
+    data: parseMobileAdminOperationsSummary(payload.data),
+  };
+}
+
+export function parseAdminFinanceSummaryEnvelope(input: unknown): Envelope<MobileAdminFinanceSummary> {
+  const payload = parseEnvelope<unknown>(input);
+  return {
+    ...payload,
+    data: parseMobileAdminFinanceSummary(payload.data),
+  };
+}
+
+export function parseAdminAuditSummaryEnvelope(input: unknown): Envelope<MobileAdminAuditSummary> {
+  const payload = parseEnvelope<unknown>(input);
+  return {
+    ...payload,
+    data: parseMobileAdminAuditSummary(payload.data),
+  };
+}
+
+export function parseAdminInventorySummaryEnvelope(input: unknown): Envelope<MobileAdminInventorySummary> {
+  const payload = parseEnvelope<unknown>(input);
+  return {
+    ...payload,
+    data: parseMobileAdminInventorySummary(payload.data),
   };
 }
 

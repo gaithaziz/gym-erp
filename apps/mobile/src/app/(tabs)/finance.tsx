@@ -3,7 +3,8 @@ import { useState } from "react";
 import { Alert, Pressable, Share, StyleSheet, Text, View } from "react-native";
 
 import { Card, Input, MutedText, PrimaryButton, QueryState, Screen, SecondaryButton, SectionTitle } from "@/components/ui";
-import { parseEnvelope, parsePosCheckoutEnvelope, parsePosSummaryEnvelope } from "@/lib/api";
+import { parseAdminFinanceSummaryEnvelope, parseEnvelope, parsePosCheckoutEnvelope, parsePosSummaryEnvelope } from "@/lib/api";
+import { getCurrentRole, isAdminControlRole } from "@/lib/mobile-role";
 import { usePreferences } from "@/lib/preferences";
 import { useSession } from "@/lib/session";
 
@@ -38,9 +39,12 @@ type ReceiptDetail = {
 const PAYMENT_METHODS = ["CASH", "CARD", "TRANSFER"] as const;
 
 export default function FinanceTab() {
-  const { authorizedRequest } = useSession();
+  const { authorizedRequest, bootstrap } = useSession();
   const { copy, direction, fontSet, isRTL, locale, theme } = usePreferences();
   const queryClient = useQueryClient();
+  const role = getCurrentRole(bootstrap);
+  const adminControl = isAdminControlRole(role);
+  const [showAdminPos, setShowAdminPos] = useState(false);
   const [memberId, setMemberId] = useState("");
   const [search, setSearch] = useState("");
   const [paymentMethod, setPaymentMethod] = useState<(typeof PAYMENT_METHODS)[number]>("CASH");
@@ -50,11 +54,19 @@ export default function FinanceTab() {
 
   const summaryQuery = useQuery({
     queryKey: ["mobile-pos-summary"],
+    enabled: !adminControl || showAdminPos,
     queryFn: async () => parsePosSummaryEnvelope(await authorizedRequest("/mobile/staff/finance/summary")).data,
+  });
+
+  const adminFinanceQuery = useQuery({
+    queryKey: ["mobile-admin-finance-summary", role],
+    enabled: adminControl,
+    queryFn: async () => parseAdminFinanceSummaryEnvelope(await authorizedRequest("/mobile/admin/finance/summary")).data,
   });
 
   const productsQuery = useQuery({
     queryKey: ["mobile-products", search.trim()],
+    enabled: !adminControl || showAdminPos,
     queryFn: async () => {
       const suffix = search.trim() ? `?search=${encodeURIComponent(search.trim())}` : "";
       return (await authorizedRequest<Product[]>(`/inventory/products${suffix}`)).data;
@@ -85,6 +97,7 @@ export default function FinanceTab() {
       setLastReceiptId(result.transaction_id);
       setSelectedReceiptId(result.transaction_id);
       await queryClient.invalidateQueries({ queryKey: ["mobile-pos-summary"] });
+      await queryClient.invalidateQueries({ queryKey: ["mobile-admin-finance-summary"] });
       await queryClient.invalidateQueries({ queryKey: ["mobile-products"] });
     },
     onError: (error) => {
@@ -97,6 +110,7 @@ export default function FinanceTab() {
   const cartTotal = cartLines.reduce((sum, line) => sum + line.product.price * line.quantity, 0);
   const cartCount = cartLines.reduce((sum, line) => sum + line.quantity, 0);
   const summary = summaryQuery.data;
+  const adminFinance = adminFinanceQuery.data;
   const receipt = receiptQuery.data;
 
   function setLine(product: Product, quantity: number) {
@@ -126,6 +140,54 @@ export default function FinanceTab() {
 
   return (
     <Screen title={copy.financeScreen.title} subtitle={copy.financeScreen.subtitle}>
+      {adminControl ? (
+        <>
+          <QueryState loading={adminFinanceQuery.isLoading} error={adminFinanceQuery.error instanceof Error ? adminFinanceQuery.error.message : null} />
+          {adminFinance ? (
+            <>
+              <Card>
+                <SectionTitle>Finance snapshot</SectionTitle>
+                <View style={[styles.statRow, { flexDirection: isRTL ? "row-reverse" : "row" }]}>
+                  <Metric label="Today revenue" value={formatMoney(adminFinance.today.revenue, locale)} />
+                  <Metric label="Today expenses" value={formatMoney(adminFinance.today.expenses, locale)} />
+                  <Metric label="Today net" value={formatMoney(adminFinance.today.net, locale)} />
+                </View>
+                <View style={[styles.statRow, { flexDirection: isRTL ? "row-reverse" : "row" }]}>
+                  <Metric label="Month revenue" value={formatMoney(adminFinance.month.revenue, locale)} />
+                  <Metric label="Month expenses" value={formatMoney(adminFinance.month.expenses, locale)} />
+                  <Metric label="Month net" value={formatMoney(adminFinance.month.net, locale)} />
+                </View>
+                <MutedText>{`Low stock: ${adminFinance.low_stock_count}`}</MutedText>
+              </Card>
+
+              <Card>
+                <SectionTitle>{copy.financeScreen.recentTransactions}</SectionTitle>
+                {adminFinance.recent_transactions.length === 0 ? <MutedText>{copy.operationsScreen.noTransactions}</MutedText> : null}
+                {adminFinance.recent_transactions.map((item) => (
+                  <View key={item.id} style={[styles.rowBetween, { borderTopColor: theme.border, flexDirection: isRTL ? "row-reverse" : "row" }]}>
+                    <View style={styles.textColumn}>
+                      <Text style={[styles.titleText, { color: theme.foreground, fontFamily: fontSet.body, textAlign: isRTL ? "right" : "left" }]}>
+                        {item.description}
+                      </Text>
+                      <MutedText>{[item.type, item.category, item.member_name || item.payment_method].filter(Boolean).join(" - ")}</MutedText>
+                    </View>
+                    <Text style={[styles.amountText, { color: theme.primary, fontFamily: fontSet.mono }]}>{formatMoney(item.amount, locale)}</Text>
+                  </View>
+                ))}
+              </Card>
+
+              <Card>
+                <SectionTitle>POS</SectionTitle>
+                <MutedText>Use POS when you need to complete a gym-side sale.</MutedText>
+                <SecondaryButton onPress={() => setShowAdminPos((current) => !current)}>{showAdminPos ? "Hide POS" : "Open POS"}</SecondaryButton>
+              </Card>
+            </>
+          ) : null}
+        </>
+      ) : null}
+
+      {!adminControl || showAdminPos ? (
+        <>
       <QueryState loading={summaryQuery.isLoading} error={summaryQuery.error instanceof Error ? summaryQuery.error.message : null} />
       {summary ? (
         <Card>
@@ -241,6 +303,8 @@ export default function FinanceTab() {
             </Pressable>
           ))}
         </Card>
+      ) : null}
+        </>
       ) : null}
     </Screen>
   );

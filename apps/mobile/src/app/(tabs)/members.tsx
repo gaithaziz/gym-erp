@@ -4,10 +4,10 @@ import { useFocusEffect, useLocalSearchParams, useRouter } from "expo-router";
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
 import { Pressable, StyleSheet, Text, View } from "react-native";
 
-import { Card, Input, MutedText, PrimaryButton, QueryState, Screen, SecondaryButton, SectionTitle } from "@/components/ui";
-import { parseStaffMemberDetailEnvelope } from "@/lib/api";
+import { Card, InlineStat, Input, MutedText, PrimaryButton, QueryState, Screen, SecondaryButton, SectionTitle } from "@/components/ui";
+import { parseAdminPeopleSummaryEnvelope, parseStaffMemberDetailEnvelope } from "@/lib/api";
 import { localeTag, localizeAccessStatus, localizeSubscriptionStatus } from "@/lib/mobile-format";
-import { getCurrentRole, hasCapability } from "@/lib/mobile-role";
+import { getCurrentRole, hasCapability, isAdminControlRole } from "@/lib/mobile-role";
 import { usePreferences } from "@/lib/preferences";
 import { useSession } from "@/lib/session";
 import type { MobileStaffMemberDetail } from "@gym-erp/contracts";
@@ -58,6 +58,13 @@ export default function MembersTab() {
   const canAssignWorkout = hasCapability(bootstrap, "manage_member_plans");
   const canAssignDiet = hasCapability(bootstrap, "manage_member_diets");
   const canRegister = role === "ADMIN" || role === "MANAGER" || role === "RECEPTION" || role === "FRONT_DESK";
+  const adminControl = isAdminControlRole(role);
+
+  const adminSummaryQuery = useQuery({
+    queryKey: ["mobile-admin-people-summary", role],
+    enabled: adminControl,
+    queryFn: async () => parseAdminPeopleSummaryEnvelope(await authorizedRequest("/mobile/admin/people/summary")).data,
+  });
 
   const membersQuery = useQuery({
     queryKey: ["mobile-staff-members", search],
@@ -181,6 +188,37 @@ export default function MembersTab() {
 
   return (
     <Screen title={copy.membersScreen.title} subtitle={copy.membersScreen.subtitle} showSubtitle={role === "COACH"}>
+      {adminControl ? (
+        <>
+          <QueryState loading={adminSummaryQuery.isLoading} error={adminSummaryQuery.error instanceof Error ? adminSummaryQuery.error.message : null} />
+          {adminSummaryQuery.data ? (
+            <Card style={styles.adminSummaryCard}>
+              <View style={[styles.sectionHeader, { flexDirection: isRTL ? "row-reverse" : "row" }]}>
+                <SectionTitle>People snapshot</SectionTitle>
+                <StatusPill label={role || "ADMIN"} />
+              </View>
+              <View style={[styles.adminStatGrid, { flexDirection: isRTL ? "row-reverse" : "row" }]}>
+                <InlineStat label="Members" value={adminSummaryQuery.data.members.total} />
+                <InlineStat label="Active" value={adminSummaryQuery.data.members.active} />
+                <InlineStat label="Blocked" value={adminSummaryQuery.data.members.blocked_or_inactive} />
+                <InlineStat label="Staff" value={adminSummaryQuery.data.staff.total} />
+              </View>
+              <View style={[styles.metricGrid, { flexDirection: isRTL ? "row-reverse" : "row" }]}>
+                <MiniMetric label="Staff in today" value={adminSummaryQuery.data.attendance.staff_checked_in_today} />
+                <MiniMetric label="Member scans" value={adminSummaryQuery.data.attendance.member_scans_today} />
+              </View>
+              {adminSummaryQuery.data.staff.by_role.length ? (
+                <View style={styles.roleList}>
+                  {adminSummaryQuery.data.staff.by_role.map((item) => (
+                    <SimpleRow key={item.id} title={item.label} subtitle={`${item.value}`} />
+                  ))}
+                </View>
+              ) : null}
+            </Card>
+          ) : null}
+        </>
+      ) : null}
+
       <Card style={styles.searchCard}>
         <View style={[styles.sectionHeader, { flexDirection: isRTL ? "row-reverse" : "row" }]}>
           <SectionTitle>{copy.staffTabs.members}</SectionTitle>
@@ -981,6 +1019,17 @@ function SimpleRow({ title, subtitle, note }: { title: string; subtitle: string;
 }
 
 const styles = StyleSheet.create({
+  adminSummaryCard: {
+    gap: 12,
+    borderRadius: 24,
+  },
+  adminStatGrid: {
+    flexWrap: "wrap",
+    gap: 12,
+  },
+  roleList: {
+    gap: 2,
+  },
   searchCard: {
     borderRadius: 24,
     gap: 12,

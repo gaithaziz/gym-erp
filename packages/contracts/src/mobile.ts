@@ -530,6 +530,174 @@ export const mobileStaffHomeSchema = z.object({
   items: z.array(z.record(z.string(), z.any())),
 });
 
+export const mobileAdminMetricSchema = z.object({
+  id: z.string(),
+  label: z.string(),
+  value: z.union([z.number(), z.string()]),
+  tone: z.string().default("neutral"),
+});
+
+export const mobileAdminAlertSchema = z.object({
+  id: z.string(),
+  severity: z.string(),
+  title: z.string(),
+  body: z.string(),
+  route: z.string().nullable().optional(),
+  count: z.number().int().default(0),
+});
+
+export const mobileAdminApprovalSchema = z.object({
+  id: z.string(),
+  kind: z.string(),
+  title: z.string(),
+  subtitle: z.string().nullable().optional(),
+  count: z.number().int().default(0),
+  route: z.string().nullable().optional(),
+});
+
+export const mobileAdminActivityItemSchema = z.object({
+  id: z.string(),
+  kind: z.string(),
+  title: z.string(),
+  subtitle: z.string().nullable().optional(),
+  timestamp: z.string().nullable().optional(),
+  route: z.string().nullable().optional(),
+});
+
+export const mobileAdminHomeSchema = z.object({
+  headline: z.string(),
+  metrics: z.array(mobileAdminMetricSchema),
+  alerts: z.array(mobileAdminAlertSchema),
+  approvals: z.array(mobileAdminApprovalSchema),
+  recent_activity: z.array(mobileAdminActivityItemSchema),
+});
+
+export const mobileCountMetricSchema = z.object({
+  id: z.string(),
+  label: z.string(),
+  value: z.number().int(),
+});
+
+export const mobileAdminRecentMemberSchema = z.object({
+  id: z.string().uuid(),
+  full_name: z.string().nullable().optional(),
+  email: z.string().email(),
+  phone_number: z.string().nullable().optional(),
+  profile_picture_url: z.string().nullable().optional(),
+});
+
+export const mobileAdminPeopleSummarySchema = z.object({
+  members: z.object({
+    total: z.number().int(),
+    active: z.number().int(),
+    blocked_or_inactive: z.number().int(),
+  }),
+  staff: z.object({
+    total: z.number().int(),
+    by_role: z.array(mobileCountMetricSchema),
+  }),
+  attendance: z.object({
+    staff_checked_in_today: z.number().int(),
+    member_scans_today: z.number().int(),
+  }),
+  recent_members: z.array(mobileAdminRecentMemberSchema),
+});
+
+export const mobileAdminSupportTicketSchema = z.object({
+  id: z.string().uuid(),
+  subject: z.string(),
+  status: z.string(),
+  category: z.string(),
+  customer_name: z.string().nullable().optional(),
+  created_at: z.string().nullable().optional(),
+});
+
+export const mobileAdminOperationsSummarySchema = z.object({
+  attendance: z.object({
+    checkins_today: z.number().int(),
+    denied_today: z.number().int(),
+  }),
+  support: z.object({
+    open_tickets: z.number().int(),
+    lost_found_open: z.number().int(),
+  }),
+  inventory: z.object({
+    low_stock_count: z.number().int(),
+    out_of_stock_count: z.number().int(),
+  }),
+  notifications: z.object({
+    queued_push: z.number().int(),
+    failed_push: z.number().int(),
+    enabled_automation_rules: z.number().int(),
+  }),
+  approvals: z.object({
+    pending_renewals: z.number().int(),
+    pending_leaves: z.number().int(),
+  }),
+  recent_support_tickets: z.array(mobileAdminSupportTicketSchema),
+});
+
+export const mobileAdminTransactionSchema = z.object({
+  id: z.string().uuid(),
+  date: z.string(),
+  amount: z.number(),
+  type: z.string(),
+  category: z.string(),
+  payment_method: z.string(),
+  description: z.string(),
+  member_name: z.string().nullable().optional(),
+});
+
+export const mobileAdminFinanceSummarySchema = z.object({
+  today: z.object({
+    revenue: z.number(),
+    expenses: z.number(),
+    net: z.number(),
+  }),
+  month: z.object({
+    revenue: z.number(),
+    expenses: z.number(),
+    net: z.number(),
+  }),
+  low_stock_count: z.number().int(),
+  recent_transactions: z.array(mobileAdminTransactionSchema),
+});
+
+export const mobileAuditEventSchema = z.object({
+  id: z.string().uuid(),
+  action: z.string(),
+  actor_name: z.string().nullable().optional(),
+  target_id: z.string().nullable().optional(),
+  details: z.string().nullable().optional(),
+  timestamp: z.string().nullable().optional(),
+});
+
+export const mobileAdminAuditSummarySchema = z.object({
+  total_events: z.number().int(),
+  action_counts: z.array(mobileCountMetricSchema),
+  recent_events: z.array(mobileAuditEventSchema),
+  security: z.object({
+    status: z.string(),
+    summary: z.string(),
+  }),
+});
+
+export const mobileInventoryRiskItemSchema = z.object({
+  id: z.string().uuid(),
+  name: z.string(),
+  sku: z.string().nullable().optional(),
+  category: z.string(),
+  stock_quantity: z.number().int(),
+  low_stock_threshold: z.number().int(),
+});
+
+export const mobileAdminInventorySummarySchema = z.object({
+  total_active_products: z.number().int(),
+  low_stock_count: z.number().int(),
+  out_of_stock_count: z.number().int(),
+  low_stock_products: z.array(mobileInventoryRiskItemSchema),
+});
+
 export const mobileDeviceRegistrationSchema = z.object({
   device_token: z.string(),
   platform: z.string(),
@@ -579,6 +747,19 @@ export type MobilePosCheckout = z.infer<typeof mobilePosCheckoutSchema>;
 export type MobileCoachFeedback = z.infer<typeof mobileCoachFeedbackSchema>;
 export type MobileCoachPlans = z.infer<typeof mobileCoachPlansSchema>;
 export type MobileStaffHome = z.infer<typeof mobileStaffHomeSchema>;
+export type MobileAdminMetric = z.infer<typeof mobileAdminMetricSchema>;
+export type MobileAlertItem = z.infer<typeof mobileAdminAlertSchema>;
+export type MobileApprovalItem = z.infer<typeof mobileAdminApprovalSchema>;
+export type MobileRecentActivityItem = z.infer<typeof mobileAdminActivityItemSchema>;
+export type MobileCountMetric = z.infer<typeof mobileCountMetricSchema>;
+export type MobileAdminHome = z.infer<typeof mobileAdminHomeSchema>;
+export type MobileAdminPeopleSummary = z.infer<typeof mobileAdminPeopleSummarySchema>;
+export type MobileAdminOperationsSummary = z.infer<typeof mobileAdminOperationsSummarySchema>;
+export type MobileAdminFinanceSummary = z.infer<typeof mobileAdminFinanceSummarySchema>;
+export type MobileAuditEvent = z.infer<typeof mobileAuditEventSchema>;
+export type MobileAdminAuditSummary = z.infer<typeof mobileAdminAuditSummarySchema>;
+export type MobileInventoryRiskItem = z.infer<typeof mobileInventoryRiskItemSchema>;
+export type MobileAdminInventorySummary = z.infer<typeof mobileAdminInventorySummarySchema>;
 export type MobileDeviceRegistration = z.infer<typeof mobileDeviceRegistrationSchema>;
 export type MobileRenewalRequest = z.infer<typeof mobileRenewalRequestSchema>;
 export type MobileRenewalRequestList = z.infer<typeof mobileRenewalRequestListSchema>;
@@ -649,6 +830,30 @@ export function parseMobilePosCheckout(input: unknown): MobilePosCheckout {
 
 export function parseMobileStaffHome(input: unknown): MobileStaffHome {
   return mobileStaffHomeSchema.parse(input);
+}
+
+export function parseMobileAdminHome(input: unknown): MobileAdminHome {
+  return mobileAdminHomeSchema.parse(input);
+}
+
+export function parseMobileAdminPeopleSummary(input: unknown): MobileAdminPeopleSummary {
+  return mobileAdminPeopleSummarySchema.parse(input);
+}
+
+export function parseMobileAdminOperationsSummary(input: unknown): MobileAdminOperationsSummary {
+  return mobileAdminOperationsSummarySchema.parse(input);
+}
+
+export function parseMobileAdminFinanceSummary(input: unknown): MobileAdminFinanceSummary {
+  return mobileAdminFinanceSummarySchema.parse(input);
+}
+
+export function parseMobileAdminAuditSummary(input: unknown): MobileAdminAuditSummary {
+  return mobileAdminAuditSummarySchema.parse(input);
+}
+
+export function parseMobileAdminInventorySummary(input: unknown): MobileAdminInventorySummary {
+  return mobileAdminInventorySummarySchema.parse(input);
 }
 
 export function parseMobileDeviceRegistration(input: unknown): MobileDeviceRegistration {

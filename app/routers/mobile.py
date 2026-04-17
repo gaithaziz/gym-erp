@@ -47,6 +47,7 @@ from app.routers.lost_found import (
 from app.services.mobile_customer_service import MobileCustomerService
 from app.services.mobile_bootstrap_service import MobileBootstrapService
 from app.services.mobile_staff_service import MobileStaffService
+from app.services.mobile_admin_service import MobileAdminService
 
 router = APIRouter()
 
@@ -222,6 +223,85 @@ class MobileDeviceRegistrationResponse(BaseModel):
     platform: str
     device_name: str | None = None
     registered: bool
+
+
+class MobileAdminMetric(BaseModel):
+    id: str
+    label: str
+    value: int | float | str
+    tone: str = "neutral"
+
+
+class MobileAdminAlert(BaseModel):
+    id: str
+    severity: str
+    title: str
+    body: str
+    route: str | None = None
+    count: int = 0
+
+
+class MobileAdminApproval(BaseModel):
+    id: str
+    kind: str
+    title: str
+    subtitle: str | None = None
+    count: int = 0
+    route: str | None = None
+
+
+class MobileAdminActivityItem(BaseModel):
+    id: str
+    kind: str
+    title: str
+    subtitle: str | None = None
+    timestamp: str | None = None
+    route: str | None = None
+
+
+class MobileAdminHomeResponse(BaseModel):
+    headline: str
+    metrics: list[MobileAdminMetric]
+    alerts: list[MobileAdminAlert]
+    approvals: list[MobileAdminApproval]
+    recent_activity: list[MobileAdminActivityItem]
+
+
+class MobileAdminPeopleSummaryResponse(BaseModel):
+    members: dict[str, Any]
+    staff: dict[str, Any]
+    attendance: dict[str, Any]
+    recent_members: list[dict[str, Any]]
+
+
+class MobileAdminOperationsSummaryResponse(BaseModel):
+    attendance: dict[str, Any]
+    support: dict[str, Any]
+    inventory: dict[str, Any]
+    notifications: dict[str, Any]
+    approvals: dict[str, Any]
+    recent_support_tickets: list[dict[str, Any]]
+
+
+class MobileAdminFinanceSummaryResponse(BaseModel):
+    today: dict[str, float]
+    month: dict[str, float]
+    low_stock_count: int
+    recent_transactions: list[dict[str, Any]]
+
+
+class MobileAdminAuditSummaryResponse(BaseModel):
+    total_events: int
+    action_counts: list[dict[str, Any]]
+    recent_events: list[dict[str, Any]]
+    security: dict[str, Any]
+
+
+class MobileAdminInventorySummaryResponse(BaseModel):
+    total_active_products: int
+    low_stock_count: int
+    out_of_stock_count: int
+    low_stock_products: list[dict[str, Any]]
 
 
 @router.get("/bootstrap", response_model=StandardResponse[schemas.MobileBootstrap])
@@ -843,6 +923,60 @@ async def create_lost_found_media_mobile(
     file: UploadFile = File(...),
 ):
     return await upload_customer_lost_found_media(item_id=item_id, current_user=current_user, db=db, file=file)
+
+
+@router.get("/admin/home", response_model=StandardResponse[MobileAdminHomeResponse])
+async def read_admin_mobile_home(
+    current_user: Annotated[User, Depends(dependencies.RoleChecker([schemas.Role.ADMIN, schemas.Role.MANAGER]))],
+    db: Annotated[AsyncSession, Depends(get_db)],
+):
+    data = await MobileAdminService.get_home_summary(current_user=current_user, db=db)
+    return StandardResponse(data=MobileAdminHomeResponse(**data))
+
+
+@router.get("/admin/people/summary", response_model=StandardResponse[MobileAdminPeopleSummaryResponse])
+async def read_admin_mobile_people_summary(
+    current_user: Annotated[User, Depends(dependencies.RoleChecker([schemas.Role.ADMIN, schemas.Role.MANAGER]))],
+    db: Annotated[AsyncSession, Depends(get_db)],
+):
+    data = await MobileAdminService.get_people_summary(current_user=current_user, db=db)
+    return StandardResponse(data=MobileAdminPeopleSummaryResponse(**data))
+
+
+@router.get("/admin/operations/summary", response_model=StandardResponse[MobileAdminOperationsSummaryResponse])
+async def read_admin_mobile_operations_summary(
+    current_user: Annotated[User, Depends(dependencies.RoleChecker([schemas.Role.ADMIN, schemas.Role.MANAGER]))],
+    db: Annotated[AsyncSession, Depends(get_db)],
+):
+    data = await MobileAdminService.get_operations_summary(current_user=current_user, db=db)
+    return StandardResponse(data=MobileAdminOperationsSummaryResponse(**data))
+
+
+@router.get("/admin/finance/summary", response_model=StandardResponse[MobileAdminFinanceSummaryResponse])
+async def read_admin_mobile_finance_summary(
+    current_user: Annotated[User, Depends(dependencies.RoleChecker([schemas.Role.ADMIN, schemas.Role.MANAGER]))],
+    db: Annotated[AsyncSession, Depends(get_db)],
+):
+    data = await MobileAdminService.get_finance_summary(current_user=current_user, db=db)
+    return StandardResponse(data=MobileAdminFinanceSummaryResponse(**data))
+
+
+@router.get("/admin/audit/summary", response_model=StandardResponse[MobileAdminAuditSummaryResponse])
+async def read_admin_mobile_audit_summary(
+    current_user: Annotated[User, Depends(dependencies.RoleChecker([schemas.Role.ADMIN, schemas.Role.MANAGER]))],
+    db: Annotated[AsyncSession, Depends(get_db)],
+):
+    data = await MobileAdminService.get_audit_summary(current_user=current_user, db=db)
+    return StandardResponse(data=MobileAdminAuditSummaryResponse(**data))
+
+
+@router.get("/admin/inventory/summary", response_model=StandardResponse[MobileAdminInventorySummaryResponse])
+async def read_admin_mobile_inventory_summary(
+    current_user: Annotated[User, Depends(dependencies.RoleChecker([schemas.Role.ADMIN, schemas.Role.MANAGER]))],
+    db: Annotated[AsyncSession, Depends(get_db)],
+):
+    data = await MobileAdminService.get_inventory_summary(current_user=current_user, db=db)
+    return StandardResponse(data=MobileAdminInventorySummaryResponse(**data))
 
 
 @router.get("/staff/home", response_model=StandardResponse[MobileStaffHomeResponse])

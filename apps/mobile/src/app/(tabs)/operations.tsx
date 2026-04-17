@@ -2,8 +2,9 @@ import { useQuery } from "@tanstack/react-query";
 import { useRouter } from "expo-router";
 import { Pressable, StyleSheet, Text, View } from "react-native";
 
-import { Card, MutedText, QueryState, Screen, SectionTitle } from "@/components/ui";
-import { getCurrentRole } from "@/lib/mobile-role";
+import { Card, InlineStat, MutedText, QueryState, Screen, SectionTitle } from "@/components/ui";
+import { parseAdminAuditSummaryEnvelope, parseAdminInventorySummaryEnvelope, parseAdminOperationsSummaryEnvelope } from "@/lib/api";
+import { getCurrentRole, isAdminControlRole } from "@/lib/mobile-role";
 import { usePreferences } from "@/lib/preferences";
 import { useSession } from "@/lib/session";
 
@@ -29,6 +30,10 @@ export default function OperationsTab() {
   const { authorizedRequest, bootstrap } = useSession();
   const { copy, fontSet, theme } = usePreferences();
   const role = getCurrentRole(bootstrap);
+
+  if (isAdminControlRole(role)) {
+    return <AdminOperationsTab />;
+  }
 
   const transactionsQuery = useQuery({
     queryKey: ["mobile-staff-transactions"],
@@ -111,6 +116,150 @@ export default function OperationsTab() {
   );
 }
 
+function AdminOperationsTab() {
+  const router = useRouter();
+  const { authorizedRequest, bootstrap } = useSession();
+  const { direction, fontSet, isRTL, locale, theme } = usePreferences();
+  const role = getCurrentRole(bootstrap);
+
+  const operationsQuery = useQuery({
+    queryKey: ["mobile-admin-operations-summary", role],
+    queryFn: async () => parseAdminOperationsSummaryEnvelope(await authorizedRequest("/mobile/admin/operations/summary")).data,
+  });
+
+  const auditQuery = useQuery({
+    queryKey: ["mobile-admin-audit-summary", role],
+    queryFn: async () => parseAdminAuditSummaryEnvelope(await authorizedRequest("/mobile/admin/audit/summary")).data,
+  });
+
+  const inventoryQuery = useQuery({
+    queryKey: ["mobile-admin-inventory-summary", role],
+    queryFn: async () => parseAdminInventorySummaryEnvelope(await authorizedRequest("/mobile/admin/inventory/summary")).data,
+  });
+
+  const operations = operationsQuery.data;
+  const audit = auditQuery.data;
+  const inventory = inventoryQuery.data;
+
+  return (
+    <Screen title="Operations" subtitle="Daily control center" showSubtitle>
+      <QueryState loading={operationsQuery.isLoading} error={operationsQuery.error instanceof Error ? operationsQuery.error.message : null} />
+      {operations ? (
+        <>
+          <Card>
+            <SectionTitle>Today</SectionTitle>
+            <View style={[styles.statGrid, { flexDirection: isRTL ? "row-reverse" : "row" }]}>
+              <InlineStat label="Check-ins" value={operations.attendance.checkins_today} />
+              <InlineStat label="Denied" value={operations.attendance.denied_today} />
+              <InlineStat label="Support" value={operations.support.open_tickets} />
+              <InlineStat label="Lost items" value={operations.support.lost_found_open} />
+            </View>
+          </Card>
+
+          <Card>
+            <SectionTitle>Approvals</SectionTitle>
+            <View style={[styles.statGrid, { flexDirection: isRTL ? "row-reverse" : "row" }]}>
+              <InlineStat label="Renewals" value={operations.approvals.pending_renewals} />
+              <InlineStat label="Leaves" value={operations.approvals.pending_leaves} />
+            </View>
+            <View style={styles.actionRow}>
+              <ActionChip label="Open support" onPress={() => router.push("/support")} />
+              <ActionChip label="Lost and found" onPress={() => router.push("/lost-found")} />
+              <ActionChip label="Notifications" onPress={() => router.push("/notifications")} />
+            </View>
+          </Card>
+
+          <Card>
+            <SectionTitle>Notifications</SectionTitle>
+            <View style={[styles.statGrid, { flexDirection: isRTL ? "row-reverse" : "row" }]}>
+              <InlineStat label="Queued push" value={operations.notifications.queued_push} />
+              <InlineStat label="Failed push" value={operations.notifications.failed_push} />
+              <InlineStat label="Automation" value={operations.notifications.enabled_automation_rules} />
+            </View>
+          </Card>
+
+          <Card>
+            <SectionTitle>Recent support</SectionTitle>
+            {operations.recent_support_tickets.length === 0 ? <MutedText>No open support activity</MutedText> : null}
+            {operations.recent_support_tickets.map((ticket) => (
+              <View key={ticket.id} style={[styles.rowBetween, { borderTopColor: theme.border, flexDirection: isRTL ? "row-reverse" : "row" }]}>
+                <View style={styles.textColumn}>
+                  <Text style={{ color: theme.foreground, fontFamily: fontSet.body, textAlign: isRTL ? "right" : "left", writingDirection: direction }}>
+                    {ticket.subject}
+                  </Text>
+                  <MutedText>{[ticket.customer_name, ticket.status, formatDateTime(ticket.created_at, locale)].filter(Boolean).join(" - ")}</MutedText>
+                </View>
+              </View>
+            ))}
+          </Card>
+        </>
+      ) : null}
+
+      <QueryState loading={inventoryQuery.isLoading} error={inventoryQuery.error instanceof Error ? inventoryQuery.error.message : null} />
+      {inventory ? (
+        <Card>
+          <SectionTitle>Inventory</SectionTitle>
+          <View style={[styles.statGrid, { flexDirection: isRTL ? "row-reverse" : "row" }]}>
+            <InlineStat label="Active SKUs" value={inventory.total_active_products} />
+            <InlineStat label="Low stock" value={inventory.low_stock_count} />
+            <InlineStat label="Out" value={inventory.out_of_stock_count} />
+          </View>
+          {inventory.low_stock_products.length === 0 ? <MutedText>Stock levels are clear</MutedText> : null}
+          {inventory.low_stock_products.slice(0, 5).map((product) => (
+            <View key={product.id} style={[styles.rowBetween, { borderTopColor: theme.border, flexDirection: isRTL ? "row-reverse" : "row" }]}>
+              <View style={styles.textColumn}>
+                <Text style={{ color: theme.foreground, fontFamily: fontSet.body, textAlign: isRTL ? "right" : "left", writingDirection: direction }}>
+                  {product.name}
+                </Text>
+                <MutedText>{`${product.category} - threshold ${product.low_stock_threshold}`}</MutedText>
+              </View>
+              <Text style={{ color: theme.primary, fontFamily: fontSet.mono }}>{product.stock_quantity}</Text>
+            </View>
+          ))}
+        </Card>
+      ) : null}
+
+      <QueryState loading={auditQuery.isLoading} error={auditQuery.error instanceof Error ? auditQuery.error.message : null} />
+      {audit ? (
+        <Card>
+          <SectionTitle>Audit</SectionTitle>
+          <View style={[styles.statGrid, { flexDirection: isRTL ? "row-reverse" : "row" }]}>
+            <InlineStat label="Events" value={audit.total_events} />
+            <InlineStat label="Actions" value={audit.action_counts.length} />
+          </View>
+          {audit.recent_events.length === 0 ? <MutedText>No audit events yet</MutedText> : null}
+          {audit.recent_events.slice(0, 5).map((event) => (
+            <View key={event.id} style={[styles.rowBetween, { borderTopColor: theme.border, flexDirection: isRTL ? "row-reverse" : "row" }]}>
+              <View style={styles.textColumn}>
+                <Text style={{ color: theme.foreground, fontFamily: fontSet.body, textAlign: isRTL ? "right" : "left", writingDirection: direction }}>
+                  {event.action}
+                </Text>
+                <MutedText>{[event.actor_name || "System", formatDateTime(event.timestamp, locale)].filter(Boolean).join(" - ")}</MutedText>
+              </View>
+            </View>
+          ))}
+        </Card>
+      ) : null}
+    </Screen>
+  );
+}
+
+function ActionChip({ label, onPress }: { label: string; onPress: () => void }) {
+  const { fontSet, theme } = usePreferences();
+  return (
+    <Pressable onPress={onPress} style={[styles.actionChip, { backgroundColor: theme.cardAlt, borderColor: theme.border }]}>
+      <Text style={{ color: theme.foreground, fontFamily: fontSet.body }}>{label}</Text>
+    </Pressable>
+  );
+}
+
+function formatDateTime(value: string | null | undefined, locale: string) {
+  if (!value) {
+    return null;
+  }
+  return new Date(value).toLocaleString(locale);
+}
+
 const styles = StyleSheet.create({
   row: {
     borderTopWidth: 1,
@@ -118,7 +267,19 @@ const styles = StyleSheet.create({
     marginTop: 12,
   },
   textColumn: {
+    flex: 1,
     gap: 4,
+  },
+  rowBetween: {
+    alignItems: "center",
+    borderTopWidth: 1,
+    justifyContent: "space-between",
+    marginTop: 12,
+    paddingTop: 12,
+  },
+  statGrid: {
+    flexWrap: "wrap",
+    gap: 12,
   },
   actionRow: {
     flexDirection: "row",

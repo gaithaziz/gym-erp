@@ -1,7 +1,7 @@
 import { useRouter } from "expo-router";
 
 import { useSession } from "@/lib/session";
-import { getCurrentRole, hasCapability, isCustomerRole } from "@/lib/mobile-role";
+import { getCurrentRole, hasCapability, isAdminControlRole, isCustomerRole } from "@/lib/mobile-role";
 import { usePreferences } from "@/lib/preferences";
 import { Card, MutedText, PrimaryButton, Screen, SecondaryLink, SectionTitle } from "@/components/ui";
 
@@ -11,6 +11,7 @@ export default function MoreTab() {
   const { copy } = usePreferences();
   const role = getCurrentRole(bootstrap);
   const customer = isCustomerRole(role);
+  const adminControl = isAdminControlRole(role);
 
   async function handleSignOut() {
     await signOut();
@@ -26,6 +27,11 @@ export default function MoreTab() {
       </Card>
 
       {customer ? <SecondaryLink href="/billing">{copy.more.billing}</SecondaryLink> : null}
+      {adminControl ? <SecondaryLink href="/(tabs)/members">People summary</SecondaryLink> : null}
+      {adminControl ? <SecondaryLink href="/(tabs)/operations">Operations summary</SecondaryLink> : null}
+      {adminControl ? <SecondaryLink href="/(tabs)/finance">Finance summary</SecondaryLink> : null}
+      {adminControl ? <SecondaryLink href="/(tabs)/operations">Audit summary</SecondaryLink> : null}
+      {adminControl ? <SecondaryLink href="/(tabs)/operations">Inventory summary</SecondaryLink> : null}
       <SecondaryLink href="/notifications">{copy.more.notifications}</SecondaryLink>
       {hasCapability(bootstrap, "view_support") ? <SecondaryLink href="/support">{copy.more.support}</SecondaryLink> : null}
       {hasCapability(bootstrap, "view_chat") ? <SecondaryLink href="/chat">{copy.more.chat}</SecondaryLink> : null}

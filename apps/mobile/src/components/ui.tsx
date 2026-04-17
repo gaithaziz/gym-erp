@@ -417,6 +417,13 @@ export function QueryState({ loading, error, empty, emptyMessage = "No data yet.
     );
   }
   if (error) {
+    if (isEmptyStateError(error)) {
+      return (
+        <Card>
+          <MutedText>{emptyMessage || error}</MutedText>
+        </Card>
+      );
+    }
     return (
       <Card>
         <Text
@@ -443,6 +450,11 @@ export function QueryState({ loading, error, empty, emptyMessage = "No data yet.
     );
   }
   return null;
+}
+
+function isEmptyStateError(message: string) {
+  const normalized = message.trim().toLowerCase();
+  return normalized === "not found" || normalized.includes(" not found") || normalized.includes("no data");
 }
 
 const styles = StyleSheet.create({

@@ -8,6 +8,10 @@ export function isCustomerRole(role: Role | null | undefined) {
   return role === "CUSTOMER";
 }
 
+export function isAdminControlRole(role: Role | null | undefined) {
+  return role === "ADMIN" || role === "MANAGER";
+}
+
 export function hasCapability(bootstrap: MobileBootstrap | null, capability: Capability) {
   return Boolean(bootstrap?.capabilities.includes(capability));
 }

@@ -4,9 +4,9 @@ import { useRouter } from "expo-router";
 import { Pressable, StyleSheet, Text, View } from "react-native";
 
 import { Card, InlineStat, MutedText, PrimaryButton, QueryState, Screen, SecondaryButton, SecondaryLink, SectionTitle, ValueText } from "@/components/ui";
-import { parseEnvelope, parseHomeEnvelope, parseStaffHomeEnvelope, type MobileGamificationStats } from "@/lib/api";
+import { parseAdminHomeEnvelope, parseEnvelope, parseHomeEnvelope, parseStaffHomeEnvelope, type MobileGamificationStats } from "@/lib/api";
 import { localeTag, localizeSubscriptionStatus } from "@/lib/mobile-format";
-import { getCurrentRole, isCustomerRole } from "@/lib/mobile-role";
+import { getCurrentRole, isAdminControlRole, isCustomerRole } from "@/lib/mobile-role";
 import { usePreferences } from "@/lib/preferences";
 import { useSession } from "@/lib/session";
 
@@ -19,10 +19,14 @@ const COACH_HOME_ACTIONS = [
 
 export default function HomeTab() {
   const { bootstrap } = useSession();
-  if (!isCustomerRole(getCurrentRole(bootstrap))) {
-    return <StaffHomeTab />;
+  const role = getCurrentRole(bootstrap);
+  if (isCustomerRole(role)) {
+    return <CustomerHomeTab />;
   }
-  return <CustomerHomeTab />;
+  if (isAdminControlRole(role)) {
+    return <AdminHomeTab />;
+  }
+  return <StaffHomeTab />;
 }
 
 function CustomerHomeTab() {
@@ -302,6 +306,116 @@ function StaffHomeTab() {
   );
 }
 
+function AdminHomeTab() {
+  const router = useRouter();
+  const { bootstrap, authorizedRequest } = useSession();
+  const { direction, fontSet, isRTL, locale, theme } = usePreferences();
+  const homeQuery = useQuery({
+    queryKey: ["mobile-admin-home", bootstrap?.role],
+    queryFn: async () => parseAdminHomeEnvelope(await authorizedRequest("/mobile/admin/home")).data,
+  });
+  const home = homeQuery.data;
+
+  return (
+    <Screen title="Control center" subtitle={bootstrap?.gym.gym_name || "Admin"} showSubtitle>
+      <QueryState loading={homeQuery.isLoading} error={homeQuery.error instanceof Error ? homeQuery.error.message : null} />
+      {home ? (
+        <>
+          <Card style={[styles.heroCard, { backgroundColor: theme.cardAlt, borderColor: theme.border }]}>
+            <SectionTitle>{home.headline}</SectionTitle>
+            <MutedText>{bootstrap?.user.full_name || bootstrap?.role || "Admin"}</MutedText>
+            <View style={[styles.actionGrid, { flexDirection: isRTL ? "row-reverse" : "row" }]}>
+              <HomeAction label="People" onPress={() => router.push("/(tabs)/members" as never)} />
+              <HomeAction label="Operations" onPress={() => router.push("/(tabs)/operations" as never)} />
+              <HomeAction label="Finance" onPress={() => router.push("/(tabs)/finance" as never)} />
+              <HomeAction label="Support" onPress={() => router.push("/support")} />
+            </View>
+          </Card>
+
+          <View style={[styles.statGrid, { flexDirection: isRTL ? "row-reverse" : "row" }]}>
+            {home.metrics.map((metric) => (
+              <InlineStat key={metric.id} label={metric.label} value={formatAdminMetric(metric.value, locale)} />
+            ))}
+          </View>
+
+          <Card>
+            <SectionTitle>Alerts</SectionTitle>
+            {home.alerts.length === 0 ? <MutedText>No alerts right now</MutedText> : null}
+            {home.alerts.map((alert) => (
+              <Pressable
+                key={alert.id}
+                onPress={() => alert.route && router.push(alert.route as never)}
+                style={[styles.listRow, { borderTopColor: theme.border, flexDirection: isRTL ? "row-reverse" : "row" }]}
+              >
+                <View style={styles.listTextBlock}>
+                  <Text
+                    style={[
+                      styles.listTitle,
+                      { color: theme.foreground, fontFamily: fontSet.body, textAlign: isRTL ? "right" : "left", writingDirection: direction },
+                    ]}
+                  >
+                    {alert.title}
+                  </Text>
+                  <MutedText>{alert.body}</MutedText>
+                </View>
+                <Text style={[styles.amountText, { color: theme.primary, fontFamily: fontSet.mono }]}>{alert.count}</Text>
+              </Pressable>
+            ))}
+          </Card>
+
+          <Card>
+            <SectionTitle>Approvals</SectionTitle>
+            {home.approvals.map((approval) => (
+              <Pressable
+                key={approval.id}
+                onPress={() => approval.route && router.push(approval.route as never)}
+                style={[styles.listRow, { borderTopColor: theme.border, flexDirection: isRTL ? "row-reverse" : "row" }]}
+              >
+                <View style={styles.listTextBlock}>
+                  <Text
+                    style={[
+                      styles.listTitle,
+                      { color: theme.foreground, fontFamily: fontSet.body, textAlign: isRTL ? "right" : "left", writingDirection: direction },
+                    ]}
+                  >
+                    {approval.title}
+                  </Text>
+                  <MutedText>{approval.subtitle || "No pending action"}</MutedText>
+                </View>
+                <Text style={[styles.amountText, { color: theme.primary, fontFamily: fontSet.mono }]}>{approval.count}</Text>
+              </Pressable>
+            ))}
+          </Card>
+
+          <Card>
+            <SectionTitle>Recent activity</SectionTitle>
+            {home.recent_activity.length === 0 ? <MutedText>No recent activity</MutedText> : null}
+            {home.recent_activity.map((item) => (
+              <Pressable
+                key={`${item.kind}-${item.id}`}
+                onPress={() => item.route && router.push(item.route as never)}
+                style={[styles.listRow, { borderTopColor: theme.border, flexDirection: isRTL ? "row-reverse" : "row" }]}
+              >
+                <View style={styles.listTextBlock}>
+                  <Text
+                    style={[
+                      styles.listTitle,
+                      { color: theme.foreground, fontFamily: fontSet.body, textAlign: isRTL ? "right" : "left", writingDirection: direction },
+                    ]}
+                  >
+                    {item.title}
+                  </Text>
+                  <MutedText>{formatAdminActivitySubtitle(item.subtitle, item.timestamp, locale)}</MutedText>
+                </View>
+              </Pressable>
+            ))}
+          </Card>
+        </>
+      ) : null}
+    </Screen>
+  );
+}
+
 function localizeStaffHomeItem(id: unknown, title: unknown, labels: { attendance: string; member: string }) {
   if (id === "attendance") {
     return labels.attendance;
@@ -310,6 +424,21 @@ function localizeStaffHomeItem(id: unknown, title: unknown, labels: { attendance
     return labels.member;
   }
   return typeof title === "string" ? title : null;
+}
+
+function formatAdminMetric(value: number | string, locale: string) {
+  if (typeof value === "number") {
+    return new Intl.NumberFormat(locale, { maximumFractionDigits: 2 }).format(value);
+  }
+  return value;
+}
+
+function formatAdminActivitySubtitle(subtitle: string | null | undefined, timestamp: string | null | undefined, locale: string) {
+  const parts = [
+    subtitle,
+    timestamp ? new Date(timestamp).toLocaleString(locale) : null,
+  ].filter(Boolean);
+  return parts.join(" - ");
 }
 
 function localizeStaffHomeItemSubtitle(id: unknown, subtitle: unknown, labels: { clockedIn: string; notClockedIn: string }) {

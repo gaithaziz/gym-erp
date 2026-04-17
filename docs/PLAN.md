@@ -272,6 +272,9 @@ Phase acceptance:
 
 ## Phase 4: Admin and Manager Mobile Control Center
 
+Planning artifact:
+- `docs/PHASE4_MOBILE_CONTROL_CENTER_PLAN.md`
+
 Goal:
 - Deliver a mobile-appropriate summary and drill-down experience for admin and manager roles without trying to replicate spreadsheet-heavy web workflows
 
