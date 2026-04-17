@@ -200,6 +200,11 @@ lsof -nP -iTCP:8081 -sTCP:LISTEN
 screen -ls
 ```
 
+If the second command still prints the same PID after a few seconds, force only that stale listener:
+```bash
+lsof -tiTCP:8081 -sTCP:LISTEN | xargs kill -9
+```
+
 If `lsof` prints nothing and `screen -ls` does not show `gym-erp-expo`, the mobile server is fully shut down.
 
 ## 6. Safe Shutdown
