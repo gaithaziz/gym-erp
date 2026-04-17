@@ -5,6 +5,7 @@ import {
   localizeAccessReason,
   localizeAccessStatus,
   localizeAuditAction,
+  localizeContractType,
   localizeFinanceCategory,
   localizeFinanceTransactionType,
   localizeLostFoundStatus,
@@ -12,6 +13,7 @@ import {
   localizeNotificationEventType,
   localizeNotificationStatus,
   localizePaymentMethod,
+  localizePayrollStatus,
   localizeRole,
   localizeRenewalStatus,
   localizeSubscriptionStatus,
@@ -46,6 +48,8 @@ describe("mobile-format", () => {
     expect(localizeFinanceTransactionType("EXPENSE", true)).toBe("مصروف");
     expect(localizeFinanceCategory("POS_SALE", false)).toBe("POS sale");
     expect(localizeAuditAction("PAYROLL_AUTOMATION_RUN", true)).toBe("تشغيل أتمتة الرواتب");
+    expect(localizeContractType("FULL_TIME", false)).toBe("Full time");
+    expect(localizePayrollStatus("PARTIAL", true)).toBe("مدفوع جزئياً");
   });
 
   it("localizes access and notification values", () => {

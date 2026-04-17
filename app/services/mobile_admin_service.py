@@ -11,7 +11,7 @@ from app.models.access import AccessLog, AttendanceLog, Subscription, Subscripti
 from app.models.audit import AuditLog
 from app.models.enums import Role
 from app.models.finance import PaymentMethod, Transaction, TransactionCategory, TransactionType
-from app.models.hr import LeaveRequest, LeaveStatus
+from app.models.hr import Contract, LeaveRequest, LeaveStatus, Payroll
 from app.models.inventory import Product, ProductCategory
 from app.models.lost_found import LostFoundItem, LostFoundStatus
 from app.models.notification import PushDeliveryLog, WhatsAppAutomationRule
@@ -22,6 +22,7 @@ from app.services.audit_service import AuditService
 
 
 ADMIN_CONTROL_ROLES = {Role.ADMIN, Role.MANAGER}
+STAFF_OPERATION_ROLES = {Role.COACH, Role.EMPLOYEE, Role.CASHIER, Role.RECEPTION, Role.FRONT_DESK, Role.MANAGER}
 
 
 def _as_float(value: Decimal | float | int | None) -> float:
@@ -38,6 +39,14 @@ def _start_of_today() -> datetime:
 def _start_of_month() -> datetime:
     today = _start_of_today()
     return today.replace(day=1)
+
+
+def _as_naive_utc(value: datetime | None) -> datetime | None:
+    if value is None:
+        return None
+    if value.tzinfo is None:
+        return value
+    return value.astimezone(timezone.utc).replace(tzinfo=None)
 
 
 class MobileAdminService:
@@ -181,6 +190,165 @@ class MobileAdminService:
         }
 
     @classmethod
+    async def list_staff_operations(
+        cls,
+        *,
+        current_user: User,
+        db: AsyncSession,
+        search: str | None = None,
+        role: Role | None = None,
+        status: str | None = None,
+    ) -> dict[str, Any]:
+        cls._ensure_allowed(current_user)
+
+        roles = STAFF_OPERATION_ROLES
+        stmt = (
+            select(User, Contract)
+            .outerjoin(Contract, Contract.user_id == User.id)
+            .where(User.role.in_(roles))
+            .order_by(User.full_name.asc().nullslast(), User.email.asc())
+        )
+        if role and role in roles:
+            stmt = stmt.where(User.role == role)
+        if status == "active":
+            stmt = stmt.where(User.is_active.is_(True))
+        elif status == "inactive":
+            stmt = stmt.where(User.is_active.is_(False))
+        if search:
+            needle = f"%{search.strip()}%"
+            stmt = stmt.where(or_(User.full_name.ilike(needle), User.email.ilike(needle), User.phone_number.ilike(needle)))
+
+        rows = (await db.execute(stmt.limit(75))).all()
+        today = _start_of_today()
+        items = []
+        for staff, contract in rows:
+            attendance_open = (
+                await db.execute(
+                    select(AttendanceLog)
+                    .where(
+                        AttendanceLog.user_id == staff.id,
+                        AttendanceLog.check_in_time >= today,
+                        AttendanceLog.check_out_time.is_(None),
+                    )
+                    .order_by(AttendanceLog.check_in_time.desc())
+                    .limit(1)
+                )
+            ).scalar_one_or_none()
+            pending_leaves = await cls._count(
+                db,
+                select(func.count(LeaveRequest.id)).where(LeaveRequest.user_id == staff.id, LeaveRequest.status == LeaveStatus.PENDING),
+            )
+            latest_payroll = (
+                await db.execute(
+                    select(Payroll)
+                    .where(Payroll.user_id == staff.id)
+                    .order_by(Payroll.year.desc(), Payroll.month.desc())
+                    .limit(1)
+                )
+            ).scalar_one_or_none()
+            items.append(
+                {
+                    "id": str(staff.id),
+                    "full_name": staff.full_name,
+                    "email": staff.email,
+                    "phone_number": staff.phone_number,
+                    "profile_picture_url": staff.profile_picture_url,
+                    "role": staff.role.value if hasattr(staff.role, "value") else str(staff.role),
+                    "is_active": bool(staff.is_active),
+                    "contract": cls._serialize_contract(contract),
+                    "today_attendance": {
+                        "clocked_in": attendance_open is not None,
+                        "check_in_time": attendance_open.check_in_time.isoformat() if attendance_open and attendance_open.check_in_time else None,
+                    },
+                    "pending_leave_requests": pending_leaves,
+                    "latest_payroll": cls._serialize_payroll(latest_payroll),
+                }
+            )
+
+        return {"items": items}
+
+    @classmethod
+    async def get_staff_operation_detail(cls, *, current_user: User, db: AsyncSession, staff_id) -> dict[str, Any]:
+        cls._ensure_allowed(current_user)
+
+        row = (
+            await db.execute(
+                select(User, Contract)
+                .outerjoin(Contract, Contract.user_id == User.id)
+                .where(User.id == staff_id, User.role.in_(STAFF_OPERATION_ROLES))
+            )
+        ).first()
+        if not row:
+            raise ValueError("Staff user not found")
+
+        staff, contract = row
+        today = _start_of_today()
+        month = _start_of_month()
+
+        attendance_logs = (
+            await db.execute(
+                select(AttendanceLog)
+                .where(AttendanceLog.user_id == staff.id)
+                .order_by(AttendanceLog.check_in_time.desc())
+                .limit(12)
+            )
+        ).scalars().all()
+        month_attendance = [log for log in attendance_logs if (check_in := _as_naive_utc(log.check_in_time)) and check_in >= month]
+        today_open = next(
+            (
+                log
+                for log in attendance_logs
+                if (check_in := _as_naive_utc(log.check_in_time)) and check_in >= today and log.check_out_time is None
+            ),
+            None,
+        )
+        leaves = (
+            await db.execute(
+                select(LeaveRequest)
+                .where(LeaveRequest.user_id == staff.id)
+                .order_by(LeaveRequest.start_date.desc())
+                .limit(12)
+            )
+        ).scalars().all()
+        payrolls = (
+            await db.execute(
+                select(Payroll)
+                .where(Payroll.user_id == staff.id)
+                .order_by(Payroll.year.desc(), Payroll.month.desc())
+                .limit(6)
+            )
+        ).scalars().all()
+
+        return {
+            "staff": {
+                "id": str(staff.id),
+                "full_name": staff.full_name,
+                "email": staff.email,
+                "phone_number": staff.phone_number,
+                "profile_picture_url": staff.profile_picture_url,
+                "role": staff.role.value if hasattr(staff.role, "value") else str(staff.role),
+                "is_active": bool(staff.is_active),
+            },
+            "contract": cls._serialize_contract(contract),
+            "attendance_summary": {
+                "clocked_in": today_open is not None,
+                "today_check_in_time": today_open.check_in_time.isoformat() if today_open and today_open.check_in_time else None,
+                "month_days_present": len({log.check_in_time.date().isoformat() for log in month_attendance if log.check_in_time}),
+                "month_hours": round(sum(float(log.hours_worked or 0.0) for log in month_attendance), 2),
+            },
+            "leave_summary": {
+                "total_recent": len(leaves),
+                "pending": sum(1 for leave in leaves if leave.status == LeaveStatus.PENDING),
+                "approved": sum(1 for leave in leaves if leave.status == LeaveStatus.APPROVED),
+                "denied": sum(1 for leave in leaves if leave.status == LeaveStatus.DENIED),
+            },
+            "payroll_summary": cls._serialize_payroll(payrolls[0] if payrolls else None),
+            "recent_attendance": [cls._serialize_attendance(log) for log in attendance_logs],
+            "recent_leaves": [cls._serialize_leave_operation(leave) for leave in leaves],
+            "recent_payrolls": [cls._serialize_payroll(payroll) for payroll in payrolls],
+        }
+
+    @classmethod
     async def get_operations_summary(cls, *, current_user: User, db: AsyncSession) -> dict[str, Any]:
         cls._ensure_allowed(current_user)
 
@@ -255,6 +423,55 @@ class MobileAdminService:
                 }
                 for ticket, customer_name in recent_support_tickets
             ],
+        }
+
+    @staticmethod
+    def _serialize_contract(contract: Contract | None) -> dict[str, Any] | None:
+        if not contract:
+            return None
+        return {
+            "type": contract.contract_type.value if hasattr(contract.contract_type, "value") else str(contract.contract_type),
+            "base_salary": _as_float(contract.base_salary),
+            "commission_rate": _as_float(contract.commission_rate),
+            "start_date": contract.start_date.isoformat() if contract.start_date else None,
+            "end_date": contract.end_date.isoformat() if contract.end_date else None,
+            "standard_hours": contract.standard_hours,
+        }
+
+    @staticmethod
+    def _serialize_attendance(log: AttendanceLog) -> dict[str, Any]:
+        return {
+            "id": str(log.id),
+            "check_in_time": log.check_in_time.isoformat() if log.check_in_time else None,
+            "check_out_time": log.check_out_time.isoformat() if log.check_out_time else None,
+            "hours_worked": _as_float(log.hours_worked),
+        }
+
+    @staticmethod
+    def _serialize_leave_operation(leave: LeaveRequest) -> dict[str, Any]:
+        return {
+            "id": str(leave.id),
+            "start_date": leave.start_date.isoformat(),
+            "end_date": leave.end_date.isoformat(),
+            "leave_type": leave.leave_type.value if hasattr(leave.leave_type, "value") else str(leave.leave_type),
+            "status": leave.status.value if hasattr(leave.status, "value") else str(leave.status),
+            "reason": leave.reason,
+        }
+
+    @staticmethod
+    def _serialize_payroll(payroll: Payroll | None) -> dict[str, Any] | None:
+        if not payroll:
+            return None
+        return {
+            "id": str(payroll.id),
+            "month": payroll.month,
+            "year": payroll.year,
+            "base_pay": _as_float(payroll.base_pay),
+            "overtime_pay": _as_float(payroll.overtime_pay),
+            "deductions": _as_float(payroll.deductions),
+            "total_pay": _as_float(payroll.total_pay),
+            "status": payroll.status.value if hasattr(payroll.status, "value") else str(payroll.status),
+            "paid_at": payroll.paid_at.isoformat() if payroll.paid_at else None,
         }
 
     @classmethod

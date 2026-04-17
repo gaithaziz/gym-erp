@@ -52,13 +52,13 @@ export default function MembersTab() {
   const [notice, setNotice] = useState<Notice | null>(null);
   const [expandedSections, setExpandedSections] = useState<Record<string, boolean>>({});
 
-  const canChat = hasCapability(bootstrap, "view_chat");
+  const adminControl = isAdminControlRole(role);
+  const canChat = hasCapability(bootstrap, "view_chat") && !adminControl;
   const canCheckIn = hasCapability(bootstrap, "scan_member_qr") || hasCapability(bootstrap, "lookup_members");
   const canSupport = hasCapability(bootstrap, "view_support");
   const canAssignWorkout = hasCapability(bootstrap, "manage_member_plans");
   const canAssignDiet = hasCapability(bootstrap, "manage_member_diets");
   const canRegister = role === "ADMIN" || role === "MANAGER" || role === "RECEPTION" || role === "FRONT_DESK";
-  const adminControl = isAdminControlRole(role);
 
   const adminSummaryQuery = useQuery({
     queryKey: ["mobile-admin-people-summary", role],
@@ -207,6 +207,7 @@ export default function MembersTab() {
                 <MiniMetric label={copy.adminControl.staffInToday} value={adminSummaryQuery.data.attendance.staff_checked_in_today} />
                 <MiniMetric label={copy.adminControl.memberScans} value={adminSummaryQuery.data.attendance.member_scans_today} />
               </View>
+              <SecondaryButton onPress={() => router.push("/staff-operations")}>{copy.adminControl.openEmployeeOperations}</SecondaryButton>
               {adminSummaryQuery.data.staff.by_role.length ? (
                 <View style={styles.roleList}>
                   {adminSummaryQuery.data.staff.by_role.map((item) => (

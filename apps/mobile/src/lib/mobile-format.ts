@@ -148,6 +148,44 @@ export function localizePlanStatus(status: string | undefined, isRTL: boolean) {
   );
 }
 
+export function localizeContractType(value: string | undefined | null, isRTL: boolean) {
+  return localizeValue(
+    value ?? undefined,
+    isRTL
+      ? {
+          FULL_TIME: "دوام كامل",
+          PART_TIME: "دوام جزئي",
+          CONTRACTOR: "متعاقد",
+          HYBRID: "مختلط",
+        }
+      : {
+          FULL_TIME: "Full time",
+          PART_TIME: "Part time",
+          CONTRACTOR: "Contractor",
+          HYBRID: "Hybrid",
+        },
+    isRTL,
+  );
+}
+
+export function localizePayrollStatus(value: string | undefined | null, isRTL: boolean) {
+  return localizeValue(
+    value ?? undefined,
+    isRTL
+      ? {
+          DRAFT: "مسودة",
+          PARTIAL: "مدفوع جزئياً",
+          PAID: "مدفوع",
+        }
+      : {
+          DRAFT: "Draft",
+          PARTIAL: "Partial",
+          PAID: "Paid",
+        },
+    isRTL,
+  );
+}
+
 export function localizeFinanceTransactionType(value: string | undefined, isRTL: boolean) {
   return localizeValue(
     value,

@@ -2,6 +2,8 @@ import { describe, expect, it } from "vitest";
 
 import {
   parseAdminApprovalsEnvelope,
+  parseAdminStaffDetailEnvelope,
+  parseAdminStaffListEnvelope,
   parseApprovalActionResultEnvelope,
   parseInventoryProductEnvelope,
   parseInventoryProductsEnvelope,
@@ -78,5 +80,87 @@ describe("mobile admin api parsers", () => {
 
     expect(parseInventoryProductEnvelope({ success: true, data: product }).data.name).toBe("Protein Bar");
     expect(parseInventoryProductsEnvelope({ success: true, data: { items: [product] } }).data.items[0].category).toBe("SNACK");
+  });
+
+  it("parses mobile admin staff operations payloads", () => {
+    const payroll = {
+      id: "88888888-8888-4888-8888-888888888888",
+      month: 4,
+      year: 2026,
+      base_pay: 400,
+      overtime_pay: 25,
+      deductions: 5,
+      total_pay: 420,
+      status: "DRAFT",
+      paid_at: null,
+    };
+    const staff = {
+      id: "99999999-9999-4999-8999-999999999999",
+      full_name: "Rana Coach",
+      email: "rana@example.com",
+      phone_number: null,
+      profile_picture_url: null,
+      role: "COACH",
+      is_active: true,
+      contract: {
+        type: "FULL_TIME",
+        base_salary: 400,
+        commission_rate: 0,
+        start_date: "2026-01-01",
+        end_date: null,
+        standard_hours: 160,
+      },
+    };
+
+    const list = parseAdminStaffListEnvelope({
+      success: true,
+      data: {
+        items: [
+          {
+            ...staff,
+            today_attendance: { clocked_in: true, check_in_time: "2026-04-17T08:00:00Z" },
+            pending_leave_requests: 1,
+            latest_payroll: payroll,
+          },
+        ],
+      },
+    });
+    expect(list.data.items[0].role).toBe("COACH");
+
+    const detail = parseAdminStaffDetailEnvelope({
+      success: true,
+      data: {
+        staff,
+        contract: staff.contract,
+        attendance_summary: {
+          clocked_in: true,
+          today_check_in_time: "2026-04-17T08:00:00Z",
+          month_days_present: 10,
+          month_hours: 82.5,
+        },
+        leave_summary: { total_recent: 2, pending: 1, approved: 1, denied: 0 },
+        payroll_summary: payroll,
+        recent_attendance: [
+          {
+            id: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+            check_in_time: "2026-04-17T08:00:00Z",
+            check_out_time: null,
+            hours_worked: 0,
+          },
+        ],
+        recent_leaves: [
+          {
+            id: "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb",
+            start_date: "2026-04-18",
+            end_date: "2026-04-19",
+            leave_type: "SICK",
+            status: "PENDING",
+            reason: "Medical",
+          },
+        ],
+        recent_payrolls: [payroll],
+      },
+    });
+    expect(detail.data.attendance_summary.month_hours).toBe(82.5);
   });
 });

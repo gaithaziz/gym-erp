@@ -775,6 +775,97 @@ export const mobileSupportTicketStatusUpdateSchema = z.object({
   status: z.string(),
 });
 
+export const mobileAdminStaffContractSchema = z
+  .object({
+    type: z.string(),
+    base_salary: z.number(),
+    commission_rate: z.number().nullable().optional(),
+    start_date: z.string().nullable().optional(),
+    end_date: z.string().nullable().optional(),
+    standard_hours: z.number().int().nullable().optional(),
+  })
+  .nullable();
+
+export const mobileAdminStaffPayrollItemSchema = z
+  .object({
+    id: z.string().uuid(),
+    month: z.number().int(),
+    year: z.number().int(),
+    base_pay: z.number(),
+    overtime_pay: z.number(),
+    deductions: z.number(),
+    total_pay: z.number(),
+    status: z.string(),
+    paid_at: z.string().nullable().optional(),
+  })
+  .nullable();
+
+export const mobileAdminStaffAttendanceItemSchema = z.object({
+  id: z.string().uuid(),
+  check_in_time: z.string().nullable().optional(),
+  check_out_time: z.string().nullable().optional(),
+  hours_worked: z.number(),
+});
+
+export const mobileAdminStaffLeaveItemSchema = z.object({
+  id: z.string().uuid(),
+  start_date: z.string(),
+  end_date: z.string(),
+  leave_type: z.string(),
+  status: z.string(),
+  reason: z.string().nullable().optional(),
+});
+
+export const mobileAdminStaffListItemSchema = z.object({
+  id: z.string().uuid(),
+  full_name: z.string().nullable().optional(),
+  email: z.string().email(),
+  phone_number: z.string().nullable().optional(),
+  profile_picture_url: z.string().nullable().optional(),
+  role: z.string(),
+  is_active: z.boolean(),
+  contract: mobileAdminStaffContractSchema,
+  today_attendance: z.object({
+    clocked_in: z.boolean(),
+    check_in_time: z.string().nullable().optional(),
+  }),
+  pending_leave_requests: z.number().int(),
+  latest_payroll: mobileAdminStaffPayrollItemSchema,
+});
+
+export const mobileAdminStaffListSchema = z.object({
+  items: z.array(mobileAdminStaffListItemSchema),
+});
+
+export const mobileAdminStaffDetailSchema = z.object({
+  staff: z.object({
+    id: z.string().uuid(),
+    full_name: z.string().nullable().optional(),
+    email: z.string().email(),
+    phone_number: z.string().nullable().optional(),
+    profile_picture_url: z.string().nullable().optional(),
+    role: z.string(),
+    is_active: z.boolean(),
+  }),
+  contract: mobileAdminStaffContractSchema,
+  attendance_summary: z.object({
+    clocked_in: z.boolean(),
+    today_check_in_time: z.string().nullable().optional(),
+    month_days_present: z.number().int(),
+    month_hours: z.number(),
+  }),
+  leave_summary: z.object({
+    total_recent: z.number().int(),
+    pending: z.number().int(),
+    approved: z.number().int(),
+    denied: z.number().int(),
+  }),
+  payroll_summary: mobileAdminStaffPayrollItemSchema,
+  recent_attendance: z.array(mobileAdminStaffAttendanceItemSchema),
+  recent_leaves: z.array(mobileAdminStaffLeaveItemSchema),
+  recent_payrolls: z.array(mobileAdminStaffPayrollItemSchema.unwrap()),
+});
+
 export const mobileDeviceRegistrationSchema = z.object({
   device_token: z.string(),
   platform: z.string(),
@@ -846,6 +937,12 @@ export type MobileInventoryProducts = z.infer<typeof mobileInventoryProductsSche
 export type MobileInventoryProductCreate = z.infer<typeof mobileInventoryProductCreateSchema>;
 export type MobileInventoryProductUpdate = z.infer<typeof mobileInventoryProductUpdateSchema>;
 export type MobileSupportTicketStatusUpdate = z.infer<typeof mobileSupportTicketStatusUpdateSchema>;
+export type MobileAdminStaffList = z.infer<typeof mobileAdminStaffListSchema>;
+export type MobileAdminStaffListItem = z.infer<typeof mobileAdminStaffListItemSchema>;
+export type MobileAdminStaffDetail = z.infer<typeof mobileAdminStaffDetailSchema>;
+export type MobileAdminStaffAttendanceItem = z.infer<typeof mobileAdminStaffAttendanceItemSchema>;
+export type MobileAdminStaffLeaveItem = z.infer<typeof mobileAdminStaffLeaveItemSchema>;
+export type MobileAdminStaffPayrollItem = z.infer<typeof mobileAdminStaffPayrollItemSchema>;
 export type MobileDeviceRegistration = z.infer<typeof mobileDeviceRegistrationSchema>;
 export type MobileRenewalRequest = z.infer<typeof mobileRenewalRequestSchema>;
 export type MobileRenewalRequestList = z.infer<typeof mobileRenewalRequestListSchema>;
@@ -960,6 +1057,14 @@ export function parseMobileInventoryProducts(input: unknown): MobileInventoryPro
 
 export function parseMobileSupportTicketStatusUpdate(input: unknown): MobileSupportTicketStatusUpdate {
   return mobileSupportTicketStatusUpdateSchema.parse(input);
+}
+
+export function parseMobileAdminStaffList(input: unknown): MobileAdminStaffList {
+  return mobileAdminStaffListSchema.parse(input);
+}
+
+export function parseMobileAdminStaffDetail(input: unknown): MobileAdminStaffDetail {
+  return mobileAdminStaffDetailSchema.parse(input);
 }
 
 export function parseMobileDeviceRegistration(input: unknown): MobileDeviceRegistration {

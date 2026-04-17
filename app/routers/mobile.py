@@ -58,6 +58,20 @@ from app.services.mobile_admin_service import MobileAdminService
 router = APIRouter()
 
 
+CHAT_READ_ROLES = {schemas.Role.CUSTOMER, schemas.Role.COACH, schemas.Role.ADMIN, schemas.Role.MANAGER}
+CHAT_PARTICIPANT_ROLES = {schemas.Role.CUSTOMER, schemas.Role.COACH}
+
+
+def _ensure_mobile_chat_read(current_user: User) -> None:
+    if current_user.role not in CHAT_READ_ROLES:
+        raise HTTPException(status_code=403, detail="Chat is not available for this role")
+
+
+def _ensure_mobile_chat_participant(current_user: User) -> None:
+    if current_user.role not in CHAT_PARTICIPANT_ROLES:
+        raise HTTPException(status_code=403, detail="Chat is read-only for this role")
+
+
 class MobileCustomerHomeResponse(BaseModel):
     subscription: dict[str, Any]
     quick_stats: dict[str, int]
@@ -313,6 +327,21 @@ class MobileAdminInventorySummaryResponse(BaseModel):
 class MobileAdminApprovalsResponse(BaseModel):
     renewals: list[dict[str, Any]]
     leaves: list[dict[str, Any]]
+
+
+class MobileAdminStaffListResponse(BaseModel):
+    items: list[dict[str, Any]]
+
+
+class MobileAdminStaffDetailResponse(BaseModel):
+    staff: dict[str, Any]
+    contract: dict[str, Any] | None = None
+    attendance_summary: dict[str, Any]
+    leave_summary: dict[str, Any]
+    payroll_summary: dict[str, Any] | None = None
+    recent_attendance: list[dict[str, Any]]
+    recent_leaves: list[dict[str, Any]]
+    recent_payrolls: list[dict[str, Any]]
 
 
 class MobileRenewalApprovalActionRequest(BaseModel):
@@ -811,8 +840,7 @@ async def read_chat_contacts(
     current_user: Annotated[User, Depends(dependencies.get_current_active_user)],
     db: Annotated[AsyncSession, Depends(get_db)],
 ):
-    if current_user.role not in [schemas.Role.CUSTOMER, schemas.Role.COACH, schemas.Role.ADMIN]:
-        raise HTTPException(status_code=403, detail="Chat is not available for this role")
+    _ensure_mobile_chat_participant(current_user)
     if current_user.role == schemas.Role.CUSTOMER:
         return StandardResponse(data=await MobileCustomerService.list_relevant_chat_coaches(current_user=current_user, db=db))
     return await list_chat_contacts(current_user=current_user, db=db)
@@ -823,6 +851,7 @@ async def read_chat_threads(
     current_user: Annotated[User, Depends(dependencies.get_current_active_user)],
     db: Annotated[AsyncSession, Depends(get_db)],
 ):
+    _ensure_mobile_chat_read(current_user)
     return await list_chat_threads(
         current_user=current_user,
         db=db,
@@ -841,6 +870,7 @@ async def create_chat_thread(
     current_user: Annotated[User, Depends(dependencies.get_current_active_user)],
     db: Annotated[AsyncSession, Depends(get_db)],
 ):
+    _ensure_mobile_chat_participant(current_user)
     return await create_or_get_chat_thread(data=payload, current_user=current_user, db=db)
 
 
@@ -851,6 +881,7 @@ async def read_chat_messages(
     db: Annotated[AsyncSession, Depends(get_db)],
     limit: int = Query(50, ge=1, le=100),
 ):
+    _ensure_mobile_chat_read(current_user)
     return await list_chat_thread_messages(thread_id=thread_id, current_user=current_user, db=db, limit=limit, before=None)
 
 
@@ -861,6 +892,7 @@ async def create_chat_message(
     current_user: Annotated[User, Depends(dependencies.get_current_active_user)],
     db: Annotated[AsyncSession, Depends(get_db)],
 ):
+    _ensure_mobile_chat_participant(current_user)
     return await send_chat_message(thread_id=thread_id, data=payload, current_user=current_user, db=db)
 
 
@@ -873,6 +905,7 @@ async def create_chat_attachment(
     text_content: str | None = Form(None),
     voice_duration_seconds: int | None = Form(None),
 ):
+    _ensure_mobile_chat_participant(current_user)
     return await upload_chat_attachment(
         thread_id=thread_id,
         current_user=current_user,
@@ -889,6 +922,7 @@ async def mark_chat_thread_read(
     current_user: Annotated[User, Depends(dependencies.get_current_active_user)],
     db: Annotated[AsyncSession, Depends(get_db)],
 ):
+    _ensure_mobile_chat_participant(current_user)
     return await mark_chat_thread_as_read(thread_id=thread_id, current_user=current_user, db=db)
 
 
@@ -1024,6 +1058,37 @@ async def read_admin_mobile_people_summary(
 ):
     data = await MobileAdminService.get_people_summary(current_user=current_user, db=db)
     return StandardResponse(data=MobileAdminPeopleSummaryResponse(**data))
+
+
+@router.get("/admin/staff", response_model=StandardResponse[MobileAdminStaffListResponse])
+async def read_admin_mobile_staff_operations(
+    current_user: Annotated[User, Depends(dependencies.RoleChecker([schemas.Role.ADMIN, schemas.Role.MANAGER]))],
+    db: Annotated[AsyncSession, Depends(get_db)],
+    q: str | None = Query(None, max_length=120),
+    role: schemas.Role | None = Query(None),
+    status: str | None = Query(None, pattern="^(all|active|inactive)$"),
+):
+    data = await MobileAdminService.list_staff_operations(
+        current_user=current_user,
+        db=db,
+        search=q,
+        role=role,
+        status=None if status == "all" else status,
+    )
+    return StandardResponse(data=MobileAdminStaffListResponse(**data))
+
+
+@router.get("/admin/staff/{staff_id}", response_model=StandardResponse[MobileAdminStaffDetailResponse])
+async def read_admin_mobile_staff_operation_detail(
+    staff_id: uuid.UUID,
+    current_user: Annotated[User, Depends(dependencies.RoleChecker([schemas.Role.ADMIN, schemas.Role.MANAGER]))],
+    db: Annotated[AsyncSession, Depends(get_db)],
+):
+    try:
+        data = await MobileAdminService.get_staff_operation_detail(current_user=current_user, db=db, staff_id=staff_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    return StandardResponse(data=MobileAdminStaffDetailResponse(**data))
 
 
 @router.get("/admin/operations/summary", response_model=StandardResponse[MobileAdminOperationsSummaryResponse])

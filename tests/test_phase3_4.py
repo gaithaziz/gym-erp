@@ -7,11 +7,12 @@ from sqlalchemy import select
 
 from app.auth.security import get_password_hash
 from app.database import set_rls_context
-from app.models.access import RenewalRequestStatus, Subscription, SubscriptionRenewalRequest
+from app.models.access import AttendanceLog, RenewalRequestStatus, Subscription, SubscriptionRenewalRequest
 from app.models.audit import AuditLog
+from app.models.chat import ChatMessage, ChatThread
 from app.models.enums import Role
 from app.models.finance import Transaction, TransactionCategory, TransactionType
-from app.models.hr import LeaveRequest, LeaveStatus, LeaveType
+from app.models.hr import Contract, ContractType, LeaveRequest, LeaveStatus, LeaveType, Payroll, PayrollStatus
 from app.models.inventory import Product
 from app.models.support import SupportTicket, TicketCategory, TicketStatus
 from app.models.user import User
@@ -633,6 +634,135 @@ async def test_mobile_support_queue_filters_for_staff(client: AsyncClient, db_se
     billing = await client.get("/api/v1/mobile/support/tickets?category=BILLING", headers=manager_headers)
     assert billing.status_code == 200
     assert [ticket["subject"] for ticket in billing.json()["data"]] == ["Resolved billing"]
+
+
+@pytest.mark.asyncio
+async def test_mobile_admin_manager_chat_is_read_only(client: AsyncClient, db_session):
+    hashed = get_password_hash("password")
+    admin = User(email="phase4-chat-admin@test.com", hashed_password=hashed, full_name="Chat Admin", role=Role.ADMIN, is_active=True)
+    manager = User(email="phase4-chat-manager@test.com", hashed_password=hashed, full_name="Chat Manager", role=Role.MANAGER, is_active=True)
+    coach = User(email="phase4-chat-coach@test.com", hashed_password=hashed, full_name="Chat Coach", role=Role.COACH, is_active=True)
+    customer = User(email="phase4-chat-customer@test.com", hashed_password=hashed, full_name="Chat Customer", role=Role.CUSTOMER, is_active=True)
+    db_session.add_all([admin, manager, coach, customer])
+    await db_session.flush()
+
+    now = datetime.now(timezone.utc)
+    thread = ChatThread(customer_id=customer.id, coach_id=coach.id, created_at=now, updated_at=now, last_message_at=now)
+    db_session.add(thread)
+    await db_session.flush()
+    db_session.add(ChatMessage(thread_id=thread.id, sender_id=coach.id, message_type="TEXT", text_content="Progress looks good", created_at=now))
+    await db_session.commit()
+
+    admin_headers = await _login(client, admin.email)
+    manager_headers = await _login(client, manager.email)
+    coach_headers = await _login(client, coach.email)
+
+    for headers in (admin_headers, manager_headers):
+        threads = await client.get("/api/v1/mobile/chat/threads", headers=headers)
+        assert threads.status_code == 200
+        assert threads.json()["data"][0]["id"] == str(thread.id)
+
+        messages = await client.get(f"/api/v1/mobile/chat/threads/{thread.id}/messages", headers=headers)
+        assert messages.status_code == 200
+        assert messages.json()["data"][0]["text_content"] == "Progress looks good"
+
+        contacts = await client.get("/api/v1/mobile/chat/contacts", headers=headers)
+        assert contacts.status_code == 403
+
+        create_thread = await client.post("/api/v1/mobile/chat/threads", headers=headers, json={"customer_id": str(customer.id)})
+        assert create_thread.status_code == 403
+
+        send = await client.post(
+            f"/api/v1/mobile/chat/threads/{thread.id}/messages",
+            headers=headers,
+            json={"text_content": "Admin reply"},
+        )
+        assert send.status_code == 403
+
+        mark_read = await client.post(f"/api/v1/mobile/chat/threads/{thread.id}/read", headers=headers)
+        assert mark_read.status_code == 403
+
+    coach_send = await client.post(
+        f"/api/v1/mobile/chat/threads/{thread.id}/messages",
+        headers=coach_headers,
+        json={"text_content": "Coach can still reply"},
+    )
+    assert coach_send.status_code == 200
+
+
+@pytest.mark.asyncio
+async def test_mobile_admin_staff_operations_for_admin_manager_only(client: AsyncClient, db_session):
+    hashed = get_password_hash("password")
+    admin = User(email="phase4-staffops-admin@test.com", hashed_password=hashed, full_name="Staff Ops Admin", role=Role.ADMIN, is_active=True)
+    manager = User(email="phase4-staffops-manager@test.com", hashed_password=hashed, full_name="Staff Ops Manager", role=Role.MANAGER, is_active=True)
+    employee = User(email="phase4-staffops-employee@test.com", hashed_password=hashed, full_name="Staff Ops Employee", role=Role.EMPLOYEE, is_active=True)
+    customer = User(email="phase4-staffops-customer@test.com", hashed_password=hashed, full_name="Staff Ops Customer", role=Role.CUSTOMER, is_active=True)
+    db_session.add_all([admin, manager, employee, customer])
+    await db_session.flush()
+
+    now = datetime.now(timezone.utc)
+    db_session.add_all(
+        [
+            Contract(
+                user_id=employee.id,
+                contract_type=ContractType.FULL_TIME,
+                base_salary=500,
+                commission_rate=0,
+                start_date=now.date(),
+                standard_hours=160,
+            ),
+            AttendanceLog(
+                user_id=employee.id,
+                check_in_time=now - timedelta(hours=2),
+                check_out_time=None,
+                hours_worked=0,
+            ),
+            LeaveRequest(
+                user_id=employee.id,
+                start_date=now.date(),
+                end_date=(now + timedelta(days=1)).date(),
+                leave_type=LeaveType.SICK,
+                status=LeaveStatus.PENDING,
+                reason="Medical",
+            ),
+            Payroll(
+                user_id=employee.id,
+                month=now.month,
+                year=now.year,
+                base_pay=500,
+                overtime_pay=25,
+                deductions=5,
+                total_pay=520,
+                status=PayrollStatus.DRAFT,
+            ),
+        ]
+    )
+    await db_session.commit()
+
+    admin_headers = await _login(client, admin.email)
+    manager_headers = await _login(client, manager.email)
+    customer_headers = await _login(client, customer.email)
+
+    for headers in (admin_headers, manager_headers):
+        listing = await client.get("/api/v1/mobile/admin/staff?q=Staff%20Ops", headers=headers)
+        assert listing.status_code == 200
+        items = listing.json()["data"]["items"]
+        assert any(item["id"] == str(employee.id) for item in items)
+
+        detail = await client.get(f"/api/v1/mobile/admin/staff/{employee.id}", headers=headers)
+        assert detail.status_code == 200
+        payload = detail.json()["data"]
+        assert payload["staff"]["role"] == "EMPLOYEE"
+        assert payload["contract"]["type"] == "FULL_TIME"
+        assert payload["attendance_summary"]["clocked_in"] is True
+        assert payload["leave_summary"]["pending"] == 1
+        assert payload["payroll_summary"]["status"] == "DRAFT"
+
+    forbidden_list = await client.get("/api/v1/mobile/admin/staff", headers=customer_headers)
+    assert forbidden_list.status_code == 403
+
+    forbidden_detail = await client.get(f"/api/v1/mobile/admin/staff/{employee.id}", headers=customer_headers)
+    assert forbidden_detail.status_code == 403
 
 
 async def _login(client: AsyncClient, email: str) -> dict[str, str]:

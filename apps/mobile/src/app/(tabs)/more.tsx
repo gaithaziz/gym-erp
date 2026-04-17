@@ -28,6 +28,7 @@ export default function MoreTab() {
 
       {customer ? <SecondaryLink href="/billing">{copy.more.billing}</SecondaryLink> : null}
       {adminControl ? <SecondaryLink href="/(tabs)/members">{copy.adminControl.peopleSummary}</SecondaryLink> : null}
+      {adminControl ? <SecondaryLink href="/staff-operations">{copy.adminControl.employeeOperations}</SecondaryLink> : null}
       {adminControl ? <SecondaryLink href="/(tabs)/operations">{copy.adminControl.operationsSummary}</SecondaryLink> : null}
       {adminControl ? <SecondaryLink href="/(tabs)/finance">{copy.adminControl.financeSummary}</SecondaryLink> : null}
       {adminControl ? <SecondaryLink href="/approvals">{copy.adminControl.approvalQueue}</SecondaryLink> : null}

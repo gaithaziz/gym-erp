@@ -35,7 +35,7 @@ function staffTransactionTitle(description: string | undefined, copy: ReturnType
 export default function OperationsTab() {
   const router = useRouter();
   const { authorizedRequest, bootstrap } = useSession();
-  const { copy, fontSet, isRTL, theme } = usePreferences();
+  const { copy, direction, fontSet, isRTL, theme } = usePreferences();
   const role = getCurrentRole(bootstrap);
 
   if (isAdminControlRole(role)) {
@@ -66,9 +66,11 @@ export default function OperationsTab() {
             emptyMessage={copy.operationsScreen.noTransactions}
           />
           {(transactionsQuery.data ?? []).map((item) => (
-            <View key={item.id} style={[styles.row, { borderTopColor: theme.border }]}>
+            <View key={item.id} style={[styles.row, { borderTopColor: theme.border, flexDirection: isRTL ? "row-reverse" : "row" }]}>
               <View style={styles.textColumn}>
-                <Text style={{ color: theme.foreground, fontFamily: fontSet.body }}>{staffTransactionTitle(item.description, copy)}</Text>
+                <Text style={{ color: theme.foreground, fontFamily: fontSet.body, textAlign: isRTL ? "right" : "left", writingDirection: direction }}>
+                  {staffTransactionTitle(item.description, copy)}
+                </Text>
                 <MutedText>{item.member_name || localizePaymentMethod(item.payment_method, isRTL)}</MutedText>
               </View>
               <Text style={{ color: theme.primary, fontFamily: fontSet.mono }}>{item.amount}</Text>
@@ -86,9 +88,11 @@ export default function OperationsTab() {
               emptyMessage={copy.operationsScreen.noLeaves}
             />
             {(leavesQuery.data ?? []).map((leave) => (
-              <View key={leave.id} style={[styles.row, { borderTopColor: theme.border }]}>
+              <View key={leave.id} style={[styles.row, { borderTopColor: theme.border, flexDirection: isRTL ? "row-reverse" : "row" }]}>
                 <View style={styles.textColumn}>
-                  <Text style={{ color: theme.foreground, fontFamily: fontSet.body }}>{leaveTypeLabel(leave.leave_type, copy)}</Text>
+                  <Text style={{ color: theme.foreground, fontFamily: fontSet.body, textAlign: isRTL ? "right" : "left", writingDirection: direction }}>
+                    {leaveTypeLabel(leave.leave_type, copy)}
+                  </Text>
                   <MutedText>{`${leave.start_date} - ${leave.end_date}`}</MutedText>
                 </View>
                 <Text style={{ color: theme.primary, fontFamily: fontSet.mono }}>{localizeLeaveStatus(leave.status, isRTL)}</Text>
@@ -96,24 +100,36 @@ export default function OperationsTab() {
             ))}
           </Card>
           <Card>
-            <View style={styles.actionRow}>
+            <View style={[styles.actionRow, { flexDirection: isRTL ? "row-reverse" : "row" }]}>
               <Pressable onPress={() => router.push("/(tabs)/qr" as never)} style={[styles.actionChip, { backgroundColor: theme.cardAlt, borderColor: theme.border }]}>
-                <Text style={{ color: theme.foreground, fontFamily: fontSet.body }}>{copy.staffHome.actions.qr}</Text>
+                <Text style={{ color: theme.foreground, fontFamily: fontSet.body, textAlign: isRTL ? "right" : "left", writingDirection: direction }}>
+                  {copy.staffHome.actions.qr}
+                </Text>
               </Pressable>
               <Pressable onPress={() => router.push("/leaves")} style={[styles.actionChip, { backgroundColor: theme.cardAlt, borderColor: theme.border }]}>
-                <Text style={{ color: theme.foreground, fontFamily: fontSet.body }}>{copy.operationsScreen.myLeaves}</Text>
+                <Text style={{ color: theme.foreground, fontFamily: fontSet.body, textAlign: isRTL ? "right" : "left", writingDirection: direction }}>
+                  {copy.operationsScreen.myLeaves}
+                </Text>
               </Pressable>
               <Pressable onPress={() => router.push("/profile")} style={[styles.actionChip, { backgroundColor: theme.cardAlt, borderColor: theme.border }]}>
-                <Text style={{ color: theme.foreground, fontFamily: fontSet.body }}>{copy.operationsScreen.openProfile}</Text>
+                <Text style={{ color: theme.foreground, fontFamily: fontSet.body, textAlign: isRTL ? "right" : "left", writingDirection: direction }}>
+                  {copy.operationsScreen.openProfile}
+                </Text>
               </Pressable>
               <Pressable onPress={() => router.push("/lost-found")} style={[styles.actionChip, { backgroundColor: theme.cardAlt, borderColor: theme.border }]}>
-                <Text style={{ color: theme.foreground, fontFamily: fontSet.body }}>{copy.operationsScreen.openLostFound}</Text>
+                <Text style={{ color: theme.foreground, fontFamily: fontSet.body, textAlign: isRTL ? "right" : "left", writingDirection: direction }}>
+                  {copy.operationsScreen.openLostFound}
+                </Text>
               </Pressable>
               <Pressable onPress={() => router.push("/support")} style={[styles.actionChip, { backgroundColor: theme.cardAlt, borderColor: theme.border }]}>
-                <Text style={{ color: theme.foreground, fontFamily: fontSet.body }}>{copy.more.support}</Text>
+                <Text style={{ color: theme.foreground, fontFamily: fontSet.body, textAlign: isRTL ? "right" : "left", writingDirection: direction }}>
+                  {copy.more.support}
+                </Text>
               </Pressable>
               <Pressable onPress={() => router.push("/notifications")} style={[styles.actionChip, { backgroundColor: theme.cardAlt, borderColor: theme.border }]}>
-                <Text style={{ color: theme.foreground, fontFamily: fontSet.body }}>{copy.more.notifications}</Text>
+                <Text style={{ color: theme.foreground, fontFamily: fontSet.body, textAlign: isRTL ? "right" : "left", writingDirection: direction }}>
+                  {copy.more.notifications}
+                </Text>
               </Pressable>
             </View>
           </Card>
@@ -181,8 +197,9 @@ function AdminOperationsTab() {
               <InlineStat label={copy.adminControl.renewals} value={operations.approvals.pending_renewals} />
               <InlineStat label={copy.adminControl.leaves} value={operations.approvals.pending_leaves} />
             </View>
-            <View style={styles.actionRow}>
+            <View style={[styles.actionRow, { flexDirection: isRTL ? "row-reverse" : "row" }]}>
               <ActionChip label={copy.adminControl.approvalQueue} onPress={() => router.push("/approvals")} />
+              <ActionChip label={copy.adminControl.employeeOperations} onPress={() => router.push("/staff-operations")} />
               <ActionChip label={copy.adminControl.openSupport} onPress={() => router.push("/support")} />
               <ActionChip label={copy.common.lostFound} onPress={() => router.push("/lost-found")} />
               <ActionChip label={copy.more.notifications} onPress={() => router.push("/notifications")} />
@@ -267,10 +284,10 @@ function AdminOperationsTab() {
 }
 
 function ActionChip({ label, onPress }: { label: string; onPress: () => void }) {
-  const { fontSet, theme } = usePreferences();
+  const { direction, fontSet, isRTL, theme } = usePreferences();
   return (
     <Pressable onPress={onPress} style={[styles.actionChip, { backgroundColor: theme.cardAlt, borderColor: theme.border }]}>
-      <Text style={{ color: theme.foreground, fontFamily: fontSet.body }}>{label}</Text>
+      <Text style={{ color: theme.foreground, fontFamily: fontSet.body, textAlign: isRTL ? "right" : "left", writingDirection: direction }}>{label}</Text>
     </Pressable>
   );
 }
@@ -285,6 +302,9 @@ function formatDateTime(value: string | null | undefined, locale: string) {
 const styles = StyleSheet.create({
   row: {
     borderTopWidth: 1,
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: 12,
     paddingTop: 12,
     marginTop: 12,
   },
@@ -304,7 +324,6 @@ const styles = StyleSheet.create({
     gap: 12,
   },
   actionRow: {
-    flexDirection: "row",
     flexWrap: "wrap",
     gap: 10,
   },

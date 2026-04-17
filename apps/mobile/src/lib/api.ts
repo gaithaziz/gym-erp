@@ -12,6 +12,8 @@ import {
   parseMobileAdminInventorySummary,
   parseMobileAdminOperationsSummary,
   parseMobileAdminPeopleSummary,
+  parseMobileAdminStaffDetail,
+  parseMobileAdminStaffList,
   parseMobileApprovalActionResult,
   parseMobileCustomerBilling,
   parseMobileCustomerHome,
@@ -34,6 +36,8 @@ import {
   type MobileAdminInventorySummary,
   type MobileAdminOperationsSummary,
   type MobileAdminPeopleSummary,
+  type MobileAdminStaffDetail,
+  type MobileAdminStaffList,
   type MobileApprovalActionResult,
   type MobileBootstrap,
   type MobileCheckInLookupResult,
@@ -227,6 +231,22 @@ export function parseAdminPeopleSummaryEnvelope(input: unknown): Envelope<Mobile
   return {
     ...payload,
     data: parseMobileAdminPeopleSummary(payload.data),
+  };
+}
+
+export function parseAdminStaffListEnvelope(input: unknown): Envelope<MobileAdminStaffList> {
+  const payload = parseEnvelope<unknown>(input);
+  return {
+    ...payload,
+    data: parseMobileAdminStaffList(payload.data),
+  };
+}
+
+export function parseAdminStaffDetailEnvelope(input: unknown): Envelope<MobileAdminStaffDetail> {
+  const payload = parseEnvelope<unknown>(input);
+  return {
+    ...payload,
+    data: parseMobileAdminStaffDetail(payload.data),
   };
 }
 

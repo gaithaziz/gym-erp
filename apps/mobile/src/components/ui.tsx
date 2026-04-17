@@ -255,25 +255,25 @@ export function ValueText({ children }: PropsWithChildren) {
 }
 
 export function PrimaryButton({ children, ...props }: PropsWithChildren<PressableProps>) {
-  const { fontSet, theme } = usePreferences();
+  const { direction, fontSet, isRTL, theme } = usePreferences();
   return (
-    <Pressable {...props} style={({ pressed }) => [styles.primaryButton, { backgroundColor: theme.primary }, pressed && styles.buttonPressed]}>
-      <Text style={[styles.primaryButtonText, { color: "#FFFFFF", fontFamily: fontSet.body }]}>{children}</Text>
+    <Pressable {...props} style={({ pressed }) => [styles.primaryButton, { backgroundColor: theme.primary, flexDirection: isRTL ? "row-reverse" : "row" }, pressed && styles.buttonPressed]}>
+      <Text style={[styles.primaryButtonText, { color: "#FFFFFF", fontFamily: fontSet.body, textAlign: isRTL ? "right" : "left", writingDirection: direction }]}>{children}</Text>
     </Pressable>
   );
 }
 
 export function SecondaryButton({ children, ...props }: PropsWithChildren<PressableProps>) {
-  const { fontSet, theme } = usePreferences();
+  const { direction, fontSet, isRTL, theme } = usePreferences();
   return (
-    <Pressable {...props} style={({ pressed }) => [styles.secondaryButton, { backgroundColor: theme.cardAlt, borderColor: theme.border }, pressed && styles.buttonPressed]}>
-      <Text style={[styles.secondaryButtonText, { color: theme.foreground, fontFamily: fontSet.body }]}>{children}</Text>
+    <Pressable {...props} style={({ pressed }) => [styles.secondaryButton, { backgroundColor: theme.cardAlt, borderColor: theme.border, flexDirection: isRTL ? "row-reverse" : "row" }, pressed && styles.buttonPressed]}>
+      <Text style={[styles.secondaryButtonText, { color: theme.foreground, fontFamily: fontSet.body, textAlign: isRTL ? "right" : "left", writingDirection: direction }]}>{children}</Text>
     </Pressable>
   );
 }
 
 export function SecondaryLink({ href, children }: PropsWithChildren<{ href: string }>) {
-  const { isRTL, theme, fontSet } = usePreferences();
+  const { direction, isRTL, theme, fontSet } = usePreferences();
   const router = useRouter();
   return (
     <Pressable
@@ -288,7 +288,7 @@ export function SecondaryLink({ href, children }: PropsWithChildren<{ href: stri
         pressed && styles.buttonPressed,
       ]}
     >
-      <Text style={[styles.linkLabel, { color: theme.foreground, fontFamily: fontSet.body }]}>{children}</Text>
+      <Text style={[styles.linkLabel, { color: theme.foreground, fontFamily: fontSet.body, textAlign: isRTL ? "right" : "left", writingDirection: direction }]}>{children}</Text>
       <Ionicons name={isRTL ? "chevron-back" : "chevron-forward"} size={18} color={theme.primary} />
     </Pressable>
   );

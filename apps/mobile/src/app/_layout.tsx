@@ -76,6 +76,7 @@ function AppNavigator() {
         <Stack.Screen name="approvals" options={{ headerShown: false, title: copy.adminControl.approvalQueue }} />
         <Stack.Screen name="admin-audit" options={{ headerShown: false, title: copy.adminControl.auditSummary }} />
         <Stack.Screen name="inventory-summary" options={{ headerShown: false, title: copy.adminControl.inventorySummary }} />
+        <Stack.Screen name="staff-operations" options={{ headerShown: false, title: copy.adminControl.employeeOperations }} />
       </Stack>
     </>
   );

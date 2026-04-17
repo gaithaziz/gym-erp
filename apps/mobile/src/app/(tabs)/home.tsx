@@ -326,6 +326,7 @@ function AdminHomeTab() {
             <MutedText>{bootstrap?.user.full_name || localizeRole(bootstrap?.role || "ADMIN", isRTL)}</MutedText>
             <View style={[styles.actionGrid, { flexDirection: isRTL ? "row-reverse" : "row" }]}>
               <HomeAction label={copy.adminControl.peopleSummary} onPress={() => router.push("/(tabs)/members" as never)} />
+              <HomeAction label={copy.adminControl.employeeOperations} onPress={() => router.push("/staff-operations")} />
               <HomeAction label={copy.adminControl.operationsSummary} onPress={() => router.push("/(tabs)/operations" as never)} />
               <HomeAction label={copy.adminControl.financeSummary} onPress={() => router.push("/(tabs)/finance" as never)} />
               <HomeAction label={copy.adminControl.approvalQueue} onPress={() => router.push("/approvals")} />

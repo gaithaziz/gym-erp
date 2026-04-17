@@ -62,7 +62,7 @@ export default function AdminAuditScreen() {
             <SectionTitle>{copy.adminControl.recentActivity}</SectionTitle>
             {audit.recent_events.length === 0 ? <MutedText>{copy.adminControl.noAuditEvents}</MutedText> : null}
             {audit.recent_events.map((event) => (
-              <View key={event.id} style={[styles.eventRow, { borderTopColor: theme.border }]}>
+              <View key={event.id} style={[styles.eventRow, { borderTopColor: theme.border, alignItems: isRTL ? "flex-end" : "flex-start" }]}>
                 <Text style={[styles.eventTitle, { color: theme.foreground, fontFamily: fontSet.body, textAlign: isRTL ? "right" : "left", writingDirection: direction }]}>
                   {localizeAuditAction(event.action, isRTL)}
                 </Text>

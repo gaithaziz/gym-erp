@@ -294,14 +294,16 @@ function ProductFormFields({ form, setForm }: { form: ProductForm; setForm: (for
 }
 
 function ChipRow({ activeId, items, onSelect }: { activeId: string; items: Array<{ id: string; label: string }>; onSelect: (id: string) => void }) {
-  const { fontSet, isRTL, theme } = usePreferences();
+  const { direction, fontSet, isRTL, theme } = usePreferences();
   return (
     <View style={[styles.chipRow, { flexDirection: isRTL ? "row-reverse" : "row" }]}>
       {items.map((item) => {
         const active = item.id === activeId;
         return (
           <Pressable key={item.id} onPress={() => onSelect(item.id)} style={[styles.chip, { backgroundColor: active ? theme.primarySoft : theme.cardAlt, borderColor: theme.border }]}>
-            <Text style={{ color: active ? theme.primary : theme.foreground, fontFamily: fontSet.mono }}>{item.label}</Text>
+            <Text style={{ color: active ? theme.primary : theme.foreground, fontFamily: fontSet.mono, textAlign: isRTL ? "right" : "left", writingDirection: direction }}>
+              {item.label}
+            </Text>
           </Pressable>
         );
       })}

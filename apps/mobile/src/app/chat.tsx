@@ -15,8 +15,8 @@ import {
 import { API_BASE_URL } from "@/lib/api";
 import { Card, Input, MediaPreview, MutedText, QueryState, Screen } from "@/components/ui";
 import { pickImageOrVideoFromLibrary } from "@/lib/media-picker";
-import { localeTag, localizeMessageType } from "@/lib/mobile-format";
-import { getCurrentRole } from "@/lib/mobile-role";
+import { localeTag, localizeMessageType, localizeRole } from "@/lib/mobile-format";
+import { getCurrentRole, isAdminControlRole } from "@/lib/mobile-role";
 import { usePreferences } from "@/lib/preferences";
 import { useSession } from "@/lib/session";
 
@@ -70,6 +70,51 @@ function formatDuration(totalSeconds: number | null | undefined) {
   const minutes = Math.floor(totalSeconds / 60);
   const seconds = Math.floor(totalSeconds % 60);
   return `${minutes}:${String(seconds).padStart(2, "0")}`;
+}
+
+function formatThreadName(thread: Thread | null | undefined, role: string | null, copy: ReturnType<typeof usePreferences>["copy"]) {
+  if (!thread) return copy.common.chat;
+  const customerName = thread.customer.full_name || copy.common.customer;
+  const coachName = thread.coach.full_name || copy.common.coach;
+  if (role === "COACH") return customerName;
+  if (role === "CUSTOMER") return coachName;
+  return `${customerName} - ${coachName}`;
+}
+
+function formatThreadParticipants(thread: Thread | null | undefined, copy: ReturnType<typeof usePreferences>["copy"]) {
+  if (!thread) return null;
+  const customerName = thread.customer.full_name || copy.common.customer;
+  const coachName = thread.coach.full_name || copy.common.coach;
+  return `${copy.common.customer}: ${customerName} • ${copy.common.coach}: ${coachName}`;
+}
+
+function formatThreadSecondaryLabel(thread: Thread | null | undefined, role: string | null, copy: ReturnType<typeof usePreferences>["copy"]) {
+  if (!thread) return null;
+  const customerName = thread.customer.full_name || copy.common.customer;
+  const coachName = thread.coach.full_name || copy.common.coach;
+  if (role === "COACH") return `${copy.common.customer}: ${customerName}`;
+  if (role === "CUSTOMER") return `${copy.common.coach}: ${coachName}`;
+  return formatThreadParticipants(thread, copy);
+}
+
+function formatMessageSender(
+  message: ChatMessage,
+  thread: Thread | null | undefined,
+  currentUserId: string | null,
+  role: string | null,
+  copy: ReturnType<typeof usePreferences>["copy"],
+  isRTL: boolean,
+) {
+  if (thread?.customer.id && message.sender_id === thread.customer.id) {
+    return `${copy.common.customer}: ${thread.customer.full_name || copy.common.customer}`;
+  }
+  if (thread?.coach.id && message.sender_id === thread.coach.id) {
+    return `${copy.common.coach}: ${thread.coach.full_name || copy.common.coach}`;
+  }
+  if (currentUserId && message.sender_id === currentUserId && role) {
+    return localizeRole(role, isRTL);
+  }
+  return copy.common.chat;
 }
 
 function ChatAudioPlayer({
@@ -180,6 +225,7 @@ export default function ChatScreen() {
   const { authorizedRequest, bootstrap } = useSession();
   const { copy, direction, fontSet, isRTL, theme } = usePreferences();
   const role = getCurrentRole(bootstrap);
+  const readOnly = isAdminControlRole(role);
   const queryClient = useQueryClient();
   const locale = localeTag(isRTL);
   const currentUserId = bootstrap?.user.id ?? null;
@@ -202,22 +248,23 @@ export default function ChatScreen() {
 
   const contactsQuery = useQuery({
     queryKey: ["mobile-chat-contacts"],
+    enabled: !readOnly,
     queryFn: async () => (await authorizedRequest<ChatContact[]>("/mobile/chat/contacts")).data,
   });
   const contacts = contactsQuery.data ?? [];
 
   useEffect(() => {
-    if (contacts.length > 0 && !selectedCoachId) {
+    if (!readOnly && contacts.length > 0 && !selectedCoachId) {
       setSelectedCoachId(contacts[0].id);
     }
-  }, [contacts, selectedCoachId]);
+  }, [contacts, readOnly, selectedCoachId]);
 
   useEffect(() => {
-    if (params.contactId && typeof params.contactId === "string") {
+    if (!readOnly && params.contactId && typeof params.contactId === "string") {
       setSelectedCoachId(params.contactId);
       setShowNewChatPanel(true);
     }
-  }, [params.contactId]);
+  }, [params.contactId, readOnly]);
 
   const deferredContactSearch = useDeferredValue(contactSearch);
   const filteredContacts = useMemo(() => {
@@ -297,10 +344,10 @@ export default function ChatScreen() {
   });
 
   useEffect(() => {
-    if (selectedThread?.id && selectedThread.unread_count > 0 && !markReadMutation.isPending) {
+    if (!readOnly && selectedThread?.id && selectedThread.unread_count > 0 && !markReadMutation.isPending) {
       markReadMutation.mutate();
     }
-  }, [markReadMutation, selectedThread?.id, selectedThread?.unread_count]);
+  }, [markReadMutation, readOnly, selectedThread?.id, selectedThread?.unread_count]);
 
   const createThreadMutation = useMutation({
     mutationFn: async () => {
@@ -421,12 +468,13 @@ export default function ChatScreen() {
     onError: (error) => setFeedback(error instanceof Error ? error.message : copy.common.errorTryAgain),
   });
 
-  const threadsLoading = threadsQuery.isLoading || contactsQuery.isLoading;
+  const threadsLoading = threadsQuery.isLoading || (!readOnly && contactsQuery.isLoading);
   const threadError =
     (threadsQuery.error instanceof Error ? threadsQuery.error.message : null) ||
-    (contactsQuery.error instanceof Error ? contactsQuery.error.message : null);
+    (!readOnly && contactsQuery.error instanceof Error ? contactsQuery.error.message : null);
   const selectedCoach = contacts.find((contact) => contact.id === selectedCoachId) ?? null;
-  const selectedThreadName = role === "COACH" ? selectedThread?.customer.full_name || copy.common.customer : selectedThread?.coach.full_name || copy.common.coach;
+  const selectedThreadName = formatThreadName(selectedThread, role, copy);
+  const selectedThreadMeta = formatThreadSecondaryLabel(selectedThread, role, copy);
   const voiceNotesAvailable = Boolean(expoAVModule?.Audio);
 
   useEffect(() => {
@@ -582,6 +630,7 @@ export default function ChatScreen() {
         </Pressable>
       }
       action={
+        readOnly ? null :
         <Pressable
           onPress={() => setShowNewChatPanel((current) => !current)}
           style={[styles.headerActionButton, { backgroundColor: theme.card, borderColor: theme.border }]}
@@ -637,7 +686,7 @@ export default function ChatScreen() {
                       >
                         {selectedThread ? selectedThreadName : copy.chatScreen.threadPickerPlaceholder}
                       </Text>
-                      {selectedThread?.last_message?.text_content ? (
+                      {selectedThread ? (
                         <Text
                           style={[
                             styles.coachRowEmail,
@@ -648,9 +697,9 @@ export default function ChatScreen() {
                               writingDirection: direction,
                             },
                           ]}
-                          numberOfLines={1}
+                          numberOfLines={2}
                         >
-                          {selectedThread.last_message.text_content}
+                          {[selectedThreadMeta, selectedThread.last_message?.text_content || copy.common.noMessagesYet].filter(Boolean).join(" • ")}
                         </Text>
                       ) : null}
                     </View>
@@ -680,11 +729,32 @@ export default function ChatScreen() {
                                 ]}
                               >
                                 <View style={styles.flex}>
-                                  <Text style={[styles.coachRowName, { color: active ? theme.primary : theme.foreground, fontFamily: fontSet.body }]}>
-                                    {role === "COACH" ? thread.customer.full_name || copy.common.customer : thread.coach.full_name || copy.common.coach}
+                                  <Text
+                                    style={[
+                                      styles.coachRowName,
+                                      {
+                                        color: active ? theme.primary : theme.foreground,
+                                        fontFamily: fontSet.body,
+                                        textAlign: isRTL ? "right" : "left",
+                                        writingDirection: direction,
+                                      },
+                                    ]}
+                                  >
+                                    {formatThreadName(thread, role, copy)}
                                   </Text>
-                                  <Text style={[styles.coachRowEmail, { color: theme.muted, fontFamily: fontSet.body }]} numberOfLines={1}>
-                                    {thread.last_message?.text_content || copy.common.noMessagesYet}
+                                  <Text
+                                    style={[
+                                      styles.coachRowEmail,
+                                      {
+                                        color: theme.muted,
+                                        fontFamily: fontSet.body,
+                                        textAlign: isRTL ? "right" : "left",
+                                        writingDirection: direction,
+                                      },
+                                    ]}
+                                    numberOfLines={2}
+                                  >
+                                    {[formatThreadSecondaryLabel(thread, role, copy), thread.last_message?.text_content || copy.common.noMessagesYet].filter(Boolean).join(" • ")}
                                   </Text>
                                 </View>
                                 {thread.unread_count > 0 ? (
@@ -724,7 +794,7 @@ export default function ChatScreen() {
                         >
                           {selectedThreadName}
                         </Text>
-                        <MutedText>{copy.chatScreen.threadHint}</MutedText>
+                        <MutedText>{selectedThreadMeta || copy.chatScreen.threadHint}</MutedText>
                       </View>
                       <View style={styles.headerActionsStack}>
                         {role === "COACH" && selectedThread?.customer.id ? (
@@ -756,6 +826,7 @@ export default function ChatScreen() {
                       />
                       {messagesQuery.data?.map((item) => {
                         const isOwn = currentUserId != null && item.sender_id === currentUserId;
+                        const senderLabel = formatMessageSender(item, selectedThread, currentUserId, role, copy, isRTL);
                         return (
                           <View
                             key={item.id}
@@ -777,6 +848,19 @@ export default function ChatScreen() {
                                 },
                               ]}
                             >
+                              <Text
+                                style={[
+                                  styles.messageSender,
+                                  {
+                                    color: isOwn ? "rgba(255,255,255,0.82)" : theme.primary,
+                                    fontFamily: fontSet.body,
+                                    textAlign: isRTL ? "right" : "left",
+                                    writingDirection: direction,
+                                  },
+                                ]}
+                              >
+                                {senderLabel}
+                              </Text>
                               <Text
                                 style={[
                                   styles.messageText,
@@ -822,6 +906,27 @@ export default function ChatScreen() {
                       })}
                     </ScrollView>
 
+                    {readOnly ? (
+                      <View style={[styles.readOnlyBar, { backgroundColor: theme.cardAlt, borderTopColor: theme.border }]}>
+                        <Ionicons name="eye-outline" size={18} color={theme.primary} />
+                        <View style={styles.flex}>
+                          <Text
+                            style={[
+                              styles.readOnlyTitle,
+                              {
+                                color: theme.foreground,
+                                fontFamily: fontSet.body,
+                                textAlign: isRTL ? "right" : "left",
+                                writingDirection: direction,
+                              },
+                            ]}
+                          >
+                            {copy.adminControl.readOnlyChat}
+                          </Text>
+                          <MutedText>{copy.adminControl.readOnlyChatHint}</MutedText>
+                        </View>
+                      </View>
+                    ) : (
                     <View style={[styles.composerBar, { borderTopColor: theme.border, flexDirection: isRTL ? "row-reverse" : "row" }]}>
                       <Pressable
                         onPress={() => attachmentMutation.mutate()}
@@ -885,7 +990,8 @@ export default function ChatScreen() {
                         <Ionicons name={isRTL ? "arrow-back" : "arrow-forward"} size={18} color="#FFFFFF" />
                       </Pressable>
                     </View>
-                    {recording ? (
+                    )}
+                    {!readOnly && recording ? (
                       <View style={[styles.recordingBanner, { backgroundColor: theme.primarySoft, borderTopColor: theme.border }]}>
                         <View style={[styles.recordingDot, { backgroundColor: theme.primary }]} />
                         <Text style={[styles.recordingText, { color: theme.foreground, fontFamily: fontSet.body }]}>
@@ -893,7 +999,7 @@ export default function ChatScreen() {
                         </Text>
                       </View>
                     ) : null}
-                    {pendingVoiceUpload ? (
+                    {!readOnly && pendingVoiceUpload ? (
                       <View style={[styles.pendingVoicePanel, { backgroundColor: theme.cardAlt, borderTopColor: theme.border }]}>
                         <MutedText>{copy.chatScreen.voicePreview}</MutedText>
                         <ChatAudioPlayer src={pendingVoiceUpload.uri} initialDurationSeconds={pendingVoiceUpload.durationSeconds} />
@@ -922,7 +1028,7 @@ export default function ChatScreen() {
                 )}
               </View>
 
-              {showNewChatPanel ? (
+              {!readOnly && showNewChatPanel ? (
                 <View pointerEvents="box-none" style={styles.panelOverlay}>
                   <View style={[styles.panelBackdrop, { backgroundColor: "rgba(7, 10, 14, 0.45)" }]} />
                   <Card style={[styles.newChatPanel, { backgroundColor: theme.card, borderColor: theme.border }]}>
@@ -1003,7 +1109,7 @@ export default function ChatScreen() {
                                   },
                                 ]}
                               >
-                                {selectedCoach.email}
+                                {[localizeRole(selectedCoach.role, isRTL), selectedCoach.email].filter(Boolean).join(" • ")}
                               </Text>
                             ) : null}
                           </View>
@@ -1058,7 +1164,7 @@ export default function ChatScreen() {
                                             },
                                           ]}
                                         >
-                                          {contact.email}
+                                          {[localizeRole(contact.role, isRTL), contact.email].filter(Boolean).join(" • ")}
                                         </Text>
                                       </View>
                                       {active ? <Ionicons name="checkmark-circle" size={22} color={theme.primary} /> : null}
@@ -1084,7 +1190,7 @@ export default function ChatScreen() {
                           },
                         ]}
                       >
-                        {copy.chatScreen.selectedContactLabel} {selectedCoach.full_name || selectedCoach.email}
+                        {`${copy.chatScreen.selectedContactLabel} ${selectedCoach.full_name || selectedCoach.email} • ${localizeRole(selectedCoach.role, isRTL)}`}
                       </Text>
                     ) : null}
 
@@ -1189,7 +1295,7 @@ const styles = StyleSheet.create({
     gap: 4,
   },
   threadName: {
-    fontSize: 15,
+    fontSize: 14,
     fontWeight: "700",
   },
   threadSnippet: {
@@ -1240,7 +1346,7 @@ const styles = StyleSheet.create({
     justifyContent: "center",
   },
   conversationTitle: {
-    fontSize: 19,
+    fontSize: 17,
     fontWeight: "800",
   },
   audioPlayer: {
@@ -1295,6 +1401,10 @@ const styles = StyleSheet.create({
     fontSize: 15,
     lineHeight: 22,
   },
+  messageSender: {
+    fontSize: 11,
+    fontWeight: "700",
+  },
   messageTime: {
     fontSize: 11,
     fontWeight: "700",
@@ -1305,6 +1415,18 @@ const styles = StyleSheet.create({
     paddingHorizontal: 12,
     paddingVertical: 10,
     borderTopWidth: 1,
+  },
+  readOnlyBar: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+    borderTopWidth: 1,
+  },
+  readOnlyTitle: {
+    fontSize: 13,
+    fontWeight: "800",
   },
   iconButton: {
     width: 40,
@@ -1433,7 +1555,7 @@ const styles = StyleSheet.create({
     paddingVertical: 10,
   },
   coachRowName: {
-    fontSize: 14,
+    fontSize: 13,
     fontWeight: "700",
   },
   coachRowEmail: {

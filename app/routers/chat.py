@@ -80,7 +80,7 @@ class ThreadResponse(BaseModel):
 
 
 def _is_chat_role(role: Role) -> bool:
-    return role in [Role.ADMIN, Role.COACH, Role.CUSTOMER]
+    return role in [Role.ADMIN, Role.MANAGER, Role.COACH, Role.CUSTOMER]
 
 
 def _is_participant(user: User, thread: ChatThread) -> bool:
@@ -119,7 +119,7 @@ async def _get_thread_or_404(db: AsyncSession, thread_id: uuid.UUID) -> ChatThre
 
 
 async def _ensure_visible_thread(user: User, thread: ChatThread) -> None:
-    if user.role == Role.ADMIN:
+    if user.role in [Role.ADMIN, Role.MANAGER]:
         return
     if not _is_participant(user, thread):
         raise HTTPException(status_code=403, detail="Access denied")
@@ -127,8 +127,8 @@ async def _ensure_visible_thread(user: User, thread: ChatThread) -> None:
 
 async def _ensure_sender_allowed(user: User, thread: ChatThread) -> None:
     await _ensure_visible_thread(user, thread)
-    if user.role == Role.ADMIN:
-        raise HTTPException(status_code=403, detail="Admin is read-only for chat")
+    if user.role in [Role.ADMIN, Role.MANAGER]:
+        raise HTTPException(status_code=403, detail="Admin and manager are read-only for chat")
 
 
 class WebSocketManager:
@@ -189,7 +189,7 @@ async def _serialize_thread_for_user(db: AsyncSession, thread: ChatThread, user:
     last_message = message_result.scalar_one_or_none()
 
     unread_count = 0
-    if user.role != Role.ADMIN:
+    if user.role not in [Role.ADMIN, Role.MANAGER]:
         receipt_stmt = select(ChatReadReceipt).where(
             ChatReadReceipt.thread_id == thread.id,
             ChatReadReceipt.user_id == user.id,
@@ -253,7 +253,7 @@ async def _serialize_threads_for_user(db: AsyncSession, threads: list[ChatThread
         latest_messages_by_id = {message.id: message for message in latest_messages}
 
     unread_by_thread: dict[uuid.UUID, int] = {}
-    if user.role != Role.ADMIN:
+    if user.role not in [Role.ADMIN, Role.MANAGER]:
         unread_stmt = (
             select(ChatMessage.thread_id, func.count(ChatMessage.id))
             .select_from(ChatMessage)
@@ -332,8 +332,8 @@ async def create_or_get_thread(
     current_user: Annotated[User, Depends(dependencies.require_active_customer_subscription)],
     db: Annotated[AsyncSession, Depends(get_db)],
 ):
-    if current_user.role == Role.ADMIN:
-        raise HTTPException(status_code=403, detail="Admin is read-only for chat")
+    if current_user.role in [Role.ADMIN, Role.MANAGER]:
+        raise HTTPException(status_code=403, detail="Admin and manager are read-only for chat")
     if current_user.role not in [Role.CUSTOMER, Role.COACH]:
         raise HTTPException(status_code=403, detail="Operation not permitted")
 
@@ -401,7 +401,7 @@ async def list_threads(
 
     stmt = select(ChatThread).options(selectinload(ChatThread.customer), selectinload(ChatThread.coach))
 
-    if current_user.role == Role.ADMIN:
+    if current_user.role in [Role.ADMIN, Role.MANAGER]:
         if coach_id:
             stmt = stmt.where(ChatThread.coach_id == coach_id)
         if customer_id:
@@ -534,8 +534,8 @@ async def upload_attachment(
 ):
     if not _is_chat_role(current_user.role):
         raise HTTPException(status_code=403, detail="Operation not permitted")
-    if current_user.role == Role.ADMIN:
-        raise HTTPException(status_code=403, detail="Admin is read-only for chat")
+    if current_user.role in [Role.ADMIN, Role.MANAGER]:
+        raise HTTPException(status_code=403, detail="Admin and manager are read-only for chat")
 
     thread = await _get_thread_or_404(db, thread_id)
     await _ensure_sender_allowed(current_user, thread)
@@ -612,8 +612,8 @@ async def mark_thread_as_read(
 ):
     if not _is_chat_role(current_user.role):
         raise HTTPException(status_code=403, detail="Operation not permitted")
-    if current_user.role == Role.ADMIN:
-        raise HTTPException(status_code=403, detail="Admin is read-only for chat")
+    if current_user.role in [Role.ADMIN, Role.MANAGER]:
+        raise HTTPException(status_code=403, detail="Admin and manager are read-only for chat")
 
     thread = await _get_thread_or_404(db, thread_id)
     await _ensure_sender_allowed(current_user, thread)

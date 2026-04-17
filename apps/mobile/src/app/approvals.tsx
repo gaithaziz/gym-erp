@@ -175,7 +175,7 @@ function ApprovalRow({ active, children, meta, onPress, title }: { active: boole
   const { direction, fontSet, isRTL, theme } = usePreferences();
   return (
     <Pressable onPress={onPress} style={[styles.row, { backgroundColor: active ? theme.cardAlt : "transparent", borderColor: active ? theme.primary : theme.border }]}>
-      <View style={{ gap: 4 }}>
+      <View style={{ gap: 4, alignItems: isRTL ? "flex-end" : "flex-start" }}>
         <Text style={[styles.title, { color: theme.foreground, fontFamily: fontSet.body, textAlign: isRTL ? "right" : "left", writingDirection: direction }]}>{title}</Text>
         <MutedText>{meta}</MutedText>
       </View>
@@ -207,7 +207,7 @@ function RenewalDetail({
   setPaymentMethod: (value: (typeof PAYMENT_METHODS)[number]) => void;
   setReviewerNote: (value: string) => void;
 }) {
-  const { copy, isRTL, theme, fontSet } = usePreferences();
+  const { copy, direction, isRTL, theme, fontSet } = usePreferences();
   return (
     <View style={styles.detail}>
       <MutedText>{`${copy.adminControl.customerNote}: ${request.customer_note || copy.common.noComment}`}</MutedText>
@@ -218,7 +218,9 @@ function RenewalDetail({
           const active = method === paymentMethod;
           return (
             <Pressable key={method} onPress={() => setPaymentMethod(method)} style={[styles.chip, { backgroundColor: active ? theme.primarySoft : theme.cardAlt, borderColor: theme.border }]}>
-              <Text style={{ color: active ? theme.primary : theme.foreground, fontFamily: fontSet.mono }}>{localizePaymentMethod(method, isRTL)}</Text>
+              <Text style={{ color: active ? theme.primary : theme.foreground, fontFamily: fontSet.mono, textAlign: isRTL ? "right" : "left", writingDirection: direction }}>
+                {localizePaymentMethod(method, isRTL)}
+              </Text>
             </Pressable>
           );
         })}
