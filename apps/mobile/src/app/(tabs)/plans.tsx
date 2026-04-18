@@ -1,6 +1,5 @@
 import { Ionicons } from "@expo/vector-icons";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { ResizeMode, Video } from "expo-av";
 import * as SecureStore from "expo-secure-store";
 import * as WebBrowser from "expo-web-browser";
 import { useEffect, useMemo, useState } from "react";
@@ -234,6 +233,25 @@ function summarizeSetRows(rows: SetDetail[], fallback: ExerciseForm) {
   };
 }
 
+function describeQueuedWorkoutAction(action: WorkoutQueuedAction, copy: ReturnType<typeof usePreferences>["copy"]) {
+  if (action.kind === "media_upload") return copy.plans.pendingMediaUpload;
+  if (action.path.endsWith("/finish")) return copy.plans.pendingFinish;
+  if (action.path.endsWith("/previous")) return copy.plans.pendingPrevious;
+  if (action.path.includes("/skip")) return copy.plans.pendingSkip;
+  if (action.method === "PUT" && action.path.includes("/entries/")) return copy.plans.pendingComplete;
+  if (action.path.endsWith("/start")) return copy.plans.pendingStart;
+  if (action.method === "DELETE") return copy.plans.pendingAbandon;
+  return copy.plans.pendingWorkoutAction;
+}
+
+function restSecondsForEntry(entry?: WorkoutDraft["entries"][number] | null) {
+  if (!entry) return 90;
+  if (entry.target_duration_minutes) return 45;
+  if ((entry.target_reps || 0) <= 5) return 120;
+  if ((entry.target_sets || 0) >= 4) return 90;
+  return 60;
+}
+
 function defaultDietMeal(name = "Breakfast"): CoachDietMeal {
   return { id: createRowId(), meal_name: name, items: "", instructions: "" };
 }
@@ -293,6 +311,11 @@ function CustomerPlansTab() {
   const [selectedSection, setSelectedSection] = useState<string | null>(null);
   const [selectedDietDayId, setSelectedDietDayId] = useState<string | null>(null);
   const [expandedSessionId, setExpandedSessionId] = useState<string | null>(null);
+  const [editingSessionId, setEditingSessionId] = useState<string | null>(null);
+  const [editSessionNotes, setEditSessionNotes] = useState("");
+  const [editSessionRpe, setEditSessionRpe] = useState("");
+  const [editPainLevel, setEditPainLevel] = useState("");
+  const [editEffortFeedback, setEditEffortFeedback] = useState<"TOO_EASY" | "JUST_RIGHT" | "TOO_HARD" | "">("");
   const [exerciseForm, setExerciseForm] = useState<ExerciseForm>(emptyForm);
   const [setRows, setSetRows] = useState<SetDetail[]>([]);
   const [sessionDuration, setSessionDuration] = useState("");
@@ -304,6 +327,7 @@ function CustomerPlansTab() {
   const [restSeconds, setRestSeconds] = useState(0);
   const [workoutNotice, setWorkoutNotice] = useState<WorkoutActionNotice | null>(null);
   const [pendingWorkoutSyncCount, setPendingWorkoutSyncCount] = useState(0);
+  const [pendingWorkoutActions, setPendingWorkoutActions] = useState<WorkoutQueuedAction[]>([]);
   const [dietDayNotes, setDietDayNotes] = useState("");
   const [dietAdherence, setDietAdherence] = useState("3");
   const today = new Date().toISOString().slice(0, 10);
@@ -370,6 +394,7 @@ function CustomerPlansTab() {
           effort_feedback?: string | null;
           attachment_url?: string | null;
           attachment_mime?: string | null;
+          attachment_size_bytes?: number | null;
           entries: Array<{
             id?: string;
             exercise_name?: string | null;
@@ -424,6 +449,25 @@ function CustomerPlansTab() {
     setDietAdherence(String(dietTrackerQuery.data.tracking_day?.adherence_rating || 3));
   }, [dietTrackerQuery.data]);
 
+  const replayPendingWorkoutActions = async () => {
+      await refreshPendingWorkoutSyncCount();
+      const result = await replayWorkoutQueue(authorizedRequest);
+      await refreshPendingWorkoutSyncCount();
+      if (result.error) {
+        setWorkoutNotice({ kind: "error", message: `${copy.plans.syncFailed}: ${result.error}` });
+        return;
+      }
+      if (result.processed > 0) {
+        setWorkoutNotice({ kind: "success", message: copy.plans.syncComplete });
+        await Promise.all([
+          queryClient.invalidateQueries({ queryKey: ["member-active-workout-draft", selectedWorkoutPlanId] }),
+          queryClient.invalidateQueries({ queryKey: ["member-workout-history", selectedWorkoutPlanId] }),
+          queryClient.invalidateQueries({ queryKey: ["mobile-progress"] }),
+          queryClient.invalidateQueries({ queryKey: ["mobile-home"] }),
+        ]);
+      }
+  };
+
   useEffect(() => {
     let cancelled = false;
     const replayPendingActions = async () => {
@@ -464,10 +508,26 @@ function CustomerPlansTab() {
     }
     return null;
   }, [currentEntry?.exercise_name, historyQuery.data]);
+  const autoPrPreview = useMemo(() => {
+    if (!lastPerformance || exerciseForm.isPr) return null;
+    const summary = summarizeSetRows(setRows, exerciseForm);
+    const bestWeight = Number(lastPerformance.weight_kg || 0);
+    const bestReps = Number(lastPerformance.reps_completed || 0);
+    if ((summary.weightKg || 0) > bestWeight) return copy.plans.autoPrWeight;
+    if (summary.repsCompleted > bestReps && (summary.weightKg || 0) >= bestWeight) return copy.plans.autoPrReps;
+    return null;
+  }, [copy.plans.autoPrReps, copy.plans.autoPrWeight, exerciseForm, lastPerformance, setRows]);
+  const safetyGuidance = useMemo(() => {
+    const pain = painLevel ? Number(painLevel) : 0;
+    if (Number.isFinite(pain) && pain >= 4) return copy.plans.painSafetyHint;
+    if (effortFeedback === "TOO_HARD") return copy.plans.tooHardSafetyHint;
+    return null;
+  }, [copy.plans.painSafetyHint, copy.plans.tooHardSafetyHint, effortFeedback, painLevel]);
 
   const refreshPendingWorkoutSyncCount = async () => {
     const queue = await loadWorkoutQueue();
     setPendingWorkoutSyncCount(queue.length);
+    setPendingWorkoutActions(queue);
   };
 
   const queueWorkoutAction = async (action: WorkoutQueuedAction, error: unknown) => {
@@ -477,6 +537,7 @@ function CustomerPlansTab() {
     }
     const queue = await enqueueWorkoutAction(action);
     setPendingWorkoutSyncCount(queue.length);
+    setPendingWorkoutActions(queue);
     setWorkoutNotice({ kind: "success", message: copy.plans.pendingSync });
   };
 
@@ -574,7 +635,7 @@ function CustomerPlansTab() {
       notes: exerciseForm.notes || null,
       is_pr: isPr,
       pr_type: isPr ? exerciseForm.prType : null,
-      pr_value: isPr ? exerciseForm.prValue || `${summary.weightKg ?? "--"}kg x ${summary.repsCompleted}` : null,
+      pr_value: isPr ? exerciseForm.prValue || `${summary.weightKg ?? "--"}${copy.plans.weightUnit} x ${summary.repsCompleted}` : null,
       pr_notes: isPr ? exerciseForm.prNotes || (autoPr ? copy.plans.autoPr : null) : null,
       set_details: setRows
         .filter((row) => row.reps.trim() || row.weightKg.trim())
@@ -643,7 +704,7 @@ function CustomerPlansTab() {
     },
     onSuccess: async () => {
       setWorkoutNotice({ kind: "success", message: copy.plans.workoutSaved });
-      setRestSeconds(90);
+      setRestSeconds(restSecondsForEntry(currentEntry));
       await queryClient.invalidateQueries({ queryKey: ["member-active-workout-draft", selectedWorkoutPlanId] });
     },
     onError: (error) => {
@@ -682,7 +743,7 @@ function CustomerPlansTab() {
     },
     onSuccess: async () => {
       setWorkoutNotice({ kind: "success", message: copy.plans.workoutSkipped });
-      setRestSeconds(90);
+      setRestSeconds(restSecondsForEntry(currentEntry));
       await queryClient.invalidateQueries({ queryKey: ["member-active-workout-draft", selectedWorkoutPlanId] });
     },
     onError: (error) => {
@@ -853,6 +914,35 @@ function CustomerPlansTab() {
     },
   });
 
+  const editCompletedSessionMutation = useMutation({
+    mutationFn: async (session: NonNullable<typeof historyQuery.data>[number]) => {
+      const rpeValue = editSessionRpe ? Number(editSessionRpe) : null;
+      const painValue = editPainLevel ? Number(editPainLevel) : null;
+      if (rpeValue != null && (!Number.isFinite(rpeValue) || rpeValue < 1 || rpeValue > 10)) throw new Error(copy.plans.sessionRpe);
+      if (painValue != null && (!Number.isFinite(painValue) || painValue < 0 || painValue > 10)) throw new Error(copy.plans.painLevel);
+      const payload = await authorizedRequest(`/fitness/session-logs/${session.id}`, {
+        method: "PUT",
+        body: JSON.stringify({
+          duration_minutes: session.duration_minutes || null,
+          notes: editSessionNotes || null,
+          rpe: rpeValue,
+          pain_level: painValue,
+          effort_feedback: editEffortFeedback || null,
+          attachment_url: session.attachment_url || null,
+          attachment_mime: session.attachment_mime || null,
+          attachment_size_bytes: session.attachment_size_bytes || null,
+        }),
+      });
+      return payload.data;
+    },
+    onSuccess: async () => {
+      setEditingSessionId(null);
+      setWorkoutNotice({ kind: "success", message: copy.plans.sessionUpdated });
+      await queryClient.invalidateQueries({ queryKey: ["member-workout-history", selectedWorkoutPlanId] });
+    },
+    onError: (error) => setWorkoutNotice({ kind: "error", message: error instanceof Error ? error.message : copy.common.errorTryAgain }),
+  });
+
   const saveDietMutation = useMutation({
     mutationFn: async (overrideMeals?: Array<{ meal_id: string; completed: boolean; note?: string | null }>) => {
       if (!selectedDietId) throw new Error("No diet selected");
@@ -970,7 +1060,16 @@ function CustomerPlansTab() {
                 </Text>
               ) : null}
               {pendingWorkoutSyncCount > 0 ? (
-                <MutedText>{copy.plans.pendingSync}: {pendingWorkoutSyncCount}</MutedText>
+                <View style={{ gap: 6 }}>
+                  <MutedText>{copy.plans.pendingSync}: {pendingWorkoutSyncCount}</MutedText>
+                  {pendingWorkoutActions.slice(0, 3).map((action) => (
+                    <MutedText key={action.id}>{describeQueuedWorkoutAction(action, copy)}</MutedText>
+                  ))}
+                  {pendingWorkoutSyncCount > 3 ? <MutedText>+{pendingWorkoutSyncCount - 3}</MutedText> : null}
+                  <SecondaryButton disabled={workoutActionPending} onPress={() => void replayPendingWorkoutActions()}>
+                    {copy.plans.retrySync}
+                  </SecondaryButton>
+                </View>
               ) : null}
               {workoutSections.length > 0 && !activeDraftQuery.data ? (
                 <View style={{ flexDirection: isRTL ? "row-reverse" : "row", flexWrap: "wrap", gap: 8, marginTop: 12 }}>
@@ -1000,7 +1099,7 @@ function CustomerPlansTab() {
                       </MutedText>
                       {lastPerformance ? (
                         <MutedText>
-                          {copy.plans.lastSession}: {lastPerformance.reps_completed} reps @ {lastPerformance.weight_kg ?? 0}kg
+                          {copy.plans.lastSession}: {lastPerformance.reps_completed} {copy.plans.repsCompleted} @ {lastPerformance.weight_kg ?? 0}{copy.plans.weightUnit}
                         </MutedText>
                       ) : null}
                       {restSeconds > 0 ? (
@@ -1022,6 +1121,7 @@ function CustomerPlansTab() {
                           {exerciseForm.isPr ? "✓ " : ""}{copy.plans.prToggle}
                         </Text>
                       </Pressable>
+                      {autoPrPreview ? <MutedText>{autoPrPreview}</MutedText> : null}
                       {exerciseForm.isPr ? (
                         <>
                           <Input value={exerciseForm.prType} onChangeText={(value) => setExerciseForm((current) => ({ ...current, prType: value }))} placeholder={copy.plans.prType} />
@@ -1058,6 +1158,7 @@ function CustomerPlansTab() {
                       </SecondaryButton>
                     ))}
                   </View>
+                  {safetyGuidance ? <MutedText>{safetyGuidance}</MutedText> : null}
                   {sessionAttachment ? (
                     <>
                       <MediaPreview uri={sessionAttachment.media_url} mime={sessionAttachment.media_mime} label={sessionAttachment.name || copy.plans.sessionAttachment} />
@@ -1081,17 +1182,20 @@ function CustomerPlansTab() {
           <Card>
             <SectionTitle>{copy.plans.recentSessions}</SectionTitle>
             <QueryState loading={historyQuery.isLoading} error={historyQuery.error instanceof Error ? historyQuery.error.message : null} empty={!historyQuery.data?.length} emptyMessage={copy.plans.noSessionHistory} />
-            {historyQuery.data?.map((session) => (
+            {historyQuery.data?.map((session) => {
+              const canEditSession = Date.now() - new Date(session.performed_at).getTime() <= 24 * 60 * 60 * 1000;
+              const editing = editingSessionId === session.id;
+              return (
               <View key={session.id} style={{ paddingVertical: 8, borderTopWidth: 1, borderTopColor: theme.border }}>
                 <Pressable onPress={() => setExpandedSessionId((current) => (current === session.id ? null : session.id))}>
                   <Text style={{ color: theme.foreground, fontFamily: fontSet.body, textAlign: isRTL ? "right" : "left", writingDirection: direction }}>
                     {new Date(session.performed_at).toLocaleString()}
                   </Text>
                   <MutedText>
-                    {session.duration_minutes || 0} min • {session.entries.filter((entry) => !entry.skipped).length} done
-                    {session.entries.some((entry) => entry.skipped) ? ` • ${session.entries.filter((entry) => entry.skipped).length} skipped` : ""}
+                    {session.duration_minutes || 0} {copy.common.minutesShort} • {session.entries.filter((entry) => !entry.skipped).length} {copy.plans.done}
+                    {session.entries.some((entry) => entry.skipped) ? ` • ${session.entries.filter((entry) => entry.skipped).length} ${copy.plans.skipExercise}` : ""}
                     {" • "}
-                    {session.entries.filter((entry) => entry.is_pr).length} PRs
+                    {session.entries.filter((entry) => entry.is_pr).length} {copy.plans.prs}
                   </MutedText>
                 </Pressable>
                 {expandedSessionId === session.id ? (
@@ -1104,15 +1208,43 @@ function CustomerPlansTab() {
                       ].filter(Boolean).join(" • ") || copy.progress.noSessionNotes}
                     </MutedText>
                     {session.notes ? <MutedText>{session.notes}</MutedText> : null}
+                    {editing ? (
+                      <View style={{ gap: 8 }}>
+                        <TextArea value={editSessionNotes} onChangeText={setEditSessionNotes} placeholder={copy.plans.sessionNotes} />
+                        <Input value={editSessionRpe} onChangeText={setEditSessionRpe} placeholder={copy.plans.sessionRpe} keyboardType="number-pad" />
+                        <Input value={editPainLevel} onChangeText={setEditPainLevel} placeholder={copy.plans.painLevel} keyboardType="number-pad" />
+                        <View style={{ flexDirection: isRTL ? "row-reverse" : "row", flexWrap: "wrap", gap: 8 }}>
+                          {(["TOO_EASY", "JUST_RIGHT", "TOO_HARD"] as const).map((value) => (
+                            <SecondaryButton key={value} onPress={() => setEditEffortFeedback(value)}>
+                              {editEffortFeedback === value ? "✓ " : ""}{copy.plans.effortOptions[value]}
+                            </SecondaryButton>
+                          ))}
+                        </View>
+                        <PrimaryButton disabled={editCompletedSessionMutation.isPending} onPress={() => editCompletedSessionMutation.mutate(session)}>
+                          {editCompletedSessionMutation.isPending ? copy.common.loading : copy.plans.saveSessionEdit}
+                        </PrimaryButton>
+                        <SecondaryButton onPress={() => setEditingSessionId(null)}>{copy.common.cancel}</SecondaryButton>
+                      </View>
+                    ) : canEditSession ? (
+                      <SecondaryButton onPress={() => {
+                        setEditingSessionId(session.id);
+                        setEditSessionNotes(session.notes || "");
+                        setEditSessionRpe(session.rpe != null ? String(session.rpe) : "");
+                        setEditPainLevel(session.pain_level != null ? String(session.pain_level) : "");
+                        setEditEffortFeedback((session.effort_feedback as "TOO_EASY" | "JUST_RIGHT" | "TOO_HARD" | "") || "");
+                      }}>
+                        {copy.plans.editSession}
+                      </SecondaryButton>
+                    ) : null}
                     {session.attachment_url ? <MediaPreview uri={session.attachment_url} mime={session.attachment_mime} label={copy.plans.sessionAttachment} /> : null}
                     {session.entries.map((entry, index) => (
                       <View key={entry.id || `${session.id}-${index}`} style={{ padding: 10, borderWidth: 1, borderColor: theme.border, borderRadius: 8, backgroundColor: theme.cardAlt }}>
                         <Text style={{ color: theme.foreground, fontFamily: fontSet.body, fontWeight: "700", textAlign: isRTL ? "right" : "left", writingDirection: direction }}>
                           {entry.exercise_name || copy.progress.prFallback}{entry.skipped ? ` • ${copy.plans.skipExercise}` : ""}
                         </Text>
-                        <MutedText>{entry.skipped ? copy.plans.skipExercise : `${entry.sets_completed} x ${entry.reps_completed} @ ${entry.weight_kg ?? 0}kg`}</MutedText>
+                        <MutedText>{entry.skipped ? copy.plans.skipExercise : `${entry.sets_completed} x ${entry.reps_completed} @ ${entry.weight_kg ?? 0}${copy.plans.weightUnit}`}</MutedText>
                         {entry.set_details?.length ? (
-                          <MutedText>{entry.set_details.map((row) => `${row.set}: ${row.reps} @ ${row.weightKg || 0}kg`).join(" • ")}</MutedText>
+                          <MutedText>{entry.set_details.map((row) => `${row.set}: ${row.reps} @ ${row.weightKg || 0}${copy.plans.weightUnit}`).join(" • ")}</MutedText>
                         ) : null}
                         {entry.notes ? <MutedText>{entry.notes}</MutedText> : null}
                       </View>
@@ -1120,7 +1252,8 @@ function CustomerPlansTab() {
                   </View>
                 ) : null}
               </View>
-            ))}
+              );
+            })}
           </Card>
 
           <Card>
@@ -1191,13 +1324,10 @@ function ExerciseVideoBlock({ entry }: { entry: WorkoutDraft["entries"][number] 
 
   if (video.direct) {
     return (
-      <View style={{ overflow: "hidden", borderWidth: 1, borderColor: theme.border, borderRadius: 8, backgroundColor: "#000000" }}>
-        <Video
-          source={{ uri: video.url }}
-          useNativeControls
-          resizeMode={ResizeMode.CONTAIN}
-          style={{ width: "100%", aspectRatio: 16 / 9, backgroundColor: "#000000" }}
-        />
+      <View style={{ borderWidth: 1, borderColor: theme.border, borderRadius: 8, padding: 12, backgroundColor: theme.cardAlt }}>
+        <SecondaryButton onPress={() => void WebBrowser.openBrowserAsync(video.url)}>
+          {copy.plans.exerciseVideo}
+        </SecondaryButton>
       </View>
     );
   }

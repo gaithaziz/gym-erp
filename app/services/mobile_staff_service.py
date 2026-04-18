@@ -75,6 +75,10 @@ def _session_summary(session: WorkoutSession, plan_name: str | None = None, memb
         "attachment_url": session.attachment_url,
         "attachment_mime": session.attachment_mime,
         "attachment_size_bytes": session.attachment_size_bytes,
+        "review_status": session.review_status,
+        "reviewed_at": session.reviewed_at.isoformat() if session.reviewed_at else None,
+        "reviewed_by_user_id": str(session.reviewed_by_user_id) if session.reviewed_by_user_id else None,
+        "reviewer_note": session.reviewer_note,
         "skipped_count": skipped_count,
         "pr_count": pr_count,
         "entries": [
@@ -969,8 +973,8 @@ class MobileStaffService:
 
     @staticmethod
     async def get_coach_feedback_summary(*, current_user: User, db: AsyncSession) -> dict:
-        if current_user.role != Role.COACH:
-            raise ValueError("Not allowed")
+        is_coach = current_user.role == Role.COACH
+        plan_scope = [WorkoutPlan.creator_id == current_user.id] if is_coach else []
 
         workout_rows = (
             await db.execute(
@@ -978,7 +982,7 @@ class MobileStaffService:
                 .join(WorkoutPlan, WorkoutPlan.id == WorkoutLog.plan_id)
                 .join(User, User.id == WorkoutLog.member_id)
                 .where(
-                    WorkoutPlan.creator_id == current_user.id,
+                    *plan_scope,
                     or_(WorkoutLog.comment.is_not(None), WorkoutLog.difficulty_rating.is_not(None)),
                 )
                 .order_by(WorkoutLog.date.desc())
@@ -990,39 +994,35 @@ class MobileStaffService:
                 select(DietFeedback, DietPlan.name, User.full_name)
                 .join(DietPlan, DietPlan.id == DietFeedback.diet_plan_id)
                 .join(User, User.id == DietFeedback.member_id)
-                .where(DietPlan.creator_id == current_user.id)
+                .where(*([DietPlan.creator_id == current_user.id] if is_coach else []))
                 .order_by(DietFeedback.created_at.desc())
                 .limit(20)
             )
         ).all()
-        gym_rows = (
-            await db.execute(
-                select(GymFeedback, User.full_name)
-                .join(User, User.id == GymFeedback.member_id)
-                .where(
-                    GymFeedback.member_id.in_(
-                        select(WorkoutPlan.member_id).where(
-                            WorkoutPlan.creator_id == current_user.id,
-                            WorkoutPlan.member_id.is_not(None),
-                        )
+        gym_stmt = select(GymFeedback, User.full_name).join(User, User.id == GymFeedback.member_id)
+        if is_coach:
+            gym_stmt = gym_stmt.where(
+                GymFeedback.member_id.in_(
+                    select(WorkoutPlan.member_id).where(
+                        WorkoutPlan.creator_id == current_user.id,
+                        WorkoutPlan.member_id.is_not(None),
                     )
                 )
-                .order_by(GymFeedback.created_at.desc())
-                .limit(20)
             )
-        ).all()
+        gym_rows = (await db.execute(gym_stmt.order_by(GymFeedback.created_at.desc()).limit(20))).all()
         flagged_session_rows = (
             await db.execute(
                 select(WorkoutSession, WorkoutPlan.name, User.full_name)
                 .join(WorkoutPlan, WorkoutPlan.id == WorkoutSession.plan_id)
                 .join(User, User.id == WorkoutSession.member_id)
                 .where(
-                    WorkoutPlan.creator_id == current_user.id,
+                    *plan_scope,
                     or_(
                         WorkoutSession.pain_level >= 4,
                         WorkoutSession.effort_feedback == "TOO_HARD",
                         and_(WorkoutSession.notes.is_not(None), WorkoutSession.attachment_url.is_not(None)),
                     ),
+                    WorkoutSession.review_status != "REVIEWED",
                 )
                 .options(selectinload(WorkoutSession.entries))
                 .order_by(WorkoutSession.performed_at.desc())

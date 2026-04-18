@@ -212,7 +212,7 @@ export default function DashboardLayout({
         { href: '/dashboard/coach/plans', labelKey: 'dashboard.nav.workoutPlans', icon: Dumbbell, roles: ['ADMIN', 'COACH'], section: 'coaching' },
         { href: '/dashboard/coach/diets', labelKey: 'dashboard.nav.dietPlans', icon: Utensils, roles: ['ADMIN', 'COACH'], section: 'coaching' },
         { href: '/dashboard/coach/library', labelKey: 'dashboard.nav.workoutDietLibrary', icon: Users, roles: ['ADMIN', 'COACH'], section: 'coaching' },
-        { href: '/dashboard/coach/feedback', labelKey: 'dashboard.nav.feedback', icon: MessageSquare, roles: ['ADMIN', 'COACH'], section: 'coaching' },
+        { href: '/dashboard/coach/feedback', labelKey: 'dashboard.nav.feedback', icon: MessageSquare, roles: ['ADMIN', 'MANAGER', 'COACH'], section: 'coaching' },
         { href: '/dashboard/qr', labelKey: 'dashboard.nav.myQrCode', icon: QrCode, roles: ['CUSTOMER', 'COACH', 'ADMIN', 'EMPLOYEE', 'CASHIER', 'RECEPTION', 'FRONT_DESK'], section: 'account' },
         { href: '/dashboard/leaves', labelKey: 'dashboard.nav.myLeaves', icon: ClipboardList, roles: ['ADMIN', 'COACH', 'EMPLOYEE', 'CASHIER', 'RECEPTION', 'FRONT_DESK'], section: 'account' },
         { href: '/dashboard/profile', labelKey: 'dashboard.nav.myProfile', icon: UserCheck, roles: ['ADMIN', 'COACH', 'CUSTOMER', 'EMPLOYEE', 'CASHIER', 'RECEPTION', 'FRONT_DESK'], section: 'account' },

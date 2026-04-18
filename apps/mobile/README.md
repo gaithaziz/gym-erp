@@ -29,6 +29,40 @@ If you are testing on a physical device, use your computer's LAN IP:
 EXPO_PUBLIC_API_BASE_URL=http://YOUR_LAN_IP:8000/api/v1 npm run dev:mobile
 ```
 
+## Development Build
+
+This app now includes `expo-dev-client`, which is the correct way to test Android push notifications and other native behavior that Expo Go does not fully support.
+
+From the repo root:
+
+```bash
+npm run dev:mobile:client
+```
+
+To create a local native development build:
+
+```bash
+npm run android:mobile:build
+```
+
+or:
+
+```bash
+npm run ios:mobile:build
+```
+
+If you need native folders regenerated first:
+
+```bash
+npm run prebuild:mobile
+```
+
+An `eas.json` profile is also included for EAS development builds:
+
+```bash
+eas build --profile development --platform android
+```
+
 ## Current Scope
 
 - customer login

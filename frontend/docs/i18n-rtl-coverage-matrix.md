@@ -60,7 +60,7 @@ This matrix is the source of truth for localization + directionality verificatio
 | Route | Roles | Required States |
 |---|---|---|
 | `/dashboard/coach/diets` | ADMIN/COACH | default, loading, empty, error, modal_open, form_validation, table_with_rows |
-| `/dashboard/coach/feedback` | ADMIN/COACH | default, loading, empty, error, table_with_rows |
+| `/dashboard/coach/feedback` | ADMIN/MANAGER/COACH | default, loading, empty, error, table_with_rows |
 | `/dashboard/coach/library` | ADMIN/COACH | default, loading, empty, error, modal_open, form_validation, table_with_rows |
 | `/dashboard/coach/plans` | ADMIN/COACH | default, loading, empty, error, modal_open, form_validation, table_with_rows |
 

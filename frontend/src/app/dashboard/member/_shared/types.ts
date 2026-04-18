@@ -123,6 +123,10 @@ export interface WorkoutSessionLog {
     attachment_url?: string | null;
     attachment_mime?: string | null;
     attachment_size_bytes?: number | null;
+    review_status?: string;
+    reviewed_at?: string | null;
+    reviewed_by_user_id?: string | null;
+    reviewer_note?: string | null;
     entries: WorkoutSessionEntry[];
 }
 

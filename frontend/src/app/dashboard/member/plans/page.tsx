@@ -15,8 +15,9 @@ import {
     finishWorkoutSession,
     skipWorkoutExercise,
     startWorkoutSession,
+    updateWorkoutSession,
 } from '../_shared/customerData';
-import type { MemberPlan, WorkoutSessionDraft, WorkoutSessionDraftEntry, WorkoutSessionLog } from '../_shared/types';
+import type { MemberPlan, WorkoutEffortFeedback, WorkoutSessionDraft, WorkoutSessionDraftEntry, WorkoutSessionLog } from '../_shared/types';
 
 type ExerciseLogForm = {
     sets_completed: string;
@@ -29,6 +30,14 @@ type ExerciseLogForm = {
     pr_notes: string;
 };
 
+type SessionEditForm = {
+    duration_minutes: string;
+    notes: string;
+    rpe: string;
+    pain_level: string;
+    effort_feedback: WorkoutEffortFeedback | '';
+};
+
 const emptyForm: ExerciseLogForm = {
     sets_completed: '',
     reps_completed: '',
@@ -38,6 +47,14 @@ const emptyForm: ExerciseLogForm = {
     pr_type: 'WEIGHT',
     pr_value: '',
     pr_notes: '',
+};
+
+const emptySessionEditForm: SessionEditForm = {
+    duration_minutes: '',
+    notes: '',
+    rpe: '',
+    pain_level: '',
+    effort_feedback: '',
 };
 
 function toNumber(value: string): number {
@@ -68,6 +85,9 @@ export default function MemberPlansPage() {
     const [sessionNotes, setSessionNotes] = useState('');
     const [sessionDuration, setSessionDuration] = useState('');
     const [form, setForm] = useState<ExerciseLogForm>(emptyForm);
+    const [expandedSessionId, setExpandedSessionId] = useState<string | null>(null);
+    const [editingSessionId, setEditingSessionId] = useState<string | null>(null);
+    const [sessionEditForm, setSessionEditForm] = useState<SessionEditForm>(emptySessionEditForm);
 
     const txt = locale === 'ar' ? {
         title: 'جلسة التمرين',
@@ -89,6 +109,11 @@ export default function MemberPlansPage() {
         prType: 'نوع الـ PR',
         prValue: 'قيمة الـ PR',
         prNotes: 'ملاحظات الـ PR',
+        prWeight: 'وزن',
+        prReps: 'تكرارات',
+        prTime: 'وقت',
+        prVolume: 'حجم',
+        prOther: 'أخرى',
         current: 'التمرين الحالي',
         progress: 'التقدم',
         target: 'الهدف',
@@ -102,6 +127,36 @@ export default function MemberPlansPage() {
         skipped: 'تم تخطي التمرين.',
         finished: 'تم إنهاء الجلسة.',
         abandoned: 'تم حذف الجلسة النشطة.',
+        details: 'التفاصيل',
+        hideDetails: 'إخفاء التفاصيل',
+        editSession: 'تعديل الجلسة',
+        saveSession: 'حفظ الجلسة',
+        rpe: 'شدة الجهد',
+        pain: 'الألم',
+        effort: 'الإحساس بالجهد',
+        tooEasy: 'سهل جداً',
+        justRight: 'مناسب',
+        tooHard: 'صعب جداً',
+        attachment: 'المرفق',
+        skippedLabel: 'تم التخطي',
+        completedLabel: 'مكتمل',
+        doneLabel: 'تم',
+        nextLabel: 'التالي',
+        autoPr: 'إنجاز شخصي',
+        sessionUpdated: 'تم تحديث الجلسة.',
+        cancel: 'إلغاء',
+        exercise: 'تمرين',
+        allExercisesComplete: 'اكتملت كل التمارين. أضف ملاحظات الجلسة ثم أنهِها.',
+        minuteShort: 'د',
+        weightUnit: 'كجم',
+        prCount: 'إنجازات',
+        loadFailed: 'تعذر تحميل الخطط',
+        updateFailed: 'تعذر تحديث الجلسة',
+        startFailed: 'تعذر بدء جلسة التمرين',
+        saveFailed: 'تعذر حفظ التمرين',
+        skipFailed: 'تعذر تخطي التمرين',
+        finishFailed: 'تعذر إنهاء الجلسة',
+        abandonFailed: 'تعذر إلغاء الجلسة',
     } : {
         title: 'Workout Session Runner',
         subtitle: 'Start a session, move exercise by exercise, and log PRs as they happen.',
@@ -122,6 +177,11 @@ export default function MemberPlansPage() {
         prType: 'PR type',
         prValue: 'PR value',
         prNotes: 'PR notes',
+        prWeight: 'Weight',
+        prReps: 'Reps',
+        prTime: 'Time',
+        prVolume: 'Volume',
+        prOther: 'Other',
         current: 'Current exercise',
         progress: 'Progress',
         target: 'Target',
@@ -135,6 +195,36 @@ export default function MemberPlansPage() {
         skipped: 'Exercise skipped.',
         finished: 'Workout session finished.',
         abandoned: 'Active workout session discarded.',
+        details: 'Details',
+        hideDetails: 'Hide details',
+        editSession: 'Edit session',
+        saveSession: 'Save session',
+        rpe: 'RPE',
+        pain: 'Pain',
+        effort: 'Effort',
+        tooEasy: 'Too easy',
+        justRight: 'Just right',
+        tooHard: 'Too hard',
+        attachment: 'Attachment',
+        skippedLabel: 'Skipped',
+        completedLabel: 'Completed',
+        doneLabel: 'Done',
+        nextLabel: 'Next',
+        autoPr: 'Auto PR',
+        sessionUpdated: 'Session updated.',
+        cancel: 'Cancel',
+        exercise: 'Exercise',
+        allExercisesComplete: 'All exercises are complete. Add session notes and finish the session.',
+        minuteShort: 'min',
+        weightUnit: 'kg',
+        prCount: 'PRs',
+        loadFailed: 'Failed to load plans',
+        updateFailed: 'Failed to update session',
+        startFailed: 'Failed to start workout session',
+        saveFailed: 'Failed to save exercise',
+        skipFailed: 'Failed to skip exercise',
+        finishFailed: 'Failed to finish session',
+        abandonFailed: 'Failed to abandon session',
     };
 
     useEffect(() => {
@@ -150,7 +240,7 @@ export default function MemberPlansPage() {
                 const firstPlanId = plansData[0]?.id ?? null;
                 setSelectedPlanId((current) => current ?? firstPlanId);
             } catch (error) {
-                showToast(error instanceof Error ? error.message : 'Failed to load plans', 'error');
+                showToast(error instanceof Error ? error.message : txt.loadFailed, 'error');
             } finally {
                 setLoading(false);
             }
@@ -198,6 +288,59 @@ export default function MemberPlansPage() {
 
     const currentEntry = activeDraft?.entries[activeDraft.current_exercise_index] ?? null;
     const completedCount = activeDraft?.entries.filter((entry) => entry.completed_at || entry.skipped).length ?? 0;
+    const effortOptions: Array<{ value: WorkoutEffortFeedback; label: string }> = [
+        { value: 'TOO_EASY', label: txt.tooEasy },
+        { value: 'JUST_RIGHT', label: txt.justRight },
+        { value: 'TOO_HARD', label: txt.tooHard },
+    ];
+
+    const canEditSession = (session: WorkoutSessionLog) => {
+        const performedAt = new Date(session.performed_at).getTime();
+        return Number.isFinite(performedAt) && Date.now() - performedAt <= 24 * 60 * 60 * 1000;
+    };
+
+    const startEditingSession = (session: WorkoutSessionLog) => {
+        setExpandedSessionId(session.id);
+        setEditingSessionId(session.id);
+        setSessionEditForm({
+            duration_minutes: session.duration_minutes != null ? String(session.duration_minutes) : '',
+            notes: session.notes || '',
+            rpe: session.rpe != null ? String(session.rpe) : '',
+            pain_level: session.pain_level != null ? String(session.pain_level) : '',
+            effort_feedback: session.effort_feedback || '',
+        });
+    };
+
+    const effortLabel = (value?: WorkoutEffortFeedback | null) => {
+        if (value === 'TOO_EASY') return txt.tooEasy;
+        if (value === 'JUST_RIGHT') return txt.justRight;
+        if (value === 'TOO_HARD') return txt.tooHard;
+        return '';
+    };
+
+    const saveSessionEdit = async (session: WorkoutSessionLog) => {
+        setBusy(true);
+        try {
+            const updated = await updateWorkoutSession(session.id, {
+                duration_minutes: sessionEditForm.duration_minutes ? Number(sessionEditForm.duration_minutes) : null,
+                notes: sessionEditForm.notes || null,
+                rpe: sessionEditForm.rpe ? Number(sessionEditForm.rpe) : null,
+                pain_level: sessionEditForm.pain_level ? Number(sessionEditForm.pain_level) : null,
+                effort_feedback: sessionEditForm.effort_feedback || null,
+                attachment_url: session.attachment_url || null,
+                attachment_mime: session.attachment_mime || null,
+                attachment_size_bytes: session.attachment_size_bytes || null,
+            });
+            setHistory((current) => current.map((item) => (item.id === updated.id ? updated : item)));
+            setEditingSessionId(null);
+            setSessionEditForm(emptySessionEditForm);
+            showToast(txt.sessionUpdated, 'success');
+        } catch (error) {
+            showToast(error instanceof Error ? error.message : txt.updateFailed, 'error');
+        } finally {
+            setBusy(false);
+        }
+    };
 
     useEffect(() => {
         if (!currentEntry) {
@@ -224,7 +367,7 @@ export default function MemberPlansPage() {
             setActiveDraft(draft);
             showToast(txt.started, 'success');
         } catch (error) {
-            showToast(error instanceof Error ? error.message : 'Failed to start workout session', 'error');
+            showToast(error instanceof Error ? error.message : txt.startFailed, 'error');
         } finally {
             setBusy(false);
         }
@@ -247,7 +390,7 @@ export default function MemberPlansPage() {
             setActiveDraft(nextDraft);
             showToast(txt.saved, 'success');
         } catch (error) {
-            showToast(error instanceof Error ? error.message : 'Failed to save exercise', 'error');
+            showToast(error instanceof Error ? error.message : txt.saveFailed, 'error');
         } finally {
             setBusy(false);
         }
@@ -261,7 +404,7 @@ export default function MemberPlansPage() {
             setActiveDraft(nextDraft);
             showToast(txt.skipped, 'success');
         } catch (error) {
-            showToast(error instanceof Error ? error.message : 'Failed to skip exercise', 'error');
+            showToast(error instanceof Error ? error.message : txt.skipFailed, 'error');
         } finally {
             setBusy(false);
         }
@@ -281,7 +424,7 @@ export default function MemberPlansPage() {
             setSessionNotes('');
             showToast(txt.finished, 'success');
         } catch (error) {
-            showToast(error instanceof Error ? error.message : 'Failed to finish session', 'error');
+            showToast(error instanceof Error ? error.message : txt.finishFailed, 'error');
         } finally {
             setBusy(false);
         }
@@ -295,7 +438,7 @@ export default function MemberPlansPage() {
             setActiveDraft(null);
             showToast(txt.abandoned, 'success');
         } catch (error) {
-            showToast(error instanceof Error ? error.message : 'Failed to abandon session', 'error');
+            showToast(error instanceof Error ? error.message : txt.abandonFailed, 'error');
         } finally {
             setBusy(false);
         }
@@ -306,7 +449,7 @@ export default function MemberPlansPage() {
     }
 
     return (
-        <div className="space-y-6">
+        <div className="space-y-6" dir={locale === 'ar' ? 'rtl' : 'ltr'}>
             <div>
                 <h1 className="text-2xl font-bold text-foreground font-serif tracking-tight">{txt.title}</h1>
                 <p className="mt-1 text-sm text-muted-foreground">{txt.subtitle}</p>
@@ -402,7 +545,7 @@ export default function MemberPlansPage() {
                                                 <div className="rounded-sm border border-border bg-muted/10 p-4">
                                                     <div className="flex items-start justify-between gap-3">
                                                         <div>
-                                                            <p className="text-lg font-semibold text-foreground">{currentEntry.exercise_name || 'Exercise'}</p>
+                                                            <p className="text-lg font-semibold text-foreground">{currentEntry.exercise_name || txt.exercise}</p>
                                                             <p className="text-xs text-muted-foreground">
                                                                 {txt.target}: {currentEntry.target_sets || 0} x {currentEntry.target_reps || 0}
                                                                 {currentEntry.section_name ? ` • ${txt.section}: ${currentEntry.section_name}` : ''}
@@ -457,11 +600,11 @@ export default function MemberPlansPage() {
                                                         <label className="space-y-1">
                                                             <span className="text-xs text-muted-foreground">{txt.prType}</span>
                                                             <select value={form.pr_type} onChange={(event) => setForm((current) => ({ ...current, pr_type: event.target.value }))} className="w-full border border-border bg-background px-3 py-2 text-sm text-foreground">
-                                                                <option value="WEIGHT">Weight</option>
-                                                                <option value="REPS">Reps</option>
-                                                                <option value="TIME">Time</option>
-                                                                <option value="VOLUME">Volume</option>
-                                                                <option value="OTHER">Other</option>
+                                                                <option value="WEIGHT">{txt.prWeight}</option>
+                                                                <option value="REPS">{txt.prReps}</option>
+                                                                <option value="TIME">{txt.prTime}</option>
+                                                                <option value="VOLUME">{txt.prVolume}</option>
+                                                                <option value="OTHER">{txt.prOther}</option>
                                                             </select>
                                                         </label>
                                                         <label className="space-y-1">
@@ -493,7 +636,7 @@ export default function MemberPlansPage() {
                                             </div>
                                         ) : (
                                             <div className="rounded-sm border border-border bg-muted/10 p-4 text-sm text-muted-foreground">
-                                                All exercises are complete. Add session notes and finish the session.
+                                                {txt.allExercisesComplete}
                                             </div>
                                         )}
                                     </div>
@@ -513,7 +656,7 @@ export default function MemberPlansPage() {
                                                 <div key={entry.id} className={`border px-3 py-2 text-xs ${index === activeDraft.current_exercise_index ? 'border-primary bg-primary/10 text-primary' : 'border-border text-muted-foreground'}`}>
                                                     <div className="flex items-center justify-between gap-2">
                                                         <span>{index + 1}. {entry.exercise_name}</span>
-                                                        <span>{entry.skipped ? 'Skipped' : entry.completed_at ? 'Done' : 'Next'}</span>
+                                                        <span>{entry.skipped ? txt.skippedLabel : entry.completed_at ? txt.doneLabel : txt.nextLabel}</span>
                                                     </div>
                                                 </div>
                                             ))}
@@ -530,20 +673,108 @@ export default function MemberPlansPage() {
                                     history
                                         .filter((session) => session.plan_id === selectedPlan.id)
                                         .slice(0, 6)
-                                        .map((session) => (
-                                            <div key={session.id} className="border border-border bg-muted/10 p-4">
+                                        .map((session) => {
+                                            const expanded = expandedSessionId === session.id;
+                                            const editing = editingSessionId === session.id;
+                                            return (
+                                            <div key={session.id} className="border border-border bg-muted/10 p-4 space-y-3">
                                                 <div className="flex items-start justify-between gap-3">
                                                     <div>
                                                         <p className="text-sm font-semibold text-foreground">{new Date(session.performed_at).toLocaleString(locale === 'ar' ? 'ar-EG' : 'en-US')}</p>
                                                         <p className="text-xs text-muted-foreground">
-                                                            {session.duration_minutes || 0} min • {session.entries.filter((entry) => !entry.skipped).length} completed
-                                                            {session.entries.some((entry) => entry.skipped) ? ` • ${session.entries.filter((entry) => entry.skipped).length} skipped` : ''}
+                                                            {session.duration_minutes || 0} {txt.minuteShort} • {session.entries.filter((entry) => !entry.skipped).length} {txt.completedLabel}
+                                                            {session.entries.some((entry) => entry.skipped) ? ` • ${session.entries.filter((entry) => entry.skipped).length} ${txt.skippedLabel}` : ''}
                                                         </p>
                                                     </div>
-                                                    <p className="text-xs text-muted-foreground">{session.entries.filter((entry) => entry.is_pr).length} PRs</p>
+                                                    <p className="text-xs text-muted-foreground">{session.entries.filter((entry) => entry.is_pr).length} {txt.prCount}</p>
                                                 </div>
+                                                <div className="flex flex-wrap gap-2 text-xs text-muted-foreground">
+                                                    {session.rpe != null ? <span>{txt.rpe}: {session.rpe}</span> : null}
+                                                    {session.pain_level != null ? <span>{txt.pain}: {session.pain_level}</span> : null}
+                                                    {session.effort_feedback ? <span>{effortLabel(session.effort_feedback)}</span> : null}
+                                                    {session.attachment_url ? <a href={session.attachment_url} target="_blank" rel="noreferrer" className="text-primary hover:text-primary/80">{txt.attachment}</a> : null}
+                                                </div>
+                                                {session.notes ? <p className="rounded-sm border border-border bg-background/40 p-3 text-sm text-muted-foreground">{session.notes}</p> : null}
+                                                <div className="flex flex-wrap gap-2">
+                                                    <button
+                                                        type="button"
+                                                        onClick={() => setExpandedSessionId((current) => current === session.id ? null : session.id)}
+                                                        className="border border-border px-3 py-2 text-xs text-muted-foreground hover:border-primary"
+                                                    >
+                                                        {expanded ? txt.hideDetails : txt.details}
+                                                    </button>
+                                                    {canEditSession(session) ? (
+                                                        <button
+                                                            type="button"
+                                                            onClick={() => startEditingSession(session)}
+                                                            className="border border-border px-3 py-2 text-xs text-muted-foreground hover:border-primary"
+                                                        >
+                                                            {txt.editSession}
+                                                        </button>
+                                                    ) : null}
+                                                </div>
+                                                {expanded ? (
+                                                    <div className="space-y-2 border-t border-border pt-3">
+                                                        {session.entries.map((entry, index) => (
+                                                            <div key={entry.id || `${session.id}-${index}`} className="rounded-sm border border-border bg-background/40 p-3">
+                                                                <div className="flex items-start justify-between gap-3">
+                                                                    <p className="text-sm font-semibold text-foreground">
+                                                                        {entry.exercise_name || txt.exercise}
+                                                                        {entry.skipped ? ` • ${txt.skippedLabel}` : ''}
+                                                                        {entry.is_pr ? ` • ${txt.autoPr}` : ''}
+                                                                    </p>
+                                                                    <p className="text-xs text-muted-foreground">
+                                                                        {entry.skipped ? txt.skippedLabel : `${entry.sets_completed} x ${entry.reps_completed} @ ${entry.weight_kg ?? 0}${txt.weightUnit}`}
+                                                                    </p>
+                                                                </div>
+                                                                {entry.set_details?.length ? (
+                                                                    <p className="mt-2 text-xs font-mono text-muted-foreground">
+                                                                        {entry.set_details.map((row, rowIndex) => `${row.set || rowIndex + 1}: ${row.reps || 0} @ ${row.weightKg ?? 0}${txt.weightUnit}`).join(' | ')}
+                                                                    </p>
+                                                                ) : null}
+                                                                {entry.notes ? <p className="mt-2 text-xs text-muted-foreground">{entry.notes}</p> : null}
+                                                            </div>
+                                                        ))}
+                                                    </div>
+                                                ) : null}
+                                                {editing ? (
+                                                    <div className="grid gap-3 border-t border-border pt-3 md:grid-cols-2">
+                                                        <label className="space-y-1">
+                                                            <span className="text-xs text-muted-foreground">{txt.duration}</span>
+                                                            <input value={sessionEditForm.duration_minutes} onChange={(event) => setSessionEditForm((current) => ({ ...current, duration_minutes: event.target.value }))} className="w-full border border-border bg-background px-3 py-2 text-sm text-foreground" />
+                                                        </label>
+                                                        <label className="space-y-1">
+                                                            <span className="text-xs text-muted-foreground">{txt.rpe}</span>
+                                                            <input value={sessionEditForm.rpe} onChange={(event) => setSessionEditForm((current) => ({ ...current, rpe: event.target.value }))} className="w-full border border-border bg-background px-3 py-2 text-sm text-foreground" />
+                                                        </label>
+                                                        <label className="space-y-1">
+                                                            <span className="text-xs text-muted-foreground">{txt.pain}</span>
+                                                            <input value={sessionEditForm.pain_level} onChange={(event) => setSessionEditForm((current) => ({ ...current, pain_level: event.target.value }))} className="w-full border border-border bg-background px-3 py-2 text-sm text-foreground" />
+                                                        </label>
+                                                        <label className="space-y-1">
+                                                            <span className="text-xs text-muted-foreground">{txt.effort}</span>
+                                                            <select value={sessionEditForm.effort_feedback} onChange={(event) => setSessionEditForm((current) => ({ ...current, effort_feedback: event.target.value as WorkoutEffortFeedback | '' }))} className="w-full border border-border bg-background px-3 py-2 text-sm text-foreground">
+                                                                <option value="">--</option>
+                                                                {effortOptions.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
+                                                            </select>
+                                                        </label>
+                                                        <label className="space-y-1 md:col-span-2">
+                                                            <span className="text-xs text-muted-foreground">{txt.sessionNotes}</span>
+                                                            <textarea value={sessionEditForm.notes} onChange={(event) => setSessionEditForm((current) => ({ ...current, notes: event.target.value }))} className="min-h-24 w-full border border-border bg-background px-3 py-2 text-sm text-foreground" />
+                                                        </label>
+                                                        <div className="flex gap-2 md:col-span-2">
+                                                            <button type="button" onClick={() => void saveSessionEdit(session)} disabled={busy} className="btn-primary px-4 py-2 text-sm">
+                                                                {txt.saveSession}
+                                                            </button>
+                                                            <button type="button" onClick={() => { setEditingSessionId(null); setSessionEditForm(emptySessionEditForm); }} className="border border-border px-4 py-2 text-sm text-muted-foreground hover:border-primary">
+                                                                {txt.cancel}
+                                                            </button>
+                                                        </div>
+                                                    </div>
+                                                ) : null}
                                             </div>
-                                        ))
+                                            );
+                                        })
                                 )}
                             </div>
                         </>

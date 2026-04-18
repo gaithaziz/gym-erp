@@ -7,7 +7,7 @@ const adminEmail = process.env.E2E_ADMIN_EMAIL || "admin@gym-erp.com";
 const adminPassword = process.env.E2E_ADMIN_PASSWORD || "password123";
 const rolePassword = process.env.E2E_ROLE_PASSWORD || "Temp#12345";
 
-type AppRole = "ADMIN" | "COACH" | "CUSTOMER" | "EMPLOYEE" | "CASHIER" | "RECEPTION" | "FRONT_DESK";
+type AppRole = "ADMIN" | "MANAGER" | "COACH" | "CUSTOMER" | "EMPLOYEE" | "CASHIER" | "RECEPTION" | "FRONT_DESK";
 type Locale = "en" | "ar";
 type Direction = "ltr" | "rtl";
 
@@ -49,7 +49,7 @@ const fullRouteMatrix: RouteSpec[] = [
   { path: "/dashboard/admin/staff/[id]", roles: ["ADMIN"], state: "default" },
   { path: "/dashboard/admin/support", roles: ["ADMIN", "RECEPTION"], state: "default" },
   { path: "/dashboard/coach/diets", roles: ["ADMIN", "COACH"], state: "default" },
-  { path: "/dashboard/coach/feedback", roles: ["ADMIN", "COACH"], state: "default" },
+  { path: "/dashboard/coach/feedback", roles: ["ADMIN", "MANAGER", "COACH"], state: "default" },
   { path: "/dashboard/coach/library", roles: ["ADMIN", "COACH"], state: "default" },
   { path: "/dashboard/coach/plans", roles: ["ADMIN", "COACH"], state: "default" },
   { path: "/dashboard/member/achievements", roles: ["CUSTOMER"], state: "default" },
@@ -88,7 +88,7 @@ const fastRouteMatrix: RouteSpec[] = [
   { path: "/dashboard/blocked", roles: ["CUSTOMER"], state: "default" },
   { path: "/dashboard/subscription", roles: ["CUSTOMER"], state: "default" },
   { path: "/dashboard/coach/diets", roles: ["ADMIN", "COACH"], state: "default" },
-  { path: "/dashboard/coach/feedback", roles: ["ADMIN", "COACH"], state: "default" },
+  { path: "/dashboard/coach/feedback", roles: ["ADMIN", "MANAGER", "COACH"], state: "default" },
   { path: "/dashboard/coach/library", roles: ["ADMIN", "COACH"], state: "default" },
   { path: "/dashboard/coach/plans", roles: ["ADMIN", "COACH"], state: "default" },
   { path: "/dashboard/admin/members", roles: ["ADMIN"], state: "default" },

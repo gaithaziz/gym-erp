@@ -28,7 +28,7 @@ class WorkoutLog(Base):
     difficulty_rating: Mapped[int] = mapped_column(Integer, nullable=True)  # 1-5
     comment: Mapped[str] = mapped_column(Text, nullable=True)
 
-    member = relationship("User")
+    member = relationship("User", foreign_keys=[member_id])
     plan = relationship("WorkoutPlan")
 
 
@@ -47,9 +47,14 @@ class WorkoutSession(Base):
     attachment_url: Mapped[str | None] = mapped_column(String, nullable=True)
     attachment_mime: Mapped[str | None] = mapped_column(String, nullable=True)
     attachment_size_bytes: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    review_status: Mapped[str] = mapped_column(String, default="UNREVIEWED", nullable=False)
+    reviewed_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    reviewed_by_user_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("users.id"), nullable=True)
+    reviewer_note: Mapped[str | None] = mapped_column(Text, nullable=True)
 
-    member = relationship("User")
+    member = relationship("User", foreign_keys=[member_id])
     plan = relationship("WorkoutPlan")
+    reviewed_by = relationship("User", foreign_keys=[reviewed_by_user_id])
     entries = relationship("WorkoutSessionEntry", back_populates="session", cascade="all, delete-orphan")
 
 

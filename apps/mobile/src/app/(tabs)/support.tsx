@@ -4,7 +4,7 @@ import { Pressable, StyleSheet, Text, View } from "react-native";
 
 import { Card, MutedText, QueryState, Screen, SectionTitle, SecondaryButton } from "@/components/ui";
 import { localizeTicketCategory, localizeTicketStatus } from "@/lib/mobile-format";
-import { getCurrentRole, isCustomerRole } from "@/lib/mobile-role";
+import { getCurrentRole, isAdminControlRole, isCustomerRole } from "@/lib/mobile-role";
 import { usePreferences } from "@/lib/preferences";
 import { useSession } from "@/lib/session";
 
@@ -23,10 +23,11 @@ export default function SupportTab() {
   const { copy, direction, fontSet, isRTL, theme } = usePreferences();
   const role = getCurrentRole(bootstrap);
   const customer = isCustomerRole(role);
+  const supportStaff = role === "RECEPTION" || role === "FRONT_DESK" || isAdminControlRole(role);
 
   const ticketsQuery = useQuery({
     queryKey: ["mobile-support-tab", role],
-    enabled: customer || role === "RECEPTION" || role === "FRONT_DESK",
+    enabled: customer || supportStaff,
     queryFn: async () => (await authorizedRequest<SupportTicket[]>("/mobile/support/tickets")).data,
   });
 

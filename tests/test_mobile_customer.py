@@ -963,6 +963,20 @@ async def test_mobile_coach_feedback_includes_only_assigned_flagged_sessions(cli
         full_name="Other Flagged Coach",
         is_active=True,
     )
+    admin = User(
+        email="admin-flagged-feedback@example.com",
+        hashed_password=security.get_password_hash("password123"),
+        role=Role.ADMIN,
+        full_name="Flagged Admin",
+        is_active=True,
+    )
+    manager = User(
+        email="manager-flagged-feedback@example.com",
+        hashed_password=security.get_password_hash("password123"),
+        role=Role.MANAGER,
+        full_name="Flagged Manager",
+        is_active=True,
+    )
     customer = User(
         email="customer-flagged-feedback@example.com",
         hashed_password=security.get_password_hash("password123"),
@@ -970,7 +984,7 @@ async def test_mobile_coach_feedback_includes_only_assigned_flagged_sessions(cli
         full_name="Flagged Member",
         is_active=True,
     )
-    db_session.add_all([coach, other_coach, customer])
+    db_session.add_all([coach, other_coach, admin, manager, customer])
     await db_session.flush()
 
     own_plan = WorkoutPlan(
@@ -1051,3 +1065,33 @@ async def test_mobile_coach_feedback_includes_only_assigned_flagged_sessions(cli
     assert data["flagged_sessions"][0]["member_name"] == "Flagged Member"
     assert data["flagged_sessions"][0]["pain_level"] == 5
     assert data["flagged_sessions"][0]["pr_count"] == 1
+
+    admin_headers = await _login(client, admin.email)
+    admin_response = await client.get(f"{settings.API_V1_STR}/mobile/staff/coach/feedback", headers=admin_headers)
+    assert admin_response.status_code == 200
+    assert admin_response.json()["data"]["stats"]["flagged_sessions"] == 2
+
+    manager_headers = await _login(client, manager.email)
+    manager_response = await client.get(f"{settings.API_V1_STR}/mobile/staff/coach/feedback", headers=manager_headers)
+    assert manager_response.status_code == 200
+    assert manager_response.json()["data"]["stats"]["flagged_sessions"] == 2
+
+    manager_review_response = await client.post(
+        f"{settings.API_V1_STR}/fitness/session-logs/{own_session.id}/review",
+        json={"reviewed": True, "reviewer_note": "Manager cannot close"},
+        headers=manager_headers,
+    )
+    assert manager_review_response.status_code == 403
+
+    review_response = await client.post(
+        f"{settings.API_V1_STR}/fitness/session-logs/{own_session.id}/review",
+        json={"reviewed": True, "reviewer_note": "Handled in chat"},
+        headers=headers,
+    )
+    assert review_response.status_code == 200
+    assert review_response.json()["data"]["review_status"] == "REVIEWED"
+    assert review_response.json()["data"]["reviewer_note"] == "Handled in chat"
+
+    reviewed_queue = await client.get(f"{settings.API_V1_STR}/mobile/staff/coach/feedback", headers=headers)
+    assert reviewed_queue.status_code == 200
+    assert reviewed_queue.json()["data"]["stats"]["flagged_sessions"] == 0

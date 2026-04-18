@@ -470,6 +470,10 @@ const mobileWorkoutSessionSummarySchema = z.object({
   attachment_url: z.string().nullable().optional(),
   attachment_mime: z.string().nullable().optional(),
   attachment_size_bytes: z.number().int().nullable().optional(),
+  review_status: z.string().default("UNREVIEWED"),
+  reviewed_at: z.string().nullable().optional(),
+  reviewed_by_user_id: z.string().uuid().nullable().optional(),
+  reviewer_note: z.string().nullable().optional(),
   skipped_count: z.number().int().default(0),
   pr_count: z.number().int().default(0),
   entries: z.array(

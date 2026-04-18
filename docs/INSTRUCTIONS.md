@@ -115,6 +115,16 @@ Rebuild only the frontend image:
 npm run rebuild:frontend
 ```
 
+Rebuild only the backend image:
+
+```bash
+docker compose up -d --build backend
+```
+
+Important runtime note:
+- Restarting containers is not always enough after backend code changes.
+- If a backend permission or route change still behaves like the old code, rebuild the backend image with `docker compose up -d --build backend`.
+
 Full destructive reset:
 
 ```bash
@@ -165,6 +175,10 @@ npm run android:mobile
 npm run typecheck:mobile
 ```
 
+Important mobile note:
+- `npm run dev:mobile` still starts Expo the same way as before.
+- This does not automatically create a native development build.
+
 Use the correct API base URL for your device:
 - iPhone simulator on the same Mac: `http://localhost:8000/api/v1`
 - Android emulator: `http://10.0.2.2:8000/api/v1`
@@ -184,6 +198,7 @@ ipconfig getifaddr en1
 
 Demo mobile login:
 - `alice@client.com` / `GymPass123!`
+- `admin@gym-erp.com` / `password123`
 
 Stop the Expo / Metro mobile process with `Ctrl+C` in the terminal where it is running.
 
@@ -206,6 +221,61 @@ lsof -tiTCP:8081 -sTCP:LISTEN | xargs kill -9
 ```
 
 If `lsof` prints nothing and `screen -ls` does not show `gym-erp-expo`, the mobile server is fully shut down.
+
+## 5A. Expo Development Build Notes
+
+The repo is now wired for Expo development builds because Android remote push notifications are not fully supported in Expo Go.
+
+What changed:
+- `expo-dev-client` is installed in `apps/mobile`
+- `eas.json` exists at the repo root
+- extra scripts are available for dev-client and native builds
+
+Keep using Expo Go if you want:
+
+```bash
+npm run dev:mobile
+```
+
+Use these commands for a development build workflow:
+
+```bash
+npm run dev:mobile:client
+npm run android:mobile:build
+npm run ios:mobile:build
+```
+
+If native folders need to be regenerated:
+
+```bash
+npm run prebuild:mobile
+npm run prebuild:mobile:clean
+```
+
+For EAS development builds:
+
+```bash
+eas build --profile development --platform android
+```
+
+Current environment note:
+- The repo is configured for this workflow, but local Android tooling is not installed in this environment.
+- `adb`, `emulator`, and `eas` may need to be installed on the machine before native dev builds can run locally.
+
+Expo Go warning note:
+- `expo-notifications` remote Android push testing is no longer supported in Expo Go.
+- If you need to test remote push behavior, use a dev build instead of Expo Go.
+
+## 5B. Recent Mobile Fix Notes
+
+Feedback history:
+- The customer feedback screen at `/feedback` is customer-only.
+- Admins and coaches should use `/coach-feedback`.
+- The mobile feedback screen now redirects admin and coach users to the correct queue instead of calling the customer-only endpoint.
+
+Support:
+- The support tab previously looked empty for admin users because the support query was not enabled for admin-control roles.
+- The mobile support tab now fetches support tickets for `ADMIN` and `MANAGER` as well as reception/front-desk staff.
 
 ## 6. Safe Shutdown
 

@@ -1,8 +1,10 @@
 'use client';
 
 import { useEffect, useMemo, useState } from 'react';
+import Link from 'next/link';
 import { api } from '@/lib/api';
 import { MessageSquare, Star } from 'lucide-react';
+import { useAuth } from '@/context/AuthContext';
 import { useLocale } from '@/context/LocaleContext';
 
 interface Plan {
@@ -58,6 +60,9 @@ interface FlaggedWorkoutSession {
     effort_feedback?: string | null;
     attachment_url?: string | null;
     attachment_mime?: string | null;
+    review_status?: string;
+    reviewed_at?: string | null;
+    reviewer_note?: string | null;
     skipped_count?: number;
     pr_count?: number;
     entries?: Array<{
@@ -74,7 +79,8 @@ interface FlaggedWorkoutSession {
 }
 
 export default function FeedbackPage() {
-    const { locale, formatDate } = useLocale();
+    const { locale, direction, formatDate } = useLocale();
+    const { user } = useAuth();
     const [plans, setPlans] = useState<Plan[]>([]);
     const [dietPlans, setDietPlans] = useState<DietPlanSummary[]>([]);
     const [selectedPlan, setSelectedPlan] = useState('');
@@ -86,6 +92,8 @@ export default function FeedbackPage() {
     const [tab, setTab] = useState<'FLAGGED' | 'WORKOUT' | 'DIET' | 'GYM'>('FLAGGED');
     const [minRating, setMinRating] = useState(1);
     const [loading, setLoading] = useState(true);
+    const canReviewSessions = user?.role === 'ADMIN' || user?.role === 'COACH';
+    const canAdjustPlans = user?.role === 'ADMIN' || user?.role === 'COACH';
 
     useEffect(() => {
         const fetchPlans = async () => {
@@ -126,6 +134,15 @@ export default function FeedbackPage() {
             console.error(err);
             setLogs([]);
         }
+    };
+
+    const markSessionReviewed = async (sessionId: string) => {
+        await api.post(`/fitness/session-logs/${sessionId}/review`, {
+            reviewed: true,
+            reviewer_note: locale === 'ar' ? 'تمت المراجعة من المدرب' : 'Reviewed by coach',
+        });
+        setFlaggedSessions((current) => current.filter((session) => session.id !== sessionId));
+        setExpandedSessionId((current) => current === sessionId ? null : current);
     };
 
     const handlePlanChange = (planId: string) => {
@@ -172,6 +189,10 @@ export default function FeedbackPage() {
         return value || '';
     };
 
+    const minuteLabel = locale === 'ar' ? 'د' : 'min';
+    const weightUnit = locale === 'ar' ? 'كجم' : 'kg';
+    const prLabel = locale === 'ar' ? 'إنجازات' : 'PRs';
+
     const attachmentHref = (value?: string | null) => {
         if (!value) return null;
         return value.startsWith('http://') || value.startsWith('https://') ? value : value;
@@ -197,10 +218,13 @@ export default function FeedbackPage() {
     }
 
     return (
-        <div className="space-y-8">
+        <div className="space-y-8" dir={direction}>
             <div>
                 <h1 className="text-2xl font-bold text-white">{locale === 'ar' ? 'ملاحظات المتدربين' : 'Trainee Feedback'}</h1>
                 <p className="text-sm text-[#6B6B6B] mt-1">{locale === 'ar' ? 'نظرة عامة على ملاحظات التدريب والتغذية وتجربة النادي' : 'Workout, diet, and full gym feedback overview'}</p>
+                {user?.role === 'MANAGER' ? (
+                    <p className="mt-2 text-xs font-mono uppercase text-muted-foreground">{locale === 'ar' ? 'عرض للمتابعة فقط' : 'Read-only manager overview'}</p>
+                ) : null}
             </div>
 
             <div className="flex flex-wrap gap-2">
@@ -241,12 +265,12 @@ export default function FeedbackPage() {
                                     <span className="text-xs text-muted-foreground">{formatDate(session.performed_at, { month: 'short', day: 'numeric', year: 'numeric' })}</span>
                                 </div>
                                 <div className="flex flex-wrap gap-2 text-xs text-muted-foreground">
-                                    {session.duration_minutes != null && <span>{session.duration_minutes} min</span>}
+                                    {session.duration_minutes != null && <span>{session.duration_minutes} {minuteLabel}</span>}
                                     {session.rpe != null && <span>RPE {session.rpe}</span>}
                                     {session.pain_level != null && <span>{locale === 'ar' ? 'الألم' : 'Pain'} {session.pain_level}</span>}
                                     {session.effort_feedback && <span>{effortLabel(session.effort_feedback)}</span>}
                                     <span>{session.skipped_count || 0} {locale === 'ar' ? 'تخطي' : 'skipped'}</span>
-                                    <span>{session.pr_count || 0} PRs</span>
+                                    <span>{session.pr_count || 0} {prLabel}</span>
                                     {session.attachment_url && <span>{locale === 'ar' ? 'مرفق' : 'attachment'}</span>}
                                 </div>
                                 {session.notes && (
@@ -277,12 +301,12 @@ export default function FeedbackPage() {
                                                         {entry.is_pr ? ' • PR' : ''}
                                                     </span>
                                                     <span className="font-mono text-muted-foreground">
-                                                        {entry.skipped ? (locale === 'ar' ? 'تم التخطي' : 'Skipped') : `${entry.sets_completed}x${entry.reps_completed} @ ${entry.weight_kg ?? 0}kg`}
+                                                        {entry.skipped ? (locale === 'ar' ? 'تم التخطي' : 'Skipped') : `${entry.sets_completed}x${entry.reps_completed} @ ${entry.weight_kg ?? 0}${weightUnit}`}
                                                     </span>
                                                 </div>
                                                 {entry.set_details?.length ? (
                                                     <p className="mt-2 text-[11px] font-mono text-muted-foreground">
-                                                        {entry.set_details.map((row, rowIndex) => `${Number(row.set ?? rowIndex + 1)}: ${Number(row.reps ?? 0)} @ ${Number(row.weightKg ?? 0)}kg`).join(' | ')}
+                                                        {entry.set_details.map((row, rowIndex) => `${Number(row.set ?? rowIndex + 1)}: ${Number(row.reps ?? 0)} @ ${Number(row.weightKg ?? 0)}${weightUnit}`).join(' | ')}
                                                     </p>
                                                 ) : null}
                                                 {entry.notes ? <p className="mt-2 text-xs text-muted-foreground">{entry.notes}</p> : null}
@@ -290,6 +314,25 @@ export default function FeedbackPage() {
                                         ))}
                                     </div>
                                 )}
+                                <div className="mt-3 flex flex-wrap gap-2">
+                                    {canAdjustPlans && session.member_id ? (
+                                        <Link
+                                            href={`/dashboard/coach/plans?memberId=${session.member_id}`}
+                                            className="rounded-sm border border-border px-3 py-2 text-xs font-mono uppercase text-muted-foreground hover:border-primary hover:text-primary"
+                                        >
+                                            {locale === 'ar' ? 'تعديل الخطة' : 'Adjust plan'}
+                                        </Link>
+                                    ) : null}
+                                    {canReviewSessions ? (
+                                        <button
+                                            type="button"
+                                            onClick={() => void markSessionReviewed(session.id)}
+                                            className="rounded-sm border border-primary px-3 py-2 text-xs font-mono uppercase text-primary hover:bg-primary hover:text-primary-foreground"
+                                        >
+                                            {locale === 'ar' ? 'تمت المراجعة' : 'Mark reviewed'}
+                                        </button>
+                                    ) : null}
+                                </div>
                             </div>
                         ))
                     )}

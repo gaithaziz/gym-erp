@@ -39,7 +39,7 @@ export default function MoreTab() {
       {hasCapability(bootstrap, "view_chat") ? <SecondaryLink href="/chat">{copy.more.chat}</SecondaryLink> : null}
       {(customer || role === "RECEPTION" || role === "FRONT_DESK" || role === "EMPLOYEE") ? <SecondaryLink href="/lost-found">{copy.more.lostFound}</SecondaryLink> : null}
       {role === "COACH" || role === "EMPLOYEE" || role === "RECEPTION" || role === "FRONT_DESK" || role === "CASHIER" ? <SecondaryLink href="/leaves">{copy.operationsScreen.myLeaves}</SecondaryLink> : null}
-      {role === "COACH" ? <SecondaryLink href="/coach-feedback">{copy.common.feedbackHistory}</SecondaryLink> : null}
+      {role === "COACH" || adminControl ? <SecondaryLink href="/coach-feedback">{copy.common.feedbackHistory}</SecondaryLink> : null}
       <SecondaryLink href="/profile">{copy.more.profile}</SecondaryLink>
       {customer ? <SecondaryLink href="/feedback">{copy.more.feedback}</SecondaryLink> : null}
 

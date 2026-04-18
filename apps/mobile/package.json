@@ -4,9 +4,14 @@
   "version": "1.0.0",
   "scripts": {
     "start": "expo start",
+    "start:dev-client": "expo start --dev-client",
     "android": "expo start --android",
+    "android:dev": "expo run:android",
     "ios": "expo start --ios",
+    "ios:dev": "expo run:ios",
     "web": "expo start --web",
+    "prebuild": "expo prebuild",
+    "prebuild:clean": "expo prebuild --clean",
     "lint": "expo lint",
     "typecheck": "tsc --noEmit",
     "test": "vitest run"
@@ -22,6 +27,7 @@
     "expo-av": "^16.0.8",
     "expo-camera": "~55.0.15",
     "expo-constants": "~55.0.13",
+    "expo-dev-client": "~55.0.27",
     "expo-device": "~55.0.14",
     "expo-document-picker": "^55.0.13",
     "expo-font": "~55.0.6",

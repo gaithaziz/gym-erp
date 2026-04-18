@@ -296,14 +296,16 @@ def _serialize_validated_set_details(value: list[WorkoutSetDetail] | None) -> st
     return json.dumps([item.model_dump() if isinstance(item, WorkoutSetDetail) else item for item in value])
 
 
-def _validate_workout_attachment_owner(data: "WorkoutSessionCreate | FinishWorkoutSessionRequest", current_user: User) -> None:
-    if not data.attachment_url:
+def _validate_workout_attachment_owner(data: Any, current_user: User) -> None:
+    attachment_url = getattr(data, "attachment_url", None)
+    attachment_mime = getattr(data, "attachment_mime", None)
+    if not attachment_url:
         return
     expected_prefix = f"/static/workout_session_media/{current_user.id}/"
-    if not data.attachment_url.startswith(expected_prefix):
+    if not attachment_url.startswith(expected_prefix):
         raise HTTPException(status_code=403, detail="Workout session attachment does not belong to your account")
-    if not data.attachment_mime or not (
-        data.attachment_mime.startswith("image/") or data.attachment_mime.startswith("video/")
+    if not attachment_mime or not (
+        attachment_mime.startswith("image/") or attachment_mime.startswith("video/")
     ):
         raise HTTPException(status_code=400, detail="Workout session attachment must be an image or video")
 
@@ -964,7 +966,7 @@ async def list_plan_summaries(
 async def bulk_assign_workout_plan(
     plan_id: uuid.UUID,
     payload: BulkAssignRequest,
-    current_user: Annotated[User, Depends(dependencies.RoleChecker([Role.ADMIN, Role.MANAGER, Role.COACH]))],
+    current_user: Annotated[User, Depends(dependencies.RoleChecker([Role.ADMIN, Role.COACH]))],
     db: Annotated[AsyncSession, Depends(get_db)],
 ):
     source_plan = await _get_workout_plan_or_404(db, plan_id, with_exercises=True)
@@ -2150,6 +2152,10 @@ class WorkoutSessionResponse(BaseModel):
     attachment_url: str | None = None
     attachment_mime: str | None = None
     attachment_size_bytes: int | None = None
+    review_status: str = "UNREVIEWED"
+    reviewed_at: datetime | None = None
+    reviewed_by_user_id: uuid.UUID | None = None
+    reviewer_note: str | None = None
     entries: List[WorkoutSessionEntryResponse] = Field(default_factory=list)
 
     class Config:
@@ -2227,7 +2233,7 @@ class UpdateWorkoutSessionEntryRequest(BaseModel):
     pr_type: str | None = None
     pr_value: str | None = None
     pr_notes: str | None = None
-    set_details: list[dict[str, Any]] = Field(default_factory=list)
+    set_details: list[WorkoutSetDetail] = Field(default_factory=list)
 
 
 class SkipWorkoutExerciseRequest(BaseModel):
@@ -2243,6 +2249,23 @@ class FinishWorkoutSessionRequest(BaseModel):
     attachment_url: str | None = None
     attachment_mime: str | None = None
     attachment_size_bytes: int | None = Field(None, ge=0)
+
+
+class UpdateWorkoutSessionLogRequest(BaseModel):
+    duration_minutes: int | None = Field(None, ge=1)
+    notes: str | None = None
+    rpe: int | None = Field(None, ge=1, le=10)
+    pain_level: int | None = Field(None, ge=0, le=10)
+    effort_feedback: Literal["TOO_EASY", "JUST_RIGHT", "TOO_HARD"] | None = None
+    attachment_url: str | None = None
+    attachment_mime: str | None = None
+    attachment_size_bytes: int | None = Field(None, ge=0)
+    entries: list[WorkoutSessionEntryCreate] | None = None
+
+
+class ReviewWorkoutSessionRequest(BaseModel):
+    reviewed: bool = True
+    reviewer_note: str | None = Field(None, max_length=1000)
 
 
 @router.post("/log", response_model=StandardResponse)
@@ -2659,6 +2682,107 @@ async def abandon_workout_session(
     return StandardResponse(message="Workout session discarded")
 
 
+@router.put("/session-logs/{session_id}", response_model=StandardResponse[WorkoutSessionResponse])
+async def update_completed_workout_session(
+    session_id: uuid.UUID,
+    data: UpdateWorkoutSessionLogRequest,
+    current_user: Annotated[User, Depends(dependencies.RoleChecker([Role.ADMIN, Role.CUSTOMER]))],
+    _subscription_guard: Annotated[User, Depends(dependencies.require_active_customer_subscription)],
+    db: Annotated[AsyncSession, Depends(get_db)],
+):
+    stmt = select(WorkoutSession).where(WorkoutSession.id == session_id).options(selectinload(WorkoutSession.entries))
+    session = (await db.execute(stmt)).scalar_one_or_none()
+    if not session:
+        raise HTTPException(status_code=404, detail="Workout session not found")
+    if current_user.role == Role.CUSTOMER:
+        if session.member_id != current_user.id:
+            raise HTTPException(status_code=403, detail="Access denied")
+        if datetime.utcnow() - session.performed_at > timedelta(days=1):
+            raise HTTPException(status_code=400, detail="Completed sessions can only be edited on the same day")
+
+    _validate_workout_attachment_owner(data, current_user)
+    session.duration_minutes = data.duration_minutes
+    session.notes = data.notes
+    session.rpe = data.rpe
+    session.pain_level = data.pain_level
+    session.effort_feedback = data.effort_feedback
+    session.attachment_url = data.attachment_url
+    session.attachment_mime = data.attachment_mime
+    session.attachment_size_bytes = data.attachment_size_bytes
+    session.review_status = "UNREVIEWED"
+    session.reviewed_at = None
+    session.reviewed_by_user_id = None
+    session.reviewer_note = None
+
+    if data.entries is not None:
+        for entry in list(session.entries):
+            await db.delete(entry)
+        await db.flush()
+        for idx, entry in enumerate(data.entries):
+            db.add(
+                WorkoutSessionEntry(
+                    session_id=session.id,
+                    exercise_id=entry.exercise_id,
+                    exercise_name=entry.exercise_name,
+                    target_sets=entry.target_sets,
+                    target_reps=entry.target_reps,
+                    sets_completed=entry.sets_completed,
+                    reps_completed=entry.reps_completed,
+                    weight_kg=entry.weight_kg,
+                    notes=entry.notes,
+                    is_pr=entry.is_pr,
+                    pr_type=entry.pr_type,
+                    pr_value=entry.pr_value,
+                    pr_notes=entry.pr_notes,
+                    skipped=False,
+                    set_details=_serialize_validated_set_details(entry.set_details),
+                    order=entry.order if entry.order else idx,
+                )
+            )
+
+    await db.commit()
+    saved = (await db.execute(stmt)).scalar_one()
+    saved.entries.sort(key=lambda entry: entry.order)
+    return StandardResponse(data=WorkoutSessionResponse.model_validate(saved))
+
+
+@router.post("/session-logs/{session_id}/review", response_model=StandardResponse[WorkoutSessionResponse])
+async def review_workout_session(
+    session_id: uuid.UUID,
+    data: ReviewWorkoutSessionRequest,
+    current_user: Annotated[User, Depends(dependencies.RoleChecker([Role.ADMIN, Role.COACH]))],
+    db: Annotated[AsyncSession, Depends(get_db)],
+):
+    stmt = (
+        select(WorkoutSession)
+        .join(WorkoutPlan, WorkoutPlan.id == WorkoutSession.plan_id)
+        .where(WorkoutSession.id == session_id)
+        .options(selectinload(WorkoutSession.entries))
+    )
+    session = (await db.execute(stmt)).scalar_one_or_none()
+    if not session:
+        raise HTTPException(status_code=404, detail="Workout session not found")
+    plan = await db.get(WorkoutPlan, session.plan_id)
+    if current_user.role == Role.COACH and plan and plan.creator_id != current_user.id:
+        raise HTTPException(status_code=403, detail="Cannot review sessions for plans created by another coach")
+
+    if data.reviewed:
+        session.review_status = "REVIEWED"
+        session.reviewed_at = datetime.utcnow()
+        session.reviewed_by_user_id = current_user.id
+        session.reviewer_note = data.reviewer_note
+    else:
+        session.review_status = "UNREVIEWED"
+        session.reviewed_at = None
+        session.reviewed_by_user_id = None
+        session.reviewer_note = data.reviewer_note
+
+    await db.commit()
+    await db.refresh(session, attribute_names=["entries"])
+    session.entries.sort(key=lambda entry: entry.order)
+    return StandardResponse(data=WorkoutSessionResponse.model_validate(session))
+
+
 @router.get("/diets/{diet_id}/tracking", response_model=StandardResponse[MemberDietTrackerResponse])
 async def get_member_diet_tracking(
     diet_id: uuid.UUID,
@@ -2796,7 +2920,7 @@ async def create_diet_feedback(
 
 @router.get("/diet-feedback", response_model=StandardResponse[List[DietFeedbackResponse]])
 async def list_diet_feedback(
-    current_user: Annotated[User, Depends(dependencies.RoleChecker([Role.ADMIN, Role.COACH]))],
+    current_user: Annotated[User, Depends(dependencies.RoleChecker([Role.ADMIN, Role.MANAGER, Role.COACH]))],
     db: Annotated[AsyncSession, Depends(get_db)],
     diet_plan_id: uuid.UUID | None = Query(None),
     member_id: uuid.UUID | None = Query(None),
@@ -2848,7 +2972,7 @@ async def create_gym_feedback(
 
 @router.get("/gym-feedback", response_model=StandardResponse[List[GymFeedbackResponse]])
 async def list_gym_feedback(
-    current_user: Annotated[User, Depends(dependencies.RoleChecker([Role.ADMIN, Role.COACH]))],
+    current_user: Annotated[User, Depends(dependencies.RoleChecker([Role.ADMIN, Role.MANAGER, Role.COACH]))],
     db: Annotated[AsyncSession, Depends(get_db)],
     member_id: uuid.UUID | None = Query(None),
     category: str | None = Query(None),

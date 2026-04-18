@@ -1494,7 +1494,7 @@ async def read_staff_recent_transactions(
 async def read_coach_feedback_summary(
     current_user: Annotated[
         User,
-        Depends(dependencies.RoleChecker([schemas.Role.COACH])),
+        Depends(dependencies.RoleChecker([schemas.Role.ADMIN, schemas.Role.MANAGER, schemas.Role.COACH])),
     ],
     db: Annotated[AsyncSession, Depends(get_db)],
 ):

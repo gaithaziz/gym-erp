@@ -1,4 +1,4 @@
-import { useQuery } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useRouter } from "expo-router";
 import { useState } from "react";
 import { Pressable, Text, View } from "react-native";
@@ -6,18 +6,35 @@ import { Pressable, Text, View } from "react-native";
 import { Card, MediaPreview, MutedText, QueryState, Screen, SectionTitle, SecondaryButton } from "@/components/ui";
 import { parseCoachFeedbackEnvelope } from "@/lib/api";
 import { localeTag } from "@/lib/mobile-format";
+import { getCurrentRole } from "@/lib/mobile-role";
 import { usePreferences } from "@/lib/preferences";
 import { useSession } from "@/lib/session";
 
 export default function CoachFeedbackScreen() {
   const router = useRouter();
-  const { authorizedRequest } = useSession();
+  const queryClient = useQueryClient();
+  const { authorizedRequest, bootstrap } = useSession();
   const { copy, direction, fontSet, isRTL, theme } = usePreferences();
   const [expandedSessionId, setExpandedSessionId] = useState<string | null>(null);
   const locale = localeTag(isRTL);
+  const role = getCurrentRole(bootstrap);
+  const canReviewSessions = role === "ADMIN" || role === "COACH";
+  const canAdjustPlans = role === "COACH";
   const feedbackQuery = useQuery({
     queryKey: ["mobile-coach-feedback"],
     queryFn: async () => parseCoachFeedbackEnvelope(await authorizedRequest("/mobile/staff/coach/feedback")).data,
+  });
+  const reviewMutation = useMutation({
+    mutationFn: async (sessionId: string) => {
+      await authorizedRequest(`/fitness/session-logs/${sessionId}/review`, {
+        method: "POST",
+        body: JSON.stringify({ reviewed: true, reviewer_note: copy.feedbackScreen.reviewedByCoach }),
+      });
+    },
+    onSuccess: async () => {
+      setExpandedSessionId(null);
+      await queryClient.invalidateQueries({ queryKey: ["mobile-coach-feedback"] });
+    },
   });
   const feedback = feedbackQuery.data;
 
@@ -52,12 +69,12 @@ export default function CoachFeedbackScreen() {
                       <MutedText>
                         {[
                           itemDate(session.performed_at, locale),
-                          session.duration_minutes != null ? `${session.duration_minutes} min` : null,
+                          session.duration_minutes != null ? `${session.duration_minutes} ${copy.common.minutesShort}` : null,
                           session.rpe != null ? `${copy.feedbackScreen.rpe}: ${session.rpe}` : null,
                           session.pain_level != null ? `${copy.feedbackScreen.pain}: ${session.pain_level}` : null,
                           session.effort_feedback ? localizeEffort(session.effort_feedback, copy.feedbackScreen) : null,
                           `${copy.feedbackScreen.skipped}: ${session.skipped_count}`,
-                          `${session.pr_count} PRs`,
+                          `${session.pr_count} ${copy.feedbackScreen.prs}`,
                           session.attachment_url ? copy.feedbackScreen.attachment : null,
                         ].filter(Boolean).join(" • ")}
                       </MutedText>
@@ -69,11 +86,11 @@ export default function CoachFeedbackScreen() {
                         {session.entries.map((entry, index) => (
                           <View key={entry.id || `${session.id}-${index}`} style={{ borderWidth: 1, borderColor: theme.border, borderRadius: 8, padding: 10, backgroundColor: theme.cardAlt }}>
                             <Text style={{ color: theme.foreground, fontFamily: fontSet.body, fontWeight: "700", textAlign: isRTL ? "right" : "left", writingDirection: direction }}>
-                              {entry.exercise_name || copy.feedbackScreen.workout}{entry.skipped ? ` • ${copy.feedbackScreen.skipped}` : ""}{entry.is_pr ? " • PR" : ""}
+                              {entry.exercise_name || copy.feedbackScreen.workout}{entry.skipped ? ` • ${copy.feedbackScreen.skipped}` : ""}{entry.is_pr ? ` • ${copy.feedbackScreen.prs}` : ""}
                             </Text>
-                            <MutedText>{entry.skipped ? copy.feedbackScreen.skipped : `${entry.sets_completed} x ${entry.reps_completed} @ ${entry.weight_kg ?? 0}kg`}</MutedText>
+                            <MutedText>{entry.skipped ? copy.feedbackScreen.skipped : `${entry.sets_completed} x ${entry.reps_completed} @ ${entry.weight_kg ?? 0}${copy.feedbackScreen.weightUnit}`}</MutedText>
                             {entry.set_details?.length ? (
-                              <MutedText>{entry.set_details.map((row) => `${row.set}: ${row.reps} @ ${Number(row.weightKg || 0)}kg`).join(" • ")}</MutedText>
+                              <MutedText>{entry.set_details.map((row) => `${row.set}: ${row.reps} @ ${Number(row.weightKg || 0)}${copy.feedbackScreen.weightUnit}`).join(" • ")}</MutedText>
                             ) : null}
                             {entry.notes ? <MutedText>{entry.notes}</MutedText> : null}
                           </View>
@@ -82,6 +99,14 @@ export default function CoachFeedbackScreen() {
                     ) : null}
                     {session.member_id ? (
                       <SecondaryButton onPress={() => router.push({ pathname: "/(tabs)/members", params: { memberId: session.member_id } })}>{copy.feedbackScreen.openMember}</SecondaryButton>
+                    ) : null}
+                    {canAdjustPlans && session.member_id ? (
+                      <SecondaryButton onPress={() => router.push({ pathname: "/(tabs)/plans", params: { memberId: session.member_id } })}>{copy.feedbackScreen.adjustPlan}</SecondaryButton>
+                    ) : null}
+                    {canReviewSessions ? (
+                      <SecondaryButton disabled={reviewMutation.isPending} onPress={() => reviewMutation.mutate(session.id)}>
+                        {reviewMutation.isPending ? copy.common.loading : copy.feedbackScreen.markReviewed}
+                      </SecondaryButton>
                     ) : null}
                   </View>
                 );

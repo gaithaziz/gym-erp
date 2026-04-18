@@ -126,6 +126,23 @@ export async function finishWorkoutSession(
     return safeData<WorkoutSessionLog>(response.data?.data, {} as WorkoutSessionLog);
 }
 
+export async function updateWorkoutSession(
+    sessionId: string,
+    payload: {
+        duration_minutes?: number | null;
+        notes?: string | null;
+        rpe?: number | null;
+        pain_level?: number | null;
+        effort_feedback?: WorkoutEffortFeedback | null;
+        attachment_url?: string | null;
+        attachment_mime?: string | null;
+        attachment_size_bytes?: number | null;
+    },
+): Promise<WorkoutSessionLog> {
+    const response = await api.put(`/fitness/session-logs/${sessionId}`, payload);
+    return safeData<WorkoutSessionLog>(response.data?.data, {} as WorkoutSessionLog);
+}
+
 export async function abandonWorkoutSession(draftId: string): Promise<void> {
     await api.delete(`/fitness/workout-sessions/${draftId}`);
 }

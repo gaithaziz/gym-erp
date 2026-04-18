@@ -311,6 +311,27 @@ async def test_member_workout_session_draft_tracks_order_and_prs(client: AsyncCl
     assert session["entries"][1]["pr_type"] == "WEIGHT"
     assert session["entries"][1]["pr_value"] == "90kg x 8"
 
+    edit_resp = await client.put(
+        f"{settings.API_V1_STR}/fitness/session-logs/{session['id']}",
+        json={
+            "duration_minutes": 64,
+            "notes": "Edited after cooldown",
+            "rpe": 7,
+            "pain_level": 1,
+            "effort_feedback": "JUST_RIGHT",
+            "attachment_url": f"/static/workout_session_media/{member.id}/leg-day.jpg",
+            "attachment_mime": "image/jpeg",
+            "attachment_size_bytes": 1024,
+        },
+        headers=member_headers,
+    )
+    assert edit_resp.status_code == 200
+    edited = edit_resp.json()["data"]
+    assert edited["duration_minutes"] == 64
+    assert edited["notes"] == "Edited after cooldown"
+    assert edited["rpe"] == 7
+    assert edited["review_status"] == "UNREVIEWED"
+
     active_resp = await client.get(
         f"{settings.API_V1_STR}/fitness/workout-sessions/active?plan_id={plan_id}",
         headers=member_headers,

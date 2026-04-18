@@ -1,29 +1,42 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useState } from "react";
+import { useRouter } from "expo-router";
+import { useEffect, useState } from "react";
 import { Pressable, StyleSheet, Text, View } from "react-native";
 
 import { Card, MutedText, PrimaryButton, QueryState, Screen, SectionTitle, TextArea } from "@/components/ui";
 import { parseEnvelope, type MobileFeedbackHistory } from "@/lib/api";
 import { localeTag } from "@/lib/mobile-format";
+import { getCurrentRole, isAdminControlRole, isCustomerRole } from "@/lib/mobile-role";
 import { usePreferences } from "@/lib/preferences";
 import { useSession } from "@/lib/session";
 
 const GYM_FEEDBACK_CATEGORIES = ["GENERAL", "EQUIPMENT", "CLEANLINESS", "STAFF", "CLASSES"] as const;
 
 export default function FeedbackScreen() {
-  const { authorizedRequest } = useSession();
+  const router = useRouter();
+  const { authorizedRequest, bootstrap } = useSession();
   const { copy, direction, fontSet, isRTL, theme } = usePreferences();
   const queryClient = useQueryClient();
   const locale = localeTag(isRTL);
+  const role = getCurrentRole(bootstrap);
+  const customer = isCustomerRole(role);
+  const canReviewStaffQueue = role === "COACH" || isAdminControlRole(role);
   const [category, setCategory] = useState<(typeof GYM_FEEDBACK_CATEGORIES)[number]>("GENERAL");
   const [rating, setRating] = useState(5);
   const [comment, setComment] = useState("");
   const [formMessage, setFormMessage] = useState<string | null>(null);
   const feedbackQuery = useQuery({
-    queryKey: ["mobile-feedback-history"],
+    queryKey: ["mobile-feedback-history", role],
+    enabled: customer,
     queryFn: async () => parseEnvelope<MobileFeedbackHistory>(await authorizedRequest("/mobile/customer/feedback/history")).data,
   });
   const feedback = feedbackQuery.data;
+
+  useEffect(() => {
+    if (canReviewStaffQueue) {
+      router.replace("/coach-feedback");
+    }
+  }, [canReviewStaffQueue, router]);
 
   const gymFeedbackMutation = useMutation({
     mutationFn: async () =>
@@ -47,6 +60,21 @@ export default function FeedbackScreen() {
 
   return (
     <Screen title={copy.common.feedbackHistory} subtitle={copy.feedbackScreen.subtitle}>
+      {!customer ? (
+        <Card>
+          <SectionTitle>{copy.common.feedbackHistory}</SectionTitle>
+          <MutedText>
+            {canReviewStaffQueue ? copy.feedbackScreen.coachSubtitle : copy.common.errorTryAgain}
+          </MutedText>
+          {canReviewStaffQueue ? (
+            <PrimaryButton onPress={() => router.replace("/coach-feedback")}>
+              {copy.more.feedback}
+            </PrimaryButton>
+          ) : null}
+        </Card>
+      ) : null}
+
+      {customer ? (
       <Card>
         <SectionTitle>{copy.feedbackScreen.submitGymFeedback}</SectionTitle>
         <View style={[styles.chipList, { flexDirection: isRTL ? "row-reverse" : "row" }]}>
@@ -71,9 +99,10 @@ export default function FeedbackScreen() {
         </PrimaryButton>
         {formMessage ? <MutedText>{formMessage}</MutedText> : null}
       </Card>
+      ) : null}
 
-      <QueryState loading={feedbackQuery.isLoading} error={feedbackQuery.error instanceof Error ? feedbackQuery.error.message : null} />
-      {feedback ? (
+      {customer ? <QueryState loading={feedbackQuery.isLoading} error={feedbackQuery.error instanceof Error ? feedbackQuery.error.message : null} /> : null}
+      {customer && feedback ? (
         <>
           <Card>
               <SectionTitle>{copy.feedbackScreen.workout}</SectionTitle>
