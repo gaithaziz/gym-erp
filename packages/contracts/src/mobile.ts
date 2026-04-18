@@ -455,8 +455,42 @@ export const mobilePosSummarySchema = z.object({
   recent_transactions: z.array(mobileStaffTransactionSummarySchema),
 });
 
+const mobileWorkoutSessionSummarySchema = z.object({
+  id: z.string().uuid(),
+  member_id: z.string().uuid().optional(),
+  member_name: z.string().nullable().optional(),
+  plan_id: z.string().uuid(),
+  plan_name: z.string().nullable().optional(),
+  performed_at: z.string(),
+  duration_minutes: z.number().int().nullable().optional(),
+  notes: z.string().nullable().optional(),
+  rpe: z.number().int().nullable().optional(),
+  pain_level: z.number().int().nullable().optional(),
+  effort_feedback: z.string().nullable().optional(),
+  attachment_url: z.string().nullable().optional(),
+  attachment_mime: z.string().nullable().optional(),
+  attachment_size_bytes: z.number().int().nullable().optional(),
+  skipped_count: z.number().int().default(0),
+  pr_count: z.number().int().default(0),
+  entries: z.array(
+    z.object({
+      id: z.string().uuid().optional(),
+      exercise_name: z.string().nullable().optional(),
+      sets_completed: z.number().int(),
+      reps_completed: z.number().int(),
+      weight_kg: z.number().nullable().optional(),
+      notes: z.string().nullable().optional(),
+      is_pr: z.boolean().optional(),
+      skipped: z.boolean().optional(),
+      set_details: z.array(z.record(z.string(), z.unknown())).default([]),
+      order: z.number().int().optional(),
+    }),
+  ).default([]),
+});
+
 export const mobileCoachFeedbackSchema = z.object({
   stats: z.record(z.string(), z.number().int()),
+  flagged_sessions: z.array(mobileWorkoutSessionSummarySchema).default([]),
   workout_feedback: z.array(
     z.object({
       id: z.string().uuid(),

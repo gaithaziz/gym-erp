@@ -41,6 +41,12 @@ class WorkoutSession(Base):
     performed_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False)
     duration_minutes: Mapped[int | None] = mapped_column(Integer, nullable=True)
     notes: Mapped[str | None] = mapped_column(Text, nullable=True)
+    rpe: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    pain_level: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    effort_feedback: Mapped[str | None] = mapped_column(String, nullable=True)
+    attachment_url: Mapped[str | None] = mapped_column(String, nullable=True)
+    attachment_mime: Mapped[str | None] = mapped_column(String, nullable=True)
+    attachment_size_bytes: Mapped[int | None] = mapped_column(Integer, nullable=True)
 
     member = relationship("User")
     plan = relationship("WorkoutPlan")
@@ -64,6 +70,8 @@ class WorkoutSessionEntry(Base):
     pr_type: Mapped[str | None] = mapped_column(String, nullable=True)
     pr_value: Mapped[str | None] = mapped_column(String, nullable=True)
     pr_notes: Mapped[str | None] = mapped_column(Text, nullable=True)
+    skipped: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    set_details: Mapped[str | None] = mapped_column(Text, nullable=True)
     order: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
 
     session = relationship("WorkoutSession", back_populates="entries")
@@ -115,6 +123,7 @@ class WorkoutSessionDraftEntry(Base):
     pr_value: Mapped[str | None] = mapped_column(String, nullable=True)
     pr_notes: Mapped[str | None] = mapped_column(Text, nullable=True)
     skipped: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    set_details: Mapped[str | None] = mapped_column(Text, nullable=True)
     completed_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     order: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
 

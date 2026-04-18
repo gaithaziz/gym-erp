@@ -222,6 +222,7 @@ class MobilePOSCheckoutResponse(BaseModel):
 
 class MobileCoachFeedbackResponse(BaseModel):
     stats: dict[str, int]
+    flagged_sessions: list[dict[str, Any]] = Field(default_factory=list)
     workout_feedback: list[dict[str, Any]]
     diet_feedback: list[dict[str, Any]]
     gym_feedback: list[dict[str, Any]]

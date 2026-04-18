@@ -5,6 +5,8 @@ import type {
     MemberDietTracker,
     MemberDiet,
     MemberPlan,
+    WorkoutEffortFeedback,
+    WorkoutSetDetail,
     WorkoutSessionDraft,
     WorkoutSessionLog,
 } from './types';
@@ -90,6 +92,7 @@ export async function completeWorkoutExercise(
         pr_type?: string | null;
         pr_value?: string | null;
         pr_notes?: string | null;
+        set_details?: WorkoutSetDetail[];
     },
 ): Promise<WorkoutSessionDraft> {
     const response = await api.put(`/fitness/workout-sessions/${draftId}/entries/${entryId}`, payload);
@@ -101,9 +104,23 @@ export async function skipWorkoutExercise(draftId: string, entryId: string, note
     return safeData<WorkoutSessionDraft>(response.data?.data, {} as WorkoutSessionDraft);
 }
 
+export async function previousWorkoutExercise(draftId: string): Promise<WorkoutSessionDraft> {
+    const response = await api.post(`/fitness/workout-sessions/${draftId}/previous`);
+    return safeData<WorkoutSessionDraft>(response.data?.data, {} as WorkoutSessionDraft);
+}
+
 export async function finishWorkoutSession(
     draftId: string,
-    payload: { duration_minutes?: number | null; notes?: string | null },
+    payload: {
+        duration_minutes?: number | null;
+        notes?: string | null;
+        rpe?: number | null;
+        pain_level?: number | null;
+        effort_feedback?: WorkoutEffortFeedback | null;
+        attachment_url?: string | null;
+        attachment_mime?: string | null;
+        attachment_size_bytes?: number | null;
+    },
 ): Promise<WorkoutSessionLog> {
     const response = await api.post(`/fitness/workout-sessions/${draftId}/finish`, payload);
     return safeData<WorkoutSessionLog>(response.data?.data, {} as WorkoutSessionLog);

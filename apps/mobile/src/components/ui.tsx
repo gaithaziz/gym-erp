@@ -257,7 +257,7 @@ export function ValueText({ children }: PropsWithChildren) {
 export function PrimaryButton({ children, ...props }: PropsWithChildren<PressableProps>) {
   const { direction, fontSet, isRTL, theme } = usePreferences();
   return (
-    <Pressable {...props} style={({ pressed }) => [styles.primaryButton, { backgroundColor: theme.primary, flexDirection: isRTL ? "row-reverse" : "row" }, pressed && styles.buttonPressed]}>
+    <Pressable {...props} style={({ pressed }) => [styles.primaryButton, { backgroundColor: theme.primary, flexDirection: isRTL ? "row-reverse" : "row" }, pressed && styles.buttonPressed, props.disabled && styles.buttonDisabled]}>
       <Text style={[styles.primaryButtonText, { color: "#FFFFFF", fontFamily: fontSet.body, textAlign: isRTL ? "right" : "left", writingDirection: direction }]}>{children}</Text>
     </Pressable>
   );
@@ -266,7 +266,7 @@ export function PrimaryButton({ children, ...props }: PropsWithChildren<Pressabl
 export function SecondaryButton({ children, ...props }: PropsWithChildren<PressableProps>) {
   const { direction, fontSet, isRTL, theme } = usePreferences();
   return (
-    <Pressable {...props} style={({ pressed }) => [styles.secondaryButton, { backgroundColor: theme.cardAlt, borderColor: theme.border, flexDirection: isRTL ? "row-reverse" : "row" }, pressed && styles.buttonPressed]}>
+    <Pressable {...props} style={({ pressed }) => [styles.secondaryButton, { backgroundColor: theme.cardAlt, borderColor: theme.border, flexDirection: isRTL ? "row-reverse" : "row" }, pressed && styles.buttonPressed, props.disabled && styles.buttonDisabled]}>
       <Text style={[styles.secondaryButtonText, { color: theme.foreground, fontFamily: fontSet.body, textAlign: isRTL ? "right" : "left", writingDirection: direction }]}>{children}</Text>
     </Pressable>
   );
@@ -572,6 +572,9 @@ const styles = StyleSheet.create({
   },
   buttonPressed: {
     opacity: 0.85,
+  },
+  buttonDisabled: {
+    opacity: 0.55,
   },
   controlButton: {
     width: 38,

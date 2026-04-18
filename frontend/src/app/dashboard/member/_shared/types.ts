@@ -83,6 +83,14 @@ export interface BiometricLogResponse {
     muscle_mass_kg?: number;
 }
 
+export interface WorkoutSetDetail {
+    set: number;
+    reps: number;
+    weightKg?: number | null;
+}
+
+export type WorkoutEffortFeedback = 'TOO_EASY' | 'JUST_RIGHT' | 'TOO_HARD';
+
 export interface WorkoutSessionEntry {
     id?: string;
     exercise_id?: string | null;
@@ -97,6 +105,8 @@ export interface WorkoutSessionEntry {
     pr_type?: string | null;
     pr_value?: string | null;
     pr_notes?: string | null;
+    skipped?: boolean;
+    set_details?: WorkoutSetDetail[];
     order: number;
 }
 
@@ -107,6 +117,12 @@ export interface WorkoutSessionLog {
     performed_at: string;
     duration_minutes?: number | null;
     notes?: string | null;
+    rpe?: number | null;
+    pain_level?: number | null;
+    effort_feedback?: WorkoutEffortFeedback | null;
+    attachment_url?: string | null;
+    attachment_mime?: string | null;
+    attachment_size_bytes?: number | null;
     entries: WorkoutSessionEntry[];
 }
 

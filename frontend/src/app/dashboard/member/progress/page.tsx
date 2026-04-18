@@ -219,6 +219,7 @@ export default function MemberProgressPage() {
         filteredSessionLogs.forEach((session) => {
             const key = new Date(session.performed_at).toISOString().split('T')[0];
             const volume = (session.entries || []).reduce((sum, entry) => {
+                if (entry.skipped) return sum;
                 const value = entry.weight_kg || 0;
                 return sum + (entry.sets_completed * entry.reps_completed * value);
             }, 0);
@@ -237,6 +238,7 @@ export default function MemberProgressPage() {
         const byExercise = new Map<string, { bestWeight: number; bestWeightReps: number; bestReps: number; bestRepsWeight: number }>();
         filteredSessionLogs.forEach((session) => {
             session.entries.forEach((entry) => {
+                if (entry.skipped) return;
                 const name = (entry.exercise_name || txt.fallbackExercise).trim();
                 const weightValue = Number(entry.weight_kg || 0);
                 const repsValue = Number(entry.reps_completed || 0);
@@ -537,4 +539,3 @@ export default function MemberProgressPage() {
         </div>
     );
 }
-

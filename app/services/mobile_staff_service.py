@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from datetime import date, datetime
 from decimal import Decimal
 import uuid
@@ -19,7 +20,7 @@ from app.models.lost_found import LostFoundItem, LostFoundStatus
 from app.models.notification import MobileDevice, MobileNotificationPreference
 from app.models.support import SupportTicket, TicketStatus
 from app.models.user import User
-from app.models.workout_log import DietFeedback, GymFeedback, WorkoutLog, WorkoutSession
+from app.models.workout_log import DietFeedback, GymFeedback, WorkoutLog, WorkoutSession, WorkoutSessionEntry
 from app.services.audit_service import AuditService
 from app.services.mobile_bootstrap_service import MobileBootstrapService
 
@@ -42,6 +43,55 @@ def _receipt_urls(transaction_id: uuid.UUID) -> dict[str, str]:
         "receipt_print_url": f"{base}/print",
         "receipt_export_url": f"{base}/export",
         "receipt_export_pdf_url": f"{base}/export-pdf",
+    }
+
+
+def _parse_set_details(value: str | None) -> list[dict]:
+    if not value:
+        return []
+    try:
+        parsed = json.loads(value)
+    except (TypeError, json.JSONDecodeError):
+        return []
+    return parsed if isinstance(parsed, list) else []
+
+
+def _session_summary(session: WorkoutSession, plan_name: str | None = None, member_name: str | None = None) -> dict:
+    entries = sorted(session.entries or [], key=lambda entry: entry.order)
+    skipped_count = sum(1 for entry in entries if entry.skipped)
+    pr_count = sum(1 for entry in entries if entry.is_pr)
+    return {
+        "id": str(session.id),
+        "member_id": str(session.member_id),
+        "member_name": member_name,
+        "plan_id": str(session.plan_id),
+        "plan_name": plan_name,
+        "performed_at": session.performed_at.isoformat(),
+        "duration_minutes": session.duration_minutes,
+        "notes": session.notes,
+        "rpe": session.rpe,
+        "pain_level": session.pain_level,
+        "effort_feedback": session.effort_feedback,
+        "attachment_url": session.attachment_url,
+        "attachment_mime": session.attachment_mime,
+        "attachment_size_bytes": session.attachment_size_bytes,
+        "skipped_count": skipped_count,
+        "pr_count": pr_count,
+        "entries": [
+            {
+                "id": str(entry.id),
+                "exercise_name": entry.exercise_name,
+                "sets_completed": entry.sets_completed,
+                "reps_completed": entry.reps_completed,
+                "weight_kg": entry.weight_kg,
+                "notes": entry.notes,
+                "is_pr": entry.is_pr,
+                "skipped": entry.skipped,
+                "set_details": _parse_set_details(entry.set_details),
+                "order": entry.order,
+            }
+            for entry in entries
+        ],
     }
 
 
@@ -115,6 +165,7 @@ class MobileStaffService:
             select(WorkoutSession, WorkoutPlan.name)
             .join(WorkoutPlan, WorkoutPlan.id == WorkoutSession.plan_id)
             .where(WorkoutSession.member_id == member.id)
+            .options(selectinload(WorkoutSession.entries))
             .order_by(WorkoutSession.performed_at.desc())
             .limit(8)
         )
@@ -207,14 +258,7 @@ class MobileStaffService:
                 for item in biometrics
             ],
             "recent_workout_sessions": [
-                {
-                    "id": str(session.id),
-                    "plan_id": str(session.plan_id),
-                    "plan_name": plan_name,
-                    "performed_at": session.performed_at.isoformat(),
-                    "duration_minutes": session.duration_minutes,
-                    "notes": session.notes,
-                }
+                _session_summary(session, plan_name=plan_name)
                 for session, plan_name in workout_sessions
             ],
             "workout_feedback": [
@@ -967,13 +1011,36 @@ class MobileStaffService:
                 .limit(20)
             )
         ).all()
+        flagged_session_rows = (
+            await db.execute(
+                select(WorkoutSession, WorkoutPlan.name, User.full_name)
+                .join(WorkoutPlan, WorkoutPlan.id == WorkoutSession.plan_id)
+                .join(User, User.id == WorkoutSession.member_id)
+                .where(
+                    WorkoutPlan.creator_id == current_user.id,
+                    or_(
+                        WorkoutSession.pain_level >= 4,
+                        WorkoutSession.effort_feedback == "TOO_HARD",
+                        and_(WorkoutSession.notes.is_not(None), WorkoutSession.attachment_url.is_not(None)),
+                    ),
+                )
+                .options(selectinload(WorkoutSession.entries))
+                .order_by(WorkoutSession.performed_at.desc())
+                .limit(20)
+            )
+        ).all()
 
         return {
             "stats": {
                 "workout_feedback": len(workout_rows),
                 "diet_feedback": len(diet_rows),
                 "gym_feedback": len(gym_rows),
+                "flagged_sessions": len(flagged_session_rows),
             },
+            "flagged_sessions": [
+                _session_summary(session, plan_name=plan_name, member_name=member_name)
+                for session, plan_name, member_name in flagged_session_rows
+            ],
             "workout_feedback": [
                 {
                     "id": str(feedback.id),

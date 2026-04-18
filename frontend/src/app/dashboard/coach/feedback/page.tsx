@@ -44,6 +44,35 @@ interface GymFeedbackRow {
     created_at: string;
 }
 
+interface FlaggedWorkoutSession {
+    id: string;
+    member_id?: string | null;
+    member_name?: string | null;
+    plan_id: string;
+    plan_name?: string | null;
+    performed_at: string;
+    duration_minutes?: number | null;
+    notes?: string | null;
+    rpe?: number | null;
+    pain_level?: number | null;
+    effort_feedback?: string | null;
+    attachment_url?: string | null;
+    attachment_mime?: string | null;
+    skipped_count?: number;
+    pr_count?: number;
+    entries?: Array<{
+        id?: string;
+        exercise_name?: string | null;
+        sets_completed: number;
+        reps_completed: number;
+        weight_kg?: number | null;
+        notes?: string | null;
+        is_pr?: boolean;
+        skipped?: boolean;
+        set_details?: Array<{ set?: unknown; reps?: unknown; weightKg?: unknown }>;
+    }>;
+}
+
 export default function FeedbackPage() {
     const { locale, formatDate } = useLocale();
     const [plans, setPlans] = useState<Plan[]>([]);
@@ -52,7 +81,9 @@ export default function FeedbackPage() {
     const [logs, setLogs] = useState<WorkoutLog[]>([]);
     const [dietFeedback, setDietFeedback] = useState<DietFeedbackRow[]>([]);
     const [gymFeedback, setGymFeedback] = useState<GymFeedbackRow[]>([]);
-    const [tab, setTab] = useState<'WORKOUT' | 'DIET' | 'GYM'>('WORKOUT');
+    const [flaggedSessions, setFlaggedSessions] = useState<FlaggedWorkoutSession[]>([]);
+    const [expandedSessionId, setExpandedSessionId] = useState<string | null>(null);
+    const [tab, setTab] = useState<'FLAGGED' | 'WORKOUT' | 'DIET' | 'GYM'>('FLAGGED');
     const [minRating, setMinRating] = useState(1);
     const [loading, setLoading] = useState(true);
 
@@ -81,6 +112,10 @@ export default function FeedbackPage() {
         api.get('/fitness/gym-feedback', { params: { min_rating: minRating } })
             .then((res) => setGymFeedback(res.data.data || []))
             .catch(() => setGymFeedback([]));
+
+        api.get('/mobile/staff/coach/feedback')
+            .then((res) => setFlaggedSessions(res.data.data?.flagged_sessions || []))
+            .catch(() => setFlaggedSessions([]));
     }, [minRating]);
 
     const fetchLogs = async (planId: string) => {
@@ -125,6 +160,23 @@ export default function FeedbackPage() {
         return map;
     }, [dietPlans]);
 
+    const effortLabel = (value?: string | null) => {
+        if (locale === 'ar') {
+            if (value === 'TOO_EASY') return 'سهل جداً';
+            if (value === 'JUST_RIGHT') return 'مناسب';
+            if (value === 'TOO_HARD') return 'صعب جداً';
+        }
+        if (value === 'TOO_EASY') return 'Too easy';
+        if (value === 'JUST_RIGHT') return 'Just right';
+        if (value === 'TOO_HARD') return 'Too hard';
+        return value || '';
+    };
+
+    const attachmentHref = (value?: string | null) => {
+        if (!value) return null;
+        return value.startsWith('http://') || value.startsWith('https://') ? value : value;
+    };
+
     const renderStars = (rating: number | null) => {
         if (!rating) return <span className="text-[#333] text-xs">{locale === 'ar' ? 'بدون تقييم' : 'No rating'}</span>;
         return (
@@ -152,6 +204,9 @@ export default function FeedbackPage() {
             </div>
 
             <div className="flex flex-wrap gap-2">
+                <button type="button" onClick={() => setTab('FLAGGED')} className={`px-3 py-1.5 text-xs font-mono uppercase border transition-colors ${tab === 'FLAGGED' ? 'bg-primary text-primary-foreground border-primary' : 'border-border text-muted-foreground hover:text-foreground'}`}>
+                    {locale === 'ar' ? `مراجعة (${flaggedSessions.length})` : `Review (${flaggedSessions.length})`}
+                </button>
                 <button type="button" onClick={() => setTab('WORKOUT')} className={`px-3 py-1.5 text-xs font-mono uppercase border transition-colors ${tab === 'WORKOUT' ? 'bg-primary text-primary-foreground border-primary' : 'border-border text-muted-foreground hover:text-foreground'}`}>{locale === 'ar' ? 'تمارين' : 'Workout'}</button>
                 <button type="button" onClick={() => setTab('DIET')} className={`px-3 py-1.5 text-xs font-mono uppercase border transition-colors ${tab === 'DIET' ? 'bg-primary text-primary-foreground border-primary' : 'border-border text-muted-foreground hover:text-foreground'}`}>{locale === 'ar' ? 'تغذية' : 'Diet'}</button>
                 <button type="button" onClick={() => setTab('GYM')} className={`px-3 py-1.5 text-xs font-mono uppercase border transition-colors ${tab === 'GYM' ? 'bg-primary text-primary-foreground border-primary' : 'border-border text-muted-foreground hover:text-foreground'}`}>{locale === 'ar' ? 'النادي' : 'Gym'}</button>
@@ -167,6 +222,79 @@ export default function FeedbackPage() {
                     <option value={5}>{locale === 'ar' ? '5 فقط' : '5 only'}</option>
                 </select>
             </div>
+
+            {tab === 'FLAGGED' && (
+                <div className="space-y-4">
+                    {flaggedSessions.length === 0 ? (
+                        <div className="chart-card text-center py-12 border border-dashed border-border">
+                            <MessageSquare size={40} className="mx-auto text-muted-foreground mb-3 opacity-50" />
+                            <p className="text-muted-foreground text-sm">{locale === 'ar' ? 'لا توجد جلسات تحتاج مراجعة' : 'No flagged sessions yet'}</p>
+                        </div>
+                    ) : (
+                        flaggedSessions.map((session) => (
+                            <div key={session.id} className="kpi-card">
+                                <div className="flex justify-between items-start gap-3 mb-3">
+                                    <div>
+                                        <p className="text-sm font-semibold text-foreground">{session.plan_name || (locale === 'ar' ? 'جلسة تمرين' : 'Workout session')}</p>
+                                        <p className="text-xs text-muted-foreground">{session.member_name || (locale === 'ar' ? 'عضو' : 'Member')}</p>
+                                    </div>
+                                    <span className="text-xs text-muted-foreground">{formatDate(session.performed_at, { month: 'short', day: 'numeric', year: 'numeric' })}</span>
+                                </div>
+                                <div className="flex flex-wrap gap-2 text-xs text-muted-foreground">
+                                    {session.duration_minutes != null && <span>{session.duration_minutes} min</span>}
+                                    {session.rpe != null && <span>RPE {session.rpe}</span>}
+                                    {session.pain_level != null && <span>{locale === 'ar' ? 'الألم' : 'Pain'} {session.pain_level}</span>}
+                                    {session.effort_feedback && <span>{effortLabel(session.effort_feedback)}</span>}
+                                    <span>{session.skipped_count || 0} {locale === 'ar' ? 'تخطي' : 'skipped'}</span>
+                                    <span>{session.pr_count || 0} PRs</span>
+                                    {session.attachment_url && <span>{locale === 'ar' ? 'مرفق' : 'attachment'}</span>}
+                                </div>
+                                {session.notes && (
+                                    <div className="rounded-sm p-3 text-sm text-muted-foreground mt-3 bg-muted/40 border border-border">
+                                        {session.notes}
+                                    </div>
+                                )}
+                                <button
+                                    type="button"
+                                    onClick={() => setExpandedSessionId((current) => current === session.id ? null : session.id)}
+                                    className="mt-3 text-xs font-mono uppercase text-primary hover:text-primary/80"
+                                >
+                                    {expandedSessionId === session.id ? (locale === 'ar' ? 'إخفاء التفاصيل' : 'Hide details') : (locale === 'ar' ? 'مراجعة الجلسة' : 'Review session')}
+                                </button>
+                                {expandedSessionId === session.id && (
+                                    <div className="mt-3 space-y-3 border-t border-border pt-3">
+                                        {session.attachment_url && (
+                                            <a href={attachmentHref(session.attachment_url) || '#'} target="_blank" rel="noreferrer" className="inline-flex text-xs font-mono uppercase text-primary hover:text-primary/80">
+                                                {locale === 'ar' ? 'فتح المرفق' : 'Open attachment'}
+                                            </a>
+                                        )}
+                                        {(session.entries || []).map((entry, index) => (
+                                            <div key={entry.id || `${session.id}-${index}`} className="rounded-sm border border-border bg-muted/20 p-3">
+                                                <div className="flex justify-between gap-3 text-xs">
+                                                    <span className="font-semibold text-foreground">
+                                                        {entry.exercise_name || (locale === 'ar' ? 'تمرين' : 'Exercise')}
+                                                        {entry.skipped ? ` • ${locale === 'ar' ? 'تم التخطي' : 'Skipped'}` : ''}
+                                                        {entry.is_pr ? ' • PR' : ''}
+                                                    </span>
+                                                    <span className="font-mono text-muted-foreground">
+                                                        {entry.skipped ? (locale === 'ar' ? 'تم التخطي' : 'Skipped') : `${entry.sets_completed}x${entry.reps_completed} @ ${entry.weight_kg ?? 0}kg`}
+                                                    </span>
+                                                </div>
+                                                {entry.set_details?.length ? (
+                                                    <p className="mt-2 text-[11px] font-mono text-muted-foreground">
+                                                        {entry.set_details.map((row, rowIndex) => `${Number(row.set ?? rowIndex + 1)}: ${Number(row.reps ?? 0)} @ ${Number(row.weightKg ?? 0)}kg`).join(' | ')}
+                                                    </p>
+                                                ) : null}
+                                                {entry.notes ? <p className="mt-2 text-xs text-muted-foreground">{entry.notes}</p> : null}
+                                            </div>
+                                        ))}
+                                    </div>
+                                )}
+                            </div>
+                        ))
+                    )}
+                </div>
+            )}
 
             {tab === 'WORKOUT' && (
                 <>

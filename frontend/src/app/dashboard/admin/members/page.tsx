@@ -70,6 +70,10 @@ interface WorkoutSessionEntry {
     sets_completed: number;
     reps_completed: number;
     weight_kg?: number | null;
+    notes?: string | null;
+    is_pr?: boolean;
+    skipped?: boolean;
+    set_details?: Array<{ set: number; reps: number; weightKg?: number | null }>;
 }
 
 interface WorkoutSession {
@@ -78,6 +82,11 @@ interface WorkoutSession {
     performed_at: string;
     duration_minutes?: number | null;
     notes?: string | null;
+    rpe?: number | null;
+    pain_level?: number | null;
+    effort_feedback?: 'TOO_EASY' | 'JUST_RIGHT' | 'TOO_HARD' | null;
+    attachment_url?: string | null;
+    attachment_mime?: string | null;
     entries: WorkoutSessionEntry[];
 }
 
@@ -1410,6 +1419,7 @@ export default function MembersPage() {
                                     {viewSessions.length > 0 ? (
                                         viewSessions.slice(0, 10).map((session) => {
                                             const sessionVolume = (session.entries || []).reduce((sum, entry) => {
+                                                if (entry.skipped) return sum;
                                                 const weight = entry.weight_kg || 0;
                                                 return sum + (entry.sets_completed * entry.reps_completed * weight);
                                             }, 0);
@@ -1420,14 +1430,30 @@ export default function MembersPage() {
                                                             {formatDate(session.performed_at, { year: 'numeric', month: '2-digit', day: '2-digit' })}
                                                         </p>
                                                         <p className="text-[11px] text-muted-foreground font-mono">
-                                                            {session.entries.length} {text.exercises} | {Math.round(sessionVolume)} {text.volumeKg}
+                                                            {session.entries.filter((entry) => !entry.skipped).length} {text.exercises} | {Math.round(sessionVolume)} {text.volumeKg}
                                                         </p>
                                                     </div>
+                                                    <div className="mb-2 flex flex-wrap gap-2 text-[11px] text-muted-foreground">
+                                                        {session.duration_minutes != null && <span>{session.duration_minutes} min</span>}
+                                                        {session.rpe != null && <span>RPE {session.rpe}</span>}
+                                                        {session.pain_level != null && <span>Pain {session.pain_level}</span>}
+                                                        {session.effort_feedback && <span>{session.effort_feedback.replace('_', ' ')}</span>}
+                                                        {session.attachment_url && <span>Attachment</span>}
+                                                    </div>
+                                                    {session.notes && <p className="mb-2 text-xs text-muted-foreground">{session.notes}</p>}
                                                     <div className="space-y-1">
                                                         {session.entries.slice(0, 3).map((entry) => (
-                                                            <div key={entry.id} className="flex justify-between text-xs">
-                                                                <span className="text-muted-foreground">{entry.exercise_name || text.workout}</span>
-                                                                <span className="text-muted-foreground font-mono">{`${entry.sets_completed}x${entry.reps_completed} @ ${entry.weight_kg ?? 0}kg`}</span>
+                                                            <div key={entry.id} className="text-xs">
+                                                                <div className="flex justify-between gap-3">
+                                                                    <span className="text-muted-foreground">{entry.exercise_name || text.workout}{entry.is_pr ? ' PR' : ''}</span>
+                                                                    <span className="text-muted-foreground font-mono">{entry.skipped ? 'Skipped' : `${entry.sets_completed}x${entry.reps_completed} @ ${entry.weight_kg ?? 0}kg`}</span>
+                                                                </div>
+                                                                {entry.set_details?.length ? (
+                                                                    <p className="text-[10px] text-muted-foreground font-mono">
+                                                                        {entry.set_details.map((row) => `${row.set}: ${row.reps} @ ${row.weightKg ?? 0}kg`).join(' | ')}
+                                                                    </p>
+                                                                ) : null}
+                                                                {entry.notes ? <p className="text-[10px] text-muted-foreground">{entry.notes}</p> : null}
                                                             </div>
                                                         ))}
                                                         {session.entries.length > 3 && (
@@ -1462,6 +1488,3 @@ export default function MembersPage() {
         </div>
     );
 }
-
-
-

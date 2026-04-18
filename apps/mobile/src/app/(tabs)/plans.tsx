@@ -1,14 +1,26 @@
 import { Ionicons } from "@expo/vector-icons";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { ResizeMode, Video } from "expo-av";
+import * as SecureStore from "expo-secure-store";
+import * as WebBrowser from "expo-web-browser";
 import { useEffect, useMemo, useState } from "react";
 import { Pressable, Text, View } from "react-native";
 
-import { Card, Input, MutedText, PrimaryButton, QueryState, Screen, SectionTitle, SecondaryButton, TextArea } from "@/components/ui";
-import { parseCoachPlansEnvelope } from "@/lib/api";
+import { Card, Input, MediaPreview, MutedText, PrimaryButton, QueryState, Screen, SectionTitle, SecondaryButton, TextArea } from "@/components/ui";
+import { API_BASE_URL, parseCoachPlansEnvelope } from "@/lib/api";
+import { pickImageOrVideoFromLibrary } from "@/lib/media-picker";
 import { localizePlanStatus } from "@/lib/mobile-format";
 import { getCurrentRole } from "@/lib/mobile-role";
 import { usePreferences } from "@/lib/preferences";
 import { useSession } from "@/lib/session";
+import {
+  createWorkoutQueueId,
+  enqueueWorkoutAction,
+  isLikelyNetworkError,
+  loadWorkoutQueue,
+  replayWorkoutQueue,
+  type WorkoutQueuedAction,
+} from "@/lib/workout-offline-queue";
 
 type WorkoutPlan = {
   id: string;
@@ -58,6 +70,7 @@ type DietTracker = {
 
 type WorkoutDraft = {
   id: string;
+  started_at: string;
   current_exercise_index: number;
   entries: Array<{
     id: string;
@@ -78,9 +91,41 @@ type WorkoutDraft = {
     pr_type?: string | null;
     pr_value?: string | null;
     pr_notes?: string | null;
+    set_details?: SetDetail[];
     skipped: boolean;
     completed_at?: string | null;
   }>;
+};
+
+type SetDetail = {
+  set: number;
+  reps: string;
+  weightKg: string;
+};
+
+type WorkoutSetPayload = {
+  set: number;
+  reps: number;
+  weightKg: number | null;
+};
+
+type CompleteWorkoutPayload = {
+  sets_completed: number;
+  reps_completed: number;
+  weight_kg: number | null;
+  notes: string | null;
+  is_pr: boolean;
+  pr_type: string | null;
+  pr_value: string | null;
+  pr_notes: string | null;
+  set_details: WorkoutSetPayload[];
+};
+
+type WorkoutAttachment = {
+  media_url: string;
+  media_mime?: string | null;
+  media_size_bytes?: number | null;
+  name?: string;
 };
 
 type ExerciseForm = {
@@ -119,6 +164,7 @@ type CoachDietDay = {
 type PlanAction = "publish" | "archive" | "fork-draft" | "clone";
 type PlanActionResponse = { id?: string };
 type PlanActionNotice = { kind: "success" | "error"; message: string };
+type WorkoutActionNotice = { kind: "success" | "error"; message: string };
 
 const emptyForm: ExerciseForm = {
   setsCompleted: "",
@@ -133,6 +179,59 @@ const emptyForm: ExerciseForm = {
 
 function createRowId() {
   return `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+}
+
+function normalizeMediaUrl(url: string) {
+  if (url.startsWith("/")) {
+    return `${API_BASE_URL.replace(/\/api\/v1\/?$/, "")}${url}`;
+  }
+  return url;
+}
+
+function isDirectVideoUrl(url: string) {
+  return /\.(mp4|mov|m4v|webm)(\?|#|$)/i.test(url);
+}
+
+function resolveExerciseVideo(entry: WorkoutDraft["entries"][number]) {
+  const uploadedUrl = entry.video_type === "UPLOAD" && entry.uploaded_video_url ? entry.uploaded_video_url : null;
+  const url = uploadedUrl || entry.embed_url || entry.video_url || null;
+  if (!url) return null;
+  const normalizedUrl = normalizeMediaUrl(url);
+  return {
+    url: normalizedUrl,
+    direct: !!uploadedUrl || isDirectVideoUrl(normalizedUrl),
+  };
+}
+
+function estimateSessionDurationMinutes(draft?: WorkoutDraft | null) {
+  if (!draft?.started_at) return null;
+  const startedAt = new Date(draft.started_at).getTime();
+  if (!Number.isFinite(startedAt)) return null;
+  return Math.max(1, Math.round((Date.now() - startedAt) / 60000));
+}
+
+function draftCacheKey(draftId?: string | null) {
+  return draftId ? `gym-erp.mobile.workout-draft.${draftId}` : null;
+}
+
+function buildDefaultSetRows(entry?: WorkoutDraft["entries"][number] | null): SetDetail[] {
+  const count = Math.max(1, entry?.target_sets ?? entry?.sets_completed ?? 1);
+  return Array.from({ length: count }, (_, index) => ({
+    set: index + 1,
+    reps: entry?.set_details?.[index]?.reps != null ? String(entry.set_details[index].reps) : entry?.target_reps != null ? String(entry.target_reps) : "",
+    weightKg: entry?.set_details?.[index]?.weightKg != null ? String(entry.set_details[index].weightKg) : entry?.weight_kg != null ? String(entry.weight_kg) : "",
+  }));
+}
+
+function summarizeSetRows(rows: SetDetail[], fallback: ExerciseForm) {
+  const completedRows = rows.filter((row) => row.reps.trim() || row.weightKg.trim());
+  const reps = completedRows.map((row) => Number(row.reps || 0)).filter(Number.isFinite);
+  const weights = completedRows.map((row) => Number(row.weightKg || 0)).filter(Number.isFinite);
+  return {
+    setsCompleted: completedRows.length || Number(fallback.setsCompleted || 0),
+    repsCompleted: reps.length ? Math.max(...reps) : Number(fallback.repsCompleted || 0),
+    weightKg: weights.length ? Math.max(...weights) : fallback.weightKg ? Number(fallback.weightKg) : null,
+  };
 }
 
 function defaultDietMeal(name = "Breakfast"): CoachDietMeal {
@@ -193,9 +292,18 @@ function CustomerPlansTab() {
   const [selectedDietId, setSelectedDietId] = useState<string | null>(null);
   const [selectedSection, setSelectedSection] = useState<string | null>(null);
   const [selectedDietDayId, setSelectedDietDayId] = useState<string | null>(null);
+  const [expandedSessionId, setExpandedSessionId] = useState<string | null>(null);
   const [exerciseForm, setExerciseForm] = useState<ExerciseForm>(emptyForm);
+  const [setRows, setSetRows] = useState<SetDetail[]>([]);
   const [sessionDuration, setSessionDuration] = useState("");
   const [sessionNotes, setSessionNotes] = useState("");
+  const [sessionRpe, setSessionRpe] = useState("");
+  const [painLevel, setPainLevel] = useState("");
+  const [effortFeedback, setEffortFeedback] = useState<"TOO_EASY" | "JUST_RIGHT" | "TOO_HARD" | "">("");
+  const [sessionAttachment, setSessionAttachment] = useState<WorkoutAttachment | null>(null);
+  const [restSeconds, setRestSeconds] = useState(0);
+  const [workoutNotice, setWorkoutNotice] = useState<WorkoutActionNotice | null>(null);
+  const [pendingWorkoutSyncCount, setPendingWorkoutSyncCount] = useState(0);
   const [dietDayNotes, setDietDayNotes] = useState("");
   const [dietAdherence, setDietAdherence] = useState("3");
   const today = new Date().toISOString().slice(0, 10);
@@ -252,7 +360,28 @@ function CustomerPlansTab() {
     enabled: !!selectedWorkoutPlanId,
     queryFn: async () => {
       const payload = await authorizedRequest<
-        Array<{ id: string; performed_at: string; duration_minutes?: number | null; entries: Array<{ is_pr?: boolean }> }>
+        Array<{
+          id: string;
+          performed_at: string;
+          duration_minutes?: number | null;
+          notes?: string | null;
+          rpe?: number | null;
+          pain_level?: number | null;
+          effort_feedback?: string | null;
+          attachment_url?: string | null;
+          attachment_mime?: string | null;
+          entries: Array<{
+            id?: string;
+            exercise_name?: string | null;
+            sets_completed: number;
+            reps_completed: number;
+            weight_kg?: number | null;
+            notes?: string | null;
+            is_pr?: boolean;
+            skipped?: boolean;
+            set_details?: SetDetail[];
+          }>;
+        }>
       >("/fitness/session-logs/me?plan_id=" + selectedWorkoutPlanId);
       return payload.data;
     },
@@ -272,11 +401,12 @@ function CustomerPlansTab() {
     const currentEntry = draft?.entries[draft.current_exercise_index];
     if (!currentEntry) {
       setExerciseForm(emptyForm);
+      setSetRows([]);
       return;
     }
     setExerciseForm({
-      setsCompleted: currentEntry.sets_completed ? String(currentEntry.sets_completed) : "",
-      repsCompleted: currentEntry.reps_completed ? String(currentEntry.reps_completed) : "",
+      setsCompleted: currentEntry.sets_completed ? String(currentEntry.sets_completed) : currentEntry.target_sets != null ? String(currentEntry.target_sets) : "",
+      repsCompleted: currentEntry.reps_completed ? String(currentEntry.reps_completed) : currentEntry.target_reps != null ? String(currentEntry.target_reps) : "",
       weightKg: currentEntry.weight_kg != null ? String(currentEntry.weight_kg) : "",
       notes: currentEntry.notes || "",
       isPr: !!currentEntry.is_pr,
@@ -284,6 +414,7 @@ function CustomerPlansTab() {
       prValue: currentEntry.pr_value || "",
       prNotes: currentEntry.pr_notes || "",
     });
+    setSetRows(buildDefaultSetRows(currentEntry));
   }, [activeDraftQuery.data?.id, activeDraftQuery.data?.current_exercise_index]);
 
   useEffect(() => {
@@ -293,13 +424,186 @@ function CustomerPlansTab() {
     setDietAdherence(String(dietTrackerQuery.data.tracking_day?.adherence_rating || 3));
   }, [dietTrackerQuery.data]);
 
+  useEffect(() => {
+    let cancelled = false;
+    const replayPendingActions = async () => {
+      await refreshPendingWorkoutSyncCount();
+      const result = await replayWorkoutQueue(authorizedRequest);
+      if (cancelled) return;
+      await refreshPendingWorkoutSyncCount();
+      if (result.error) {
+        setWorkoutNotice({ kind: "error", message: `${copy.plans.syncFailed}: ${result.error}` });
+        return;
+      }
+      if (result.processed > 0) {
+        setWorkoutNotice({ kind: "success", message: copy.plans.syncComplete });
+        await Promise.all([
+          queryClient.invalidateQueries({ queryKey: ["member-active-workout-draft", selectedWorkoutPlanId] }),
+          queryClient.invalidateQueries({ queryKey: ["member-workout-history", selectedWorkoutPlanId] }),
+          queryClient.invalidateQueries({ queryKey: ["mobile-progress"] }),
+          queryClient.invalidateQueries({ queryKey: ["mobile-home"] }),
+        ]);
+      }
+    };
+    void replayPendingActions();
+    return () => {
+      cancelled = true;
+    };
+  }, [authorizedRequest, copy.plans.syncComplete, copy.plans.syncFailed, queryClient, selectedWorkoutPlanId]);
+
   const selectedDietDay = dietTrackerQuery.data?.days.find((day) => day.id === selectedDietDayId) ?? dietTrackerQuery.data?.days[0] ?? null;
   const currentEntry = activeDraftQuery.data?.entries[activeDraftQuery.data.current_exercise_index] ?? null;
   const completedCount = activeDraftQuery.data?.entries.filter((entry) => entry.completed_at || entry.skipped).length ?? 0;
+  const canFinishSession = !!activeDraftQuery.data && completedCount > 0;
+  const lastPerformance = useMemo(() => {
+    if (!currentEntry?.exercise_name || !historyQuery.data) return null;
+    const targetName = currentEntry.exercise_name.trim().toLowerCase();
+    for (const session of historyQuery.data) {
+      const match = session.entries.find((entry) => !entry.skipped && (entry.exercise_name || "").trim().toLowerCase() === targetName);
+      if (match) return match;
+    }
+    return null;
+  }, [currentEntry?.exercise_name, historyQuery.data]);
+
+  const refreshPendingWorkoutSyncCount = async () => {
+    const queue = await loadWorkoutQueue();
+    setPendingWorkoutSyncCount(queue.length);
+  };
+
+  const queueWorkoutAction = async (action: WorkoutQueuedAction, error: unknown) => {
+    if (!isLikelyNetworkError(error)) {
+      setWorkoutNotice({ kind: "error", message: error instanceof Error ? error.message : copy.common.errorTryAgain });
+      return;
+    }
+    const queue = await enqueueWorkoutAction(action);
+    setPendingWorkoutSyncCount(queue.length);
+    setWorkoutNotice({ kind: "success", message: copy.plans.pendingSync });
+  };
+
+  const updateCachedDraft = (updater: (draft: WorkoutDraft) => WorkoutDraft | null) => {
+    queryClient.setQueryData<WorkoutDraft | null>(["member-active-workout-draft", selectedWorkoutPlanId], (draft) => {
+      if (!draft) return draft;
+      return updater(draft);
+    });
+  };
+
+  const optimisticallyCompleteEntry = (entryId: string, body: CompleteWorkoutPayload) => {
+    updateCachedDraft((draft) => {
+      const entryIndex = draft.entries.findIndex((entry) => entry.id === entryId);
+      if (entryIndex < 0) return draft;
+      const entries = draft.entries.map((entry, index) => index === entryIndex ? {
+        ...entry,
+        sets_completed: body.sets_completed,
+        reps_completed: body.reps_completed,
+        weight_kg: body.weight_kg,
+        notes: body.notes,
+        is_pr: body.is_pr,
+        pr_type: body.pr_type,
+        pr_value: body.pr_value,
+        pr_notes: body.pr_notes,
+        set_details: body.set_details.map((row) => ({ set: row.set, reps: String(row.reps), weightKg: row.weightKg == null ? "" : String(row.weightKg) })),
+        skipped: false,
+        completed_at: new Date().toISOString(),
+      } : entry);
+      return { ...draft, entries, current_exercise_index: Math.min(entries.length, entryIndex + 1) };
+    });
+  };
+
+  const optimisticallySkipEntry = (entryId: string) => {
+    updateCachedDraft((draft) => {
+      const entryIndex = draft.entries.findIndex((entry) => entry.id === entryId);
+      if (entryIndex < 0) return draft;
+      const entries = draft.entries.map((entry, index) => index === entryIndex ? {
+        ...entry,
+        sets_completed: 0,
+        reps_completed: 0,
+        weight_kg: null,
+        notes: exerciseForm.notes || null,
+        is_pr: false,
+        pr_type: null,
+        pr_value: null,
+        pr_notes: null,
+        set_details: [],
+        skipped: true,
+        completed_at: new Date().toISOString(),
+      } : entry);
+      return { ...draft, entries, current_exercise_index: Math.min(entries.length, entryIndex + 1) };
+    });
+  };
+
+  const optimisticallyPreviousEntry = () => {
+    updateCachedDraft((draft) => {
+      const previousIndex = Math.min(draft.current_exercise_index - 1, draft.entries.length - 1);
+      if (previousIndex < 0) return draft;
+      const entries = draft.entries.map((entry, index) => index === previousIndex ? {
+        ...entry,
+        sets_completed: 0,
+        reps_completed: 0,
+        weight_kg: null,
+        notes: null,
+        is_pr: false,
+        pr_type: null,
+        pr_value: null,
+        pr_notes: null,
+        set_details: [],
+        skipped: false,
+        completed_at: null,
+      } : entry);
+      return { ...draft, entries, current_exercise_index: previousIndex };
+    });
+  };
+
+  const buildCompletePayload = (): CompleteWorkoutPayload => {
+    const summary = summarizeSetRows(setRows, exerciseForm);
+    const invalidSet = setRows.find((row) => {
+      const reps = row.reps.trim() ? Number(row.reps) : 0;
+      const weight = row.weightKg.trim() ? Number(row.weightKg) : 0;
+      return !Number.isFinite(reps) || !Number.isFinite(weight) || reps < 0 || weight < 0;
+    });
+    if (invalidSet || summary.setsCompleted <= 0 || summary.repsCompleted < 0) {
+      throw new Error(copy.plans.invalidSetDetails);
+    }
+    const bestWeight = Number(lastPerformance?.weight_kg || 0);
+    const bestReps = Number(lastPerformance?.reps_completed || 0);
+    const autoPr = !exerciseForm.isPr && ((summary.weightKg || 0) > bestWeight || (summary.repsCompleted > bestReps && (summary.weightKg || 0) >= bestWeight));
+    const isPr = exerciseForm.isPr || autoPr;
+    return {
+      sets_completed: summary.setsCompleted,
+      reps_completed: summary.repsCompleted,
+      weight_kg: summary.weightKg,
+      notes: exerciseForm.notes || null,
+      is_pr: isPr,
+      pr_type: isPr ? exerciseForm.prType : null,
+      pr_value: isPr ? exerciseForm.prValue || `${summary.weightKg ?? "--"}kg x ${summary.repsCompleted}` : null,
+      pr_notes: isPr ? exerciseForm.prNotes || (autoPr ? copy.plans.autoPr : null) : null,
+      set_details: setRows
+        .filter((row) => row.reps.trim() || row.weightKg.trim())
+        .map((row, index) => ({ set: index + 1, reps: Number(row.reps || 0), weightKg: row.weightKg ? Number(row.weightKg) : null })),
+    };
+  };
+
+  const buildFinishPayload = () => {
+    const estimatedDuration = estimateSessionDurationMinutes(activeDraftQuery.data);
+    const rpeValue = sessionRpe ? Number(sessionRpe) : null;
+    const painValue = painLevel ? Number(painLevel) : null;
+    if (rpeValue != null && (!Number.isFinite(rpeValue) || rpeValue < 1 || rpeValue > 10)) throw new Error(copy.plans.sessionRpe);
+    if (painValue != null && (!Number.isFinite(painValue) || painValue < 0 || painValue > 10)) throw new Error(copy.plans.painLevel);
+    return {
+      duration_minutes: sessionDuration ? Number(sessionDuration) : estimatedDuration,
+      notes: sessionNotes || null,
+      rpe: rpeValue,
+      pain_level: painValue,
+      effort_feedback: effortFeedback || null,
+      attachment_url: sessionAttachment?.media_url || null,
+      attachment_mime: sessionAttachment?.media_mime || null,
+      attachment_size_bytes: sessionAttachment?.media_size_bytes || null,
+    };
+  };
 
   const startMutation = useMutation({
     mutationFn: async () => {
       if (!selectedWorkoutPlanId) throw new Error("No workout plan selected");
+      setWorkoutNotice(null);
       const payload = await authorizedRequest<WorkoutDraft>("/fitness/workout-sessions/start", {
         method: "POST",
         body: JSON.stringify({ plan_id: selectedWorkoutPlanId, section_name: selectedSection }),
@@ -307,36 +611,69 @@ function CustomerPlansTab() {
       return payload.data;
     },
     onSuccess: async () => {
+      setWorkoutNotice({ kind: "success", message: copy.plans.workoutStarted });
       await queryClient.invalidateQueries({ queryKey: ["member-active-workout-draft", selectedWorkoutPlanId] });
+    },
+    onError: (error) => {
+      if (!selectedWorkoutPlanId) {
+        setWorkoutNotice({ kind: "error", message: error instanceof Error ? error.message : copy.common.errorTryAgain });
+        return;
+      }
+      void queueWorkoutAction({
+        id: createWorkoutQueueId(),
+        kind: "request",
+        path: "/fitness/workout-sessions/start",
+        method: "POST",
+        body: { plan_id: selectedWorkoutPlanId, section_name: selectedSection },
+        createdAt: new Date().toISOString(),
+      }, error);
     },
   });
 
   const completeMutation = useMutation({
     mutationFn: async () => {
       if (!activeDraftQuery.data || !currentEntry) throw new Error("No active exercise");
+      setWorkoutNotice(null);
+      const body = buildCompletePayload();
       const payload = await authorizedRequest<WorkoutDraft>(`/fitness/workout-sessions/${activeDraftQuery.data.id}/entries/${currentEntry.id}`, {
         method: "PUT",
-        body: JSON.stringify({
-          sets_completed: Number(exerciseForm.setsCompleted || 0),
-          reps_completed: Number(exerciseForm.repsCompleted || 0),
-          weight_kg: exerciseForm.weightKg ? Number(exerciseForm.weightKg) : null,
-          notes: exerciseForm.notes || null,
-          is_pr: exerciseForm.isPr,
-          pr_type: exerciseForm.isPr ? exerciseForm.prType : null,
-          pr_value: exerciseForm.isPr ? exerciseForm.prValue || null : null,
-          pr_notes: exerciseForm.isPr ? exerciseForm.prNotes || null : null,
-        }),
+        body: JSON.stringify(body),
       });
       return payload.data;
     },
     onSuccess: async () => {
+      setWorkoutNotice({ kind: "success", message: copy.plans.workoutSaved });
+      setRestSeconds(90);
       await queryClient.invalidateQueries({ queryKey: ["member-active-workout-draft", selectedWorkoutPlanId] });
+    },
+    onError: (error) => {
+      if (!activeDraftQuery.data || !currentEntry) {
+        setWorkoutNotice({ kind: "error", message: error instanceof Error ? error.message : copy.common.errorTryAgain });
+        return;
+      }
+      let body: ReturnType<typeof buildCompletePayload>;
+      try {
+        body = buildCompletePayload();
+      } catch (payloadError) {
+        setWorkoutNotice({ kind: "error", message: payloadError instanceof Error ? payloadError.message : copy.common.errorTryAgain });
+        return;
+      }
+      void queueWorkoutAction({
+        id: createWorkoutQueueId(),
+        kind: "request",
+        path: `/fitness/workout-sessions/${activeDraftQuery.data.id}/entries/${currentEntry.id}`,
+        method: "PUT",
+        body,
+        createdAt: new Date().toISOString(),
+      }, error);
+      if (isLikelyNetworkError(error)) optimisticallyCompleteEntry(currentEntry.id, body);
     },
   });
 
   const skipMutation = useMutation({
     mutationFn: async () => {
       if (!activeDraftQuery.data || !currentEntry) throw new Error("No active exercise");
+      setWorkoutNotice(null);
       const payload = await authorizedRequest<WorkoutDraft>(`/fitness/workout-sessions/${activeDraftQuery.data.id}/entries/${currentEntry.id}/skip`, {
         method: "POST",
         body: JSON.stringify({ notes: exerciseForm.notes || null }),
@@ -344,41 +681,175 @@ function CustomerPlansTab() {
       return payload.data;
     },
     onSuccess: async () => {
+      setWorkoutNotice({ kind: "success", message: copy.plans.workoutSkipped });
+      setRestSeconds(90);
       await queryClient.invalidateQueries({ queryKey: ["member-active-workout-draft", selectedWorkoutPlanId] });
     },
+    onError: (error) => {
+      if (!activeDraftQuery.data || !currentEntry) {
+        setWorkoutNotice({ kind: "error", message: error instanceof Error ? error.message : copy.common.errorTryAgain });
+        return;
+      }
+      void queueWorkoutAction({
+        id: createWorkoutQueueId(),
+        kind: "request",
+        path: `/fitness/workout-sessions/${activeDraftQuery.data.id}/entries/${currentEntry.id}/skip`,
+        method: "POST",
+        body: { notes: exerciseForm.notes || null },
+        createdAt: new Date().toISOString(),
+      }, error);
+      if (isLikelyNetworkError(error)) optimisticallySkipEntry(currentEntry.id);
+    },
+  });
+
+  const previousMutation = useMutation({
+    mutationFn: async () => {
+      if (!activeDraftQuery.data) throw new Error("No active draft");
+      setWorkoutNotice(null);
+      const payload = await authorizedRequest<WorkoutDraft>(`/fitness/workout-sessions/${activeDraftQuery.data.id}/previous`, {
+        method: "POST",
+      });
+      return payload.data;
+    },
+    onSuccess: async () => {
+      setWorkoutNotice({ kind: "success", message: copy.plans.previousExercise });
+      await queryClient.invalidateQueries({ queryKey: ["member-active-workout-draft", selectedWorkoutPlanId] });
+    },
+    onError: (error) => {
+      if (!activeDraftQuery.data) {
+        setWorkoutNotice({ kind: "error", message: error instanceof Error ? error.message : copy.common.errorTryAgain });
+        return;
+      }
+      void queueWorkoutAction({
+        id: createWorkoutQueueId(),
+        kind: "request",
+        path: `/fitness/workout-sessions/${activeDraftQuery.data.id}/previous`,
+        method: "POST",
+        createdAt: new Date().toISOString(),
+      }, error);
+      if (isLikelyNetworkError(error)) optimisticallyPreviousEntry();
+    },
+  });
+
+  const attachMediaMutation = useMutation({
+    mutationFn: async () => {
+      const [asset] = await pickImageOrVideoFromLibrary({ permissionDeniedMessage: copy.common.photoPermissionDenied });
+      if (!asset) return null;
+      try {
+        const formData = new FormData();
+        formData.append("file", {
+          uri: asset.uri,
+          name: asset.name,
+          type: asset.mimeType,
+        } as unknown as Blob);
+        const payload = await authorizedRequest<WorkoutAttachment>("/fitness/workout-session-media/upload", {
+          method: "POST",
+          body: formData,
+        });
+        return { ...payload.data, name: asset.name };
+      } catch (error) {
+        await queueWorkoutAction({
+          id: createWorkoutQueueId(),
+          kind: "media_upload",
+          path: "/fitness/workout-session-media/upload",
+          asset: { uri: asset.uri, name: asset.name, mimeType: asset.mimeType },
+          createdAt: new Date().toISOString(),
+        }, error);
+        return null;
+      }
+    },
+    onSuccess: (attachment) => {
+      if (attachment) setSessionAttachment(attachment);
+    },
+    onError: (error) => setWorkoutNotice({ kind: "error", message: error instanceof Error ? error.message : copy.common.errorTryAgain }),
   });
 
   const finishMutation = useMutation({
     mutationFn: async () => {
       if (!activeDraftQuery.data) throw new Error("No active draft");
+      setWorkoutNotice(null);
       const payload = await authorizedRequest(`/fitness/workout-sessions/${activeDraftQuery.data.id}/finish`, {
         method: "POST",
-        body: JSON.stringify({
-          duration_minutes: sessionDuration ? Number(sessionDuration) : null,
-          notes: sessionNotes || null,
-        }),
+        body: JSON.stringify(buildFinishPayload()),
       });
       return payload.data;
     },
     onSuccess: async () => {
       setSessionDuration("");
       setSessionNotes("");
+      setSessionRpe("");
+      setPainLevel("");
+      setEffortFeedback("");
+      setSessionAttachment(null);
+      setWorkoutNotice({ kind: "success", message: copy.plans.workoutFinished });
+      const key = draftCacheKey(activeDraftQuery.data?.id);
+      if (key) await SecureStore.deleteItemAsync(key);
       await Promise.all([
         queryClient.invalidateQueries({ queryKey: ["member-active-workout-draft", selectedWorkoutPlanId] }),
         queryClient.invalidateQueries({ queryKey: ["member-workout-history", selectedWorkoutPlanId] }),
+        queryClient.invalidateQueries({ queryKey: ["mobile-progress"] }),
+        queryClient.invalidateQueries({ queryKey: ["mobile-home"] }),
       ]);
+    },
+    onError: (error) => {
+      if (!activeDraftQuery.data) {
+        setWorkoutNotice({ kind: "error", message: error instanceof Error ? error.message : copy.common.errorTryAgain });
+        return;
+      }
+      let body: ReturnType<typeof buildFinishPayload>;
+      try {
+        body = buildFinishPayload();
+      } catch (payloadError) {
+        setWorkoutNotice({ kind: "error", message: payloadError instanceof Error ? payloadError.message : copy.common.errorTryAgain });
+        return;
+      }
+      void queueWorkoutAction({
+        id: createWorkoutQueueId(),
+        kind: "request",
+        path: `/fitness/workout-sessions/${activeDraftQuery.data.id}/finish`,
+        method: "POST",
+        body,
+        createdAt: new Date().toISOString(),
+      }, error);
+      if (isLikelyNetworkError(error)) {
+        queryClient.setQueryData(["member-active-workout-draft", selectedWorkoutPlanId], null);
+      }
     },
   });
 
   const abandonMutation = useMutation({
     mutationFn: async () => {
       if (!activeDraftQuery.data) throw new Error("No active draft");
+      setWorkoutNotice(null);
       await authorizedRequest(`/fitness/workout-sessions/${activeDraftQuery.data.id}`, { method: "DELETE" });
     },
     onSuccess: async () => {
       setSessionDuration("");
       setSessionNotes("");
+      setSessionRpe("");
+      setPainLevel("");
+      setEffortFeedback("");
+      setSessionAttachment(null);
+      setWorkoutNotice({ kind: "success", message: copy.plans.workoutAbandoned });
+      const key = draftCacheKey(activeDraftQuery.data?.id);
+      if (key) await SecureStore.deleteItemAsync(key);
       await queryClient.invalidateQueries({ queryKey: ["member-active-workout-draft", selectedWorkoutPlanId] });
+    },
+    onError: (error) => {
+      if (!activeDraftQuery.data) {
+        setWorkoutNotice({ kind: "error", message: error instanceof Error ? error.message : copy.common.errorTryAgain });
+        return;
+      }
+      void queueWorkoutAction({
+        id: createWorkoutQueueId(),
+        kind: "request",
+        path: `/fitness/workout-sessions/${activeDraftQuery.data.id}`,
+        method: "DELETE",
+        createdAt: new Date().toISOString(),
+      }, error);
+      if (isLikelyNetworkError(error)) {
+        queryClient.setQueryData(["member-active-workout-draft", selectedWorkoutPlanId], null);
+      }
     },
   });
 
@@ -416,6 +887,59 @@ function CustomerPlansTab() {
     await saveDietMutation.mutateAsync(meals);
   };
 
+  useEffect(() => {
+    const key = draftCacheKey(activeDraftQuery.data?.id);
+    if (!key) return;
+    let cancelled = false;
+    SecureStore.getItemAsync(key)
+      .then((raw) => {
+        if (!raw || cancelled) return;
+        const cached = JSON.parse(raw) as {
+          exerciseForm?: ExerciseForm;
+          setRows?: SetDetail[];
+          sessionDuration?: string;
+          sessionNotes?: string;
+          sessionRpe?: string;
+          painLevel?: string;
+          effortFeedback?: "TOO_EASY" | "JUST_RIGHT" | "TOO_HARD" | "";
+          sessionAttachment?: WorkoutAttachment | null;
+          currentEntryId?: string | null;
+        };
+        if (cached.currentEntryId && cached.currentEntryId !== currentEntry?.id) return;
+        if (cached.exerciseForm) setExerciseForm(cached.exerciseForm);
+        if (cached.setRows?.length) setSetRows(cached.setRows);
+        setSessionDuration(cached.sessionDuration || "");
+        setSessionNotes(cached.sessionNotes || "");
+        setSessionRpe(cached.sessionRpe || "");
+        setPainLevel(cached.painLevel || "");
+        setEffortFeedback(cached.effortFeedback || "");
+        setSessionAttachment(cached.sessionAttachment || null);
+      })
+      .catch(() => undefined);
+    return () => {
+      cancelled = true;
+    };
+  }, [activeDraftQuery.data?.id]);
+
+  useEffect(() => {
+    const key = draftCacheKey(activeDraftQuery.data?.id);
+    if (!key) return;
+    void SecureStore.setItemAsync(
+      key,
+      JSON.stringify({ currentEntryId: currentEntry?.id ?? null, exerciseForm, setRows, sessionDuration, sessionNotes, sessionRpe, painLevel, effortFeedback, sessionAttachment }),
+    ).catch(() => undefined);
+  }, [activeDraftQuery.data?.id, currentEntry?.id, exerciseForm, setRows, sessionDuration, sessionNotes, sessionRpe, painLevel, effortFeedback, sessionAttachment]);
+
+  useEffect(() => {
+    if (restSeconds <= 0) return;
+    const timer = setInterval(() => setRestSeconds((current) => Math.max(0, current - 1)), 1000);
+    return () => clearInterval(timer);
+  }, [restSeconds]);
+
+  const workoutActionPending =
+    startMutation.isPending || completeMutation.isPending || skipMutation.isPending || previousMutation.isPending || finishMutation.isPending || abandonMutation.isPending;
+  const estimatedDuration = estimateSessionDurationMinutes(activeDraftQuery.data);
+
   return (
     <Screen title={copy.plans.title}>
       <QueryState loading={plansQuery.isLoading} error={plansQuery.error instanceof Error ? plansQuery.error.message : null} />
@@ -440,10 +964,18 @@ function CustomerPlansTab() {
           {selectedWorkoutPlan ? (
             <Card>
               <SectionTitle>{selectedWorkoutPlan.name}</SectionTitle>
+              {workoutNotice ? (
+                <Text style={{ color: workoutNotice.kind === "error" ? "#DC2626" : theme.primary, fontFamily: fontSet.body, fontSize: 13, fontWeight: "700", textAlign: isRTL ? "right" : "left", writingDirection: direction }}>
+                  {workoutNotice.message}
+                </Text>
+              ) : null}
+              {pendingWorkoutSyncCount > 0 ? (
+                <MutedText>{copy.plans.pendingSync}: {pendingWorkoutSyncCount}</MutedText>
+              ) : null}
               {workoutSections.length > 0 && !activeDraftQuery.data ? (
                 <View style={{ flexDirection: isRTL ? "row-reverse" : "row", flexWrap: "wrap", gap: 8, marginTop: 12 }}>
                   {workoutSections.map((section) => (
-                    <SecondaryButton key={section} onPress={() => setSelectedSection(section)}>
+                    <SecondaryButton key={section} disabled={workoutActionPending} onPress={() => setSelectedSection(section)}>
                       {selectedSection === section ? `${copy.plans.section}: ${section}` : section}
                     </SecondaryButton>
                   ))}
@@ -451,7 +983,9 @@ function CustomerPlansTab() {
               ) : null}
 
               {!activeDraftQuery.data ? (
-                <PrimaryButton onPress={() => startMutation.mutate(undefined)}>{copy.plans.startSession}</PrimaryButton>
+                <PrimaryButton disabled={workoutActionPending || !selectedWorkoutPlanId} onPress={() => startMutation.mutate(undefined)}>
+                  {startMutation.isPending ? copy.common.loading : copy.plans.startSession}
+                </PrimaryButton>
               ) : (
                 <View style={{ gap: 12, marginTop: 12 }}>
                   <MutedText>{copy.plans.progress}: {completedCount}/{activeDraftQuery.data.entries.length}</MutedText>
@@ -464,9 +998,24 @@ function CustomerPlansTab() {
                         {copy.plans.target}: {currentEntry.target_sets || 0} x {currentEntry.target_reps || 0}
                         {currentEntry.section_name ? ` • ${copy.plans.section}: ${currentEntry.section_name}` : ""}
                       </MutedText>
-                      <Input value={exerciseForm.setsCompleted} onChangeText={(value) => setExerciseForm((current) => ({ ...current, setsCompleted: value }))} placeholder={copy.plans.setsCompleted} />
-                      <Input value={exerciseForm.repsCompleted} onChangeText={(value) => setExerciseForm((current) => ({ ...current, repsCompleted: value }))} placeholder={copy.plans.repsCompleted} />
-                      <Input value={exerciseForm.weightKg} onChangeText={(value) => setExerciseForm((current) => ({ ...current, weightKg: value }))} placeholder={copy.plans.weightKg} />
+                      {lastPerformance ? (
+                        <MutedText>
+                          {copy.plans.lastSession}: {lastPerformance.reps_completed} reps @ {lastPerformance.weight_kg ?? 0}kg
+                        </MutedText>
+                      ) : null}
+                      {restSeconds > 0 ? (
+                        <View style={{ borderWidth: 1, borderColor: theme.border, borderRadius: 8, padding: 10, backgroundColor: theme.primarySoft }}>
+                          <Text style={{ color: theme.primary, fontFamily: fontSet.mono, fontWeight: "800", textAlign: isRTL ? "right" : "left", writingDirection: direction }}>
+                            {copy.plans.restTimer}: {Math.floor(restSeconds / 60)}:{String(restSeconds % 60).padStart(2, "0")}
+                          </Text>
+                          <SecondaryButton onPress={() => setRestSeconds(0)}>{copy.plans.skipRest}</SecondaryButton>
+                        </View>
+                      ) : null}
+                      <ExerciseVideoBlock entry={currentEntry} />
+                      <SetDetailsEditor rows={setRows} onChange={setSetRows} />
+                      <Input value={exerciseForm.setsCompleted} onChangeText={(value) => setExerciseForm((current) => ({ ...current, setsCompleted: value }))} placeholder={copy.plans.setsCompleted} keyboardType="number-pad" />
+                      <Input value={exerciseForm.repsCompleted} onChangeText={(value) => setExerciseForm((current) => ({ ...current, repsCompleted: value }))} placeholder={copy.plans.repsCompleted} keyboardType="number-pad" />
+                      <Input value={exerciseForm.weightKg} onChangeText={(value) => setExerciseForm((current) => ({ ...current, weightKg: value }))} placeholder={copy.plans.weightKg} keyboardType="decimal-pad" />
                       <TextArea value={exerciseForm.notes} onChangeText={(value) => setExerciseForm((current) => ({ ...current, notes: value }))} placeholder={copy.plans.exerciseNotes} />
                       <Pressable onPress={() => setExerciseForm((current) => ({ ...current, isPr: !current.isPr }))} style={{ paddingVertical: 6 }}>
                         <Text style={{ color: theme.foreground, fontFamily: fontSet.body, textAlign: isRTL ? "right" : "left", writingDirection: direction }}>
@@ -480,16 +1029,50 @@ function CustomerPlansTab() {
                           <TextArea value={exerciseForm.prNotes} onChangeText={(value) => setExerciseForm((current) => ({ ...current, prNotes: value }))} placeholder={copy.plans.prNotes} />
                         </>
                       ) : null}
-                      <PrimaryButton onPress={() => completeMutation.mutate(undefined)}>{copy.plans.completeExercise}</PrimaryButton>
-                      <SecondaryButton onPress={() => skipMutation.mutate(undefined)}>{copy.plans.skipExercise}</SecondaryButton>
+                      <PrimaryButton disabled={workoutActionPending} onPress={() => completeMutation.mutate(undefined)}>
+                        {completeMutation.isPending ? copy.common.loading : copy.plans.completeExercise}
+                      </PrimaryButton>
+                      <SecondaryButton disabled={workoutActionPending} onPress={() => skipMutation.mutate(undefined)}>
+                        {skipMutation.isPending ? copy.common.loading : copy.plans.skipExercise}
+                      </SecondaryButton>
+                      <SecondaryButton disabled={workoutActionPending || completedCount === 0} onPress={() => previousMutation.mutate(undefined)}>
+                        {previousMutation.isPending ? copy.common.loading : copy.plans.previousExercise}
+                      </SecondaryButton>
                     </>
                   ) : (
                     <MutedText>{copy.plans.finishSession}</MutedText>
                   )}
-                  <Input value={sessionDuration} onChangeText={setSessionDuration} placeholder={copy.plans.sessionDuration} />
+                  <Input
+                    value={sessionDuration}
+                    onChangeText={setSessionDuration}
+                    placeholder={estimatedDuration ? `${copy.plans.sessionDuration}: ${estimatedDuration}` : copy.plans.sessionDuration}
+                    keyboardType="number-pad"
+                  />
                   <TextArea value={sessionNotes} onChangeText={setSessionNotes} placeholder={copy.plans.sessionNotes} />
-                  <PrimaryButton onPress={() => finishMutation.mutate(undefined)}>{copy.plans.finishSession}</PrimaryButton>
-                  <SecondaryButton onPress={() => abandonMutation.mutate(undefined)}>{copy.plans.abandonSession}</SecondaryButton>
+                  <Input value={sessionRpe} onChangeText={setSessionRpe} placeholder={copy.plans.sessionRpe} keyboardType="number-pad" />
+                  <Input value={painLevel} onChangeText={setPainLevel} placeholder={copy.plans.painLevel} keyboardType="number-pad" />
+                  <View style={{ flexDirection: isRTL ? "row-reverse" : "row", flexWrap: "wrap", gap: 8 }}>
+                    {(["TOO_EASY", "JUST_RIGHT", "TOO_HARD"] as const).map((value) => (
+                      <SecondaryButton key={value} onPress={() => setEffortFeedback(value)} disabled={workoutActionPending}>
+                        {effortFeedback === value ? "✓ " : ""}{copy.plans.effortOptions[value]}
+                      </SecondaryButton>
+                    ))}
+                  </View>
+                  {sessionAttachment ? (
+                    <>
+                      <MediaPreview uri={sessionAttachment.media_url} mime={sessionAttachment.media_mime} label={sessionAttachment.name || copy.plans.sessionAttachment} />
+                      <SecondaryButton disabled={workoutActionPending} onPress={() => setSessionAttachment(null)}>{copy.plans.removeAttachment}</SecondaryButton>
+                    </>
+                  ) : null}
+                  <SecondaryButton disabled={attachMediaMutation.isPending || workoutActionPending} onPress={() => attachMediaMutation.mutate()}>
+                    {attachMediaMutation.isPending ? copy.common.uploading : sessionAttachment ? copy.plans.replaceAttachment : copy.plans.attachSessionMedia}
+                  </SecondaryButton>
+                  <PrimaryButton disabled={workoutActionPending || !canFinishSession} onPress={() => finishMutation.mutate(undefined)}>
+                    {finishMutation.isPending ? copy.common.loading : copy.plans.finishSession}
+                  </PrimaryButton>
+                  <SecondaryButton disabled={workoutActionPending} onPress={() => abandonMutation.mutate(undefined)}>
+                    {abandonMutation.isPending ? copy.common.loading : copy.plans.abandonSession}
+                  </SecondaryButton>
                 </View>
               )}
             </Card>
@@ -499,11 +1082,43 @@ function CustomerPlansTab() {
             <SectionTitle>{copy.plans.recentSessions}</SectionTitle>
             <QueryState loading={historyQuery.isLoading} error={historyQuery.error instanceof Error ? historyQuery.error.message : null} empty={!historyQuery.data?.length} emptyMessage={copy.plans.noSessionHistory} />
             {historyQuery.data?.map((session) => (
-              <View key={session.id} style={{ paddingVertical: 8 }}>
-                <Text style={{ color: theme.foreground, fontFamily: fontSet.body, textAlign: isRTL ? "right" : "left", writingDirection: direction }}>
-                  {new Date(session.performed_at).toLocaleString()}
-                </Text>
-                <MutedText>{session.duration_minutes || 0} min • {session.entries.filter((entry) => entry.is_pr).length} PRs</MutedText>
+              <View key={session.id} style={{ paddingVertical: 8, borderTopWidth: 1, borderTopColor: theme.border }}>
+                <Pressable onPress={() => setExpandedSessionId((current) => (current === session.id ? null : session.id))}>
+                  <Text style={{ color: theme.foreground, fontFamily: fontSet.body, textAlign: isRTL ? "right" : "left", writingDirection: direction }}>
+                    {new Date(session.performed_at).toLocaleString()}
+                  </Text>
+                  <MutedText>
+                    {session.duration_minutes || 0} min • {session.entries.filter((entry) => !entry.skipped).length} done
+                    {session.entries.some((entry) => entry.skipped) ? ` • ${session.entries.filter((entry) => entry.skipped).length} skipped` : ""}
+                    {" • "}
+                    {session.entries.filter((entry) => entry.is_pr).length} PRs
+                  </MutedText>
+                </Pressable>
+                {expandedSessionId === session.id ? (
+                  <View style={{ gap: 8, marginTop: 8 }}>
+                    <MutedText>
+                      {[
+                        session.rpe != null ? `${copy.plans.sessionRpe}: ${session.rpe}` : null,
+                        session.pain_level != null ? `${copy.plans.painLevel}: ${session.pain_level}` : null,
+                        session.effort_feedback ? copy.plans.effortOptions[session.effort_feedback as keyof typeof copy.plans.effortOptions] : null,
+                      ].filter(Boolean).join(" • ") || copy.progress.noSessionNotes}
+                    </MutedText>
+                    {session.notes ? <MutedText>{session.notes}</MutedText> : null}
+                    {session.attachment_url ? <MediaPreview uri={session.attachment_url} mime={session.attachment_mime} label={copy.plans.sessionAttachment} /> : null}
+                    {session.entries.map((entry, index) => (
+                      <View key={entry.id || `${session.id}-${index}`} style={{ padding: 10, borderWidth: 1, borderColor: theme.border, borderRadius: 8, backgroundColor: theme.cardAlt }}>
+                        <Text style={{ color: theme.foreground, fontFamily: fontSet.body, fontWeight: "700", textAlign: isRTL ? "right" : "left", writingDirection: direction }}>
+                          {entry.exercise_name || copy.progress.prFallback}{entry.skipped ? ` • ${copy.plans.skipExercise}` : ""}
+                        </Text>
+                        <MutedText>{entry.skipped ? copy.plans.skipExercise : `${entry.sets_completed} x ${entry.reps_completed} @ ${entry.weight_kg ?? 0}kg`}</MutedText>
+                        {entry.set_details?.length ? (
+                          <MutedText>{entry.set_details.map((row) => `${row.set}: ${row.reps} @ ${row.weightKg || 0}kg`).join(" • ")}</MutedText>
+                        ) : null}
+                        {entry.notes ? <MutedText>{entry.notes}</MutedText> : null}
+                      </View>
+                    ))}
+                  </View>
+                ) : null}
               </View>
             ))}
           </Card>
@@ -566,6 +1181,65 @@ function CustomerPlansTab() {
         </>
       ) : null}
     </Screen>
+  );
+}
+
+function ExerciseVideoBlock({ entry }: { entry: WorkoutDraft["entries"][number] }) {
+  const { copy, theme } = usePreferences();
+  const video = resolveExerciseVideo(entry);
+  if (!video) return null;
+
+  if (video.direct) {
+    return (
+      <View style={{ overflow: "hidden", borderWidth: 1, borderColor: theme.border, borderRadius: 8, backgroundColor: "#000000" }}>
+        <Video
+          source={{ uri: video.url }}
+          useNativeControls
+          resizeMode={ResizeMode.CONTAIN}
+          style={{ width: "100%", aspectRatio: 16 / 9, backgroundColor: "#000000" }}
+        />
+      </View>
+    );
+  }
+
+  return (
+    <SecondaryButton onPress={() => void WebBrowser.openBrowserAsync(video.url)}>
+      {copy.plans.exerciseVideo}
+    </SecondaryButton>
+  );
+}
+
+function SetDetailsEditor({ rows, onChange }: { rows: SetDetail[]; onChange: (rows: SetDetail[]) => void }) {
+  const { copy, direction, fontSet, isRTL, theme } = usePreferences();
+  return (
+    <View style={{ gap: 8 }}>
+      <SectionTitle>{copy.plans.setDetails}</SectionTitle>
+      {rows.map((row, index) => (
+        <View key={row.set} style={{ flexDirection: isRTL ? "row-reverse" : "row", gap: 8, alignItems: "center" }}>
+          <Text style={{ width: 40, color: theme.primary, fontFamily: fontSet.mono, fontWeight: "800", textAlign: isRTL ? "right" : "left", writingDirection: direction }}>
+            {row.set}
+          </Text>
+          <Input
+            value={row.reps}
+            onChangeText={(value) => onChange(rows.map((item, itemIndex) => (itemIndex === index ? { ...item, reps: value } : item)))}
+            placeholder={copy.plans.repsCompleted}
+            keyboardType="number-pad"
+            style={{ flex: 1 }}
+          />
+          <Input
+            value={row.weightKg}
+            onChangeText={(value) => onChange(rows.map((item, itemIndex) => (itemIndex === index ? { ...item, weightKg: value } : item)))}
+            placeholder={copy.plans.weightKg}
+            keyboardType="decimal-pad"
+            style={{ flex: 1 }}
+          />
+        </View>
+      ))}
+      <View style={{ flexDirection: isRTL ? "row-reverse" : "row", gap: 8 }}>
+        <SecondaryButton onPress={() => onChange([...rows, { set: rows.length + 1, reps: "", weightKg: "" }])}>{copy.plans.addSet}</SecondaryButton>
+        {rows.length > 1 ? <SecondaryButton onPress={() => onChange(rows.slice(0, -1))}>{copy.plans.removeSet}</SecondaryButton> : null}
+      </View>
+    </View>
   );
 }
 

@@ -1,4 +1,5 @@
 import os
+import json
 from typing import Any, Annotated, List, Literal
 from datetime import date, datetime, timedelta
 import uuid
@@ -271,6 +272,42 @@ def _active_entry_index(entries: list[WorkoutSessionDraftEntry]) -> int:
     return len(entries)
 
 
+def _parse_set_details(value: str | None) -> list[dict[str, Any]]:
+    if not value:
+        return []
+    try:
+        parsed = json.loads(value)
+    except (TypeError, json.JSONDecodeError):
+        return []
+    if not isinstance(parsed, list):
+        return []
+    return [item for item in parsed if isinstance(item, dict)]
+
+
+class WorkoutSetDetail(BaseModel):
+    set: int = Field(ge=1)
+    reps: int = Field(ge=0)
+    weightKg: float | None = Field(default=None, ge=0)
+
+
+def _serialize_validated_set_details(value: list[WorkoutSetDetail] | None) -> str | None:
+    if not value:
+        return None
+    return json.dumps([item.model_dump() if isinstance(item, WorkoutSetDetail) else item for item in value])
+
+
+def _validate_workout_attachment_owner(data: "WorkoutSessionCreate | FinishWorkoutSessionRequest", current_user: User) -> None:
+    if not data.attachment_url:
+        return
+    expected_prefix = f"/static/workout_session_media/{current_user.id}/"
+    if not data.attachment_url.startswith(expected_prefix):
+        raise HTTPException(status_code=403, detail="Workout session attachment does not belong to your account")
+    if not data.attachment_mime or not (
+        data.attachment_mime.startswith("image/") or data.attachment_mime.startswith("video/")
+    ):
+        raise HTTPException(status_code=400, detail="Workout session attachment must be an image or video")
+
+
 def _serialize_tracking_day(
     tracking_day: MemberDietTrackingDay | None,
 ) -> "MemberDietTrackingDayResponse | None":
@@ -351,14 +388,16 @@ async def _get_active_draft_for_member(
     db: AsyncSession,
     *,
     member_id: uuid.UUID,
-    plan_id: uuid.UUID,
+    plan_id: uuid.UUID | None = None,
 ) -> WorkoutSessionDraft | None:
     stmt = (
         select(WorkoutSessionDraft)
-        .where(WorkoutSessionDraft.member_id == member_id, WorkoutSessionDraft.plan_id == plan_id)
+        .where(WorkoutSessionDraft.member_id == member_id)
         .options(selectinload(WorkoutSessionDraft.entries))
         .order_by(WorkoutSessionDraft.started_at.desc())
     )
+    if plan_id is not None:
+        stmt = stmt.where(WorkoutSessionDraft.plan_id == plan_id)
     result = await db.execute(stmt)
     draft = result.scalars().first()
     if draft:
@@ -673,6 +712,50 @@ async def upload_exercise_video(
             out_file.write(chunk)
 
     return StandardResponse(data={"video_url": f"/static/workout_videos/{file_name}"}, message="Video uploaded")
+
+
+@router.post("/workout-session-media/upload", response_model=StandardResponse)
+async def upload_workout_session_media(
+    current_user: Annotated[User, Depends(dependencies.require_active_customer_subscription)],
+    file: UploadFile = File(...),
+):
+    """Upload a member workout-session attachment and return a static URL."""
+    allowed_types = {"image/jpeg", "image/png", "image/webp", "image/heic", "image/heif", "video/mp4", "video/webm", "video/quicktime"}
+    if file.content_type not in allowed_types:
+        raise HTTPException(status_code=400, detail="Unsupported media type")
+
+    ext = os.path.splitext(file.filename or "")[1].lower()
+    if ext not in {".jpg", ".jpeg", ".png", ".webp", ".heic", ".heif", ".mp4", ".webm", ".mov"}:
+        ext = ".jpg" if (file.content_type or "").startswith("image/") else ".mp4"
+
+    upload_dir = os.path.join("static", "workout_session_media", str(current_user.id))
+    os.makedirs(upload_dir, exist_ok=True)
+
+    file_name = f"{uuid.uuid4()}{ext}"
+    file_path = os.path.join(upload_dir, file_name)
+    total = 0
+    max_size = 25 * 1024 * 1024
+
+    with open(file_path, "wb") as out_file:
+        while True:
+            chunk = await file.read(1024 * 1024)
+            if not chunk:
+                break
+            total += len(chunk)
+            if total > max_size:
+                out_file.close()
+                os.remove(file_path)
+                raise HTTPException(status_code=400, detail="Media file is too large")
+            out_file.write(chunk)
+
+    return StandardResponse(
+        data={
+            "media_url": f"/static/workout_session_media/{current_user.id}/{file_name}",
+            "media_mime": file.content_type,
+            "media_size_bytes": total,
+        },
+        message="Media uploaded",
+    )
 
 @router.post("/plans", response_model=StandardResponse)
 async def create_workout_plan(
@@ -1989,6 +2072,7 @@ class WorkoutSessionEntryCreate(BaseModel):
     pr_type: str | None = None
     pr_value: str | None = None
     pr_notes: str | None = None
+    set_details: list[WorkoutSetDetail] = Field(default_factory=list)
     order: int = 0
 
     @field_validator("exercise_name")
@@ -2009,6 +2093,12 @@ class WorkoutSessionCreate(BaseModel):
     performed_at: datetime | None = None
     duration_minutes: int | None = Field(None, ge=1)
     notes: str | None = None
+    rpe: int | None = Field(None, ge=1, le=10)
+    pain_level: int | None = Field(None, ge=0, le=10)
+    effort_feedback: Literal["TOO_EASY", "JUST_RIGHT", "TOO_HARD"] | None = None
+    attachment_url: str | None = None
+    attachment_mime: str | None = None
+    attachment_size_bytes: int | None = Field(None, ge=0)
     entries: List[WorkoutSessionEntryCreate] = Field(default_factory=list)
 
     def model_post_init(self, __context) -> None:  # type: ignore[override]
@@ -2030,7 +2120,18 @@ class WorkoutSessionEntryResponse(BaseModel):
     pr_type: str | None
     pr_value: str | None
     pr_notes: str | None
+    skipped: bool = False
+    set_details: list[WorkoutSetDetail] = Field(default_factory=list)
     order: int
+
+    @field_validator("set_details", mode="before")
+    @classmethod
+    def parse_response_set_details(cls, value: Any) -> list[dict[str, Any]]:
+        if isinstance(value, str) or value is None:
+            return _parse_set_details(value)
+        if isinstance(value, list):
+            return [item for item in value if isinstance(item, dict)]
+        return []
 
     class Config:
         from_attributes = True
@@ -2043,6 +2144,12 @@ class WorkoutSessionResponse(BaseModel):
     performed_at: datetime
     duration_minutes: int | None
     notes: str | None
+    rpe: int | None = None
+    pain_level: int | None = None
+    effort_feedback: str | None = None
+    attachment_url: str | None = None
+    attachment_mime: str | None = None
+    attachment_size_bytes: int | None = None
     entries: List[WorkoutSessionEntryResponse] = Field(default_factory=list)
 
     class Config:
@@ -2074,8 +2181,18 @@ class WorkoutSessionDraftEntryResponse(BaseModel):
     pr_value: str | None = None
     pr_notes: str | None = None
     skipped: bool
+    set_details: list[WorkoutSetDetail] = Field(default_factory=list)
     completed_at: datetime | None = None
     order: int
+
+    @field_validator("set_details", mode="before")
+    @classmethod
+    def parse_draft_set_details(cls, value: Any) -> list[dict[str, Any]]:
+        if isinstance(value, str) or value is None:
+            return _parse_set_details(value)
+        if isinstance(value, list):
+            return [item for item in value if isinstance(item, dict)]
+        return []
 
     class Config:
         from_attributes = True
@@ -2110,6 +2227,7 @@ class UpdateWorkoutSessionEntryRequest(BaseModel):
     pr_type: str | None = None
     pr_value: str | None = None
     pr_notes: str | None = None
+    set_details: list[dict[str, Any]] = Field(default_factory=list)
 
 
 class SkipWorkoutExerciseRequest(BaseModel):
@@ -2119,6 +2237,12 @@ class SkipWorkoutExerciseRequest(BaseModel):
 class FinishWorkoutSessionRequest(BaseModel):
     duration_minutes: int | None = Field(None, ge=1)
     notes: str | None = None
+    rpe: int | None = Field(None, ge=1, le=10)
+    pain_level: int | None = Field(None, ge=0, le=10)
+    effort_feedback: Literal["TOO_EASY", "JUST_RIGHT", "TOO_HARD"] | None = None
+    attachment_url: str | None = None
+    attachment_mime: str | None = None
+    attachment_size_bytes: int | None = Field(None, ge=0)
 
 
 @router.post("/log", response_model=StandardResponse)
@@ -2182,6 +2306,7 @@ async def create_workout_session_log(
 
     if current_user.role == Role.CUSTOMER and plan.member_id != current_user.id:
         raise HTTPException(status_code=403, detail="You can only log sessions for plans assigned to your account")
+    _validate_workout_attachment_owner(data, current_user)
 
     exercise_name_by_id = {
         exercise.exercise_id: (exercise.exercise_name or (exercise.exercise.name if exercise.exercise else None))
@@ -2195,6 +2320,12 @@ async def create_workout_session_log(
         performed_at=data.performed_at or datetime.utcnow(),
         duration_minutes=data.duration_minutes,
         notes=data.notes,
+        rpe=data.rpe,
+        pain_level=data.pain_level,
+        effort_feedback=data.effort_feedback,
+        attachment_url=data.attachment_url,
+        attachment_mime=data.attachment_mime,
+        attachment_size_bytes=data.attachment_size_bytes,
     )
     db.add(session)
     await db.flush()
@@ -2218,6 +2349,8 @@ async def create_workout_session_log(
                 pr_type=entry.pr_type,
                 pr_value=entry.pr_value,
                 pr_notes=entry.pr_notes,
+                skipped=False,
+                set_details=_serialize_validated_set_details(entry.set_details),
                 order=entry.order if entry.order else idx,
             )
         )
@@ -2234,8 +2367,10 @@ async def start_workout_session(
     db: Annotated[AsyncSession, Depends(get_db)],
 ):
     plan = await _require_member_workout_plan(db, current_user, data.plan_id)
-    existing = await _get_active_draft_for_member(db, member_id=current_user.id, plan_id=plan.id)
+    existing = await _get_active_draft_for_member(db, member_id=current_user.id)
     if existing:
+        if existing.plan_id != plan.id:
+            raise HTTPException(status_code=409, detail="Finish or abandon your active workout session before starting another plan")
         return StandardResponse(data=WorkoutSessionDraftResponse.model_validate(existing))
 
     plan_exercises = sorted(plan.exercises, key=lambda exercise: exercise.order)
@@ -2338,6 +2473,7 @@ async def update_workout_session_entry(
     current_entry.pr_type = data.pr_type
     current_entry.pr_value = data.pr_value
     current_entry.pr_notes = data.pr_notes
+    current_entry.set_details = _serialize_validated_set_details(data.set_details)
     current_entry.skipped = False
     current_entry.completed_at = datetime.utcnow()
     draft.updated_at = datetime.utcnow()
@@ -2368,6 +2504,7 @@ async def skip_workout_session_entry(
         raise HTTPException(status_code=404, detail="Workout session draft not found")
     if current_user.role == Role.CUSTOMER and draft.member_id != current_user.id:
         raise HTTPException(status_code=403, detail="Access denied")
+    _validate_workout_attachment_owner(data, current_user)
 
     draft.entries.sort(key=lambda entry: entry.order)
     current_index = _active_entry_index(draft.entries)
@@ -2385,8 +2522,54 @@ async def skip_workout_session_entry(
     current_entry.pr_type = None
     current_entry.pr_value = None
     current_entry.pr_notes = None
+    current_entry.set_details = None
     draft.updated_at = datetime.utcnow()
     draft.current_exercise_index = _active_entry_index(draft.entries)
+    await db.commit()
+    await db.refresh(draft, attribute_names=["entries"])
+    draft.entries.sort(key=lambda entry: entry.order)
+    draft.current_exercise_index = _active_entry_index(draft.entries)
+    return StandardResponse(data=WorkoutSessionDraftResponse.model_validate(draft))
+
+
+@router.post("/workout-sessions/{draft_id}/previous", response_model=StandardResponse[WorkoutSessionDraftResponse])
+async def rewind_workout_session_entry(
+    draft_id: uuid.UUID,
+    current_user: Annotated[User, Depends(dependencies.RoleChecker([Role.ADMIN, Role.CUSTOMER]))],
+    _subscription_guard: Annotated[User, Depends(dependencies.require_active_customer_subscription)],
+    db: Annotated[AsyncSession, Depends(get_db)],
+):
+    stmt = (
+        select(WorkoutSessionDraft)
+        .where(WorkoutSessionDraft.id == draft_id)
+        .options(selectinload(WorkoutSessionDraft.entries))
+    )
+    draft = (await db.execute(stmt)).scalar_one_or_none()
+    if not draft:
+        raise HTTPException(status_code=404, detail="Workout session draft not found")
+    if current_user.role == Role.CUSTOMER and draft.member_id != current_user.id:
+        raise HTTPException(status_code=403, detail="Access denied")
+
+    draft.entries.sort(key=lambda entry: entry.order)
+    current_index = _active_entry_index(draft.entries)
+    previous_index = min(current_index - 1, len(draft.entries) - 1)
+    if previous_index < 0:
+        raise HTTPException(status_code=400, detail="No previous exercise to edit")
+
+    previous_entry = draft.entries[previous_index]
+    previous_entry.sets_completed = 0
+    previous_entry.reps_completed = 0
+    previous_entry.weight_kg = None
+    previous_entry.notes = None
+    previous_entry.is_pr = False
+    previous_entry.pr_type = None
+    previous_entry.pr_value = None
+    previous_entry.pr_notes = None
+    previous_entry.skipped = False
+    previous_entry.set_details = None
+    previous_entry.completed_at = None
+    draft.updated_at = datetime.utcnow()
+    draft.current_exercise_index = previous_index
     await db.commit()
     await db.refresh(draft, attribute_names=["entries"])
     draft.entries.sort(key=lambda entry: entry.order)
@@ -2420,6 +2603,12 @@ async def finish_workout_session(
         performed_at=datetime.utcnow(),
         duration_minutes=data.duration_minutes,
         notes=data.notes if data.notes is not None else draft.notes,
+        rpe=data.rpe,
+        pain_level=data.pain_level,
+        effort_feedback=data.effort_feedback,
+        attachment_url=data.attachment_url,
+        attachment_mime=data.attachment_mime,
+        attachment_size_bytes=data.attachment_size_bytes,
     )
     db.add(session)
     await db.flush()
@@ -2440,6 +2629,8 @@ async def finish_workout_session(
                 pr_type=entry.pr_type,
                 pr_value=entry.pr_value,
                 pr_notes=entry.pr_notes,
+                skipped=entry.skipped,
+                set_details=entry.set_details,
                 order=entry.order,
             )
         )

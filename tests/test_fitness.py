@@ -212,13 +212,60 @@ async def test_member_workout_session_draft_tracks_order_and_prs(client: AsyncCl
     )
     assert out_of_order.status_code == 400
 
+    no_previous = await client.post(
+        f"{settings.API_V1_STR}/fitness/workout-sessions/{draft['id']}/previous",
+        headers=member_headers,
+    )
+    assert no_previous.status_code == 400
+
     first_done = await client.put(
         f"{settings.API_V1_STR}/fitness/workout-sessions/{draft['id']}/entries/{first_entry['id']}",
-        json={"sets_completed": 4, "reps_completed": 5, "weight_kg": 120, "notes": "Strong opener"},
+        json={
+            "sets_completed": 4,
+            "reps_completed": 5,
+            "weight_kg": 120,
+            "notes": "Strong opener",
+            "set_details": [
+                {"set": 1, "reps": 5, "weightKg": 100},
+                {"set": 2, "reps": 5, "weightKg": 110},
+                {"set": 3, "reps": 5, "weightKg": 120},
+                {"set": 4, "reps": 5, "weightKg": 120},
+            ],
+        },
         headers=member_headers,
     )
     assert first_done.status_code == 200
     assert first_done.json()["data"]["current_exercise_index"] == 1
+    assert first_done.json()["data"]["entries"][0]["set_details"][2]["weightKg"] == 120
+
+    previous_resp = await client.post(
+        f"{settings.API_V1_STR}/fitness/workout-sessions/{draft['id']}/previous",
+        headers=member_headers,
+    )
+    assert previous_resp.status_code == 200
+    rewound = previous_resp.json()["data"]
+    assert rewound["current_exercise_index"] == 0
+    assert rewound["entries"][0]["sets_completed"] == 0
+    assert rewound["entries"][0]["set_details"] == []
+
+    first_done_again = await client.put(
+        f"{settings.API_V1_STR}/fitness/workout-sessions/{draft['id']}/entries/{first_entry['id']}",
+        json={
+            "sets_completed": 4,
+            "reps_completed": 5,
+            "weight_kg": 122.5,
+            "notes": "Stronger opener",
+            "set_details": [
+                {"set": 1, "reps": 5, "weightKg": 105},
+                {"set": 2, "reps": 5, "weightKg": 115},
+                {"set": 3, "reps": 5, "weightKg": 122.5},
+                {"set": 4, "reps": 5, "weightKg": 122.5},
+            ],
+        },
+        headers=member_headers,
+    )
+    assert first_done_again.status_code == 200
+    assert first_done_again.json()["data"]["current_exercise_index"] == 1
 
     second_done = await client.put(
         f"{settings.API_V1_STR}/fitness/workout-sessions/{draft['id']}/entries/{second_entry['id']}",
@@ -238,13 +285,28 @@ async def test_member_workout_session_draft_tracks_order_and_prs(client: AsyncCl
 
     finish_resp = await client.post(
         f"{settings.API_V1_STR}/fitness/workout-sessions/{draft['id']}/finish",
-        json={"duration_minutes": 62, "notes": "Full leg day complete"},
+        json={
+            "duration_minutes": 62,
+            "notes": "Full leg day complete",
+            "rpe": 8,
+            "pain_level": 2,
+            "effort_feedback": "JUST_RIGHT",
+            "attachment_url": f"/static/workout_session_media/{member.id}/leg-day.jpg",
+            "attachment_mime": "image/jpeg",
+            "attachment_size_bytes": 1024,
+        },
         headers=member_headers,
     )
     assert finish_resp.status_code == 200
     session = finish_resp.json()["data"]
     assert session["duration_minutes"] == 62
+    assert session["rpe"] == 8
+    assert session["pain_level"] == 2
+    assert session["effort_feedback"] == "JUST_RIGHT"
+    assert session["attachment_mime"] == "image/jpeg"
     assert len(session["entries"]) == 2
+    assert session["entries"][0]["skipped"] is False
+    assert session["entries"][0]["set_details"][0]["reps"] == 5
     assert session["entries"][1]["is_pr"] is True
     assert session["entries"][1]["pr_type"] == "WEIGHT"
     assert session["entries"][1]["pr_value"] == "90kg x 8"
@@ -255,6 +317,84 @@ async def test_member_workout_session_draft_tracks_order_and_prs(client: AsyncCl
     )
     assert active_resp.status_code == 200
     assert active_resp.json()["data"] is None
+
+
+@pytest.mark.asyncio
+async def test_workout_session_media_upload_validation(client: AsyncClient, db_session: AsyncSession):
+    password = "password123"
+    hashed = get_password_hash(password)
+    member = User(email="member_media@gym.com", hashed_password=hashed, role=Role.CUSTOMER, full_name="Member Media")
+    db_session.add(member)
+    await db_session.flush()
+    db_session.add(_active_subscription(member.id))
+    await db_session.commit()
+
+    member_login = await client.post(f"{settings.API_V1_STR}/auth/login", json={"email": member.email, "password": password})
+    member_headers = {"Authorization": f"Bearer {member_login.json()['data']['access_token']}"}
+
+    unsupported = await client.post(
+        f"{settings.API_V1_STR}/fitness/workout-session-media/upload",
+        files={"file": ("notes.txt", b"not media", "text/plain")},
+        headers=member_headers,
+    )
+    assert unsupported.status_code == 400
+
+    oversized = await client.post(
+        f"{settings.API_V1_STR}/fitness/workout-session-media/upload",
+        files={"file": ("big.jpg", b"0" * (25 * 1024 * 1024 + 1), "image/jpeg")},
+        headers=member_headers,
+    )
+    assert oversized.status_code == 400
+
+
+@pytest.mark.asyncio
+async def test_member_cannot_start_second_workout_plan_with_active_draft(client: AsyncClient, db_session: AsyncSession):
+    password = "password123"
+    hashed = get_password_hash(password)
+
+    coach = User(email="coach_active_draft@gym.com", hashed_password=hashed, role=Role.COACH, full_name="Coach Active Draft")
+    member = User(email="member_active_draft@gym.com", hashed_password=hashed, role=Role.CUSTOMER, full_name="Member Active Draft")
+    db_session.add_all([coach, member])
+    await db_session.flush()
+    db_session.add(_active_subscription(member.id))
+    await db_session.commit()
+
+    coach_login = await client.post(f"{settings.API_V1_STR}/auth/login", json={"email": coach.email, "password": password})
+    member_login = await client.post(f"{settings.API_V1_STR}/auth/login", json={"email": member.email, "password": password})
+    coach_headers = {"Authorization": f"Bearer {coach_login.json()['data']['access_token']}"}
+    member_headers = {"Authorization": f"Bearer {member_login.json()['data']['access_token']}"}
+
+    exercise = await client.post(f"{settings.API_V1_STR}/fitness/exercises", json={"name": "Bench Press", "category": "Upper"}, headers=coach_headers)
+    assert exercise.status_code == 200
+
+    plan_ids: list[str] = []
+    for name in ["Upper A", "Upper B"]:
+        plan_resp = await client.post(
+            f"{settings.API_V1_STR}/fitness/plans",
+            json={
+                "name": name,
+                "member_id": str(member.id),
+                "status": "PUBLISHED",
+                "exercises": [{"exercise_id": exercise.json()["data"]["id"], "sets": 3, "reps": 8, "order": 1}],
+            },
+            headers=coach_headers,
+        )
+        assert plan_resp.status_code == 200
+        plan_ids.append(plan_resp.json()["data"]["id"])
+
+    first_start = await client.post(
+        f"{settings.API_V1_STR}/fitness/workout-sessions/start",
+        json={"plan_id": plan_ids[0]},
+        headers=member_headers,
+    )
+    assert first_start.status_code == 200
+
+    second_start = await client.post(
+        f"{settings.API_V1_STR}/fitness/workout-sessions/start",
+        json={"plan_id": plan_ids[1]},
+        headers=member_headers,
+    )
+    assert second_start.status_code == 409
 
 
 @pytest.mark.asyncio

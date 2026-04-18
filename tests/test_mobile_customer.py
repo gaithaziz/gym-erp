@@ -944,3 +944,110 @@ async def test_mobile_customer_write_flows(client: AsyncClient, db_session: Asyn
     assert feedback_data["workout_feedback"][0]["plan_name"] == "Feedback Plan"
     assert feedback_data["diet_feedback"][0]["diet_plan_name"] == "Feedback Diet"
     assert feedback_data["gym_feedback"][0]["category"] == "GENERAL"
+
+
+@pytest.mark.asyncio
+async def test_mobile_coach_feedback_includes_only_assigned_flagged_sessions(client: AsyncClient, db_session: AsyncSession):
+    now = datetime.now(timezone.utc).replace(tzinfo=None)
+    coach = User(
+        email="coach-flagged-feedback@example.com",
+        hashed_password=security.get_password_hash("password123"),
+        role=Role.COACH,
+        full_name="Flagged Coach",
+        is_active=True,
+    )
+    other_coach = User(
+        email="other-flagged-feedback@example.com",
+        hashed_password=security.get_password_hash("password123"),
+        role=Role.COACH,
+        full_name="Other Flagged Coach",
+        is_active=True,
+    )
+    customer = User(
+        email="customer-flagged-feedback@example.com",
+        hashed_password=security.get_password_hash("password123"),
+        role=Role.CUSTOMER,
+        full_name="Flagged Member",
+        is_active=True,
+    )
+    db_session.add_all([coach, other_coach, customer])
+    await db_session.flush()
+
+    own_plan = WorkoutPlan(
+        name="Own Flagged Plan",
+        creator_id=coach.id,
+        member_id=customer.id,
+        is_template=False,
+        status="PUBLISHED",
+        version=1,
+        published_at=now - timedelta(days=2),
+    )
+    other_plan = WorkoutPlan(
+        name="Other Flagged Plan",
+        creator_id=other_coach.id,
+        member_id=customer.id,
+        is_template=False,
+        status="PUBLISHED",
+        version=1,
+        published_at=now - timedelta(days=2),
+    )
+    db_session.add_all([own_plan, other_plan])
+    await db_session.flush()
+
+    own_session = WorkoutSession(
+        member_id=customer.id,
+        plan_id=own_plan.id,
+        performed_at=now - timedelta(hours=2),
+        duration_minutes=50,
+        notes="Pain during last set",
+        rpe=9,
+        pain_level=5,
+        effort_feedback="TOO_HARD",
+        attachment_url=f"/static/workout_session_media/{customer.id}/squat.jpg",
+        attachment_mime="image/jpeg",
+    )
+    other_session = WorkoutSession(
+        member_id=customer.id,
+        plan_id=other_plan.id,
+        performed_at=now - timedelta(hours=1),
+        duration_minutes=45,
+        pain_level=6,
+        effort_feedback="TOO_HARD",
+    )
+    db_session.add_all([own_session, other_session])
+    await db_session.flush()
+    db_session.add_all(
+        [
+            WorkoutSessionEntry(
+                session_id=own_session.id,
+                exercise_name="Squat",
+                sets_completed=3,
+                reps_completed=5,
+                weight_kg=100,
+                skipped=False,
+                is_pr=True,
+                order=0,
+            ),
+            WorkoutSessionEntry(
+                session_id=other_session.id,
+                exercise_name="Bench",
+                sets_completed=3,
+                reps_completed=8,
+                weight_kg=80,
+                skipped=False,
+                order=0,
+            ),
+        ]
+    )
+    await db_session.commit()
+
+    headers = await _login(client, coach.email)
+    response = await client.get(f"{settings.API_V1_STR}/mobile/staff/coach/feedback", headers=headers)
+
+    assert response.status_code == 200
+    data = response.json()["data"]
+    assert data["stats"]["flagged_sessions"] == 1
+    assert data["flagged_sessions"][0]["plan_name"] == "Own Flagged Plan"
+    assert data["flagged_sessions"][0]["member_name"] == "Flagged Member"
+    assert data["flagged_sessions"][0]["pain_level"] == 5
+    assert data["flagged_sessions"][0]["pr_count"] == 1

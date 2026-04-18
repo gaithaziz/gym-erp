@@ -535,7 +535,10 @@ export default function MemberPlansPage() {
                                                 <div className="flex items-start justify-between gap-3">
                                                     <div>
                                                         <p className="text-sm font-semibold text-foreground">{new Date(session.performed_at).toLocaleString(locale === 'ar' ? 'ar-EG' : 'en-US')}</p>
-                                                        <p className="text-xs text-muted-foreground">{session.duration_minutes || 0} min • {session.entries.length} exercises</p>
+                                                        <p className="text-xs text-muted-foreground">
+                                                            {session.duration_minutes || 0} min • {session.entries.filter((entry) => !entry.skipped).length} completed
+                                                            {session.entries.some((entry) => entry.skipped) ? ` • ${session.entries.filter((entry) => entry.skipped).length} skipped` : ''}
+                                                        </p>
                                                     </div>
                                                     <p className="text-xs text-muted-foreground">{session.entries.filter((entry) => entry.is_pr).length} PRs</p>
                                                 </div>
