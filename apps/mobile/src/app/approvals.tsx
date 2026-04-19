@@ -22,6 +22,7 @@ export default function ApprovalsScreen() {
   const locale = localeTag(isRTL);
   const [selectedRenewalId, setSelectedRenewalId] = useState<string | null>(null);
   const [selectedLeaveId, setSelectedLeaveId] = useState<string | null>(null);
+  const [selectedClassId, setSelectedClassId] = useState<string | null>(null);
   const [amountPaid, setAmountPaid] = useState("");
   const [paymentMethod, setPaymentMethod] = useState<(typeof PAYMENT_METHODS)[number]>("CASH");
   const [reviewerNote, setReviewerNote] = useState("");
@@ -95,8 +96,23 @@ export default function ApprovalsScreen() {
     },
     onError: (error) => setFeedback(error instanceof Error ? error.message : copy.common.errorTryAgain),
   });
+  
+  const classMutation = useMutation({
+    mutationFn: async ({ sessionId, reservationId, action }: { sessionId: string; reservationId: string; action: "approve" | "reject" }) =>
+      authorizedRequest(`/classes/sessions/${sessionId}/reservations/${action}`, {
+        method: "POST",
+        body: JSON.stringify({ reservation_ids: [reservationId] }),
+      }),
+    onSuccess: async () => {
+      setFeedback(copy.common.successUpdated);
+      setSelectedClassId(null);
+      await invalidateOps();
+    },
+    onError: (error) => setFeedback(error instanceof Error ? error.message : copy.common.errorTryAgain),
+  });
 
-  if (!adminControl) {
+
+  if (!adminControl && role !== "COACH") {
     return (
       <Screen title={copy.adminControl.approvalQueue} subtitle={copy.adminControl.subtitle} showSubtitle>
         <Card>
@@ -159,6 +175,34 @@ export default function ApprovalsScreen() {
                       onApprove={() => leaveMutation.mutate({ leaveId: leave.id, status: "APPROVED" })}
                       onDeny={() => leaveMutation.mutate({ leaveId: leave.id, status: "DENIED" })}
                       busy={leaveMutation.isPending}
+                    />
+                  ) : null}
+                </ApprovalRow>
+              );
+            })}
+          </Card>
+
+          <Card>
+            <SectionTitle>{copy.adminControl.classReservations}</SectionTitle>
+            {approvals.classes.length === 0 ? <MutedText>{copy.adminControl.noApprovals}</MutedText> : null}
+            {approvals.classes.map((res) => {
+              const selected = selectedClassId === res.id;
+              const dateObj = new Date(res.starts_at);
+              return (
+                <ApprovalRow 
+                  key={res.id} 
+                  active={selected} 
+                  title={res.member_name} 
+                  meta={`${res.class_name} — ${dateObj.toLocaleDateString(locale, { weekday: 'short', month: 'short', day: 'numeric' })} at ${dateObj.toLocaleTimeString(locale, { hour: '2-digit', minute: '2-digit' })}`} 
+                  onPress={() => setSelectedClassId(selected ? null : res.id)}
+                >
+                  {selected ? (
+                    <ClassDetail
+                      res={res}
+                      locale={locale}
+                      onApprove={() => classMutation.mutate({ sessionId: res.session_id, reservationId: res.id, action: "approve" })}
+                      onReject={() => classMutation.mutate({ sessionId: res.session_id, reservationId: res.id, action: "reject" })}
+                      busy={classMutation.isPending}
                     />
                   ) : null}
                 </ApprovalRow>
@@ -249,6 +293,21 @@ function LeaveDetail({ busy, leave, locale, onApprove, onDeny }: { busy: boolean
     </View>
   );
 }
+
+function ClassDetail({ busy, res, locale, onApprove, onReject }: { busy: boolean; res: any; locale: string; onApprove: () => void; onReject: () => void }) {
+  const { copy, isRTL } = usePreferences();
+  return (
+    <View style={styles.detail}>
+      <MutedText>{`${copy.common.member}: ${res.member_name}`}</MutedText>
+      <MutedText>{`${copy.adminControl.requestedAt}: ${res.reserved_at ? new Date(res.reserved_at).toLocaleString(locale) : copy.common.noData}`}</MutedText>
+      <View style={[styles.actionRow, { flexDirection: isRTL ? "row-reverse" : "row" }]}>
+        <PrimaryButton onPress={onApprove} disabled={busy}>{copy.adminControl.confirmSpot}</PrimaryButton>
+        <SecondaryButton onPress={onReject} disabled={busy}>{copy.adminControl.reject}</SecondaryButton>
+      </View>
+    </View>
+  );
+}
+
 
 function leaveTypeLabel(leaveType: string, copy: ReturnType<typeof usePreferences>["copy"]) {
   const labels = copy.adminControl.leaveTypes as Record<string, string>;

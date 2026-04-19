@@ -7,7 +7,7 @@ import { useEffect, useMemo, useState } from "react";
 import { Pressable, Text, View } from "react-native";
 
 import { Card, Input, MediaPreview, MutedText, PrimaryButton, QueryState, Screen, SectionTitle, SecondaryButton, TextArea } from "@/components/ui";
-import { API_BASE_URL, parseCoachPlansEnvelope } from "@/lib/api";
+import { API_BASE_URL, parseClassSessionsEnvelope, parseCoachPlansEnvelope, type ClassSession } from "@/lib/api";
 import { pickImageOrVideoFromLibrary } from "@/lib/media-picker";
 import { localizePlanStatus } from "@/lib/mobile-format";
 import { getCurrentRole } from "@/lib/mobile-role";
@@ -1418,7 +1418,7 @@ function CoachPlansTab() {
   const { authorizedRequest } = useSession();
   const { copy, direction, fontSet, isRTL, theme } = usePreferences();
   const queryClient = useQueryClient();
-  const [editorMode, setEditorMode] = useState<"workout" | "diet">("workout");
+  const [editorMode, setEditorMode] = useState<"workout" | "diet" | "classes">("workout");
   const [creatingWorkout, setCreatingWorkout] = useState(false);
   const [creatingDiet, setCreatingDiet] = useState(false);
   const [selectedWorkoutId, setSelectedWorkoutId] = useState<string | null>(null);
@@ -1442,6 +1442,11 @@ function CoachPlansTab() {
   const coachPlansQuery = useQuery({
     queryKey: ["mobile-coach-plan-manager"],
     queryFn: async () => parseCoachPlansEnvelope(await authorizedRequest("/mobile/staff/coach/plans")).data,
+  });
+
+  const coachClassesQuery = useQuery({
+    queryKey: ["mobile-coach-classes"],
+    queryFn: async () => parseClassSessionsEnvelope(await authorizedRequest("/classes/sessions")).data,
   });
 
   const workoutPlans = coachPlansQuery.data?.workouts ?? [];
@@ -1671,12 +1676,14 @@ function CoachPlansTab() {
         <View style={{ flexDirection: isRTL ? "row-reverse" : "row", alignItems: "center", justifyContent: "space-between", gap: 12 }}>
           <SectionTitle>{copy.staffHome.title}</SectionTitle>
           <View style={{ flexDirection: isRTL ? "row-reverse" : "row", gap: 6, flexShrink: 1 }}>
+            <MiniMetric label="Classes" value={coachClassesQuery.data?.length ?? 0} />
             <MiniMetric label={copy.membersScreen.workoutPlans} value={workoutPlans.length} />
             <MiniMetric label={copy.membersScreen.dietPlans} value={dietPlans.length} />
             <MiniMetric label={copy.coachPlans.template} value={workoutTemplateCount + dietTemplateCount} />
           </View>
         </View>
         <View style={{ flexDirection: isRTL ? "row-reverse" : "row", gap: 8, marginTop: 10 }}>
+          <ModePill label="Classes" active={editorMode === "classes"} onPress={() => setEditorMode("classes")} />
           <ModePill label={copy.membersScreen.workoutPlans} active={editorMode === "workout"} onPress={() => setEditorMode("workout")} />
           <ModePill label={copy.membersScreen.dietPlans} active={editorMode === "diet"} onPress={() => setEditorMode("diet")} />
         </View>
@@ -1684,7 +1691,7 @@ function CoachPlansTab() {
 
       <Card>
         <View style={{ flexDirection: isRTL ? "row-reverse" : "row", alignItems: "center", justifyContent: "space-between", gap: 12 }}>
-          <SectionTitle>{editorMode === "workout" ? copy.membersScreen.workoutPlans : copy.membersScreen.dietPlans}</SectionTitle>
+          <SectionTitle>{editorMode === "workout" ? copy.membersScreen.workoutPlans : editorMode === "diet" ? copy.membersScreen.dietPlans : "My Classes"}</SectionTitle>
           <CompactAddButton
             label={editorMode === "workout" ? copy.coachPlans.createWorkout : copy.coachPlans.createDiet}
             onPress={() => {
@@ -1833,8 +1840,9 @@ function CoachPlansTab() {
               <SecondaryButton disabled={workoutActionMutation.isPending} onPress={() => workoutActionMutation.mutate({ action: "clone", planId: selectedWorkout.id })}>{pendingWorkoutAction === "clone" ? copy.common.loading : copy.coachPlans.clone}</SecondaryButton>
             </View>
           ) : null}
+
         </Card>
-      ) : (
+      ) : editorMode === "diet" ? (
         <Card>
           <SectionTitle>{selectedDiet ? `${copy.coachPlans.editing}: ${selectedDiet.name}` : copy.coachPlans.createDiet}</SectionTitle>
           <InlineNotice notice={planActionNotice} />
@@ -1924,6 +1932,33 @@ function CoachPlansTab() {
               <SecondaryButton disabled={dietActionMutation.isPending} onPress={() => dietActionMutation.mutate({ action: "clone", planId: selectedDiet.id })}>{pendingDietAction === "clone" ? copy.common.loading : copy.coachPlans.clone}</SecondaryButton>
             </View>
           ) : null}
+        </Card>
+      ) : (
+        <Card>
+          <SectionTitle>My Upcoming Classes</SectionTitle>
+          <QueryState loading={coachClassesQuery.isLoading} error={coachClassesQuery.error instanceof Error ? coachClassesQuery.error.message : null} />
+          {coachClassesQuery.data?.length === 0 ? (
+            <MutedText>You have no classes scheduled.</MutedText>
+          ) : (
+            coachClassesQuery.data?.map((session) => (
+              <View key={session.id} style={{ padding: 14, borderWidth: 1, borderColor: theme.border, borderRadius: 14, marginBottom: 10 }}>
+                <Text style={{ fontFamily: fontSet.display, fontSize: 16, color: theme.foreground }}>{session.template_name}</Text>
+                <MutedText>
+                  {new Date(session.starts_at).toLocaleDateString(isRTL ? "ar" : "en", { weekday: "short", month: "short", day: "numeric" })}
+                  {" · "}
+                  {new Date(session.starts_at).toLocaleTimeString(isRTL ? "ar" : "en", { hour: "2-digit", minute: "2-digit" })}
+                </MutedText>
+                <View style={{ flexDirection: "row", gap: 8, marginTop: 12 }}>
+                  <View style={{ backgroundColor: theme.primarySoft, paddingHorizontal: 8, paddingVertical: 4, borderRadius: 4 }}>
+                    <Text style={{ fontFamily: fontSet.mono, color: theme.primary, fontSize: 11 }}>{session.reserved_count} Reserved</Text>
+                  </View>
+                  <View style={{ backgroundColor: theme.primarySoft, paddingHorizontal: 8, paddingVertical: 4, borderRadius: 4 }}>
+                    <Text style={{ fontFamily: fontSet.mono, color: theme.primary, fontSize: 11 }}>{session.pending_count} Pending</Text>
+                  </View>
+                </View>
+              </View>
+            ))
+          )}
         </Card>
       )}
     </Screen>

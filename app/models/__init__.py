@@ -3,6 +3,7 @@ from app.models.lost_found import LostFoundComment, LostFoundItem, LostFoundMedi
 from app.models.notification import MobileDevice, MobileNotificationPreference, PushDeliveryLog
 from app.models.access import RenewalRequestStatus, SubscriptionRenewalRequest
 from app.models.support import SupportTicket, SupportMessage, TicketCategory, TicketStatus
+from app.models.classes import ClassTemplate, ClassSession, ClassReservation, ClassSessionStatus, ClassReservationStatus
 
 
 __all__ = [
@@ -21,4 +22,9 @@ __all__ = [
     "SupportMessage",
     "TicketCategory",
     "TicketStatus",
+    "ClassTemplate",
+    "ClassSession",
+    "ClassReservation",
+    "ClassSessionStatus",
+    "ClassReservationStatus",
 ]

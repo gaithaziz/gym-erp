@@ -28,6 +28,7 @@ interface DashboardStats {
     monthly_revenue: number;
     monthly_expenses: number;
     pending_salaries: number;
+    pending_approvals: number;
 }
 
 interface DailyVisitorRow {
@@ -159,6 +160,7 @@ function AdminDashboard({ userName }: { userName: string }) {
     const expensesBarColor = '#ef4444';
     const [recentActivity, setRecentActivity] = useState<ActivityItem[]>([]);
     const [lowStockItems, setLowStockItems] = useState<LowStockItem[]>([]);
+    const [classesToday, setClassesToday] = useState(0);
     const [dailyVisitors, setDailyVisitors] = useState<DailyVisitorRow[]>([]);
     const [dailyVisitorsPage, setDailyVisitorsPage] = useState(1);
     const [dateRange, setDateRange] = useState<DateRange | undefined>({
@@ -204,6 +206,14 @@ function AdminDashboard({ userName }: { userName: string }) {
         api.get('/inventory/products/low-stock')
             .then(res => setLowStockItems(res.data.data || []))
             .catch(() => setLowStockItems([]));
+
+        api.get('/classes/sessions')
+            .then(res => {
+                const todayStr = new Date().toISOString().split('T')[0];
+                const count = (res.data || []).filter((s: any) => s.starts_at.startsWith(todayStr)).length;
+                setClassesToday(count);
+            })
+            .catch(() => setClassesToday(0));
 
         api.get('/analytics/daily-visitors' + dateQuery)
             .then(res => setDailyVisitors(res.data.data || []))
@@ -277,6 +287,8 @@ function AdminDashboard({ userName }: { userName: string }) {
     const kpiCards = [
         { title: t('dashboard.home.todayVisitors'), value: stats?.today_visitors ?? '--', subtitle: t('dashboard.home.todayVisitorsSubtitle'), icon: Activity, badge: 'badge-blue' },
         { title: t('dashboard.home.todaysRevenue'), value: stats ? formatCurrency(stats.todays_revenue, 'JOD', { currencyDisplay: 'code' }) : '--', subtitle: t('dashboard.home.todaysRevenueSubtitle'), icon: DollarSign, badge: 'badge-green' },
+        { title: t('dashboard.home.classesToday'), value: classesToday, subtitle: t('dashboard.home.classesTodaySubtitle'), icon: Dumbbell, badge: 'badge-purple' },
+        { title: t('dashboard.home.approvalsNeeded'), value: stats?.pending_approvals ?? 0, subtitle: t('dashboard.home.approvalsNeededSubtitle'), icon: ClipboardList, badge: 'badge-amber', isAlert: (stats?.pending_approvals ?? 0) > 0 },
         { title: t('dashboard.home.pendingSalaries'), value: stats ? formatCurrency(stats.pending_salaries, 'JOD', { currencyDisplay: 'code' }) : '--', subtitle: t('dashboard.home.pendingSalariesSubtitle'), icon: Clock, badge: 'badge-amber' },
         { title: t('dashboard.home.lowStockAlerts'), value: lowStockItems.length, subtitle: t('dashboard.home.lowStockAlertsSubtitle'), icon: TrendingUp, badge: 'badge-destructive', isAlert: lowStockItems.length > 0 },
     ];

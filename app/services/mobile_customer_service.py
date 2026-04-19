@@ -18,6 +18,7 @@ from app.models.user import User
 from app.models.notification import MobileNotificationPreference, PushDeliveryLog, WhatsAppDeliveryLog
 from app.models.access import RenewalRequestStatus, Subscription, SubscriptionRenewalRequest
 from app.models.workout_log import WorkoutSession, WorkoutSessionEntry
+from app.models.classes import ClassReservation, ClassReservationStatus, ClassSession, ClassTemplate
 from app.models.workout_log import DietFeedback, GymFeedback, WorkoutLog
 from app.services.mobile_bootstrap_service import MobileBootstrapService
 
@@ -152,6 +153,39 @@ class MobileCustomerService:
 
         recent_receipts = await MobileCustomerService.list_receipts(current_user=current_user, db=db, limit=3)
 
+        # Upcoming classes in next 48h
+        upcoming_classes = (
+            await db.execute(
+                select(ClassSession, ClassTemplate)
+                .join(ClassReservation, ClassReservation.session_id == ClassSession.id)
+                .join(ClassTemplate, ClassTemplate.id == ClassSession.template_id)
+                .where(
+                    ClassReservation.member_id == current_user.id,
+                    ClassReservation.status == ClassReservationStatus.RESERVED,
+                    ClassSession.starts_at >= datetime.utcnow(),
+                    ClassSession.starts_at <= datetime.utcnow() + timedelta(days=2),
+                )
+                .order_by(ClassSession.starts_at.asc())
+                .limit(1)
+            )
+        ).all()
+
+        next_class = None
+        if upcoming_classes:
+            session, tmpl = upcoming_classes[0]
+            coach_name = None
+            if session.coach_id:
+                coach = await db.get(User, session.coach_id)
+                coach_name = coach.full_name if coach else None
+
+            next_class = {
+                "id": str(session.id),
+                "name": tmpl.name,
+                "starts_at": session.starts_at.isoformat(),
+                "ends_at": session.ends_at.isoformat(),
+                "coach_name": coach_name,
+            }
+
         return {
             "subscription": subscription.model_dump(mode="json"),
             "quick_stats": {
@@ -163,6 +197,7 @@ class MobileCustomerService:
             },
             "latest_biometric": MobileCustomerService._serialize_biometric(latest_biometric) if latest_biometric else None,
             "recent_receipts": recent_receipts,
+            "next_class": next_class,
         }
 
     @staticmethod

@@ -301,6 +301,7 @@ class MobileAdminOperationsSummaryResponse(BaseModel):
     support: dict[str, Any]
     inventory: dict[str, Any]
     notifications: dict[str, Any]
+    approvals: dict[str, Any]
     staff: dict[str, Any]
     recent_support_tickets: list[dict[str, Any]]
 
@@ -329,6 +330,7 @@ class MobileAdminInventorySummaryResponse(BaseModel):
 class MobileAdminApprovalsResponse(BaseModel):
     renewals: list[dict[str, Any]]
     leaves: list[dict[str, Any]]
+    classes: list[dict[str, Any]]
 
 
 class MobileAdminStaffListResponse(BaseModel):
@@ -1131,7 +1133,7 @@ async def read_admin_mobile_inventory_summary(
 
 @router.get("/admin/approvals", response_model=StandardResponse[MobileAdminApprovalsResponse])
 async def read_admin_mobile_approvals(
-    current_user: Annotated[User, Depends(dependencies.RoleChecker([schemas.Role.ADMIN, schemas.Role.MANAGER]))],
+    current_user: Annotated[User, Depends(dependencies.RoleChecker([schemas.Role.ADMIN, schemas.Role.MANAGER, schemas.Role.COACH]))],
     db: Annotated[AsyncSession, Depends(get_db)],
 ):
     data = await MobileAdminService.get_approvals(current_user=current_user, db=db)

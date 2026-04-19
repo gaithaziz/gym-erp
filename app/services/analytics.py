@@ -3,8 +3,9 @@ from datetime import date, datetime, timedelta, timezone
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func
 from app.config import settings
-from app.models.access import AccessLog, AttendanceLog, Subscription, SubscriptionStatus
-from app.models.hr import Payroll
+from app.models.access import AccessLog, AttendanceLog, Subscription, SubscriptionStatus, SubscriptionRenewalRequest, RenewalRequestStatus
+from app.models.hr import Payroll, LeaveRequest, LeaveStatus
+from app.models.classes import ClassReservation, ClassReservationStatus
 from app.services.timezone_service import get_gym_timezone
 
 class AnalyticsService:
@@ -98,6 +99,12 @@ class AnalyticsService:
         result_pending = await db.execute(stmt_pending)
         pending_salaries = float(result_pending.scalar() or 0.0)
 
+        # 7. Pending Approvals (Renewals + Leaves + Classes)
+        renewal_count = (await db.execute(select(func.count(SubscriptionRenewalRequest.id)).where(SubscriptionRenewalRequest.status == RenewalRequestStatus.PENDING))).scalar() or 0
+        leave_count = (await db.execute(select(func.count(LeaveRequest.id)).where(LeaveRequest.status == LeaveStatus.PENDING))).scalar() or 0
+        class_res_count = (await db.execute(select(func.count(ClassReservation.id)).where(ClassReservation.status == ClassReservationStatus.PENDING))).scalar() or 0
+        pending_approvals = renewal_count + leave_count + class_res_count
+
         payload = {
             "live_headcount": live_headcount,
             "today_visitors": today_visitors,
@@ -106,6 +113,7 @@ class AnalyticsService:
             "monthly_revenue": monthly_revenue,
             "monthly_expenses": monthly_expenses,
             "pending_salaries": pending_salaries,
+            "pending_approvals": pending_approvals,
         }
         if use_cache:
             AnalyticsService._dashboard_cache[cache_key] = (

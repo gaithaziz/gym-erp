@@ -377,3 +377,77 @@ export function parseCoachPlansEnvelope(input: unknown): Envelope<MobileCoachPla
     data: parseMobileCoachPlans(payload.data),
   };
 }
+
+// ---------------------------------------------------------------------------
+// Class Scheduling Types & Helpers
+// ---------------------------------------------------------------------------
+
+export type ClassReservationStatus = "PENDING" | "RESERVED" | "WAITLISTED" | "CANCELLED" | "REJECTED" | "NO_SHOW";
+export type ClassSessionStatus = "SCHEDULED" | "CANCELLED" | "COMPLETED";
+
+export type ClassSession = {
+  id: string;
+  template_id: string;
+  template_name: string;
+  coach_id: string;
+  coach_name: string | null;
+  starts_at: string;
+  ends_at: string;
+  capacity: number;
+  capacity_override: number | null;
+  status: ClassSessionStatus;
+  notes: string | null;
+  reserved_count: number;
+  pending_count: number;
+  waitlist_count: number;
+};
+
+export type ClassReservation = {
+  reservation_id: string;
+  status: ClassReservationStatus;
+  reserved_at: string;
+  session: ClassSession;
+};
+
+export type ClassTemplate = {
+  id: string;
+  name: string;
+  description: string | null;
+  category: string | null;
+  duration_minutes: number;
+  capacity: number;
+  color: string | null;
+  is_active: boolean;
+  created_at: string;
+};
+
+export type StaffSessionReservation = {
+  id: string;
+  session_id: string;
+  member_id: string;
+  member_name: string | null;
+  status: ClassReservationStatus;
+  attended: boolean;
+  reserved_at: string;
+  cancelled_at: string | null;
+};
+
+export function parseUpcomingClassesEnvelope(input: unknown): Envelope<ClassSession[]> {
+  return parseEnvelope<ClassSession[]>(input);
+}
+
+export function parseMyReservationsEnvelope(input: unknown): Envelope<ClassReservation[]> {
+  return parseEnvelope<ClassReservation[]>(input);
+}
+
+export function parseClassTemplatesEnvelope(input: unknown): Envelope<ClassTemplate[]> {
+  return parseEnvelope<ClassTemplate[]>(input);
+}
+
+export function parseClassSessionsEnvelope(input: unknown): Envelope<ClassSession[]> {
+  return parseEnvelope<ClassSession[]>(input);
+}
+
+export function parseSessionReservationsEnvelope(input: unknown): Envelope<StaffSessionReservation[]> {
+  return parseEnvelope<StaffSessionReservation[]>(input);
+}

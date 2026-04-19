@@ -4,7 +4,7 @@ import { useRouter } from "expo-router";
 import { Pressable, StyleSheet, Text, View } from "react-native";
 
 import { Card, InlineStat, MutedText, PrimaryButton, QueryState, Screen, SecondaryButton, SecondaryLink, SectionTitle, ValueText } from "@/components/ui";
-import { parseAdminHomeEnvelope, parseEnvelope, parseHomeEnvelope, parseStaffHomeEnvelope, type MobileGamificationStats } from "@/lib/api";
+import { parseAdminHomeEnvelope, parseEnvelope, parseHomeEnvelope, parseMyReservationsEnvelope, parseStaffHomeEnvelope, type ClassReservation, type MobileGamificationStats } from "@/lib/api";
 import { localeTag, localizeAuditAction, localizeFinanceCategory, localizeFinanceTransactionType, localizePaymentMethod, localizeRole, localizeSubscriptionStatus, localizeTicketStatus } from "@/lib/mobile-format";
 import { getCurrentRole, isAdminControlRole, isCustomerRole } from "@/lib/mobile-role";
 import { usePreferences } from "@/lib/preferences";
@@ -41,9 +41,14 @@ function CustomerHomeTab() {
     queryKey: ["mobile-gamification"],
     queryFn: async () => parseEnvelope<MobileGamificationStats>(await authorizedRequest("/gamification/stats")).data,
   });
+  const classesQuery = useQuery({
+    queryKey: ["my-reservations-home"],
+    queryFn: async () => parseMyReservationsEnvelope(await authorizedRequest("/classes/my-reservations")).data,
+  });
 
   const home = homeQuery.data;
   const gamification = gamificationQuery.data;
+  const upcomingClasses = (classesQuery.data ?? []).slice(0, 2);
   const firstName = bootstrap?.user.full_name ? bootstrap.user.full_name.split(" ")[0] : "";
   const title = isRTL ? `${copy.home.greeting}${firstName ? `، ${firstName}` : ""}` : `${copy.home.greeting}${firstName ? `, ${firstName}` : ""}`;
   const locale = localeTag(isRTL);
@@ -137,6 +142,31 @@ function CustomerHomeTab() {
             <PrimaryButton onPress={() => router.push("/billing")}>{copy.home.renew}</PrimaryButton>
           </Card>
 
+          {home.next_class && (
+            <Card style={{ borderLeftWidth: 4, borderLeftColor: theme.primary, marginBottom: 16 }}>
+               <View style={{ flexDirection: isRTL ? 'row-reverse' : 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+                  <SectionTitle style={{ marginBottom: 0 }}>{copy.home.nextClass}</SectionTitle>
+                  <View style={{ backgroundColor: theme.primarySoft, paddingHorizontal: 8, paddingVertical: 2, borderRadius: 4 }}>
+                     <Text style={{ color: theme.primary, fontSize: 12, fontWeight: '700', fontFamily: fontSet.mono }}>{copy.home.confirmed}</Text>
+                  </View>
+               </View>
+              <View style={{ gap: 4, marginTop: 12 }}>
+                <Text style={{ fontSize: 20, fontWeight: "800", color: theme.foreground, fontFamily: fontSet.display, textAlign: isRTL ? 'right' : 'left' }}>
+                  {home.next_class.name}
+                </Text>
+                <MutedText>
+                  {new Date(home.next_class.starts_at).toLocaleDateString(locale, { weekday: 'long', month: 'short', day: 'numeric' })} at {new Date(home.next_class.starts_at).toLocaleTimeString(locale, { hour: '2-digit', minute: '2-digit' })}
+                </MutedText>
+                {home.next_class.coach_name && (
+                   <MutedText>{`${copy.home.coach}: ${home.next_class.coach_name}`}</MutedText>
+                )}
+              </View>
+              <SecondaryButton style={{ marginTop: 12 }} onPress={() => router.push("/classes")}>
+                {copy.home.viewDetails}
+              </SecondaryButton>
+            </Card>
+          )}
+
           <View style={[styles.statGrid, { flexDirection: isRTL ? "row-reverse" : "row" }]}>
             <InlineStat label={copy.home.workoutPlans} value={home.quick_stats.active_workout_plans} />
             <InlineStat label={copy.home.dietPlans} value={home.quick_stats.active_diet_plans} />
@@ -219,6 +249,40 @@ function CustomerHomeTab() {
                 </View>
               ))
             )}
+          </Card>
+
+          <Card>
+            <SectionTitle>Upcoming Classes</SectionTitle>
+            {classesQuery.isLoading ? (
+              <MutedText>{copy.common.loading}</MutedText>
+            ) : upcomingClasses.length === 0 ? (
+              <MutedText>No upcoming class bookings.</MutedText>
+            ) : (
+              upcomingClasses.map((r: ClassReservation) => {
+                const statusColor =
+                  r.status === "RESERVED" ? theme.primary :
+                  r.status === "PENDING" ? "#F59E0B" : theme.muted;
+                const statusLabel =
+                  r.status === "RESERVED" ? "Confirmed" :
+                  r.status === "PENDING" ? "Pending" : r.status;
+                return (
+                  <View key={r.reservation_id} style={[styles.listRow, { borderTopColor: theme.border, flexDirection: isRTL ? "row-reverse" : "row" }]}>
+                    <View style={styles.listTextBlock}>
+                      <Text style={[styles.listTitle, { color: theme.foreground, fontFamily: fontSet.body, textAlign: isRTL ? "right" : "left" }]}>
+                        {r.session.template_name}
+                      </Text>
+                      <MutedText>
+                        {new Date(r.session.starts_at).toLocaleDateString(localeTag(isRTL), { weekday: "short", month: "short", day: "numeric" })}
+                        {" · "}
+                        {new Date(r.session.starts_at).toLocaleTimeString(localeTag(isRTL), { hour: "2-digit", minute: "2-digit" })}
+                      </MutedText>
+                    </View>
+                    <Text style={[styles.amountText, { color: statusColor, fontFamily: fontSet.mono, fontSize: 12 }]}>{statusLabel}</Text>
+                  </View>
+                );
+              })
+            )}
+            <SecondaryButton onPress={() => router.push("/classes" as never)}>View All Classes</SecondaryButton>
           </Card>
         </>
       ) : null}

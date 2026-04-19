@@ -192,6 +192,7 @@ export default function DashboardLayout({
     const navItems: Array<{
         href: string;
         labelKey: TranslationKey;
+        labelOverride?: string;
         icon: LucideIcon;
         roles: string[];
         section: string;
@@ -201,6 +202,7 @@ export default function DashboardLayout({
         { href: '/dashboard/admin/pos', labelKey: 'dashboard.nav.cashierPos', icon: ShoppingCart, roles: ['ADMIN', 'CASHIER', 'EMPLOYEE'], section: 'operations' },
         { href: '/dashboard/admin/notifications', labelKey: 'dashboard.nav.whatsappAutomation', icon: MessageSquare, roles: ['ADMIN', 'RECEPTION', 'FRONT_DESK'], section: 'operations' },
         { href: '/dashboard/admin/entrance-qr', labelKey: 'dashboard.nav.entranceQr', icon: QrCode, roles: ['ADMIN'], section: 'operations' },
+        { href: '/dashboard/classes', labelKey: 'dashboard.nav.dashboard' as any, labelOverride: 'Classes', icon: ClipboardList, roles: ['ADMIN', 'MANAGER'], section: 'operations' },
         { href: '/dashboard/admin/support', labelKey: 'dashboard.nav.supportDesk', icon: LifeBuoy, roles: ['ADMIN', 'RECEPTION'], section: 'operations' },
         { href: '/dashboard/lost-found', labelKey: 'dashboard.nav.lostFound', icon: MessageSquare, roles: ['ADMIN', 'MANAGER', 'FRONT_DESK', 'RECEPTION', 'COACH', 'EMPLOYEE', 'CASHIER', 'CUSTOMER'], section: 'operations' },
         { href: '/dashboard/admin/audit', labelKey: 'dashboard.nav.auditLogs', icon: ShieldAlert, roles: ['ADMIN'], section: 'operations' },
@@ -341,7 +343,7 @@ export default function DashboardLayout({
                                                 >
                                                     <item.icon size={18} />
                                                     <span className="inline-flex items-center gap-2">
-                                                        {t(item.labelKey)}
+                                                        {item.labelOverride || t(item.labelKey)}
                                                         {showDot && <span className="h-2 w-2 rounded-full bg-red-500" aria-label={t('common.newActivity')} />}
                                                     </span>
                                                 </Link>

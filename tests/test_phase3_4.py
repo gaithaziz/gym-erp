@@ -418,8 +418,14 @@ async def test_mobile_admin_approval_mutations_reject_non_admin_control_roles(cl
     request_id = "11111111-1111-4111-8111-111111111111"
     leave_id = "22222222-2222-4222-8222-222222222222"
 
-    checks = [
-        await client.get("/api/v1/mobile/admin/approvals", headers=headers),
+    # GET /admin/approvals is now 200 for COACH
+    resp_get = await client.get("/api/v1/mobile/admin/approvals", headers=headers)
+    if role == Role.COACH:
+        assert resp_get.status_code == 200
+    else:
+        assert resp_get.status_code == 403
+
+    mutation_checks = [
         await client.post(
             f"/api/v1/mobile/admin/approvals/renewals/{request_id}/approve",
             headers=headers,
@@ -437,7 +443,7 @@ async def test_mobile_admin_approval_mutations_reject_non_admin_control_roles(cl
         ),
     ]
 
-    assert all(response.status_code == 403 for response in checks)
+    assert all(response.status_code == 403 for response in mutation_checks)
 
 
 @pytest.mark.asyncio

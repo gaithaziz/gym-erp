@@ -8,6 +8,7 @@ from sqlalchemy import or_, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.access import AccessLog, AttendanceLog, Subscription, SubscriptionRenewalRequest, RenewalRequestStatus
+from app.models.classes import ClassReservation, ClassReservationStatus, ClassSession, ClassTemplate
 from app.models.audit import AuditLog
 from app.models.enums import Role
 from app.models.finance import PaymentMethod, Transaction, TransactionCategory, TransactionType
@@ -636,7 +637,11 @@ class MobileAdminService:
 
     @classmethod
     async def get_approvals(cls, *, current_user: User, db: AsyncSession) -> dict[str, Any]:
-        cls._ensure_allowed(current_user)
+        if current_user.role not in {Role.ADMIN, Role.MANAGER, Role.COACH}:
+            raise ValueError("Not allowed")
+
+        admin_mode = current_user.role in ADMIN_CONTROL_ROLES
+
 
         renewal_rows = (
             await db.execute(
@@ -655,11 +660,25 @@ class MobileAdminService:
                 .order_by(LeaveRequest.start_date.asc())
                 .limit(50)
             )
-        ).all()
+        ).all() if admin_mode else []
+
+        class_q = (
+            select(ClassReservation, User, ClassSession, ClassTemplate)
+            .join(User, User.id == ClassReservation.member_id)
+            .join(ClassSession, ClassSession.id == ClassReservation.session_id)
+            .join(ClassTemplate, ClassTemplate.id == ClassSession.template_id)
+            .where(ClassReservation.status == ClassReservationStatus.PENDING)
+            .order_by(ClassSession.starts_at.asc())
+        )
+        if current_user.role == Role.COACH:
+            class_q = class_q.where(ClassSession.coach_id == current_user.id)
+
+        class_rows = (await db.execute(class_q.limit(50))).all()
 
         return {
-            "renewals": [cls._serialize_renewal_approval(request, member) for request, member in renewal_rows],
-            "leaves": [cls._serialize_leave_approval(leave, staff) for leave, staff in leave_rows],
+            "renewals": [cls._serialize_renewal_approval(request, member) for request, member in renewal_rows] if admin_mode else [],
+            "leaves": [cls._serialize_leave_approval(leave, staff) for leave, staff in leave_rows] if admin_mode else [],
+            "classes": [cls._serialize_class_approval(res, member, session, tmpl) for res, member, session, tmpl in class_rows],
         }
 
     @classmethod
@@ -934,6 +953,19 @@ class MobileAdminService:
             "leave_type": leave.leave_type.value if hasattr(leave.leave_type, "value") else str(leave.leave_type),
             "status": leave.status.value if hasattr(leave.status, "value") else str(leave.status),
             "reason": leave.reason,
+        }
+
+    @staticmethod
+    def _serialize_class_approval(res: ClassReservation, member: User, session: ClassSession, tmpl: ClassTemplate) -> dict[str, Any]:
+        return {
+            "id": str(res.id),
+            "session_id": str(session.id),
+            "member_id": str(member.id),
+            "member_name": member.full_name,
+            "class_name": tmpl.name,
+            "starts_at": session.starts_at.isoformat(),
+            "status": res.status.value if hasattr(res.status, "value") else str(res.status),
+            "reserved_at": res.reserved_at.isoformat() if res.reserved_at else None,
         }
 
     @staticmethod
