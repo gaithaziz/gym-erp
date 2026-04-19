@@ -20,8 +20,46 @@ import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context"
 
 import { API_BASE_URL, parseHomeEnvelope } from "@/lib/api";
 import { hasCapability, isCustomerRole } from "@/lib/mobile-role";
+import { NetworkContext } from "@/lib/network-context";
 import { usePreferences } from "@/lib/preferences";
 import { useSession } from "@/lib/session";
+
+/**
+ * OfflineBanner — sticky strip shown when the device is offline.
+ * Rendered at the top of each Screen so it never wraps the Stack navigator.
+ */
+export function OfflineBanner() {
+  const { isOnline } = useContext(NetworkContext);
+  const { fontSet, isRTL } = usePreferences();
+
+  if (isOnline) return null;
+
+  return (
+    <View style={offlineBannerStyles.banner} accessibilityRole="alert" accessibilityLiveRegion="polite">
+      <Ionicons name="cloud-offline-outline" size={16} color="#FFFFFF" />
+      <Text style={[offlineBannerStyles.text, { fontFamily: fontSet.body, textAlign: isRTL ? "right" : "left" }]}>
+        {isRTL ? "لا يوجد اتصال بالإنترنت — قد تكون البيانات قديمة" : "No internet connection — showing cached data"}
+      </Text>
+    </View>
+  );
+}
+
+const offlineBannerStyles = StyleSheet.create({
+  banner: {
+    backgroundColor: "#374151",
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    paddingHorizontal: 16,
+    paddingVertical: 10,
+  },
+  text: {
+    flex: 1,
+    color: "#FFFFFF",
+    fontSize: 13,
+    lineHeight: 18,
+  },
+});
 
 const ASSET_BASE_URL = API_BASE_URL.replace(/\/api\/v1\/?$/, "");
 
@@ -180,6 +218,7 @@ export function Screen({
 
   return (
     <SafeAreaView style={[styles.safeArea, { backgroundColor: theme.background }]}>
+      <OfflineBanner />
       {scrollable ? (
         <ScrollView contentContainerStyle={[styles.screenContent, { paddingBottom: resolvedContentPaddingBottom }]}>{content}</ScrollView>
       ) : (

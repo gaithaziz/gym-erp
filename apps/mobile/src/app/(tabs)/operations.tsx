@@ -121,7 +121,7 @@ export default function OperationsTab() {
                   {copy.operationsScreen.openLostFound}
                 </Text>
               </Pressable>
-              <Pressable onPress={() => router.push("/support")} style={[styles.actionChip, { backgroundColor: theme.cardAlt, borderColor: theme.border }]}>
+              <Pressable onPress={() => router.push("/ticket")} style={[styles.actionChip, { backgroundColor: theme.cardAlt, borderColor: theme.border }]}>
                 <Text style={{ color: theme.foreground, fontFamily: fontSet.body, textAlign: isRTL ? "right" : "left", writingDirection: direction }}>
                   {copy.more.support}
                 </Text>
@@ -200,7 +200,7 @@ function AdminOperationsTab() {
             <View style={[styles.actionRow, { flexDirection: isRTL ? "row-reverse" : "row" }]}>
               <ActionChip label={copy.adminControl.approvalQueue} onPress={() => router.push("/approvals")} />
               <ActionChip label={copy.adminControl.employeeOperations} onPress={() => router.push("/staff-operations")} />
-              <ActionChip label={copy.adminControl.openSupport} onPress={() => router.push("/support")} />
+              <ActionChip label={copy.adminControl.openSupport} onPress={() => router.push("/ticket")} />
               <ActionChip label={copy.common.lostFound} onPress={() => router.push("/lost-found")} />
               <ActionChip label={copy.more.notifications} onPress={() => router.push("/notifications")} />
               <ActionChip label={copy.adminControl.inventorySummary} onPress={() => router.push("/inventory-summary")} />

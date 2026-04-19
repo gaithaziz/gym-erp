@@ -310,7 +310,7 @@ export default function SupportScreen() {
                 ))
               )}
               <TextArea value={replyMessage} onChangeText={setReplyMessage} placeholder={copy.supportScreen.messagePlaceholder} />
-              <View style={[styles.actionRow, { flexDirection: isRTL ? "row-reverse" : "row" }]}>
+              <View style={styles.actionRow}>
                 <PrimaryButton onPress={() => replyMutation.mutate()} disabled={replyMutation.isPending || !replyMessage.trim()}>
                   {replyMutation.isPending ? copy.supportScreen.sendingReply : copy.supportScreen.sendReply}
                 </PrimaryButton>
@@ -424,7 +424,7 @@ const styles = StyleSheet.create({
     borderRadius: 8,
   },
   actionRow: {
+    flexDirection: "column",
     gap: 10,
-    alignItems: "center",
   },
 });

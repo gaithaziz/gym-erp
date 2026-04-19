@@ -109,6 +109,11 @@ function CustomerHomeTab() {
                 >
                   {home.subscription.plan_name || copy.common.noActivePlan}
                 </Text>
+                {home.subscription.end_date ? (
+                  <Text style={{ color: theme.muted, fontFamily: fontSet.body, fontSize: 13, textAlign: isRTL ? "right" : "left", writingDirection: direction, marginTop: 4 }}>
+                    {copy.home.validUntil}: {new Date(home.subscription.end_date).toLocaleDateString(locale)}
+                  </Text>
+                ) : null}
               </View>
               <View style={styles.heroMetaBlock}>
                 <MutedText>{copy.home.status}</MutedText>
@@ -143,7 +148,7 @@ function CustomerHomeTab() {
             <SectionTitle>{copy.home.quickActions}</SectionTitle>
             <View style={[styles.actionGrid, { flexDirection: isRTL ? "row-reverse" : "row" }]}>
               <HomeAction label={copy.home.logBodyMetrics} onPress={() => router.push("/(tabs)/progress" as never)} />
-              <HomeAction label={copy.home.requestSupport} onPress={() => router.push("/support")} />
+              <HomeAction label={copy.home.requestSupport} onPress={() => router.push("/ticket")} />
               <HomeAction label={copy.home.reportLostItem} onPress={() => router.push("/lost-found")} />
               <HomeAction label={copy.home.leaveFeedback} onPress={() => router.push("/feedback")} />
             </View>
@@ -330,7 +335,7 @@ function AdminHomeTab() {
               <HomeAction label={copy.adminControl.operationsSummary} onPress={() => router.push("/(tabs)/operations" as never)} />
               <HomeAction label={copy.adminControl.financeSummary} onPress={() => router.push("/(tabs)/finance" as never)} />
               <HomeAction label={copy.adminControl.approvalQueue} onPress={() => router.push("/approvals")} />
-              <HomeAction label={copy.more.support} onPress={() => router.push("/support")} />
+              <HomeAction label={copy.more.support} onPress={() => router.push("/ticket")} />
             </View>
           </Card>
 

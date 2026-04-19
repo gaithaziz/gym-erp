@@ -22,14 +22,7 @@ import { useSession } from "@/lib/session";
 
 const ASSET_BASE_URL = API_BASE_URL.replace(/\/api\/v1\/?$/, "");
 
-type ExpoAVModule = typeof import("expo-av");
-
-let expoAVModule: ExpoAVModule | null = null;
-try {
-  expoAVModule = require("expo-av") as ExpoAVModule;
-} catch {
-  expoAVModule = null;
-}
+import { useAudioPlayer, useAudioPlayerStatus, useAudioRecorder, useAudioRecorderState, RecordingPresets, requestRecordingPermissionsAsync, setAudioModeAsync } from "expo-audio";
 
 type Thread = {
   id: string;
@@ -125,92 +118,23 @@ function ChatAudioPlayer({
   initialDurationSeconds?: number | null;
 }) {
   const { copy, direction, fontSet, isRTL, theme } = usePreferences();
-  const [sound, setSound] = useState<import("expo-av").Audio.Sound | null>(null);
-  const [playing, setPlaying] = useState(false);
-  const [durationSeconds, setDurationSeconds] = useState<number>(initialDurationSeconds ?? 0);
+  const player = useAudioPlayer(src);
+  const status = useAudioPlayerStatus(player);
 
-  if (!expoAVModule?.Audio) {
-    return (
-      <View style={[styles.audioPlayer, { backgroundColor: theme.cardAlt, borderColor: theme.border }]}>
-        <Ionicons name="volume-mute" size={16} color={theme.primary} />
-        <Text
-          style={[
-            styles.audioFallbackText,
-            {
-              color: theme.foreground,
-              fontFamily: fontSet.body,
-              textAlign: isRTL ? "right" : "left",
-              writingDirection: direction,
-            },
-          ]}
-        >
-          {copy.chatScreen.voicePlaybackUnavailable}
-        </Text>
-        <Text style={[styles.audioDuration, { color: theme.foreground, fontFamily: fontSet.mono }]}>
-          {formatDuration(durationSeconds)}
-        </Text>
-      </View>
-    );
-  }
+  const durationSeconds = status.duration ? Math.round(status.duration / 1000) : (initialDurationSeconds ?? 0);
 
-  useEffect(() => {
-    return () => {
-      if (sound) {
-        void sound.unloadAsync();
-      }
-    };
-  }, [sound]);
-
-  async function togglePlayback() {
-    const Audio = expoAVModule?.Audio;
-    if (!Audio) {
-      return;
-    }
-    try {
-      if (!sound) {
-        const { sound: createdSound, status } = await Audio.Sound.createAsync(
-          { uri: src },
-          { shouldPlay: true },
-          (playbackStatus) => {
-            if (!playbackStatus.isLoaded) {
-              return;
-            }
-            setPlaying(playbackStatus.isPlaying);
-            if (playbackStatus.didJustFinish) {
-              setPlaying(false);
-            }
-            if (playbackStatus.durationMillis) {
-              setDurationSeconds(Math.round(playbackStatus.durationMillis / 1000));
-            }
-          },
-        );
-        setSound(createdSound);
-        if (status.isLoaded && status.durationMillis) {
-          setDurationSeconds(Math.round(status.durationMillis / 1000));
-        }
-        return;
-      }
-
-      const status = await sound.getStatusAsync();
-      if (!status.isLoaded) {
-        return;
-      }
-      if (status.isPlaying) {
-        await sound.pauseAsync();
-        setPlaying(false);
-      } else {
-        await sound.playAsync();
-        setPlaying(true);
-      }
-    } catch {
-      setPlaying(false);
+  function togglePlayback() {
+    if (status.playing) {
+      player.pause();
+    } else {
+      player.play();
     }
   }
 
   return (
     <View style={[styles.audioPlayer, { backgroundColor: theme.cardAlt, borderColor: theme.border }]}>
-      <Pressable onPress={() => void togglePlayback()} disabled={!expoAVModule?.Audio} style={[styles.audioButton, { backgroundColor: theme.primary, opacity: expoAVModule?.Audio ? 1 : 0.5 }]}>
-        <Ionicons name={playing ? "pause" : "play"} size={16} color="#FFFFFF" />
+      <Pressable onPress={togglePlayback} style={[styles.audioButton, { backgroundColor: theme.primary }]}>
+        <Ionicons name={status.playing ? "pause" : "play"} size={16} color="#FFFFFF" />
       </Pressable>
       <Text style={[styles.audioDuration, { color: theme.foreground, fontFamily: fontSet.mono }]}>
         {formatDuration(durationSeconds)}
@@ -239,12 +163,12 @@ export default function ChatScreen() {
   const [contactDropdownOpen, setContactDropdownOpen] = useState(false);
   const [threadSearch, setThreadSearch] = useState("");
   const [threadDropdownOpen, setThreadDropdownOpen] = useState(false);
-  const [recording, setRecording] = useState(false);
-  const [recordSeconds, setRecordSeconds] = useState(0);
   const [pendingVoiceUpload, setPendingVoiceUpload] = useState<PendingVoiceUpload | null>(null);
   const messagesScrollRef = useRef<ScrollView | null>(null);
-  const recordingRef = useRef<import("expo-av").Audio.Recording | null>(null);
-  const recordTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const recorder = useAudioRecorder(RecordingPresets.HIGH_QUALITY);
+  const recorderState = useAudioRecorderState(recorder);
+  const recording = recorderState.isRecording;
+  const recordSeconds = Math.round(recorderState.durationMillis / 1000);
 
   const contactsQuery = useQuery({
     queryKey: ["mobile-chat-contacts"],
@@ -475,7 +399,7 @@ export default function ChatScreen() {
   const selectedCoach = contacts.find((contact) => contact.id === selectedCoachId) ?? null;
   const selectedThreadName = formatThreadName(selectedThread, role, copy);
   const selectedThreadMeta = formatThreadSecondaryLabel(selectedThread, role, copy);
-  const voiceNotesAvailable = Boolean(expoAVModule?.Audio);
+  const voiceNotesAvailable = true;
 
   useEffect(() => {
     if (!selectedThread?.id || !messagesQuery.data) {
@@ -489,14 +413,11 @@ export default function ChatScreen() {
 
   useEffect(() => {
     return () => {
-      if (recordTimerRef.current) {
-        clearInterval(recordTimerRef.current);
-      }
-      if (recordingRef.current) {
-        void recordingRef.current.stopAndUnloadAsync().catch(() => undefined);
+      if (recorderState.isRecording) {
+        recorder.stop();
       }
     };
-  }, []);
+  }, [recorder, recorderState.isRecording]);
 
   async function uploadVoiceNoteDirect(pending: PendingVoiceUpload) {
     await voiceUploadMutation.mutateAsync({
@@ -511,83 +432,32 @@ export default function ChatScreen() {
       return;
     }
     try {
-      const Audio = expoAVModule?.Audio;
-      if (!Audio) {
-        throw new Error(copy.chatScreen.voiceUnavailable);
-      }
-      const permission = await Audio.requestPermissionsAsync();
+      const permission = await requestRecordingPermissionsAsync();
       if (!permission.granted) {
         throw new Error(copy.chatScreen.microphoneUnavailable);
       }
 
-      await Audio.setAudioModeAsync({
-        allowsRecordingIOS: true,
-        playsInSilentModeIOS: true,
+      await setAudioModeAsync({
+        allowsRecording: true,
+        playsInSilentMode: true,
       });
 
-      const recordingOptions = {
-        android: {
-          extension: ".m4a",
-          outputFormat: Audio.AndroidOutputFormat.MPEG_4,
-          audioEncoder: Audio.AndroidAudioEncoder.AAC,
-          sampleRate: 44100,
-          numberOfChannels: 1,
-          bitRate: 128000,
-        },
-        ios: {
-          extension: ".m4a",
-          outputFormat: Audio.IOSOutputFormat.MPEG4AAC,
-          audioQuality: Audio.IOSAudioQuality.HIGH,
-          sampleRate: 44100,
-          numberOfChannels: 1,
-          bitRate: 128000,
-          linearPCMBitDepth: 16,
-          linearPCMIsBigEndian: false,
-          linearPCMIsFloat: false,
-        },
-        web: {},
-      } as const;
-
-      const started = new Audio.Recording();
-      await started.prepareToRecordAsync(recordingOptions);
-      await started.startAsync();
-      recordingRef.current = started;
-      setRecordSeconds(0);
-      setRecording(true);
-      if (recordTimerRef.current) {
-        clearInterval(recordTimerRef.current);
-      }
-      recordTimerRef.current = setInterval(() => {
-        setRecordSeconds((current) => current + 1);
-      }, 1000);
+      await recorder.prepareToRecordAsync();
+      recorder.record();
     } catch (caught) {
-      setRecording(false);
       setFeedback(caught instanceof Error ? caught.message : copy.chatScreen.microphoneUnavailable);
     }
   }
 
   async function stopVoiceRecording({ directSend }: { directSend: boolean }) {
-    const activeRecording = recordingRef.current;
-    const Audio = expoAVModule?.Audio;
-    if (!activeRecording) {
-      return;
-    }
-
     try {
-      await activeRecording.stopAndUnloadAsync();
-      const uri = activeRecording.getURI();
-      recordingRef.current = null;
-      if (recordTimerRef.current) {
-        clearInterval(recordTimerRef.current);
-        recordTimerRef.current = null;
-      }
-      setRecording(false);
-      if (Audio) {
-        await Audio.setAudioModeAsync({
-          allowsRecordingIOS: false,
-          playsInSilentModeIOS: true,
-        });
-      }
+      await recorder.stop();
+      const uri = recorder.uri;
+      
+      await setAudioModeAsync({
+        allowsRecording: false,
+        playsInSilentMode: true,
+      });
 
       if (!uri) {
         return;
@@ -601,14 +471,11 @@ export default function ChatScreen() {
 
       if (directSend) {
         await uploadVoiceNoteDirect(pending);
-        setRecordSeconds(0);
         return;
       }
 
       setPendingVoiceUpload(pending);
-      setRecordSeconds(0);
     } catch {
-      setRecording(false);
       setFeedback(copy.common.errorTryAgain);
     }
   }

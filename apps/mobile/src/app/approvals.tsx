@@ -280,7 +280,7 @@ const styles = StyleSheet.create({
     paddingVertical: 8,
   },
   actionRow: {
-    flexWrap: "wrap",
+    flexDirection: "column",
     gap: 10,
   },
 });

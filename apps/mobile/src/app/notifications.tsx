@@ -25,7 +25,7 @@ export default function NotificationsScreen() {
       return;
     }
     if (eventType.includes("SUPPORT")) {
-      router.push("/support");
+      router.push("/ticket");
       return;
     }
     if (eventType.includes("ACCESS")) {

@@ -1,6 +1,7 @@
 import { Ionicons } from "@expo/vector-icons";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import * as SecureStore from "expo-secure-store";
+import { useVideoPlayer, VideoView } from "expo-video";
 import * as WebBrowser from "expo-web-browser";
 import { useEffect, useMemo, useState } from "react";
 import { Pressable, Text, View } from "react-native";
@@ -704,7 +705,6 @@ function CustomerPlansTab() {
     },
     onSuccess: async () => {
       setWorkoutNotice({ kind: "success", message: copy.plans.workoutSaved });
-      setRestSeconds(restSecondsForEntry(currentEntry));
       await queryClient.invalidateQueries({ queryKey: ["member-active-workout-draft", selectedWorkoutPlanId] });
     },
     onError: (error) => {
@@ -743,7 +743,6 @@ function CustomerPlansTab() {
     },
     onSuccess: async () => {
       setWorkoutNotice({ kind: "success", message: copy.plans.workoutSkipped });
-      setRestSeconds(restSecondsForEntry(currentEntry));
       await queryClient.invalidateQueries({ queryKey: ["member-active-workout-draft", selectedWorkoutPlanId] });
     },
     onError: (error) => {
@@ -1045,7 +1044,7 @@ function CustomerPlansTab() {
                   <Text style={{ color: selectedWorkoutPlanId === plan.id ? theme.primary : theme.foreground, fontFamily: fontSet.body, textAlign: isRTL ? "right" : "left", writingDirection: direction }}>
                     {plan.name}
                   </Text>
-                  <MutedText>{plan.exercises?.length || 0} exercises</MutedText>
+                  <MutedText>{plan.exercises?.length || 0} {copy.plans.exercisesCount}</MutedText>
                 </Pressable>
               ))
             )}
@@ -1093,29 +1092,50 @@ function CustomerPlansTab() {
                       <Text style={{ color: theme.foreground, fontFamily: fontSet.display, textAlign: isRTL ? "right" : "left", writingDirection: direction }}>
                         {copy.plans.currentExercise}: {currentEntry.exercise_name}
                       </Text>
-                      <MutedText>
-                        {copy.plans.target}: {currentEntry.target_sets || 0} x {currentEntry.target_reps || 0}
-                        {currentEntry.section_name ? ` • ${copy.plans.section}: ${currentEntry.section_name}` : ""}
-                      </MutedText>
-                      {lastPerformance ? (
-                        <MutedText>
-                          {copy.plans.lastSession}: {lastPerformance.reps_completed} {copy.plans.repsCompleted} @ {lastPerformance.weight_kg ?? 0}{copy.plans.weightUnit}
-                        </MutedText>
-                      ) : null}
-                      {restSeconds > 0 ? (
-                        <View style={{ borderWidth: 1, borderColor: theme.border, borderRadius: 8, padding: 10, backgroundColor: theme.primarySoft }}>
-                          <Text style={{ color: theme.primary, fontFamily: fontSet.mono, fontWeight: "800", textAlign: isRTL ? "right" : "left", writingDirection: direction }}>
-                            {copy.plans.restTimer}: {Math.floor(restSeconds / 60)}:{String(restSeconds % 60).padStart(2, "0")}
+                      <View style={{ flexDirection: isRTL ? "row-reverse" : "row", flexWrap: "wrap", gap: 4, alignItems: "center" }}>
+                        <Text style={{ color: theme.muted, fontFamily: fontSet.body, fontSize: 13, textAlign: isRTL ? "right" : "left", writingDirection: direction }}>
+                          {copy.plans.target}:
+                        </Text>
+                        <Text style={{ color: theme.muted, fontFamily: fontSet.body, fontSize: 13, textAlign: "left", writingDirection: "ltr" }}>
+                          {currentEntry.target_sets || 0} x {currentEntry.target_reps || 0}
+                        </Text>
+                        {currentEntry.section_name ? (
+                          <Text style={{ color: theme.muted, fontFamily: fontSet.body, fontSize: 13, textAlign: isRTL ? "right" : "left", writingDirection: direction }}>
+                            • {copy.plans.section}: {currentEntry.section_name}
                           </Text>
-                          <SecondaryButton onPress={() => setRestSeconds(0)}>{copy.plans.skipRest}</SecondaryButton>
+                        ) : null}
+                      </View>
+                      {lastPerformance ? (
+                        <View style={{ flexDirection: isRTL ? "row-reverse" : "row", flexWrap: "wrap", gap: 4, alignItems: "center" }}>
+                          <Text style={{ color: theme.muted, fontFamily: fontSet.body, fontSize: 13, textAlign: isRTL ? "right" : "left", writingDirection: direction }}>
+                            {copy.plans.lastSession}:
+                          </Text>
+                          <Text style={{ color: theme.muted, fontFamily: fontSet.body, fontSize: 13, textAlign: "left", writingDirection: "ltr" }}>
+                            {lastPerformance.reps_completed} {copy.plans.repsCompleted} @ {lastPerformance.weight_kg ?? 0}{copy.plans.weightUnit}
+                          </Text>
                         </View>
                       ) : null}
+                      {restSeconds > 0 ? (
+                        <View style={{ borderWidth: 1, borderColor: theme.border, borderRadius: 8, padding: 10, backgroundColor: theme.primarySoft, flexDirection: isRTL ? "row-reverse" : "row", justifyContent: "space-between", alignItems: "center" }}>
+                          <View style={{ flexDirection: isRTL ? "row-reverse" : "row", gap: 6, alignItems: "center" }}>
+                            <Text style={{ color: theme.primary, fontFamily: fontSet.mono, fontWeight: "800", textAlign: isRTL ? "right" : "left", writingDirection: direction }}>
+                              {copy.plans.restTimer}:
+                            </Text>
+                            <Text style={{ color: theme.primary, fontFamily: fontSet.mono, fontWeight: "800", textAlign: isRTL ? "right" : "left", writingDirection: "ltr" }}>
+                              {Math.floor(restSeconds / 60)}:{String(restSeconds % 60).padStart(2, "0")}
+                            </Text>
+                          </View>
+                          <SecondaryButton onPress={() => setRestSeconds(0)}>{copy.plans.skipRest}</SecondaryButton>
+                        </View>
+                      ) : (
+                        <SecondaryButton onPress={() => setRestSeconds(restSecondsForEntry(currentEntry))}>{copy.plans.startRestTimer}</SecondaryButton>
+                      )}
                       <ExerciseVideoBlock entry={currentEntry} />
-                      <SetDetailsEditor rows={setRows} onChange={setSetRows} />
-                      <Input value={exerciseForm.setsCompleted} onChangeText={(value) => setExerciseForm((current) => ({ ...current, setsCompleted: value }))} placeholder={copy.plans.setsCompleted} keyboardType="number-pad" />
-                      <Input value={exerciseForm.repsCompleted} onChangeText={(value) => setExerciseForm((current) => ({ ...current, repsCompleted: value }))} placeholder={copy.plans.repsCompleted} keyboardType="number-pad" />
-                      <Input value={exerciseForm.weightKg} onChangeText={(value) => setExerciseForm((current) => ({ ...current, weightKg: value }))} placeholder={copy.plans.weightKg} keyboardType="decimal-pad" />
-                      <TextArea value={exerciseForm.notes} onChangeText={(value) => setExerciseForm((current) => ({ ...current, notes: value }))} placeholder={copy.plans.exerciseNotes} />
+                      <View style={{ borderWidth: 1, borderColor: theme.border, borderRadius: 10, padding: 12, backgroundColor: theme.cardAlt, gap: 12 }}>
+                        <SetDetailsEditor rows={setRows} onChange={setSetRows} />
+                        {exerciseForm.notes ? <MutedText>{copy.plans.exerciseNotes}</MutedText> : null}
+                        <TextArea value={exerciseForm.notes} onChangeText={(value) => setExerciseForm((current) => ({ ...current, notes: value }))} placeholder={copy.plans.exerciseNotes} />
+                      </View>
                       <Pressable onPress={() => setExerciseForm((current) => ({ ...current, isPr: !current.isPr }))} style={{ paddingVertical: 6 }}>
                         <Text style={{ color: theme.foreground, fontFamily: fontSet.body, textAlign: isRTL ? "right" : "left", writingDirection: direction }}>
                           {exerciseForm.isPr ? "✓ " : ""}{copy.plans.prToggle}
@@ -1124,8 +1144,11 @@ function CustomerPlansTab() {
                       {autoPrPreview ? <MutedText>{autoPrPreview}</MutedText> : null}
                       {exerciseForm.isPr ? (
                         <>
+                          {exerciseForm.prType ? <MutedText>{copy.plans.prType}</MutedText> : null}
                           <Input value={exerciseForm.prType} onChangeText={(value) => setExerciseForm((current) => ({ ...current, prType: value }))} placeholder={copy.plans.prType} />
+                          {exerciseForm.prValue ? <MutedText>{copy.plans.prValue}</MutedText> : null}
                           <Input value={exerciseForm.prValue} onChangeText={(value) => setExerciseForm((current) => ({ ...current, prValue: value }))} placeholder={copy.plans.prValue} />
+                          {exerciseForm.prNotes ? <MutedText>{copy.plans.prNotes}</MutedText> : null}
                           <TextArea value={exerciseForm.prNotes} onChangeText={(value) => setExerciseForm((current) => ({ ...current, prNotes: value }))} placeholder={copy.plans.prNotes} />
                         </>
                       ) : null}
@@ -1142,14 +1165,18 @@ function CustomerPlansTab() {
                   ) : (
                     <MutedText>{copy.plans.finishSession}</MutedText>
                   )}
+                  {sessionDuration || estimatedDuration ? <MutedText>{copy.plans.sessionDuration}</MutedText> : null}
                   <Input
                     value={sessionDuration}
                     onChangeText={setSessionDuration}
                     placeholder={estimatedDuration ? `${copy.plans.sessionDuration}: ${estimatedDuration}` : copy.plans.sessionDuration}
                     keyboardType="number-pad"
                   />
+                  {sessionNotes ? <MutedText>{copy.plans.sessionNotes}</MutedText> : null}
                   <TextArea value={sessionNotes} onChangeText={setSessionNotes} placeholder={copy.plans.sessionNotes} />
+                  {sessionRpe ? <MutedText>{copy.plans.sessionRpe}</MutedText> : null}
                   <Input value={sessionRpe} onChangeText={setSessionRpe} placeholder={copy.plans.sessionRpe} keyboardType="number-pad" />
+                  {painLevel ? <MutedText>{copy.plans.painLevel}</MutedText> : null}
                   <Input value={painLevel} onChangeText={setPainLevel} placeholder={copy.plans.painLevel} keyboardType="number-pad" />
                   <View style={{ flexDirection: isRTL ? "row-reverse" : "row", flexWrap: "wrap", gap: 8 }}>
                     {(["TOO_EASY", "JUST_RIGHT", "TOO_HARD"] as const).map((value) => (
@@ -1317,19 +1344,26 @@ function CustomerPlansTab() {
   );
 }
 
+function DirectVideoPlayer({ url }: { url: string }) {
+  const { theme } = usePreferences();
+  const player = useVideoPlayer(url, (p) => {
+    p.loop = true;
+  });
+
+  return (
+    <View style={{ borderWidth: 1, borderColor: theme.border, borderRadius: 10, overflow: "hidden", backgroundColor: theme.cardAlt }}>
+      <VideoView style={{ width: "100%", height: 240 }} player={player} nativeControls allowsFullscreen allowsPictureInPicture />
+    </View>
+  );
+}
+
 function ExerciseVideoBlock({ entry }: { entry: WorkoutDraft["entries"][number] }) {
-  const { copy, theme } = usePreferences();
+  const { copy } = usePreferences();
   const video = resolveExerciseVideo(entry);
   if (!video) return null;
 
   if (video.direct) {
-    return (
-      <View style={{ borderWidth: 1, borderColor: theme.border, borderRadius: 8, padding: 12, backgroundColor: theme.cardAlt }}>
-        <SecondaryButton onPress={() => void WebBrowser.openBrowserAsync(video.url)}>
-          {copy.plans.exerciseVideo}
-        </SecondaryButton>
-      </View>
-    );
+    return <DirectVideoPlayer url={video.url} />;
   }
 
   return (
@@ -1344,9 +1378,16 @@ function SetDetailsEditor({ rows, onChange }: { rows: SetDetail[]; onChange: (ro
   return (
     <View style={{ gap: 8 }}>
       <SectionTitle>{copy.plans.setDetails}</SectionTitle>
+      {rows.length > 0 ? (
+        <View style={{ flexDirection: isRTL ? "row-reverse" : "row", gap: 8, paddingHorizontal: 4 }}>
+          <Text style={{ width: 40, color: theme.muted, fontFamily: fontSet.body, fontSize: 12, textAlign: "center", writingDirection: direction }}>{copy.plans.set}</Text>
+          <Text style={{ flex: 1, color: theme.muted, fontFamily: fontSet.body, fontSize: 12, textAlign: "center", writingDirection: direction }}>{copy.plans.repsCompleted}</Text>
+          <Text style={{ flex: 1, color: theme.muted, fontFamily: fontSet.body, fontSize: 12, textAlign: "center", writingDirection: direction }}>{copy.plans.weightKg}</Text>
+        </View>
+      ) : null}
       {rows.map((row, index) => (
         <View key={row.set} style={{ flexDirection: isRTL ? "row-reverse" : "row", gap: 8, alignItems: "center" }}>
-          <Text style={{ width: 40, color: theme.primary, fontFamily: fontSet.mono, fontWeight: "800", textAlign: isRTL ? "right" : "left", writingDirection: direction }}>
+          <Text style={{ width: 40, color: theme.primary, fontFamily: fontSet.mono, fontWeight: "800", textAlign: "center", writingDirection: direction }}>
             {row.set}
           </Text>
           <Input
@@ -1354,14 +1395,14 @@ function SetDetailsEditor({ rows, onChange }: { rows: SetDetail[]; onChange: (ro
             onChangeText={(value) => onChange(rows.map((item, itemIndex) => (itemIndex === index ? { ...item, reps: value } : item)))}
             placeholder={copy.plans.repsCompleted}
             keyboardType="number-pad"
-            style={{ flex: 1 }}
+            style={{ flex: 1, textAlign: "center" }}
           />
           <Input
             value={row.weightKg}
             onChangeText={(value) => onChange(rows.map((item, itemIndex) => (itemIndex === index ? { ...item, weightKg: value } : item)))}
             placeholder={copy.plans.weightKg}
             keyboardType="decimal-pad"
-            style={{ flex: 1 }}
+            style={{ flex: 1, textAlign: "center" }}
           />
         </View>
       ))}

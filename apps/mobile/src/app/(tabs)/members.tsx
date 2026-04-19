@@ -183,7 +183,7 @@ export default function MembersTab() {
 
   const openSupport = () => {
     if (!selectedMemberId) return;
-    router.push({ pathname: "/support", params: { type: "support", memberId: selectedMemberId } });
+    router.push({ pathname: "/ticket", params: { type: "support", memberId: selectedMemberId } });
   };
 
   return (

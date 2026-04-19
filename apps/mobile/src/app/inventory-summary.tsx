@@ -222,7 +222,7 @@ export default function InventorySummaryScreen() {
         <SectionTitle>{selectedId ? copy.adminControl.editProduct : copy.adminControl.createProduct}</SectionTitle>
         {!selectedId ? <MutedText>{copy.adminControl.selectProduct}</MutedText> : null}
         <ProductFormFields form={form} setForm={setForm} />
-        <View style={[styles.actionRow, { flexDirection: isRTL ? "row-reverse" : "row" }]}>
+        <View style={styles.actionRow}>
           <PrimaryButton onPress={() => saveMutation.mutate()} disabled={saveMutation.isPending || !form.name.trim()}>
             {copy.adminControl.saveProduct}
           </PrimaryButton>
@@ -246,7 +246,7 @@ export default function InventorySummaryScreen() {
         <Card>
           <SectionTitle>{copy.adminControl.lowStock}</SectionTitle>
           <MutedText>{`${copy.adminControl.threshold}: ${selectedProduct.low_stock_threshold}`}</MutedText>
-          <View style={[styles.actionRow, { flexDirection: isRTL ? "row-reverse" : "row" }]}>
+          <View style={styles.actionRow}>
             <SecondaryButton onPress={() => lowStockMutation.mutate({ action: "ack", productId: selectedProduct.id })} disabled={lowStockMutation.isPending}>
               {copy.adminControl.acknowledge}
             </SecondaryButton>
@@ -255,7 +255,7 @@ export default function InventorySummaryScreen() {
               {copy.adminControl.snooze}
             </SecondaryButton>
           </View>
-          <View style={[styles.actionRow, { flexDirection: isRTL ? "row-reverse" : "row" }]}>
+          <View style={styles.actionRow}>
             <Input value={targetQuantity} onChangeText={setTargetQuantity} placeholder={copy.adminControl.restockTarget} keyboardType="number-pad" style={styles.smallInput} />
             <SecondaryButton onPress={() => lowStockMutation.mutate({ action: "target", productId: selectedProduct.id })} disabled={lowStockMutation.isPending}>
               {copy.adminControl.setTarget}
@@ -395,8 +395,7 @@ const styles = StyleSheet.create({
     paddingVertical: 8,
   },
   actionRow: {
-    alignItems: "center",
-    flexWrap: "wrap",
+    flexDirection: "column",
     gap: 10,
   },
   smallInput: {

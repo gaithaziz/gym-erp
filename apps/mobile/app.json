@@ -12,6 +12,7 @@
     },
     "ios": {
       "infoPlist": {
+        "NSCameraUsageDescription": "Scan gym QR codes to check in at the entrance or kiosk.",
         "NSUserNotificationUsageDescription": "Send gym updates, chat replies, support updates, and receipt notifications.",
         "NSMicrophoneUsageDescription": "Record voice notes in gym chat conversations.",
         "NSAppTransportSecurity": {
@@ -25,6 +26,12 @@
     "android": {
       "usesCleartextTraffic": true,
       "package": "com.gymerp.mobile",
+      "permissions": [
+        "android.permission.CAMERA",
+        "android.permission.VIBRATE",
+        "android.permission.RECEIVE_BOOT_COMPLETED",
+        "android.permission.RECORD_AUDIO"
+      ],
       "adaptiveIcon": {
         "backgroundColor": "#E6F4FE",
         "foregroundImage": "./assets/images/android-icon-foreground.png",
@@ -50,7 +57,9 @@
             "imageWidth": 76
           }
         }
-      ]
+      ],
+      "expo-audio",
+      "expo-video"
     ],
     "experiments": {
       "typedRoutes": true,

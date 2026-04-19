@@ -89,10 +89,22 @@ export default function ProgressTab() {
           <Card>
             <SectionTitle>{copy.progress.logBodyMetrics}</SectionTitle>
             <View style={[styles.inputGrid, { flexDirection: isRTL ? "row-reverse" : "row" }]}>
-              <Input value={weightKg} onChangeText={setWeightKg} placeholder={copy.progress.weightKg} keyboardType="decimal-pad" style={styles.metricInput} />
-              <Input value={heightCm} onChangeText={setHeightCm} placeholder={copy.progress.heightCm} keyboardType="decimal-pad" style={styles.metricInput} />
-              <Input value={bodyFatPct} onChangeText={setBodyFatPct} placeholder={copy.progress.bodyFatPct} keyboardType="decimal-pad" style={styles.metricInput} />
-              <Input value={muscleMassKg} onChangeText={setMuscleMassKg} placeholder={copy.progress.muscleMassKg} keyboardType="decimal-pad" style={styles.metricInput} />
+              <View style={styles.metricInput}>
+                {weightKg ? <MutedText>{copy.progress.weightKg}</MutedText> : null}
+                <Input value={weightKg} onChangeText={setWeightKg} placeholder={copy.progress.weightKg} keyboardType="decimal-pad" />
+              </View>
+              <View style={styles.metricInput}>
+                {heightCm ? <MutedText>{copy.progress.heightCm}</MutedText> : null}
+                <Input value={heightCm} onChangeText={setHeightCm} placeholder={copy.progress.heightCm} keyboardType="decimal-pad" />
+              </View>
+              <View style={styles.metricInput}>
+                {bodyFatPct ? <MutedText>{copy.progress.bodyFatPct}</MutedText> : null}
+                <Input value={bodyFatPct} onChangeText={setBodyFatPct} placeholder={copy.progress.bodyFatPct} keyboardType="decimal-pad" />
+              </View>
+              <View style={styles.metricInput}>
+                {muscleMassKg ? <MutedText>{copy.progress.muscleMassKg}</MutedText> : null}
+                <Input value={muscleMassKg} onChangeText={setMuscleMassKg} placeholder={copy.progress.muscleMassKg} keyboardType="decimal-pad" />
+              </View>
             </View>
             <PrimaryButton onPress={() => metricsMutation.mutate()} disabled={metricsMutation.isPending || !canSaveMetrics}>
               {metricsMutation.isPending ? copy.progress.savingBodyMetrics : copy.progress.saveBodyMetrics}

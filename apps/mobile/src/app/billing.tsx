@@ -1,7 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useRouter } from "expo-router";
 import { useState } from "react";
-import { Pressable, StyleSheet, Text, View } from "react-native";
+import { Pressable, Share, StyleSheet, Text, View } from "react-native";
 
 import { Card, MutedText, PrimaryButton, QueryState, Screen, SectionTitle, SecondaryButton, TextArea } from "@/components/ui";
 import { parseBillingEnvelope } from "@/lib/api";
@@ -83,7 +83,7 @@ export default function BillingScreen() {
 
           <Card>
             <SectionTitle>{copy.billingScreen.subscriptionRequests}</SectionTitle>
-            <View style={[styles.actionGrid, { flexDirection: isRTL ? "row-reverse" : "row" }]}>
+            <View style={styles.actionGrid}>
               {subscriptionStatus === "ACTIVE" ? (
                 <>
                   <PrimaryButton onPress={() => selectFirstOffer()}>{copy.billingScreen.requestRenewal}</PrimaryButton>
@@ -156,7 +156,7 @@ export default function BillingScreen() {
             <Card style={[styles.selectionCard, { backgroundColor: theme.cardAlt, borderColor: theme.border }]}>
               <MutedText>{copy.billingScreen.selectedOffer}</MutedText>
               <Text style={[styles.selectionValue, { color: theme.foreground, fontFamily: fontSet.body, textAlign: isRTL ? "right" : "left", writingDirection: direction }]}>
-                {selectedOfferCode || "--"}
+                {billing.renewal_offers.find(o => o.code === selectedOfferCode)?.title || "--"}
               </Text>
             </Card>
             <TextArea
@@ -205,7 +205,28 @@ export default function BillingScreen() {
                     </Text>
                     <Text style={[styles.amountText, { color: theme.primary, fontFamily: fontSet.mono }]}>{receipt.amount}</Text>
                   </View>
-                  <MutedText>{new Date(receipt.date).toLocaleDateString(locale)}</MutedText>
+                  <View style={[styles.rowSpread, { flexDirection: isRTL ? "row-reverse" : "row" }]}>
+                    <MutedText>{new Date(receipt.date).toLocaleDateString(locale)}</MutedText>
+                    <Pressable
+                      onPress={() => {
+                        void Share.share({
+                          title: receipt.description,
+                          message: [
+                            `${copy.billingScreen.receipts}: ${receipt.description}`,
+                            `${copy.billingScreen.expiryDate}: ${new Date(receipt.date).toLocaleDateString(locale)}`,
+                            `${receipt.amount}`,
+                          ].join("\n"),
+                        });
+                      }}
+                      style={[styles.shareButton, { borderColor: theme.border }]}
+                      accessibilityRole="button"
+                      accessibilityLabel={isRTL ? "مشاركة الإيصال" : "Share receipt"}
+                    >
+                      <Text style={[styles.shareButtonText, { color: theme.primary, fontFamily: fontSet.mono }]}>
+                        {isRTL ? "مشاركة" : "Share"}
+                      </Text>
+                    </Pressable>
+                  </View>
                 </View>
               ))
             )}
@@ -214,7 +235,7 @@ export default function BillingScreen() {
           <Card>
             <SectionTitle>{copy.billingScreen.paymentPolicy}</SectionTitle>
             <Card style={[styles.policyCard, { backgroundColor: theme.cardAlt, borderColor: theme.border }]}>
-              <MutedText>{billing.payment_policy.notes}</MutedText>
+              <MutedText>{isRTL ? copy.billingScreen.paymentPolicyNotes : billing.payment_policy.notes || copy.billingScreen.paymentPolicyNotes}</MutedText>
             </Card>
           </Card>
         </>
@@ -233,7 +254,7 @@ export default function BillingScreen() {
   }
 
   function openSubscriptionSupport(type: string) {
-    router.push({ pathname: "/support", params: { type } });
+    router.push({ pathname: "/ticket", params: { type } });
   }
 }
 
@@ -327,7 +348,7 @@ const styles = StyleSheet.create({
   },
   actionGrid: {
     gap: 10,
-    flexWrap: "wrap",
+    flexDirection: "column",
   },
   offerList: {
     gap: 10,
@@ -390,5 +411,15 @@ const styles = StyleSheet.create({
     color: "#A53A22",
     fontSize: 14,
     lineHeight: 20,
+  },
+  shareButton: {
+    borderWidth: 1,
+    borderRadius: 8,
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+  },
+  shareButtonText: {
+    fontSize: 12,
+    fontWeight: "700",
   },
 });

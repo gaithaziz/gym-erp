@@ -318,7 +318,6 @@ Native capability plan:
 - Camera QR scanning
 - Push notifications
 - Share/download for receipts and exported files where already supported
-- Biometric unlock guard for reopening the app after idle, if straightforward
 - Deep link routing for support/chat/payment/notification targets
 
 Offline behavior:

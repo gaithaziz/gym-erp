@@ -67,10 +67,10 @@ export default function SupportTab() {
     <Screen title={copy.common.support} subtitle={copy.supportScreen.subtitle}>
       <Card>
         <SectionTitle>{copy.home.quickActions}</SectionTitle>
-        <View style={[styles.actionGrid, { flexDirection: isRTL ? "row-reverse" : "row" }]}>
-          <SecondaryButton onPress={() => router.push("/support")}>{copy.supportScreen.newTicket}</SecondaryButton>
-          <SecondaryButton onPress={() => router.push({ pathname: "/support", params: { type: "support" } })}>{copy.billingScreen.contactSupport}</SecondaryButton>
-          <SecondaryButton onPress={() => router.push({ pathname: "/support", params: { type: "extend" } })}>{copy.billingScreen.requestExtension}</SecondaryButton>
+        <View style={styles.actionGrid}>
+          <SecondaryButton onPress={() => router.push("/ticket")}>{copy.supportScreen.newTicket}</SecondaryButton>
+          <SecondaryButton onPress={() => router.push({ pathname: "/ticket", params: { type: "support" } })}>{copy.billingScreen.contactSupport}</SecondaryButton>
+          <SecondaryButton onPress={() => router.push({ pathname: "/ticket", params: { type: "extend" } })}>{copy.billingScreen.requestExtension}</SecondaryButton>
         </View>
       </Card>
 
@@ -85,7 +85,7 @@ export default function SupportTab() {
         {recentTickets.map((ticket) => (
           <Pressable
             key={ticket.id}
-            onPress={() => router.push({ pathname: "/support", params: { ticketId: ticket.id } })}
+            onPress={() => router.push({ pathname: "/ticket", params: { ticketId: ticket.id } })}
             style={[styles.ticketCard, { borderColor: theme.border, backgroundColor: theme.cardAlt, flexDirection: isRTL ? "row-reverse" : "row" }]}
           >
             <View style={styles.ticketText}>
@@ -103,7 +103,7 @@ export default function SupportTab() {
           </Pressable>
         ))}
         {tickets.length > 0 ? (
-          <SecondaryButton onPress={() => router.push("/support")}>{copy.chatScreen.openThread}</SecondaryButton>
+          <SecondaryButton onPress={() => router.push("/ticket")}>{copy.chatScreen.openThread}</SecondaryButton>
         ) : null}
       </Card>
     </Screen>
@@ -120,7 +120,7 @@ const styles = StyleSheet.create({
     gap: 4,
   },
   actionGrid: {
-    flexWrap: "wrap",
+    flexDirection: "column",
     gap: 10,
   },
   ticketCard: {
