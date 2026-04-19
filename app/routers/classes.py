@@ -121,6 +121,33 @@ async def _get_coach_or_400(coach_id: uuid.UUID, db: AsyncSession) -> User:
     return user
 
 
+async def _ensure_no_session_conflict(
+    *,
+    db: AsyncSession,
+    coach_id: uuid.UUID,
+    starts_at: datetime,
+    ends_at: datetime,
+    exclude_session_id: uuid.UUID | None = None,
+) -> None:
+    conflict_query = select(ClassSession).where(
+        ClassSession.coach_id == coach_id,
+        ClassSession.status != ClassSessionStatus.CANCELLED,
+        ClassSession.starts_at < ends_at,
+        ClassSession.ends_at > starts_at,
+    )
+    if exclude_session_id is not None:
+        conflict_query = conflict_query.where(ClassSession.id != exclude_session_id)
+
+    conflict = (await db.execute(conflict_query.limit(1))).scalar_one_or_none()
+    if conflict is None:
+        return
+
+    raise HTTPException(
+        status_code=409,
+        detail="This coach already has another class scheduled during that time",
+    )
+
+
 # ---------------------------------------------------------------------------
 # Notification stub — wire into existing push infra when ready
 # ---------------------------------------------------------------------------
@@ -141,7 +168,7 @@ async def _notify_reservation_update(
 
     # Ensure template is loaded
     await db.refresh(session, ["template"])
-    class_name = session.template.name if session.template else "Group Class"
+    class_name = session.display_name if session.template else "Group Class"
 
     title = "Class Reservation"
     if new_status == ClassReservationStatus.RESERVED:
@@ -204,9 +231,14 @@ class TemplateOut(BaseModel):
 
 
 class SessionCreate(BaseModel):
-    template_id: uuid.UUID
+    template_id: uuid.UUID | None = None
+    template_name: str | None = Field(None, min_length=1, max_length=200)
+    template_description: str | None = None
+    template_duration_minutes: int | None = Field(None, ge=5, le=480)
+    template_capacity: int | None = Field(None, ge=1, le=500)
     coach_id: uuid.UUID
     starts_at: datetime
+    session_name: str | None = Field(None, min_length=1, max_length=200)
     capacity_override: int | None = Field(None, ge=1, le=500)
     notes: str | None = None
     # Recurring: if set, creates this many additional weekly copies
@@ -216,6 +248,7 @@ class SessionCreate(BaseModel):
 class SessionUpdate(BaseModel):
     coach_id: uuid.UUID | None = None
     starts_at: datetime | None = None
+    session_name: str | None = Field(None, min_length=1, max_length=200)
     capacity_override: int | None = Field(None, ge=1, le=500)
     notes: str | None = None
     status: ClassSessionStatus | None = None
@@ -225,6 +258,8 @@ class SessionOut(BaseModel):
     id: uuid.UUID
     template_id: uuid.UUID
     template_name: str
+    session_name: str | None
+    display_name: str
     coach_id: uuid.UUID
     coach_name: str | None
     starts_at: datetime
@@ -279,6 +314,8 @@ async def _session_out(session: ClassSession, db: AsyncSession) -> dict[str, Any
         "id": session.id,
         "template_id": session.template_id,
         "template_name": session.template.name,
+        "session_name": session.session_name,
+        "display_name": session.display_name,
         "coach_id": session.coach_id,
         "coach_name": session.coach.full_name if session.coach else None,
         "starts_at": session.starts_at,
@@ -293,17 +330,46 @@ async def _session_out(session: ClassSession, db: AsyncSession) -> dict[str, Any
     }
 
 
-def _make_session(body: SessionCreate, starts_at: datetime, duration_minutes: int) -> ClassSession:
+def _make_session(body: SessionCreate, starts_at: datetime, template: ClassTemplate) -> ClassSession:
+    duration_minutes = template.duration_minutes
     ends_at = starts_at + timedelta(minutes=duration_minutes)
     return ClassSession(
-        template_id=body.template_id,
+        template=template,
         coach_id=body.coach_id,
         starts_at=starts_at,
         ends_at=ends_at,
+        session_name=body.session_name,
         capacity_override=body.capacity_override,
         notes=body.notes,
         status=ClassSessionStatus.SCHEDULED,
     )
+
+
+async def _resolve_template_for_session(
+    body: SessionCreate,
+    *,
+    db: AsyncSession,
+    current_user: User,
+) -> ClassTemplate:
+    if body.template_id is not None:
+        return await _get_template_or_404(body.template_id, db)
+
+    if not body.template_name or body.template_duration_minutes is None or body.template_capacity is None:
+        raise HTTPException(
+            status_code=422,
+            detail="Please provide a class name, duration, and capacity",
+        )
+
+    template = ClassTemplate(
+        name=body.template_name.strip(),
+        description=body.template_description.strip() if body.template_description else None,
+        duration_minutes=body.template_duration_minutes,
+        capacity=body.template_capacity,
+        is_active=True,
+        created_by_id=current_user.id,
+    )
+    db.add(template)
+    return template
 
 
 # ===========================================================================
@@ -404,7 +470,7 @@ async def create_session(body: SessionCreate, db: DbDep, current_user: RequireSt
     Create one session (or a recurring weekly series if recur_weekly_count is set).
     Returns a list of all created sessions.
     """
-    tmpl = await _get_template_or_404(body.template_id, db)
+    tmpl = await _resolve_template_for_session(body, db=db, current_user=current_user)
     await _get_coach_or_400(body.coach_id, db)
 
     # Coaches can only create sessions for themselves
@@ -416,7 +482,14 @@ async def create_session(body: SessionCreate, db: DbDep, current_user: RequireSt
 
     for week_offset in range(recur_count + 1):
         starts = body.starts_at + timedelta(weeks=week_offset)
-        sessions_to_create.append(_make_session(body, starts, tmpl.duration_minutes))
+        session = _make_session(body, starts, tmpl)
+        await _ensure_no_session_conflict(
+            db=db,
+            coach_id=session.coach_id,
+            starts_at=session.starts_at,
+            ends_at=session.ends_at,
+        )
+        sessions_to_create.append(session)
 
     for s in sessions_to_create:
         db.add(s)
@@ -443,6 +516,17 @@ async def update_session(session_id: uuid.UUID, body: SessionUpdate, db: DbDep, 
 
     if "starts_at" in updates:
         updates["ends_at"] = updates["starts_at"] + timedelta(minutes=session.template.duration_minutes)
+
+    next_coach_id = updates.get("coach_id", session.coach_id)
+    next_starts_at = updates.get("starts_at", session.starts_at)
+    next_ends_at = updates.get("ends_at", session.ends_at)
+    await _ensure_no_session_conflict(
+        db=db,
+        coach_id=next_coach_id,
+        starts_at=next_starts_at,
+        ends_at=next_ends_at,
+        exclude_session_id=session.id,
+    )
 
     for field, value in updates.items():
         setattr(session, field, value)

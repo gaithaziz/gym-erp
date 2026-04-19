@@ -3,7 +3,7 @@ import { BottomTabBarHeightContext } from "@react-navigation/bottom-tabs";
 import { useQuery } from "@tanstack/react-query";
 import { Image } from "expo-image";
 import { usePathname, useRouter } from "expo-router";
-import { useContext, type PropsWithChildren, type ReactNode } from "react";
+import { useContext, useEffect, type PropsWithChildren, type ReactNode, type RefObject } from "react";
 import {
   ActivityIndicator,
   Pressable,
@@ -126,6 +126,7 @@ export function Screen({
   leadingAction,
   action,
   scrollable = true,
+  scrollRef,
   compactTitle = false,
   showSubtitle = false,
   hideFloatingChat = false,
@@ -136,6 +137,7 @@ export function Screen({
   leadingAction?: ReactNode;
   action?: ReactNode;
   scrollable?: boolean;
+  scrollRef?: RefObject<ScrollView | null>;
   compactTitle?: boolean;
   showSubtitle?: boolean;
   hideFloatingChat?: boolean;
@@ -216,11 +218,31 @@ export function Screen({
     </>
   );
 
+  useEffect(() => {
+    if (!scrollable || !scrollRef?.current) {
+      return;
+    }
+
+    const frame = requestAnimationFrame(() => {
+      scrollRef.current?.scrollTo({ y: 0, animated: false });
+    });
+
+    return () => cancelAnimationFrame(frame);
+  }, [pathname, scrollRef, scrollable]);
+
   return (
     <SafeAreaView style={[styles.safeArea, { backgroundColor: theme.background }]}>
       <OfflineBanner />
       {scrollable ? (
-        <ScrollView contentContainerStyle={[styles.screenContent, { paddingBottom: resolvedContentPaddingBottom }]}>{content}</ScrollView>
+        <ScrollView
+          ref={scrollRef}
+          contentOffset={{ x: 0, y: 0 }}
+          contentInsetAdjustmentBehavior="never"
+          automaticallyAdjustContentInsets={false}
+          contentContainerStyle={[styles.screenContent, { paddingBottom: resolvedContentPaddingBottom }]}
+        >
+          {content}
+        </ScrollView>
       ) : (
         <View style={[styles.screenContent, styles.screenContentStatic, { paddingBottom: resolvedContentPaddingBottom }]}>{content}</View>
       )}

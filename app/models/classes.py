@@ -64,6 +64,7 @@ class ClassSession(Base):
     starts_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, index=True)
     ends_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
 
+    session_name: Mapped[str | None] = mapped_column(String, nullable=True)
     # Optional override of template capacity for this specific session
     capacity_override: Mapped[int | None] = mapped_column(Integer, nullable=True)
     notes: Mapped[str | None] = mapped_column(Text, nullable=True)
@@ -91,6 +92,10 @@ class ClassSession(Base):
     @property
     def effective_capacity(self) -> int:
         return self.capacity_override if self.capacity_override is not None else self.template.capacity
+
+    @property
+    def display_name(self) -> str:
+        return self.session_name or self.template.name
 
 
 class ClassReservation(Base):

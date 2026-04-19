@@ -24,6 +24,7 @@ from app.models.auth import *
 from app.models.notification import *
 from app.models.chat import *
 from app.models.lost_found import *
+from app.models.classes import *
 
 # this is the Alembic Config object, which provides
 # access to the values within the .ini file in use.

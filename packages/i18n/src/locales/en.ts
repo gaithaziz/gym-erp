@@ -36,6 +36,7 @@ export const enMessages = {
       cashierPos: "Cashier POS",
       whatsappAutomation: "WhatsApp Automation",
       entranceQr: "Entrance QR",
+      classes: "Classes",
       supportDesk: "Support Desk",
       lostFound: "Lost & Found",
       auditLogs: "Audit Logs",

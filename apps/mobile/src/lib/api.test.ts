@@ -41,6 +41,18 @@ describe("mobile admin api parsers", () => {
             reason: "Medical",
           },
         ],
+        classes: [
+          {
+            id: "55555555-5555-4555-8555-555555555555",
+            session_id: "66666666-6666-4666-8666-666666666666",
+            member_id: "77777777-7777-4777-8777-777777777777",
+            member_name: "Ali Member",
+            class_name: "HIIT",
+            starts_at: "2026-04-19T10:00:00Z",
+            status: "PENDING",
+            reserved_at: "2026-04-17T09:30:00Z",
+          },
+        ],
       },
     });
 

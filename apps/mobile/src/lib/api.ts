@@ -389,6 +389,8 @@ export type ClassSession = {
   id: string;
   template_id: string;
   template_name: string;
+  session_name: string | null;
+  display_name: string;
   coach_id: string;
   coach_name: string | null;
   starts_at: string;

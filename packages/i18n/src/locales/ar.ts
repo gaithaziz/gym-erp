@@ -36,6 +36,7 @@ export const arMessages = {
       cashierPos: "نقطة البيع",
       whatsappAutomation: "أتمتة واتساب",
       entranceQr: "رمز الدخول",
+      classes: "الحصص",
       supportDesk: "مكتب الدعم",
       lostFound: "المفقودات",
       auditLogs: "سجلات التدقيق",

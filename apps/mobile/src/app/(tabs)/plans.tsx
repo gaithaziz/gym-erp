@@ -1417,6 +1417,7 @@ function SetDetailsEditor({ rows, onChange }: { rows: SetDetail[]; onChange: (ro
 function CoachPlansTab() {
   const { authorizedRequest } = useSession();
   const { copy, direction, fontSet, isRTL, theme } = usePreferences();
+  const coachClassesCopy = copy.coachClasses;
   const queryClient = useQueryClient();
   const [editorMode, setEditorMode] = useState<"workout" | "diet" | "classes">("workout");
   const [creatingWorkout, setCreatingWorkout] = useState(false);
@@ -1441,6 +1442,7 @@ function CoachPlansTab() {
 
   const coachPlansQuery = useQuery({
     queryKey: ["mobile-coach-plan-manager"],
+    enabled: editorMode !== "classes",
     queryFn: async () => parseCoachPlansEnvelope(await authorizedRequest("/mobile/staff/coach/plans")).data,
   });
 
@@ -1463,6 +1465,7 @@ function CoachPlansTab() {
     () => dietPlans.filter((plan) => matchesPlanSearch(plan, dietSearch, copy.coachPlans.template)),
     [copy.coachPlans.template, dietPlans, dietSearch],
   );
+  const showingClasses = editorMode === "classes";
 
   useEffect(() => {
     if (!creatingWorkout && !selectedWorkoutId && workoutPlans.length > 0) {
@@ -1675,15 +1678,15 @@ function CoachPlansTab() {
         <QueryState loading={coachPlansQuery.isLoading} error={coachPlansQuery.error instanceof Error ? coachPlansQuery.error.message : null} />
         <View style={{ flexDirection: isRTL ? "row-reverse" : "row", alignItems: "center", justifyContent: "space-between", gap: 12 }}>
           <SectionTitle>{copy.staffHome.title}</SectionTitle>
-          <View style={{ flexDirection: isRTL ? "row-reverse" : "row", gap: 6, flexShrink: 1 }}>
-            <MiniMetric label="Classes" value={coachClassesQuery.data?.length ?? 0} />
-            <MiniMetric label={copy.membersScreen.workoutPlans} value={workoutPlans.length} />
-            <MiniMetric label={copy.membersScreen.dietPlans} value={dietPlans.length} />
-            <MiniMetric label={copy.coachPlans.template} value={workoutTemplateCount + dietTemplateCount} />
+          <View style={{ flexDirection: isRTL ? "row-reverse" : "row", gap: 6, flexShrink: 1, flexWrap: "wrap", justifyContent: isRTL ? "flex-start" : "flex-end" }}>
+            <MiniMetric label={coachClassesCopy.label} value={coachClassesQuery.data?.length ?? 0} />
+            {!showingClasses ? <MiniMetric label={copy.membersScreen.workoutPlans} value={workoutPlans.length} /> : null}
+            {!showingClasses ? <MiniMetric label={copy.membersScreen.dietPlans} value={dietPlans.length} /> : null}
+            {!showingClasses ? <MiniMetric label={copy.coachPlans.template} value={workoutTemplateCount + dietTemplateCount} /> : null}
           </View>
         </View>
         <View style={{ flexDirection: isRTL ? "row-reverse" : "row", gap: 8, marginTop: 10 }}>
-          <ModePill label="Classes" active={editorMode === "classes"} onPress={() => setEditorMode("classes")} />
+          <ModePill label={coachClassesCopy.label} active={editorMode === "classes"} onPress={() => setEditorMode("classes")} />
           <ModePill label={copy.membersScreen.workoutPlans} active={editorMode === "workout"} onPress={() => setEditorMode("workout")} />
           <ModePill label={copy.membersScreen.dietPlans} active={editorMode === "diet"} onPress={() => setEditorMode("diet")} />
         </View>
@@ -1691,31 +1694,35 @@ function CoachPlansTab() {
 
       <Card>
         <View style={{ flexDirection: isRTL ? "row-reverse" : "row", alignItems: "center", justifyContent: "space-between", gap: 12 }}>
-          <SectionTitle>{editorMode === "workout" ? copy.membersScreen.workoutPlans : editorMode === "diet" ? copy.membersScreen.dietPlans : "My Classes"}</SectionTitle>
-          <CompactAddButton
-            label={editorMode === "workout" ? copy.coachPlans.createWorkout : copy.coachPlans.createDiet}
-            onPress={() => {
-              if (editorMode === "workout") {
-                setCreatingWorkout(true);
-                setSelectedWorkoutId(null);
-                setWorkoutDropdownOpen(false);
-                setWorkoutName("");
-                setWorkoutDescription("");
-                setWorkoutExpectedSessions("12");
-                setExerciseRows([{ id: createRowId(), section_name: "Warm-up", exercise_name: "", sets: 3, reps: 10, order: 0 }]);
-                return;
-              }
-              setCreatingDiet(true);
-              setSelectedDietId(null);
-              setDietDropdownOpen(false);
-              setDietName("");
-              setDietDescription("");
-              setDietContent("");
-              setDietDays([defaultDietDay()]);
-            }}
-          />
+          <SectionTitle>{editorMode === "workout" ? copy.membersScreen.workoutPlans : editorMode === "diet" ? copy.membersScreen.dietPlans : coachClassesCopy.title}</SectionTitle>
+          {editorMode !== "classes" ? (
+            <CompactAddButton
+              label={editorMode === "workout" ? copy.coachPlans.createWorkout : copy.coachPlans.createDiet}
+              onPress={() => {
+                if (editorMode === "workout") {
+                  setCreatingWorkout(true);
+                  setSelectedWorkoutId(null);
+                  setWorkoutDropdownOpen(false);
+                  setWorkoutName("");
+                  setWorkoutDescription("");
+                  setWorkoutExpectedSessions("12");
+                  setExerciseRows([{ id: createRowId(), section_name: "Warm-up", exercise_name: "", sets: 3, reps: 10, order: 0 }]);
+                  return;
+                }
+                setCreatingDiet(true);
+                setSelectedDietId(null);
+                setDietDropdownOpen(false);
+                setDietName("");
+                setDietDescription("");
+                setDietContent("");
+                setDietDays([defaultDietDay()]);
+              }}
+            />
+          ) : null}
         </View>
-        {editorMode === "workout" ? (
+        {editorMode === "classes" ? (
+          <MutedText>{coachClassesCopy.subtitle}</MutedText>
+        ) : editorMode === "workout" ? (
           <>
             {workoutPlans.length === 0 ? <MutedText>{copy.coachPlans.noWorkoutPlans}</MutedText> : null}
             {creatingWorkout ? (
@@ -1935,25 +1942,36 @@ function CoachPlansTab() {
         </Card>
       ) : (
         <Card>
-          <SectionTitle>My Upcoming Classes</SectionTitle>
+          <SectionTitle>{coachClassesCopy.title}</SectionTitle>
+          <MutedText>{coachClassesCopy.subtitle}</MutedText>
           <QueryState loading={coachClassesQuery.isLoading} error={coachClassesQuery.error instanceof Error ? coachClassesQuery.error.message : null} />
           {coachClassesQuery.data?.length === 0 ? (
-            <MutedText>You have no classes scheduled.</MutedText>
+            <MutedText>{coachClassesCopy.empty}</MutedText>
           ) : (
             coachClassesQuery.data?.map((session) => (
-              <View key={session.id} style={{ padding: 14, borderWidth: 1, borderColor: theme.border, borderRadius: 14, marginBottom: 10 }}>
-                <Text style={{ fontFamily: fontSet.display, fontSize: 16, color: theme.foreground }}>{session.template_name}</Text>
-                <MutedText>
-                  {new Date(session.starts_at).toLocaleDateString(isRTL ? "ar" : "en", { weekday: "short", month: "short", day: "numeric" })}
-                  {" · "}
-                  {new Date(session.starts_at).toLocaleTimeString(isRTL ? "ar" : "en", { hour: "2-digit", minute: "2-digit" })}
-                </MutedText>
-                <View style={{ flexDirection: "row", gap: 8, marginTop: 12 }}>
-                  <View style={{ backgroundColor: theme.primarySoft, paddingHorizontal: 8, paddingVertical: 4, borderRadius: 4 }}>
-                    <Text style={{ fontFamily: fontSet.mono, color: theme.primary, fontSize: 11 }}>{session.reserved_count} Reserved</Text>
+              <View key={session.id} style={{ padding: 14, borderWidth: 1, borderColor: theme.border, borderRadius: 18, marginBottom: 10, backgroundColor: theme.cardAlt, gap: 10 }}>
+                <View style={{ flexDirection: isRTL ? "row-reverse" : "row", justifyContent: "space-between", alignItems: "flex-start", gap: 12 }}>
+                  <View style={{ flex: 1, gap: 4 }}>
+                    <Text style={{ fontFamily: fontSet.display, fontSize: 16, color: theme.foreground, textAlign: isRTL ? "right" : "left" }}>{session.template_name}</Text>
+                    <MutedText>
+                      {new Date(session.starts_at).toLocaleDateString(isRTL ? "ar" : "en", { weekday: "short", month: "short", day: "numeric" })}
+                      {" · "}
+                      {new Date(session.starts_at).toLocaleTimeString(isRTL ? "ar" : "en", { hour: "2-digit", minute: "2-digit" })}
+                    </MutedText>
                   </View>
-                  <View style={{ backgroundColor: theme.primarySoft, paddingHorizontal: 8, paddingVertical: 4, borderRadius: 4 }}>
-                    <Text style={{ fontFamily: fontSet.mono, color: theme.primary, fontSize: 11 }}>{session.pending_count} Pending</Text>
+                  <View style={{ backgroundColor: theme.primarySoft, paddingHorizontal: 10, paddingVertical: 6, borderRadius: 999 }}>
+                    <Text style={{ fontFamily: fontSet.mono, color: theme.primary, fontSize: 11 }}>{session.status}</Text>
+                  </View>
+                </View>
+                <View style={{ flexDirection: isRTL ? "row-reverse" : "row", flexWrap: "wrap", gap: 8 }}>
+                  <View style={{ backgroundColor: theme.card, paddingHorizontal: 10, paddingVertical: 6, borderRadius: 999 }}>
+                    <Text style={{ fontFamily: fontSet.mono, color: theme.foreground, fontSize: 11 }}>{session.reserved_count} {coachClassesCopy.reserved}</Text>
+                  </View>
+                  <View style={{ backgroundColor: theme.card, paddingHorizontal: 10, paddingVertical: 6, borderRadius: 999 }}>
+                    <Text style={{ fontFamily: fontSet.mono, color: theme.foreground, fontSize: 11 }}>{session.pending_count} {coachClassesCopy.pending}</Text>
+                  </View>
+                  <View style={{ backgroundColor: theme.card, paddingHorizontal: 10, paddingVertical: 6, borderRadius: 999 }}>
+                    <Text style={{ fontFamily: fontSet.mono, color: theme.foreground, fontSize: 11 }}>{session.waitlist_count} {coachClassesCopy.waitlist}</Text>
                   </View>
                 </View>
               </View>
@@ -1993,9 +2011,9 @@ function InlineNotice({ notice }: { notice: PlanActionNotice | null }) {
 function MiniMetric({ label, value }: { label: string; value: string | number }) {
   const { theme, fontSet } = usePreferences();
   return (
-    <View style={{ minWidth: 54, alignItems: "center", paddingHorizontal: 8, paddingVertical: 7, borderRadius: 14, borderWidth: 1, borderColor: theme.border, backgroundColor: theme.cardAlt }}>
+    <View style={{ minWidth: 54, maxWidth: 92, alignItems: "center", paddingHorizontal: 8, paddingVertical: 7, borderRadius: 14, borderWidth: 1, borderColor: theme.border, backgroundColor: theme.cardAlt }}>
       <Text style={{ color: theme.primary, fontFamily: fontSet.display, fontSize: 17, fontWeight: "800" }}>{value}</Text>
-      <Text style={{ color: theme.muted, fontFamily: fontSet.body, fontSize: 10 }} numberOfLines={1}>
+      <Text style={{ color: theme.muted, fontFamily: fontSet.body, fontSize: 10, textAlign: "center" }} numberOfLines={2}>
         {label}
       </Text>
     </View>

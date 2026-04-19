@@ -2,6 +2,6 @@
 
 import ClassesDashboardContent from '@/components/classes/ClassesDashboardContent';
 
-export default function ClassesPage() {
-    return <ClassesDashboardContent role="ADMIN" />;
+export default function CoachClassesPage() {
+    return <ClassesDashboardContent role="COACH" />;
 }

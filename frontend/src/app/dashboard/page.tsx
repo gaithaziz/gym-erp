@@ -210,7 +210,8 @@ function AdminDashboard({ userName }: { userName: string }) {
         api.get('/classes/sessions')
             .then(res => {
                 const todayStr = new Date().toISOString().split('T')[0];
-                const count = (res.data || []).filter((s: any) => s.starts_at.startsWith(todayStr)).length;
+                const sessions = Array.isArray(res.data?.data) ? res.data.data : Array.isArray(res.data) ? res.data : [];
+                const count = sessions.filter((s: any) => s.starts_at.startsWith(todayStr)).length;
                 setClassesToday(count);
             })
             .catch(() => setClassesToday(0));
@@ -780,6 +781,18 @@ function CoachDashboard({ userName }: { userName: string }) {
                         <div>
                             <h3 className="text-foreground font-bold text-sm uppercase tracking-wide">{locale === 'ar' ? 'خطط التغذية' : 'Diet Plans'}</h3>
                             <p className="text-muted-foreground text-xs">{txt.manageNutrition}</p>
+                        </div>
+                    </div>
+                    <ChevronRight size={18} className="text-muted-foreground group-hover:text-primary transition-colors" />
+                </Link>
+                <Link href="/dashboard/coach/classes" className="kpi-card flex items-center justify-between group hover:border-primary transition-colors">
+                    <div className="flex items-center gap-4">
+                        <div className="p-2 bg-muted/30 border border-border text-primary">
+                            <ClipboardList size={20} />
+                        </div>
+                        <div>
+                            <h3 className="text-foreground font-bold text-sm uppercase tracking-wide">{locale === 'ar' ? 'الحصص' : 'Classes'}</h3>
+                            <p className="text-muted-foreground text-xs">{locale === 'ar' ? 'تابع الجلسات والحجوزات' : 'Track sessions and reservations'}</p>
                         </div>
                     </div>
                     <ChevronRight size={18} className="text-muted-foreground group-hover:text-primary transition-colors" />
@@ -1388,7 +1401,6 @@ export default function DashboardPage() {
             );
     }
 }
-
 
 
 

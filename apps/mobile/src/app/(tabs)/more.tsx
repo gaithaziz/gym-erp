@@ -1,7 +1,7 @@
 import { useRouter } from "expo-router";
 
 import { useSession } from "@/lib/session";
-import { getCurrentRole, hasCapability, isAdminControlRole, isCustomerRole } from "@/lib/mobile-role";
+import { getCurrentRole, hasCapability, isAdminControlRole, isCustomerRole, isStaffRole } from "@/lib/mobile-role";
 import { usePreferences } from "@/lib/preferences";
 import { Card, MutedText, PrimaryButton, Screen, SecondaryLink, SectionTitle } from "@/components/ui";
 
@@ -32,6 +32,7 @@ export default function MoreTab() {
       {adminControl ? <SecondaryLink href="/(tabs)/operations">{copy.adminControl.operationsSummary}</SecondaryLink> : null}
       {adminControl ? <SecondaryLink href="/(tabs)/finance">{copy.adminControl.financeSummary}</SecondaryLink> : null}
       {adminControl ? <SecondaryLink href="/approvals">{copy.adminControl.approvalQueue}</SecondaryLink> : null}
+      {isStaffRole(role) ? <SecondaryLink href="/classes">{role === "COACH" ? copy.coachClasses.title : copy.classesScreen.title}</SecondaryLink> : null}
       {role === "ADMIN" ? <SecondaryLink href="/admin-audit">{copy.adminControl.auditSummary}</SecondaryLink> : null}
       {adminControl ? <SecondaryLink href="/inventory-summary">{copy.adminControl.inventorySummary}</SecondaryLink> : null}
       <SecondaryLink href="/notifications">{copy.more.notifications}</SecondaryLink>

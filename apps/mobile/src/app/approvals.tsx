@@ -192,7 +192,7 @@ export default function ApprovalsScreen() {
                 <ApprovalRow 
                   key={res.id} 
                   active={selected} 
-                  title={res.member_name} 
+                  title={res.member_name || "Member"} 
                   meta={`${res.class_name} — ${dateObj.toLocaleDateString(locale, { weekday: 'short', month: 'short', day: 'numeric' })} at ${dateObj.toLocaleTimeString(locale, { hour: '2-digit', minute: '2-digit' })}`} 
                   onPress={() => setSelectedClassId(selected ? null : res.id)}
                 >

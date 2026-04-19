@@ -11,6 +11,7 @@ from app.auth.security import get_password_hash
 from app.database import AsyncSessionLocal, reset_rls_context, set_rls_context
 from app.models.access import AccessLog, AttendanceLog, Subscription
 from app.models.audit import AuditLog
+from app.models.classes import ClassReservation, ClassReservationStatus, ClassSession, ClassSessionStatus, ClassTemplate
 from app.models.enums import Role
 from app.models.finance import (
     PaymentMethod,
@@ -280,6 +281,106 @@ async def _upsert_transaction(
         tx.date = when
         tx.payment_method = payment_method
         tx.user_id = user_id
+
+
+async def _upsert_class_template(
+    session,
+    *,
+    name: str,
+    description: str,
+    category: str,
+    duration_minutes: int,
+    capacity: int,
+    color: str,
+    created_by_id: uuid.UUID,
+) -> ClassTemplate:
+    stmt = select(ClassTemplate).where(ClassTemplate.name == name)
+    result = await session.execute(stmt)
+    template = result.scalar_one_or_none()
+    if not template:
+        template = ClassTemplate(
+            name=name,
+            description=description,
+            category=category,
+            duration_minutes=duration_minutes,
+            capacity=capacity,
+            color=color,
+            is_active=True,
+            created_by_id=created_by_id,
+        )
+        session.add(template)
+        await session.flush()
+    else:
+        template.description = description
+        template.category = category
+        template.duration_minutes = duration_minutes
+        template.capacity = capacity
+        template.color = color
+        template.is_active = True
+        template.created_by_id = created_by_id
+    return template
+
+
+async def _upsert_class_session(
+    session,
+    *,
+    template: ClassTemplate,
+    coach: User,
+    starts_at: datetime,
+    notes: str | None,
+    capacity_override: int | None = None,
+    status: ClassSessionStatus = ClassSessionStatus.SCHEDULED,
+) -> ClassSession:
+    stmt = select(ClassSession).where(
+        ClassSession.template_id == template.id,
+        ClassSession.coach_id == coach.id,
+        ClassSession.starts_at == starts_at,
+    )
+    result = await session.execute(stmt)
+    class_session = result.scalar_one_or_none()
+    if not class_session:
+        class_session = ClassSession(
+            template_id=template.id,
+            coach_id=coach.id,
+            starts_at=starts_at,
+            ends_at=starts_at + timedelta(minutes=template.duration_minutes),
+            capacity_override=capacity_override,
+            notes=notes,
+            status=status,
+        )
+        session.add(class_session)
+        await session.flush()
+    else:
+        class_session.ends_at = starts_at + timedelta(minutes=template.duration_minutes)
+        class_session.capacity_override = capacity_override
+        class_session.notes = notes
+        class_session.status = status
+    return class_session
+
+
+async def _upsert_class_reservation(
+    session,
+    *,
+    class_session: ClassSession,
+    member: User,
+    status: ClassReservationStatus,
+) -> ClassReservation:
+    stmt = select(ClassReservation).where(
+        ClassReservation.session_id == class_session.id,
+        ClassReservation.member_id == member.id,
+    )
+    result = await session.execute(stmt)
+    reservation = result.scalar_one_or_none()
+    if not reservation:
+        reservation = ClassReservation(
+            session_id=class_session.id,
+            member_id=member.id,
+            status=status,
+        )
+        session.add(reservation)
+    else:
+        reservation.status = status
+    return reservation
 
 
 async def seed_demo_data():
@@ -893,7 +994,83 @@ Pre-workout: Espresso + dates""",
                     comment=comment,
                     created_at=created_at,
                 )
-            )
+                )
+        await session.commit()
+
+        logger.info("Seeding classes...")
+        admin = users_by_email["admin.demo@gym-erp.com"]
+        coach = users_by_email["coach.demo@gym-erp.com"]
+        anna = users_by_email["member.anna.demo@gym-erp.com"]
+        leo = users_by_email["member.leo.demo@gym-erp.com"]
+        maya = users_by_email["member.maya.demo@gym-erp.com"]
+        noah = users_by_email["member.noah.demo@gym-erp.com"]
+
+        await _act_as(session, admin)
+        strength_template = await _upsert_class_template(
+            session,
+            name="Strength Basics",
+            description="Foundational barbell and dumbbell session for new members.",
+            category="Strength",
+            duration_minutes=60,
+            capacity=16,
+            color="#2563EB",
+            created_by_id=admin.id,
+        )
+        hiit_template = await _upsert_class_template(
+            session,
+            name="HIIT Power",
+            description="Fast-paced conditioning with short recovery windows.",
+            category="HIIT",
+            duration_minutes=45,
+            capacity=14,
+            color="#F97316",
+            created_by_id=admin.id,
+        )
+        mobility_template = await _upsert_class_template(
+            session,
+            name="Mobility Flow",
+            description="Recovery-focused mobility and stretch work.",
+            category="Recovery",
+            duration_minutes=40,
+            capacity=18,
+            color="#0EA5E9",
+            created_by_id=admin.id,
+        )
+
+        start_1 = (datetime.now(timezone.utc) + timedelta(days=1)).replace(hour=18, minute=0, second=0, microsecond=0)
+        start_2 = (datetime.now(timezone.utc) + timedelta(days=2)).replace(hour=19, minute=0, second=0, microsecond=0)
+        start_3 = (datetime.now(timezone.utc) + timedelta(days=3)).replace(hour=7, minute=30, second=0, microsecond=0)
+
+        strength_session = await _upsert_class_session(
+            session,
+            template=strength_template,
+            coach=coach,
+            starts_at=start_1,
+            notes=f"{DEMO_TAG} Form checks, tempo work, and coach Q&A.",
+        )
+        hiit_session = await _upsert_class_session(
+            session,
+            template=hiit_template,
+            coach=coach,
+            starts_at=start_2,
+            notes=f"{DEMO_TAG} Interval conditioning with mixed stations.",
+        )
+        mobility_session = await _upsert_class_session(
+            session,
+            template=mobility_template,
+            coach=coach,
+            starts_at=start_3,
+            notes=f"{DEMO_TAG} Recovery block before peak-hour training.",
+        )
+
+        await _upsert_class_reservation(session, class_session=strength_session, member=anna, status=ClassReservationStatus.RESERVED)
+        await _upsert_class_reservation(session, class_session=strength_session, member=leo, status=ClassReservationStatus.PENDING)
+        await _upsert_class_reservation(session, class_session=strength_session, member=maya, status=ClassReservationStatus.WAITLISTED)
+        await _upsert_class_reservation(session, class_session=strength_session, member=noah, status=ClassReservationStatus.PENDING)
+
+        await _upsert_class_reservation(session, class_session=hiit_session, member=anna, status=ClassReservationStatus.PENDING)
+        await _upsert_class_reservation(session, class_session=hiit_session, member=leo, status=ClassReservationStatus.RESERVED)
+
         await session.commit()
 
         logger.info("Seeding support tickets and messages...")

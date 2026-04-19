@@ -31,6 +31,7 @@ from fastapi.staticfiles import StaticFiles
 import os
 import uuid
 from app.database import AsyncSessionLocal
+from app.models.classes import ClassTemplate
 from app.models.enums import Role
 from app.models.user import User
 from app.services.payroll_automation_service import PayrollAutomationService
@@ -216,11 +217,27 @@ async def _ensure_local_admin_user() -> None:
         await db.commit()
 
 
+async def _ensure_demo_classes_seed() -> None:
+    if settings.APP_ENV != "development":
+        return
+
+    async with AsyncSessionLocal() as db:
+        has_templates = (await db.execute(select(ClassTemplate.id).limit(1))).scalar_one_or_none()
+        if has_templates is not None:
+            return
+
+    from app.seed_demo_data import seed_demo_data
+
+    logger.info("Seeding demo classes and related sample data for development")
+    await seed_demo_data()
+
+
 @app.on_event("startup")
 async def startup_payroll_scheduler() -> None:
     global payroll_scheduler_task
     _validate_security_settings()
     await _ensure_local_admin_user()
+    await _ensure_demo_classes_seed()
     if not settings.PAYROLL_AUTO_ENABLED:
         logger.info("Payroll auto scheduler disabled by config")
         return

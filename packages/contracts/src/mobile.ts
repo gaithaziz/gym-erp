@@ -766,9 +766,21 @@ export const mobileLeaveApprovalItemSchema = z.object({
   reason: z.string().nullable().optional(),
 });
 
+export const mobileAdminClassApprovalItemSchema = z.object({
+  id: z.string().uuid(),
+  session_id: z.string().uuid(),
+  member_id: z.string().uuid(),
+  member_name: z.string().nullable().optional(),
+  class_name: z.string(),
+  starts_at: z.string(),
+  status: z.string(),
+  reserved_at: z.string().nullable().optional(),
+});
+
 export const mobileAdminApprovalsSchema = z.object({
   renewals: z.array(mobileRenewalApprovalItemSchema),
   leaves: z.array(mobileLeaveApprovalItemSchema),
+  classes: z.array(mobileAdminClassApprovalItemSchema),
 });
 
 export const mobileApprovalActionResultSchema = z.object({
@@ -973,6 +985,7 @@ export type MobileInventoryRiskItem = z.infer<typeof mobileInventoryRiskItemSche
 export type MobileAdminInventorySummary = z.infer<typeof mobileAdminInventorySummarySchema>;
 export type MobileRenewalApprovalItem = z.infer<typeof mobileRenewalApprovalItemSchema>;
 export type MobileLeaveApprovalItem = z.infer<typeof mobileLeaveApprovalItemSchema>;
+export type MobileAdminClassApprovalItem = z.infer<typeof mobileAdminClassApprovalItemSchema>;
 export type MobileAdminApprovals = z.infer<typeof mobileAdminApprovalsSchema>;
 export type MobileApprovalActionResult = z.infer<typeof mobileApprovalActionResultSchema>;
 export type MobileInventoryProduct = z.infer<typeof mobileInventoryProductSchema>;

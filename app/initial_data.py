@@ -4,6 +4,7 @@ from datetime import datetime, timedelta, timezone, date
 from sqlalchemy import select
 from app.database import AsyncSessionLocal
 from app.database import set_rls_context
+from app.models.classes import ClassReservation, ClassReservationStatus, ClassSession, ClassSessionStatus, ClassTemplate
 from app.models.user import User
 from app.models.enums import Role
 from app.models.access import Subscription, SubscriptionStatus
@@ -140,7 +141,7 @@ async def seed_data():
                     )
                     session.add(new_sub)
                     logger.info(f"Created subscription for {user_data['email']}")
-            
+
             # Seed Contract for Coach Mike
             if user.email == "coach.mike@gym-erp.com":
                 stmt_contract = select(Contract).where(Contract.user_id == user.id)
@@ -155,6 +156,62 @@ async def seed_data():
                      )
                      session.add(new_contract)
                      logger.info(f"Created contract for {user.email}")
+
+        admin_user = (await session.execute(select(User).where(User.email == "admin@gym-erp.com"))).scalar_one_or_none()
+        coach_user = (await session.execute(select(User).where(User.email == "coach.mike@gym-erp.com"))).scalar_one_or_none()
+        alice_user = (await session.execute(select(User).where(User.email == "alice@client.com"))).scalar_one_or_none()
+        if admin_user and coach_user and alice_user:
+            class_now = datetime.now(timezone.utc)
+
+            template_stmt = select(ClassTemplate).where(ClassTemplate.name == "Strength Basics")
+            template = (await session.execute(template_stmt)).scalar_one_or_none()
+            if not template:
+                template = ClassTemplate(
+                    name="Strength Basics",
+                    description="Foundational barbell and dumbbell session for new members.",
+                    category="Strength",
+                    duration_minutes=60,
+                    capacity=16,
+                    color="#2563EB",
+                    is_active=True,
+                    created_by_id=admin_user.id,
+                )
+                session.add(template)
+                await session.flush()
+
+            starts_at = class_now + timedelta(days=1, hours=2)
+            session_stmt = select(ClassSession).where(
+                ClassSession.template_id == template.id,
+                ClassSession.coach_id == coach_user.id,
+                ClassSession.starts_at == starts_at,
+            )
+            class_session = (await session.execute(session_stmt)).scalar_one_or_none()
+            if not class_session:
+                class_session = ClassSession(
+                    template_id=template.id,
+                    coach_id=coach_user.id,
+                    starts_at=starts_at,
+                    ends_at=starts_at + timedelta(minutes=template.duration_minutes),
+                    capacity_override=None,
+                    notes="Intro series for demo members.",
+                    status=ClassSessionStatus.SCHEDULED,
+                )
+                session.add(class_session)
+                await session.flush()
+
+            reservation_stmt = select(ClassReservation).where(
+                ClassReservation.session_id == class_session.id,
+                ClassReservation.member_id == alice_user.id,
+            )
+            reservation = (await session.execute(reservation_stmt)).scalar_one_or_none()
+            if not reservation:
+                session.add(
+                    ClassReservation(
+                        session_id=class_session.id,
+                        member_id=alice_user.id,
+                        status=ClassReservationStatus.PENDING,
+                    )
+                )
 
         await session.commit()
     logger.info("Seeding complete.")

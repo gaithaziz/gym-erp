@@ -60,7 +60,18 @@ async function readJsonResponse<T>(response: Response): Promise<Envelope<T>> {
     };
   }
 
-  return parseEnvelope<T>(parsed);
+  if (response.ok) {
+    return {
+      success: true,
+      data: parsed as T,
+    };
+  }
+
+  return {
+    success: false,
+    message: `Request failed (${response.status})`,
+    data: undefined as T,
+  };
 }
 
 async function persistTokenPair(value: TokenPair | null) {
