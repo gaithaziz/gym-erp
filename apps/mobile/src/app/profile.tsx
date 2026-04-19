@@ -1,7 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Image } from "expo-image";
 import { useEffect, useState } from "react";
-import { Pressable, StyleSheet, Text, View } from "react-native";
+import { Alert, Pressable, StyleSheet, Text, View } from "react-native";
 
 import { Card, Input, MutedText, PrimaryButton, QueryState, Screen, SecondaryButton, SectionTitle, TextArea } from "@/components/ui";
 import { API_BASE_URL, parseEnvelope, parseProfileEnvelope, type NotificationSettings } from "@/lib/api";
@@ -28,7 +28,7 @@ function getInitials(name?: string | null, email?: string | null) {
 }
 
 export default function ProfileScreen() {
-  const { authorizedRequest, refreshBootstrap } = useSession();
+  const { authorizedRequest, refreshBootstrap, signOut } = useSession();
   const { copy, direction, fontSet, isRTL, theme } = usePreferences();
   const queryClient = useQueryClient();
   const [fullName, setFullName] = useState("");
@@ -104,6 +104,27 @@ export default function ProfileScreen() {
     },
     onError: (error) => setFormMessage(error instanceof Error ? error.message : copy.common.errorTryAgain),
   });
+
+  const testPushMutation = useMutation({
+    mutationFn: async () => authorizedRequest("/mobile/devices/test-push", { method: "POST" }),
+    onSuccess: () => setFormMessage(copy.common.successSent),
+    onError: (error) => setFormMessage(error instanceof Error ? error.message : copy.common.errorTryAgain),
+  });
+
+  const deleteAccountMutation = useMutation({
+    mutationFn: async () => authorizedRequest("/mobile/me", { method: "DELETE" }),
+    onSuccess: async () => {
+      await signOut();
+    },
+    onError: (error) => setFormMessage(error instanceof Error ? error.message : copy.common.errorTryAgain),
+  });
+
+  function confirmDeleteAccount() {
+    Alert.alert(copy.common.deleteAccountConfirmTitle, copy.common.deleteAccountConfirmMessage, [
+      { text: copy.common.cancel, style: "cancel" },
+      { text: copy.common.deleteAccount, style: "destructive", onPress: () => deleteAccountMutation.mutate() },
+    ]);
+  }
 
   const photoMutation = useMutation({
     mutationFn: async () => {
@@ -202,8 +223,25 @@ export default function ProfileScreen() {
           <PreferenceRow label={copy.profileScreen.support} enabled={notificationsQuery.data.support_enabled} onPress={() => togglePref("support_enabled")} />
           <PreferenceRow label={copy.profileScreen.billing} enabled={notificationsQuery.data.billing_enabled} onPress={() => togglePref("billing_enabled")} />
           <PreferenceRow label={copy.profileScreen.announcements} enabled={notificationsQuery.data.announcements_enabled} onPress={() => togglePref("announcements_enabled")} />
+          <View style={{ marginTop: 14 }}>
+            <SecondaryButton onPress={() => testPushMutation.mutate()} disabled={testPushMutation.isPending}>
+              {testPushMutation.isPending ? copy.common.sending : copy.profileScreen.testPush}
+            </SecondaryButton>
+          </View>
         </Card>
       ) : null}
+
+      <Card style={{ borderColor: "#A53A22", borderWidth: 1, backgroundColor: theme.cardAlt, marginTop: 12 }}>
+        <SectionTitle>{copy.common.deleteAccount}</SectionTitle>
+        <MutedText>{copy.common.deleteAccountConfirmMessage}</MutedText>
+        <PrimaryButton
+          onPress={confirmDeleteAccount}
+          disabled={deleteAccountMutation.isPending}
+          style={{ marginTop: 12, backgroundColor: "#A53A22" }}
+        >
+          {deleteAccountMutation.isPending ? copy.common.sending : copy.common.deleteAccount}
+        </PrimaryButton>
+      </Card>
 
       {formMessage ? (
         <Card>

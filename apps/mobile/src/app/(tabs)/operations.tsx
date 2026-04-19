@@ -149,6 +149,10 @@ function productCategoryLabel(category: string, copy: ReturnType<typeof usePrefe
   return labels[category] ?? category;
 }
 
+function formatMoney(value: number, locale: string) {
+  return new Intl.NumberFormat(locale, { style: "currency", currency: "JOD", maximumFractionDigits: 2 }).format(value);
+}
+
 function AdminOperationsTab() {
   const router = useRouter();
   const { authorizedRequest, bootstrap } = useSession();
@@ -205,6 +209,15 @@ function AdminOperationsTab() {
               <ActionChip label={copy.more.notifications} onPress={() => router.push("/notifications")} />
               <ActionChip label={copy.adminControl.inventorySummary} onPress={() => router.push("/inventory-summary")} />
               {canViewAudit ? <ActionChip label={copy.adminControl.auditSummary} onPress={() => router.push("/admin-audit")} /> : null}
+            </View>
+          </Card>
+
+          <Card>
+            <SectionTitle>{copy.adminControl.staffOverview}</SectionTitle>
+            <View style={[styles.statGrid, { flexDirection: isRTL ? "row-reverse" : "row" }]}>
+              <InlineStat label={copy.adminControl.attendanceRate} value={`${operations.staff.attendance_rate}%`} />
+              <InlineStat label={copy.adminControl.payroll} value={formatMoney(operations.staff.monthly_payroll_total, locale)} />
+              <InlineStat label={copy.adminControl.upcomingLeaves} value={operations.staff.upcoming_leaves_count} />
             </View>
           </Card>
 

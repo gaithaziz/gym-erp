@@ -389,6 +389,29 @@ class MobileAdminService:
             )
         ).all()
 
+        # Staff metrics
+        month_start = _start_of_month()
+        total_active_staff = await cls._count(db, select(func.count(User.id)).where(User.role != Role.CUSTOMER, User.is_active.is_(True)))
+        staff_checked_in = await cls._count(db, select(func.count(AttendanceLog.id)).where(AttendanceLog.check_in_time >= today))
+        attendance_rate = (staff_checked_in / total_active_staff * 100.0) if total_active_staff > 0 else 0.0
+
+        monthly_payroll_query = await db.execute(
+            select(func.sum(Payroll.total_pay))
+            .where(Payroll.month == month_start.month, Payroll.year == month_start.year)
+        )
+        payroll_total = _as_float(monthly_payroll_query.scalar())
+
+        next_week = today + timedelta(days=7)
+        upcoming_leaves = await cls._count(
+            db,
+            select(func.count(LeaveRequest.id))
+            .where(
+                LeaveRequest.status == LeaveStatus.APPROVED,
+                LeaveRequest.start_date >= today.date(),
+                LeaveRequest.start_date <= next_week.date(),
+            ),
+        )
+
         inventory = await cls.get_inventory_summary(current_user=current_user, db=db)
         return {
             "attendance": {
@@ -411,6 +434,12 @@ class MobileAdminService:
             "approvals": {
                 "pending_renewals": pending_renewals,
                 "pending_leaves": pending_leaves,
+            },
+            "staff": {
+                "attendance_rate": round(attendance_rate, 1),
+                "monthly_payroll_total": payroll_total,
+                "upcoming_leaves_count": upcoming_leaves,
+                "active_staff_count": total_active_staff,
             },
             "recent_support_tickets": [
                 {

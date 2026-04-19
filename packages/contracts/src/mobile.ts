@@ -672,6 +672,11 @@ export const mobileAdminOperationsSummarySchema = z.object({
     pending_renewals: z.number().int(),
     pending_leaves: z.number().int(),
   }),
+  staff: z.object({
+    attendance_rate: z.number(),
+    monthly_payroll_total: z.number(),
+    upcoming_leaves_count: z.number().int(),
+  }),
   recent_support_tickets: z.array(mobileAdminSupportTicketSchema),
 });
 

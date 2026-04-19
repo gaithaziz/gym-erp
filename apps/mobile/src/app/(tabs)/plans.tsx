@@ -1352,7 +1352,7 @@ function DirectVideoPlayer({ url }: { url: string }) {
 
   return (
     <View style={{ borderWidth: 1, borderColor: theme.border, borderRadius: 10, overflow: "hidden", backgroundColor: theme.cardAlt }}>
-      <VideoView style={{ width: "100%", height: 240 }} player={player} nativeControls allowsFullscreen allowsPictureInPicture />
+      <VideoView style={{ width: "100%", height: 240 }} player={player} nativeControls />
     </View>
   );
 }

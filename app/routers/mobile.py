@@ -54,6 +54,7 @@ from app.services.mobile_customer_service import MobileCustomerService
 from app.services.mobile_bootstrap_service import MobileBootstrapService
 from app.services.mobile_staff_service import MobileStaffService
 from app.services.mobile_admin_service import MobileAdminService
+from app.services.push_service import PushNotificationService
 
 router = APIRouter()
 
@@ -300,7 +301,7 @@ class MobileAdminOperationsSummaryResponse(BaseModel):
     support: dict[str, Any]
     inventory: dict[str, Any]
     notifications: dict[str, Any]
-    approvals: dict[str, Any]
+    staff: dict[str, Any]
     recent_support_tickets: list[dict[str, Any]]
 
 
@@ -1550,3 +1551,43 @@ async def unregister_device(
         data=MobileDeviceRegistrationResponse(**data),
         message="Device unregistered",
     )
+
+
+@router.post("/devices/test-push", response_model=StandardResponse[dict])
+async def send_test_push(
+    current_user: Annotated[User, Depends(dependencies.get_current_active_user)],
+    db: Annotated[AsyncSession, Depends(get_db)],
+):
+    await PushNotificationService.queue_and_send(
+        db=db,
+        user=current_user,
+        title="Test Notification",
+        body="This is a test notification to verify your device registration.",
+        template_key="TEST_PUSH",
+        event_type="ANNOUNCEMENT",
+        event_ref=None,
+        params={"message": "Verification successful!"},
+        idempotency_key=f"test-push-{current_user.id}-{uuid.uuid4()}",
+    )
+    return StandardResponse(data={"success": True}, message="Test notification queued")
+
+
+@router.delete("/me", response_model=StandardResponse)
+async def delete_current_user(
+    current_user: Annotated[User, Depends(dependencies.get_current_active_user)],
+    db: Annotated[AsyncSession, Depends(get_db)],
+):
+    """Compliance: Allow user to deactivate their own account from the app."""
+    current_user.is_active = False
+    await db.commit()
+
+    from app.services.audit_service import AuditService
+    await AuditService.log_action(
+        db=db,
+        user_id=current_user.id,
+        action="SELF_DEACTIVATE",
+        target_id=str(current_user.id),
+        details=f"User {current_user.email} deactivated their own account via mobile app.",
+    )
+    await db.commit()
+    return StandardResponse(message="Account deactivated successfully")
