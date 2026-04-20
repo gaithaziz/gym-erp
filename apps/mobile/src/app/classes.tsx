@@ -36,6 +36,17 @@ type PendingReservation = {
   coach_name: string | null;
 };
 
+type SessionReservation = {
+  id: string;
+  session_id: string;
+  member_id: string;
+  member_name: string | null;
+  status: string;
+  attended: boolean;
+  reserved_at: string;
+  cancelled_at: string | null;
+};
+
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
@@ -120,6 +131,17 @@ function localizeSessionStatus(status: ClassSession["status"], copy: ReturnType<
   if (status === "CANCELLED") return copy.cancelled;
   if (status === "COMPLETED") return copy.completed;
   return status;
+}
+
+function localizeCoachReservationStatus(status: string, copy: ReturnType<typeof usePreferences>["copy"]["coachClasses"]) {
+  if (status === "RESERVED") return copy.reserved;
+  if (status === "PENDING") return copy.pending;
+  if (status === "WAITLISTED") return copy.waitlist;
+  return status;
+}
+
+function isActiveEnrollment(status: string) {
+  return status === "RESERVED" || status === "PENDING" || status === "WAITLISTED";
 }
 
 function parsePositiveInteger(value: string) {
@@ -298,6 +320,7 @@ function StaffClassesScreen() {
   const scrollRef = useRef<ScrollView | null>(null);
   const [coaches, setCoaches] = useState<StaffUser[]>([]);
   const [coachPickerOpen, setCoachPickerOpen] = useState(false);
+  const [selectedSession, setSelectedSession] = useState<ClassSession | null>(null);
 
   const sessionsQuery = useQuery({
     queryKey: ["staff-class-sessions", role],
@@ -321,6 +344,15 @@ function StaffClassesScreen() {
         }),
       );
       return rows.flat();
+    },
+  });
+
+  const sessionReservationsQuery = useQuery({
+    queryKey: ["staff-class-attendees", selectedSession?.id ?? "none"],
+    enabled: Boolean(selectedSession?.id),
+    queryFn: async () => {
+      const response = await authorizedRequest<SessionReservation[]>(`/classes/sessions/${selectedSession?.id}/reservations`);
+      return response.data.filter((reservation) => isActiveEnrollment(reservation.status));
     },
   });
 
@@ -663,29 +695,32 @@ function StaffClassesScreen() {
                   { backgroundColor: theme.card, borderColor: theme.border, borderLeftColor: theme.primary },
                 ]}
               >
-                <View style={[styles.sessionRow, { flexDirection: isRTL ? "row-reverse" : "row" }]}>
-                  <View style={styles.sessionInfo}>
-                    <Text style={[styles.sessionName, { color: theme.foreground, fontFamily: fontSet.display, textAlign: isRTL ? "right" : "left" }]}>
-                      {session.display_name}
-                    </Text>
-                    <MutedText>
-                      {new Date(session.starts_at).toLocaleDateString(locale, { weekday: "short", month: "short", day: "numeric" })} ·{" "}
-                      {new Date(session.starts_at).toLocaleTimeString(locale, { hour: "2-digit", minute: "2-digit" })}
-                    </MutedText>
-                    {session.session_name && session.session_name !== session.template_name ? (
-                      <MutedText>{fillTemplate(classesCopy.templateReference, { name: session.template_name })}</MutedText>
-                    ) : null}
-                    {session.coach_name ? <MutedText>{session.coach_name}</MutedText> : null}
-                  </View>
-                  <View style={styles.sessionRight}>
-                    <View style={[styles.statusBadge, { borderColor: theme.border, backgroundColor: theme.cardAlt }]}>
-                      <Text style={[styles.statusBadgeText, { color: theme.primary, fontFamily: fontSet.mono, textAlign: isRTL ? "right" : "left" }]}>{localizeSessionStatus(session.status, classesCopy)}</Text>
+                <Pressable onPress={() => setSelectedSession(session)}>
+                  <View style={[styles.sessionRow, { flexDirection: isRTL ? "row-reverse" : "row" }]}>
+                    <View style={styles.sessionInfo}>
+                      <Text style={[styles.sessionName, { color: theme.foreground, fontFamily: fontSet.display, textAlign: isRTL ? "right" : "left" }]}>
+                        {session.display_name}
+                      </Text>
+                      <MutedText>
+                        {new Date(session.starts_at).toLocaleDateString(locale, { weekday: "short", month: "short", day: "numeric" })} ·{" "}
+                        {new Date(session.starts_at).toLocaleTimeString(locale, { hour: "2-digit", minute: "2-digit" })}
+                      </MutedText>
+                      {session.session_name && session.session_name !== session.template_name ? (
+                        <MutedText>{fillTemplate(classesCopy.templateReference, { name: session.template_name })}</MutedText>
+                      ) : null}
+                      {session.coach_name ? <MutedText>{session.coach_name}</MutedText> : null}
                     </View>
-                    <MutedText>
-                      {session.reserved_count} {classesCopy.reserved} · {session.pending_count} {classesCopy.pending} · {session.waitlist_count} {classesCopy.waitlist}
-                    </MutedText>
+                    <View style={styles.sessionRight}>
+                      <View style={[styles.statusBadge, { borderColor: theme.border, backgroundColor: theme.cardAlt }]}>
+                        <Text style={[styles.statusBadgeText, { color: theme.primary, fontFamily: fontSet.mono, textAlign: isRTL ? "right" : "left" }]}>{localizeSessionStatus(session.status, classesCopy)}</Text>
+                      </View>
+                      <MutedText>
+                        {session.reserved_count} {classesCopy.reserved} · {session.pending_count} {classesCopy.pending} · {session.waitlist_count} {classesCopy.waitlist}
+                      </MutedText>
+                      <Text style={[styles.sessionAction, { color: theme.primary, fontFamily: fontSet.body }]}>{classesCopy.viewAttendees}</Text>
+                    </View>
                   </View>
-                </View>
+                </Pressable>
               </View>
             ))
           )}
@@ -873,6 +908,61 @@ function StaffClassesScreen() {
       </Modal>
 
       {!isCoach ? pendingRequestsSection : null}
+
+      <Modal visible={Boolean(selectedSession)} transparent animationType="fade" onRequestClose={() => setSelectedSession(null)}>
+        <Pressable style={styles.modalOverlay} onPress={() => setSelectedSession(null)}>
+          <Pressable
+            style={[styles.modalCard, { backgroundColor: theme.card, borderColor: theme.border, gap: 12, maxHeight: "80%" }]}
+            onPress={(event) => event.stopPropagation()}
+          >
+            <Text style={[styles.sectionHeader, { color: theme.foreground, fontFamily: fontSet.display, textAlign: isRTL ? "right" : "left" }]}>
+              {selectedSession ? `${classesCopy.attendeesTitle}: ${selectedSession.display_name}` : classesCopy.attendeesTitle}
+            </Text>
+            {sessionReservationsQuery.isLoading ? (
+              <MutedText>{classesCopy.attendeesLoading}</MutedText>
+            ) : sessionReservationsQuery.error ? (
+              <MutedText>{classesCopy.attendeesFailed}</MutedText>
+            ) : (sessionReservationsQuery.data?.length ?? 0) === 0 ? (
+              <MutedText>{classesCopy.attendeesEmpty}</MutedText>
+            ) : (
+              <ScrollView contentContainerStyle={{ gap: 10 }} style={{ maxHeight: 360 }}>
+                {sessionReservationsQuery.data?.map((reservation) => {
+                  const badgeColor = statusColor(reservation.status, theme.primary, theme.muted, "#F59E0B");
+                  return (
+                    <View
+                      key={reservation.id}
+                      style={[styles.attendeeCard, { borderColor: theme.border, backgroundColor: theme.cardAlt }]}
+                    >
+                      <View style={[styles.sessionRow, { flexDirection: isRTL ? "row-reverse" : "row" }]}>
+                        <View style={styles.sessionInfo}>
+                          <Text style={[styles.sessionName, { color: theme.foreground, fontFamily: fontSet.display, textAlign: isRTL ? "right" : "left" }]}>
+                            {reservation.member_name ?? copy.common.member}
+                          </Text>
+                          <MutedText>
+                            {new Date(reservation.reserved_at).toLocaleString(locale, {
+                              weekday: "short",
+                              month: "short",
+                              day: "numeric",
+                              hour: "2-digit",
+                              minute: "2-digit",
+                            })}
+                          </MutedText>
+                        </View>
+                        <View style={[styles.statusBadge, { backgroundColor: `${badgeColor}22`, borderColor: `${badgeColor}44` }]}>
+                          <Text style={[styles.statusBadgeText, { color: badgeColor, fontFamily: fontSet.mono }]}>
+                            {localizeCoachReservationStatus(reservation.status, classesCopy)}
+                          </Text>
+                        </View>
+                      </View>
+                    </View>
+                  );
+                })}
+              </ScrollView>
+            )}
+            <SecondaryButton onPress={() => setSelectedSession(null)}>{copy.common.cancel}</SecondaryButton>
+          </Pressable>
+        </Pressable>
+      </Modal>
 
     </Screen>
   );
@@ -1371,6 +1461,11 @@ const styles = StyleSheet.create({
     fontWeight: "700",
     letterSpacing: 1,
     textTransform: "uppercase",
+  },
+  attendeeCard: {
+    borderWidth: 1,
+    borderRadius: 14,
+    padding: 12,
   },
   smallActionButton: {
     borderWidth: 1,

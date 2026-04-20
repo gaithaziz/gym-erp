@@ -160,7 +160,6 @@ function AdminDashboard({ userName }: { userName: string }) {
     const expensesBarColor = '#ef4444';
     const [recentActivity, setRecentActivity] = useState<ActivityItem[]>([]);
     const [lowStockItems, setLowStockItems] = useState<LowStockItem[]>([]);
-    const [classesToday, setClassesToday] = useState(0);
     const [dailyVisitors, setDailyVisitors] = useState<DailyVisitorRow[]>([]);
     const [dailyVisitorsPage, setDailyVisitorsPage] = useState(1);
     const [dateRange, setDateRange] = useState<DateRange | undefined>({
@@ -206,15 +205,6 @@ function AdminDashboard({ userName }: { userName: string }) {
         api.get('/inventory/products/low-stock')
             .then(res => setLowStockItems(res.data.data || []))
             .catch(() => setLowStockItems([]));
-
-        api.get('/classes/sessions')
-            .then(res => {
-                const todayStr = new Date().toISOString().split('T')[0];
-                const sessions = Array.isArray(res.data?.data) ? res.data.data : Array.isArray(res.data) ? res.data : [];
-                const count = sessions.filter((s: any) => s.starts_at.startsWith(todayStr)).length;
-                setClassesToday(count);
-            })
-            .catch(() => setClassesToday(0));
 
         api.get('/analytics/daily-visitors' + dateQuery)
             .then(res => setDailyVisitors(res.data.data || []))
@@ -288,8 +278,6 @@ function AdminDashboard({ userName }: { userName: string }) {
     const kpiCards = [
         { title: t('dashboard.home.todayVisitors'), value: stats?.today_visitors ?? '--', subtitle: t('dashboard.home.todayVisitorsSubtitle'), icon: Activity, badge: 'badge-blue' },
         { title: t('dashboard.home.todaysRevenue'), value: stats ? formatCurrency(stats.todays_revenue, 'JOD', { currencyDisplay: 'code' }) : '--', subtitle: t('dashboard.home.todaysRevenueSubtitle'), icon: DollarSign, badge: 'badge-green' },
-        { title: t('dashboard.home.classesToday'), value: classesToday, subtitle: t('dashboard.home.classesTodaySubtitle'), icon: Dumbbell, badge: 'badge-purple' },
-        { title: t('dashboard.home.approvalsNeeded'), value: stats?.pending_approvals ?? 0, subtitle: t('dashboard.home.approvalsNeededSubtitle'), icon: ClipboardList, badge: 'badge-amber', isAlert: (stats?.pending_approvals ?? 0) > 0 },
         { title: t('dashboard.home.pendingSalaries'), value: stats ? formatCurrency(stats.pending_salaries, 'JOD', { currencyDisplay: 'code' }) : '--', subtitle: t('dashboard.home.pendingSalariesSubtitle'), icon: Clock, badge: 'badge-amber' },
         { title: t('dashboard.home.lowStockAlerts'), value: lowStockItems.length, subtitle: t('dashboard.home.lowStockAlertsSubtitle'), icon: TrendingUp, badge: 'badge-destructive', isAlert: lowStockItems.length > 0 },
     ];
@@ -985,6 +973,8 @@ function CustomerDashboard({
             viewPlansAndLog: 'عرض الخطط وتسجيل الجلسات',
             dietPlans: 'خطط التغذية',
             assignedNutrition: 'خطط التغذية المعينة',
+            classes: 'الحصص',
+            manageBookings: 'استكشف الحصص وتابع حجوزاتك',
             history: 'السجل',
             attendancePayments: 'الحضور والمدفوعات',
             achievements: 'الإنجازات',
@@ -1009,6 +999,8 @@ function CustomerDashboard({
             viewPlansAndLog: 'View plans and log sessions',
             dietPlans: 'Diet Plans',
             assignedNutrition: 'Assigned nutrition plans',
+            classes: 'Classes',
+            manageBookings: 'Browse classes and manage bookings',
             history: 'History',
             attendancePayments: 'Attendance and payments',
             achievements: 'Achievements',
@@ -1174,6 +1166,15 @@ function CustomerDashboard({
                                 <p className="text-xs text-muted-foreground mt-1">{customerTxt.assignedNutrition}</p>
                             </div>
                             <Utensils size={20} className="text-foreground" />
+                        </div>
+                    </Link>
+                    <Link href="/dashboard/member/classes" className="kpi-card group cursor-pointer hover:border-primary transition-colors">
+                        <div className="flex items-start justify-between">
+                            <div>
+                                <p className="text-lg font-bold text-foreground font-mono">{customerTxt.classes}</p>
+                                <p className="text-xs text-muted-foreground mt-1">{customerTxt.manageBookings}</p>
+                            </div>
+                            <ClipboardList size={20} className="text-foreground" />
                         </div>
                     </Link>
                     <Link href="/dashboard/member/history" className="kpi-card group cursor-pointer hover:border-primary transition-colors">
@@ -1401,6 +1402,3 @@ export default function DashboardPage() {
             );
     }
 }
-
-
-

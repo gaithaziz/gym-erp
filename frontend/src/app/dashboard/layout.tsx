@@ -222,6 +222,7 @@ export default function DashboardLayout({
         { href: '/dashboard/member/progress', labelKey: 'dashboard.nav.myProgress', icon: Activity, roles: ['CUSTOMER'], section: 'account' },
         { href: '/dashboard/member/plans', labelKey: 'dashboard.nav.myWorkoutPlans', icon: Dumbbell, roles: ['CUSTOMER'], section: 'account' },
         { href: '/dashboard/member/diets', labelKey: 'dashboard.nav.myDietPlans', icon: Utensils, roles: ['CUSTOMER'], section: 'account' },
+        { href: '/dashboard/member/classes', labelKey: 'dashboard.nav.classes', icon: ClipboardList, roles: ['CUSTOMER'], section: 'account' },
         { href: '/dashboard/member/feedback', labelKey: 'dashboard.nav.myFeedback', icon: MessageSquare, roles: ['CUSTOMER'], section: 'account' },
         { href: '/dashboard/member/history', labelKey: 'dashboard.nav.history', icon: ClipboardList, roles: ['CUSTOMER'], section: 'account' },
         { href: '/dashboard/member/achievements', labelKey: 'dashboard.nav.achievements', icon: Trophy, roles: ['CUSTOMER'], section: 'account' },

@@ -947,6 +947,11 @@ const copy = {
       templateCreated: "Template created.",
       sessionScheduled: "Class session scheduled.",
       classTitle: "Classes",
+      viewAttendees: "View attendees",
+      attendeesTitle: "Class attendees",
+      attendeesLoading: "Loading attendees...",
+      attendeesEmpty: "No active enrollments yet.",
+      attendeesFailed: "Unable to load attendees.",
     },
     session: {
       title: "Starting mobile app",
@@ -1891,6 +1896,11 @@ const copy = {
       templateCreated: "تم إنشاء القالب.",
       sessionScheduled: "تمت جدولة حصة.",
       classTitle: "الحصص",
+      viewAttendees: "عرض المسجلين",
+      attendeesTitle: "المسجلون في الحصة",
+      attendeesLoading: "جارٍ تحميل المسجلين...",
+      attendeesEmpty: "لا يوجد مسجلون نشطون بعد.",
+      attendeesFailed: "تعذر تحميل المسجلين.",
     },
     session: {
       title: "جارٍ تشغيل التطبيق",
