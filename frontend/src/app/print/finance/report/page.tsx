@@ -104,7 +104,7 @@ function FinanceReportPrintPageContent() {
 
     const txt = locale === 'ar'
         ? {
-            brand: 'Gym ERP',
+            brand: 'OmniGYM',
             title: 'التقرير المالي',
             subtitle: 'تقرير مالي منسق للحفظ أو الطباعة',
             filters: 'الفلاتر',
@@ -139,7 +139,7 @@ function FinanceReportPrintPageContent() {
             otherExpense: 'مصروف آخر',
         }
         : {
-            brand: 'Gym ERP',
+            brand: 'OmniGYM',
             title: 'Financial Report',
             subtitle: 'Printable finance report',
             filters: 'Filters',

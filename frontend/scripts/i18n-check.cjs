@@ -3,8 +3,9 @@ const path = require("node:path");
 const ts = require("typescript");
 
 const ROOT = path.resolve(__dirname, "..");
-const EN_FILE = path.join(ROOT, "src", "lib", "i18n", "locales", "en.ts");
-const AR_FILE = path.join(ROOT, "src", "lib", "i18n", "locales", "ar.ts");
+const WORKSPACE_ROOT = path.resolve(ROOT, "..");
+const EN_FILE = path.join(WORKSPACE_ROOT, "packages", "i18n", "src", "locales", "en.ts");
+const AR_FILE = path.join(WORKSPACE_ROOT, "packages", "i18n", "src", "locales", "ar.ts");
 const STRICT = process.argv.includes("--strict");
 
 function readSource(filePath) {
@@ -109,7 +110,7 @@ function hasArabicLetters(value) {
 function isSafeNonArabicValue(value) {
   const trimmed = value.trim();
   if (!trimmed) return true;
-  if (/^(GymERP|Gym ERP|QR|POS|API|JSON|JOD|USD|EUR|SAR|AED)$/i.test(trimmed)) return true;
+  if (/^(GymERP|Gym ERP|OmniGYM|QR|POS|API|JSON|JOD|USD|EUR|SAR|AED)$/i.test(trimmed)) return true;
   if (/^v\d+(\.\d+)*$/i.test(trimmed)) return true;
   if (/^[\d\s:./,\-+()%]+$/.test(trimmed)) return true;
   if (/^{{\s*[\w.]+\s*}}$/.test(trimmed)) return true;
@@ -119,7 +120,7 @@ function isSafeNonArabicValue(value) {
 function isLikelyUntranslated(en, ar) {
   if (en !== ar) return false;
   if (!hasLetters(en)) return false;
-  if (/^(GymERP|JSON|QR|JOD|POS|API|v\d+(\.\d+)*)$/i.test(en.trim())) return false;
+  if (/^(GymERP|OmniGYM|JSON|QR|JOD|POS|API|v\d+(\.\d+)*)$/i.test(en.trim())) return false;
   return true;
 }
 

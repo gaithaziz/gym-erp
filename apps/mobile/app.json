@@ -1,6 +1,6 @@
 {
   "expo": {
-    "name": "Gym ERP Mobile",
+    "name": "OmniGYM",
     "slug": "gym-erp-mobile",
     "version": "1.0.0",
     "orientation": "portrait",
@@ -8,7 +8,7 @@
     "scheme": "gymerp",
     "userInterfaceStyle": "automatic",
     "extra": {
-      "projectName": "Gym ERP Mobile"
+      "projectName": "OmniGYM"
     },
     "ios": {
       "infoPlist": {
@@ -21,7 +21,7 @@
         }
       },
       "bundleIdentifier": "com.gymerp.mobile",
-      "icon": "./assets/expo.icon"
+      "icon": "./assets/images/icon.png"
     },
     "android": {
       "usesCleartextTraffic": true,
@@ -35,7 +35,6 @@
       "adaptiveIcon": {
         "backgroundColor": "#E6F4FE",
         "foregroundImage": "./assets/images/android-icon-foreground.png",
-        "backgroundImage": "./assets/images/android-icon-background.png",
         "monochromeImage": "./assets/images/android-icon-monochrome.png"
       },
       "predictiveBackGestureEnabled": false

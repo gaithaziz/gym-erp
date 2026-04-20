@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { ArrowRight, Dumbbell, ShieldCheck, Users, Zap, BarChart3, CreditCard } from "lucide-react";
+import { BrandMark } from "@/components/BrandLogo";
 import { ThemeToggle } from "@/components/ThemeToggle";
 import { LanguageToggle } from "@/components/LanguageToggle";
 import { useLocale } from "@/context/LocaleContext";
@@ -9,7 +10,7 @@ import { useLocale } from "@/context/LocaleContext";
 export default function Home() {
   const { locale } = useLocale();
   const txt = locale === "ar" ? {
-    brandName: "GymERP",
+    brandName: "OmniGYM",
     navFeatures: "المزايا",
     navAbout: "حول",
     signInLabel: "تسجيل الدخول",
@@ -21,7 +22,7 @@ export default function Home() {
     seeFeaturesLabel: "استعرض المزايا",
     everythingOneRoof: "كل شيء تحت سقف واحد",
     operationsSubtitle: "توقف عن إدارة الجداول اليدوية. أدر تشغيل النادي بالكامل من لوحة واحدة.",
-    footerText: "© 2026 أنظمة Gym ERP. برمجيات تشغيلية قوية.",
+    footerText: "© 2026 أنظمة OmniGYM. برمجيات تشغيلية قوية.",
     features: [
       { title: "الأعضاء والاشتراكات", desc: "تابع الاشتراكات والتجديدات وصلاحيات الدخول. جمّد أو ألغِ بضغطة واحدة." },
       { title: "الدخول عبر QR", desc: "نظام دخول آمن برموز QR مع متابعة لحظية، ويعمل حتى عند ضعف الاتصال." },
@@ -31,7 +32,7 @@ export default function Home() {
       { title: "إدارة الموظفين", desc: "العقود والحضور والأداء في مكان واحد." },
     ],
   } : {
-    brandName: "GymERP",
+    brandName: "OmniGYM",
     navFeatures: "Features",
     navAbout: "About",
     signInLabel: "Sign In",
@@ -43,7 +44,7 @@ export default function Home() {
     seeFeaturesLabel: "See Features",
     everythingOneRoof: "Everything under one roof",
     operationsSubtitle: "Stop juggling spreadsheets. Manage your entire gym operation from a single dashboard.",
-    footerText: "© 2026 Gym ERP Systems. Industrial Strength Software.",
+    footerText: "© 2026 OmniGYM Systems. Industrial Strength Software.",
     features: [
       { title: "Members & Subscriptions", desc: "Track memberships, renewals, and access rights. Freeze or cancel with one click." },
       { title: "QR Access Control", desc: "Secure QR-code entry system with real-time monitoring. Works offline too." },
@@ -59,9 +60,7 @@ export default function Home() {
       <header className="sticky top-0 z-50 w-full border-b border-border bg-background/95 backdrop-blur-sm">
         <div className="container mx-auto flex h-16 items-center justify-between px-6">
           <div className="flex items-center gap-2.5">
-            <div className="h-9 w-9 bg-primary flex items-center justify-center rounded-md">
-              <Dumbbell className="h-5 w-5 text-primary-foreground" />
-            </div>
+            <BrandMark className="h-9 w-9 rounded-md object-cover" priority />
             <span className="text-lg font-bold text-foreground tracking-tight font-serif">{txt.brandName}</span>
           </div>
           <nav className="hidden md:flex gap-8 items-center">

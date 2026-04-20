@@ -60,7 +60,7 @@ export default function FinanceReceiptPrintPage() {
 
     const txt = locale === 'ar'
         ? {
-            brand: 'Gym ERP',
+            brand: 'OmniGYM',
             title: 'إيصال مالي',
             subtitle: 'مستند مالي جاهز للحفظ أو الطباعة',
             receiptNo: 'رقم الإيصال',
@@ -90,7 +90,7 @@ export default function FinanceReceiptPrintPage() {
             otherExpense: 'مصروف آخر',
         }
         : {
-            brand: 'Gym ERP',
+            brand: 'OmniGYM',
             title: 'Finance Receipt',
             subtitle: 'Printable financial document',
             receiptNo: 'Receipt No',

@@ -1,4 +1,4 @@
-const CACHE_NAME = 'gym-erp-cache-v1';
+const CACHE_NAME = 'gym-erp-cache-v2';
 
 // Add key routes to cache
 const urlsToCache = [
@@ -10,7 +10,8 @@ const urlsToCache = [
     '/_next/static/chunks/webpack.js',
     '/_next/static/css/styles.css',
     // Icons/Manifests if any
-    '/favicon.ico'
+    '/favicon.ico',
+    '/icon.png'
 ];
 
 self.addEventListener('install', (event) => {

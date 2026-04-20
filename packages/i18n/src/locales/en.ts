@@ -1,6 +1,6 @@
 export const enMessages = {
   common: {
-    appName: "GymERP",
+    appName: "OmniGYM",
     managementSystem: "Management System",
     loading: "Loading...",
     redirecting: "Redirecting...",
@@ -111,7 +111,7 @@ export const enMessages = {
     invalidCredentials: "Invalid email or password",
     authenticating: "AUTHENTICATING...",
     signIn: "SIGN IN",
-    footer: "Gym ERP v1.0 - Industrial Strength Software",
+    footer: "OmniGYM v1.0 - Industrial Strength Software",
   },
   support: {
     category: {

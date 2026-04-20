@@ -1,6 +1,6 @@
 export const arMessages = {
   common: {
-    appName: "GymERP",
+    appName: "OmniGYM",
     managementSystem: "نظام الإدارة",
     loading: "جاري التحميل...",
     redirecting: "جاري التحويل...",
@@ -111,7 +111,7 @@ export const arMessages = {
     invalidCredentials: "البريد الإلكتروني أو كلمة المرور غير صحيحة",
     authenticating: "جاري التحقق...",
     signIn: "تسجيل الدخول",
-    footer: "Gym ERP v1.0 - برنامج احترافي لإدارة الصالات",
+    footer: "OmniGYM v1.0 - برنامج احترافي لإدارة الصالات",
   },
   support: {
     category: {

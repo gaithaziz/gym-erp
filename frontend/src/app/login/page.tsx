@@ -3,9 +3,10 @@
 import { useState } from 'react';
 import { useAuth } from '@/context/AuthContext';
 import { api } from '@/lib/api';
-import { Dumbbell, Eye, EyeOff, ShieldCheck, Zap, Users } from 'lucide-react';
+import { Eye, EyeOff, ShieldCheck, Zap, Users } from 'lucide-react';
 import { useLocale } from '@/context/LocaleContext';
 import { LanguageToggle } from '@/components/LanguageToggle';
+import { BrandLockup, BrandMark } from '@/components/BrandLogo';
 
 export default function LoginPage() {
     const { t, direction } = useLocale();
@@ -64,14 +65,9 @@ export default function LoginPage() {
                         <LanguageToggle />
                     </div>
                     <div>
-                        <div className="flex items-center gap-3 mb-8">
-                            <div className="h-12 w-12 flex items-center justify-center bg-primary rounded-md">
-                                <Dumbbell size={24} className="text-primary-foreground" />
-                            </div>
-                            <div>
-                                <h1 className="text-2xl font-bold text-foreground tracking-tight font-serif">{t('common.appName')}</h1>
-                                <p className="text-xs text-muted-foreground font-mono uppercase tracking-wider">{t('common.managementSystem')}</p>
-                            </div>
+                        <div className="mb-8">
+                            <BrandLockup className="h-auto w-[220px] max-w-full rounded-md" priority />
+                            <p className="mt-3 text-xs text-muted-foreground font-mono uppercase tracking-wider">{t('common.managementSystem')}</p>
                         </div>
 
                         <h2 className="text-3xl font-bold text-foreground font-serif leading-tight">
@@ -122,9 +118,7 @@ export default function LoginPage() {
                         <div className={`absolute top-4 z-20 ${direction === 'rtl' ? 'rtl:left-4' : 'ltr:right-4'}`}>
                             <LanguageToggle />
                         </div>
-                        <div className="h-10 w-10 flex items-center justify-center bg-primary rounded-md">
-                            <Dumbbell size={20} className="text-primary-foreground" />
-                        </div>
+                        <BrandMark className="h-10 w-10 rounded-md object-cover" priority />
                         <div>
                             <h1 className="text-xl font-bold text-foreground tracking-tight font-serif">{t('common.appName')}</h1>
                             <p className="text-[11px] text-muted-foreground font-mono uppercase tracking-wider">{t('common.managementSystem')}</p>

@@ -28,6 +28,7 @@ import {
 import { MessageCircle } from "lucide-react";
 import { ThemeToggle } from "@/components/ThemeToggle";
 import { LanguageToggle } from "@/components/LanguageToggle";
+import { BrandMark } from "@/components/BrandLogo";
 import { useEffect, useState } from 'react';
 import { resolveProfileImageUrl } from '@/lib/profileImage';
 import ChatDrawer from '@/components/chat/ChatDrawer';
@@ -257,9 +258,7 @@ export default function DashboardLayout({
                     >
                         {sidebarOpen ? <X size={22} /> : <Menu size={22} />}
                     </button>
-                    <div className="h-8 w-8 rounded-lg bg-primary/10 flex items-center justify-center">
-                        <Dumbbell size={16} className="text-primary" />
-                    </div>
+                    <BrandMark className="h-8 w-8 rounded-lg object-cover" />
                     <span className="text-sm font-bold text-foreground">{t('common.appName')}</span>
                 </div>
                 <div className="flex items-center gap-2">

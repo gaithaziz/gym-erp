@@ -11,7 +11,7 @@ const LOCALE_STORAGE_KEY = "gym-erp.mobile.locale";
 
 const copy = {
   en: {
-    appName: "Gym ERP",
+    appName: "OmniGYM",
     controls: {
       theme: "Theme",
       language: "Language",
@@ -94,7 +94,7 @@ const copy = {
       member: "Member",
     },
     login: {
-      title: "Gym ERP",
+      title: "OmniGYM",
       subtitle: "Customer mobile access for QR entry, plans, progress, and support.",
       kicker: "Phase 2 customer app",
       signIn: "Sign in",
@@ -960,7 +960,7 @@ const copy = {
     },
   },
   ar: {
-    appName: "Gym ERP",
+    appName: "OmniGYM",
     controls: {
       theme: "المظهر",
       language: "اللغة",
@@ -1043,7 +1043,7 @@ const copy = {
       member: "عضو",
     },
     login: {
-      title: "Gym ERP",
+      title: "OmniGYM",
       subtitle: "وصول العملاء من الجوال للـ QR والخطط والتقدم والدعم.",
       kicker: "تطبيق العملاء - المرحلة الثانية",
       signIn: "تسجيل الدخول",

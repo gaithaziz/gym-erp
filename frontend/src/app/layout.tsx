@@ -28,8 +28,15 @@ const tajawal = Tajawal({
 });
 
 export const metadata: Metadata = {
-  title: "Gym ERP - Industrial",
+  title: "OmniGYM",
   description: "Gym Management System",
+  icons: {
+    icon: [
+      { url: "/favicon.ico" },
+      { url: "/icon.png", type: "image/png" },
+    ],
+    apple: "/icon.png",
+  },
 };
 
 import { AuthProvider } from "@/context/AuthContext";
