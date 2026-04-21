@@ -15,6 +15,7 @@ from app.database import get_db, set_rls_context
 from app.config import settings
 from app.main import app
 from app.core.rate_limit import reset_rate_limiter_state
+from app.services.tenancy_service import TenancyService
 
 @pytest.fixture(scope="session", autouse=True)
 def migrated_test_database():
@@ -63,9 +64,15 @@ async def db_session(db_engine, migrated_test_database) -> AsyncGenerator[AsyncS
         autoflush=False
     )
     async with async_session() as session:
-        await set_rls_context(session, role="ADMIN")
+        await set_rls_context(session, role="SUPER_ADMIN")
+        gym, branch = await TenancyService.ensure_default_gym_and_branch(session)
+        await session.commit()
+        await set_rls_context(session, role="ADMIN", gym_id=str(gym.id), branch_id=str(branch.id))
         await _reset_postgres(session)
-        await set_rls_context(session, role="ADMIN")
+        await set_rls_context(session, role="SUPER_ADMIN")
+        gym, branch = await TenancyService.ensure_default_gym_and_branch(session)
+        await session.commit()
+        await set_rls_context(session, role="ADMIN", gym_id=str(gym.id), branch_id=str(branch.id))
         yield session
         await _reset_postgres(session)
 
@@ -88,6 +95,7 @@ async def admin_token_headers(client, db_session):
     from app.models.user import User
     from app.models.enums import Role
     from app.auth.security import get_password_hash
+    from app.services.tenancy_service import TenancyService
 
     # Create Admin User
     admin_data = {
@@ -101,14 +109,19 @@ async def admin_token_headers(client, db_session):
     from sqlalchemy import select
     res = await db_session.execute(select(User).where(User.email == admin_data["email"]))
     if not res.scalar_one_or_none():
+        gym, branch = await TenancyService.ensure_default_gym_and_branch(db_session)
         user = User(
+            gym_id=gym.id,
             email=admin_data["email"],
             hashed_password=get_password_hash(admin_data["password"]),
             full_name=admin_data["full_name"],
             role=admin_data["role"],
-            is_active=True
+            is_active=True,
+            home_branch_id=branch.id,
         )
         db_session.add(user)
+        await db_session.commit()
+        await TenancyService.ensure_user_branch_access(db_session, user_id=user.id, gym_id=gym.id, branch_id=branch.id)
         await db_session.commit()
 
     # Login

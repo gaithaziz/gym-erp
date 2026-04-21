@@ -6,11 +6,38 @@ const apiV1 = apiBase.endsWith('/api/v1') ? apiBase : `${apiBase}/api/v1`;
 const adminEmail = process.env.E2E_ADMIN_EMAIL || 'admin@gym-erp.com';
 const adminPassword = process.env.E2E_ADMIN_PASSWORD || 'password123';
 
+function sleep(ms: number): Promise<void> {
+    return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function parseRetryDelayMs(detail: unknown): number {
+    if (typeof detail !== 'string') {
+        return 1500;
+    }
+    const secondsMatch = detail.match(/retry in\s+(\d+)\s+seconds?/i);
+    if (secondsMatch) {
+        return (Number(secondsMatch[1]) + 1) * 1000;
+    }
+    return 1500;
+}
+
 async function loginToken(request: APIRequestContext, email: string, password: string): Promise<string> {
-    const login = await request.post(`${apiV1}/auth/login`, { data: { email, password } });
-    expect(login.ok()).toBeTruthy();
-    const body = await login.json();
-    return body?.data?.access_token as string;
+    let lastStatus = 0;
+    let lastDetail: unknown = null;
+    for (let attempt = 0; attempt < 4; attempt += 1) {
+        const login = await request.post(`${apiV1}/auth/login`, { data: { email, password } });
+        const body = await login.json().catch(() => ({}));
+        if (login.ok()) {
+            return body?.data?.access_token as string;
+        }
+        lastStatus = login.status();
+        lastDetail = body?.detail;
+        if (login.status() !== 429 || attempt === 3) {
+            break;
+        }
+        await sleep(parseRetryDelayMs(body?.detail));
+    }
+    throw new Error(`Login failed for ${email} (status=${lastStatus}, detail=${String(lastDetail)})`);
 }
 
 test('login page allows sign in', async ({ page }) => {
