@@ -4,6 +4,9 @@ import { useEffect, useState, useCallback } from 'react';
 import { api } from '@/lib/api';
 import { ShoppingCart, Plus, Minus, Trash2, CreditCard, Banknote, ArrowRightLeft, Check, Package } from 'lucide-react';
 import { useLocale } from '@/context/LocaleContext';
+import { BranchSelector } from '@/components/BranchSelector';
+import { useBranch } from '@/context/BranchContext';
+import { getBranchParams } from '@/lib/branch';
 
 interface Product {
     id: string;
@@ -28,6 +31,7 @@ const PAYMENT_METHODS = [
 
 export default function POSPage() {
     const { t } = useLocale();
+    const { branches, selectedBranchId, setSelectedBranchId } = useBranch();
     const [products, setProducts] = useState<Product[]>([]);
     const [cart, setCart] = useState<CartItem[]>([]);
     const [loading, setLoading] = useState(true);
@@ -38,18 +42,24 @@ export default function POSPage() {
 
     const fetchProducts = useCallback(async () => {
         try {
-            const res = await api.get('/inventory/products');
+            const params: Record<string, string> = getBranchParams(selectedBranchId);
+            const res = await api.get('/inventory/products', { params });
             setProducts(res.data.data.filter((p: Product) => p.is_active && p.stock_quantity > 0));
         } catch {
             console.error('Failed to fetch products');
         } finally {
             setLoading(false);
         }
-    }, []);
+    }, [selectedBranchId]);
 
     useEffect(() => {
         fetchProducts();
     }, [fetchProducts]);
+
+    useEffect(() => {
+        setCategoryFilter('');
+        setCart([]);
+    }, [selectedBranchId]);
 
     const addToCart = (product: Product) => {
         setCart(prev => {
@@ -133,8 +143,17 @@ export default function POSPage() {
             {/* Product Grid */}
             <div className="flex-1 flex flex-col min-w-0">
                 <div className="mb-4">
-                    <h1 className="text-2xl font-bold text-foreground font-serif tracking-tight">{t('pos.title')}</h1>
-                    <p className="text-sm text-muted-foreground mt-1">{t('pos.subtitle')}</p>
+                    <div className="flex flex-wrap items-center justify-between gap-2">
+                        <div>
+                            <h1 className="text-2xl font-bold text-foreground font-serif tracking-tight">{t('pos.title')}</h1>
+                            <p className="text-sm text-muted-foreground mt-1">{t('pos.subtitle')}</p>
+                        </div>
+                        <BranchSelector
+                            branches={branches}
+                            selectedBranchId={selectedBranchId}
+                            onSelect={setSelectedBranchId}
+                        />
+                    </div>
                 </div>
 
                 {/* Category Tabs */}
@@ -296,4 +315,3 @@ export default function POSPage() {
         </div>
     );
 }
-

@@ -1,14 +1,61 @@
 import asyncio
 from logging.config import fileConfig
 
+import sqlalchemy as sa
 from sqlalchemy import pool
 from sqlalchemy.engine import Connection
 from sqlalchemy.ext.asyncio import async_engine_from_config
 
 from alembic import context
+from alembic.autogenerate import rewriter
+from alembic.operations import ops
 
 from app.database import Base
 from app.config import settings
+
+# Rewriter to automatically add RLS policies to new tables with gym_id
+rls_rewriter = rewriter.Rewriter()
+
+NON_CUSTOMER_ROLES = "('SUPER_ADMIN', 'ADMIN', 'MANAGER', 'FRONT_DESK', 'RECEPTION', 'COACH', 'EMPLOYEE', 'CASHIER')"
+
+@rls_rewriter.rewrites(ops.CreateTableOp)
+def create_table_rls(context, revision, op):
+    has_gym_id = any(
+        isinstance(c, sa.Column) and c.name == "gym_id" 
+        for c in op.columns
+    )
+    if has_gym_id:
+        table_name = op.table_name
+        # Check for user identity columns to include self-access
+        user_col = None
+        for c in op.columns:
+            if not isinstance(c, sa.Column): continue
+            if c.name in ["user_id", "member_id", "customer_id"]:
+                user_col = c.name
+                break
+        
+        user_check = f"OR ({user_col} = NULLIF(current_setting('app.current_user_id', true), '')::uuid)" if user_col else ""
+        
+        return [
+            op,
+            ops.ExecuteSQLOp(f'ALTER TABLE "{table_name}" ENABLE ROW LEVEL SECURITY'),
+            ops.ExecuteSQLOp(f'ALTER TABLE "{table_name}" FORCE ROW LEVEL SECURITY'),
+            ops.ExecuteSQLOp(f"""
+                CREATE POLICY tenant_isolation_policy ON "{table_name}"
+                FOR ALL
+                USING (
+                    COALESCE(current_setting('app.current_user_role', true), 'ANONYMOUS') = 'SUPER_ADMIN'
+                    OR (
+                        gym_id = NULLIF(current_setting('app.current_gym_id', true), '')::uuid
+                        AND (
+                            current_setting('app.current_user_role', true) IN {NON_CUSTOMER_ROLES}
+                            {user_check}
+                        )
+                    )
+                )
+            """)
+        ]
+    return op
 
 # Import all models to ensure they are attached to Base.metadata
 from app.models.user import *
@@ -25,6 +72,7 @@ from app.models.notification import *
 from app.models.chat import *
 from app.models.lost_found import *
 from app.models.classes import *
+from app.models.tenancy import *
 
 # this is the Alembic Config object, which provides
 # access to the values within the .ini file in use.
@@ -62,6 +110,7 @@ def run_migrations_offline() -> None:
         target_metadata=target_metadata,
         literal_binds=True,
         dialect_opts={"paramstyle": "named"},
+        process_revision_directives=rls_rewriter,
     )
 
     with context.begin_transaction():
@@ -69,7 +118,11 @@ def run_migrations_offline() -> None:
 
 
 def do_run_migrations(connection: Connection) -> None:
-    context.configure(connection=connection, target_metadata=target_metadata)
+    context.configure(
+        connection=connection, 
+        target_metadata=target_metadata,
+        process_revision_directives=rls_rewriter,
+    )
 
     with context.begin_transaction():
         context.run_migrations()

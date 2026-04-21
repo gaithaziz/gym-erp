@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import json
-from datetime import date, datetime
+from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal
 import uuid
 
@@ -10,6 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from app.auth import security
+from app.database import set_rls_context
 from app.models.access import AccessLog, AttendanceLog, Subscription
 from app.models.enums import Role
 from app.models.finance import PaymentMethod, POSTransactionItem, Transaction, TransactionCategory, TransactionType
@@ -18,11 +19,13 @@ from app.models.hr import LeaveRequest, LeaveStatus
 from app.models.inventory import Product
 from app.models.lost_found import LostFoundItem, LostFoundStatus
 from app.models.notification import MobileDevice, MobileNotificationPreference
+from app.models.roaming import MemberRoamingAccess
 from app.models.support import SupportTicket, TicketStatus
 from app.models.user import User
 from app.models.workout_log import DietFeedback, GymFeedback, WorkoutLog, WorkoutSession, WorkoutSessionEntry
 from app.services.audit_service import AuditService
 from app.services.mobile_bootstrap_service import MobileBootstrapService
+from app.services.tenancy_service import TenancyService
 
 
 def _as_float(value: Decimal | float | int | None) -> float:
@@ -101,8 +104,67 @@ def _session_summary(session: WorkoutSession, plan_name: str | None = None, memb
 
 class MobileStaffService:
     @staticmethod
-    async def list_members(*, current_user: User, db: AsyncSession, query: str | None = None) -> list[dict]:
+    async def _resolve_effective_branch_id(
+        *,
+        current_user: User,
+        db: AsyncSession,
+        branch_id: uuid.UUID | None,
+    ) -> uuid.UUID | None:
+        if branch_id is not None:
+            await TenancyService.require_branch_access(
+                db,
+                current_user=current_user,
+                branch_id=branch_id,
+                allow_all_for_admin=True,
+            )
+            return branch_id
+        return current_user.home_branch_id
+
+    @staticmethod
+    async def _can_read_member_at_branch(
+        *,
+        db: AsyncSession,
+        member: User,
+        branch_id: uuid.UUID | None,
+    ) -> bool:
+        if branch_id is None:
+            return True
+        if member.home_branch_id == branch_id:
+            return True
+
+        now = datetime.now(timezone.utc)
+        active_grant = (
+            await db.execute(
+                select(MemberRoamingAccess.id).where(
+                    MemberRoamingAccess.member_id == member.id,
+                    MemberRoamingAccess.branch_id == branch_id,
+                    MemberRoamingAccess.revoked_at.is_(None),
+                    MemberRoamingAccess.expires_at > now,
+                )
+            )
+        ).scalar_one_or_none()
+        return active_grant is not None
+
+    @staticmethod
+    async def list_members(
+        *,
+        current_user: User,
+        db: AsyncSession,
+        query: str | None = None,
+        branch_id: uuid.UUID | None = None,
+        apply_branch_scope: bool = True,
+    ) -> list[dict]:
         stmt = select(User).where(User.role == Role.CUSTOMER)
+        effective_branch_id: uuid.UUID | None = None
+
+        if apply_branch_scope and current_user.role in {Role.ADMIN, Role.MANAGER}:
+            effective_branch_id = await MobileStaffService._resolve_effective_branch_id(
+                current_user=current_user,
+                db=db,
+                branch_id=branch_id,
+            )
+            if effective_branch_id is not None:
+                stmt = stmt.where(User.home_branch_id == effective_branch_id)
 
         if query:
             search = f"%{query.strip()}%"
@@ -119,9 +181,28 @@ class MobileStaffService:
         return [await MobileStaffService._serialize_member_summary(member=member, db=db) for member in members]
 
     @staticmethod
-    async def get_member_detail(*, current_user: User, member_id: uuid.UUID, db: AsyncSession) -> dict:
+    async def get_member_detail(
+        *,
+        current_user: User,
+        member_id: uuid.UUID,
+        db: AsyncSession,
+        branch_id: uuid.UUID | None = None,
+    ) -> dict:
         member = await db.get(User, member_id)
         if not member or member.role != Role.CUSTOMER:
+            raise ValueError("Member not found")
+
+        effective_branch_id = await MobileStaffService._resolve_effective_branch_id(
+            current_user=current_user,
+            db=db,
+            branch_id=branch_id,
+        )
+        allowed = await MobileStaffService._can_read_member_at_branch(
+            db=db,
+            member=member,
+            branch_id=effective_branch_id,
+        )
+        if not allowed:
             raise ValueError("Member not found")
 
         user_payload = await MobileBootstrapService.build_user_response(current_user=member, db=db)
@@ -306,7 +387,12 @@ class MobileStaffService:
 
     @staticmethod
     async def lookup_members(*, current_user: User, db: AsyncSession, query: str) -> dict:
-        items = await MobileStaffService.list_members(current_user=current_user, db=db, query=query)
+        items = await MobileStaffService.list_members(
+            current_user=current_user,
+            db=db,
+            query=query,
+            apply_branch_scope=False,
+        )
         return {"query": query, "items": items}
 
     @staticmethod
@@ -354,6 +440,7 @@ class MobileStaffService:
         db: AsyncSession,
         member_id: uuid.UUID,
         kiosk_id: str,
+        branch_id: uuid.UUID | None = None,
     ) -> dict:
         from app.services.access_service import AccessService
 
@@ -364,7 +451,18 @@ class MobileStaffService:
         if not member or member.role != Role.CUSTOMER:
             raise ValueError("Member not found")
 
-        result = await AccessService.process_session_check_in(member.id, kiosk_id, db)
+        effective_branch_id = await MobileStaffService._resolve_effective_branch_id(
+            current_user=current_user,
+            db=db,
+            branch_id=branch_id,
+        )
+        result = await AccessService.process_session_check_in(
+            member.id,
+            kiosk_id,
+            db,
+            host_branch_id=effective_branch_id,
+            granted_by_user_id=current_user.id,
+        )
         return {
             "member_id": str(member.id),
             "member_name": member.full_name,
@@ -901,35 +999,60 @@ class MobileStaffService:
         platform: str,
         device_name: str | None = None,
     ) -> dict:
-        now = datetime.utcnow()
-        device = (
-            await db.execute(select(MobileDevice).where(MobileDevice.device_token == device_token))
-        ).scalar_one_or_none()
-        if device is None:
-            device = MobileDevice(
-                user_id=current_user.id,
-                device_token=device_token,
-                platform=platform,
-                device_name=device_name,
-                is_active=True,
-                registered_at=now,
-                last_seen_at=now,
+        snapshot = None
+        if current_user.role == Role.CUSTOMER:
+            snapshot = (
+                db.info.get("rls_user_id", ""),
+                db.info.get("rls_user_role", "ANONYMOUS"),
+                db.info.get("rls_gym_id", ""),
+                db.info.get("rls_branch_id", ""),
             )
-            db.add(device)
-        else:
-            device.user_id = current_user.id
-            device.platform = platform
-            device.device_name = device_name
-            device.is_active = True
-            device.unregistered_at = None
-            device.last_seen_at = now
-        await db.commit()
-        return {
-            "device_token": device.device_token,
-            "platform": device.platform,
-            "device_name": device.device_name,
-            "registered": device.is_active,
-        }
+            await set_rls_context(
+                db,
+                user_id=str(current_user.id),
+                role=Role.ADMIN.value,
+                gym_id=str(current_user.gym_id) if current_user.gym_id else snapshot[2],
+                branch_id=str(current_user.home_branch_id) if current_user.home_branch_id else snapshot[3],
+            )
+        now = datetime.utcnow()
+        try:
+            device = (
+                await db.execute(select(MobileDevice).where(MobileDevice.device_token == device_token))
+            ).scalar_one_or_none()
+            if device is None:
+                device = MobileDevice(
+                    user_id=current_user.id,
+                    device_token=device_token,
+                    platform=platform,
+                    device_name=device_name,
+                    is_active=True,
+                    registered_at=now,
+                    last_seen_at=now,
+                )
+                db.add(device)
+            else:
+                device.user_id = current_user.id
+                device.platform = platform
+                device.device_name = device_name
+                device.is_active = True
+                device.unregistered_at = None
+                device.last_seen_at = now
+            await db.commit()
+            return {
+                "device_token": device.device_token,
+                "platform": device.platform,
+                "device_name": device.device_name,
+                "registered": device.is_active,
+            }
+        finally:
+            if snapshot is not None:
+                await set_rls_context(
+                    db,
+                    user_id=snapshot[0],
+                    role=snapshot[1],
+                    gym_id=snapshot[2],
+                    branch_id=snapshot[3],
+                )
 
     @staticmethod
     async def unregister_device(
@@ -940,36 +1063,61 @@ class MobileStaffService:
         platform: str,
         device_name: str | None = None,
     ) -> dict:
-        now = datetime.utcnow()
-        device = (
-            await db.execute(select(MobileDevice).where(MobileDevice.device_token == device_token))
-        ).scalar_one_or_none()
-        if device is None:
-            device = MobileDevice(
-                user_id=current_user.id,
-                device_token=device_token,
-                platform=platform,
-                device_name=device_name,
-                is_active=False,
-                registered_at=now,
-                unregistered_at=now,
-                last_seen_at=now,
+        snapshot = None
+        if current_user.role == Role.CUSTOMER:
+            snapshot = (
+                db.info.get("rls_user_id", ""),
+                db.info.get("rls_user_role", "ANONYMOUS"),
+                db.info.get("rls_gym_id", ""),
+                db.info.get("rls_branch_id", ""),
             )
-            db.add(device)
-        else:
-            device.user_id = current_user.id
-            device.platform = platform
-            device.device_name = device_name
-            device.is_active = False
-            device.unregistered_at = now
-            device.last_seen_at = now
-        await db.commit()
-        return {
-            "device_token": device.device_token,
-            "platform": device.platform,
-            "device_name": device.device_name,
-            "registered": device.is_active,
-        }
+            await set_rls_context(
+                db,
+                user_id=str(current_user.id),
+                role=Role.ADMIN.value,
+                gym_id=str(current_user.gym_id) if current_user.gym_id else snapshot[2],
+                branch_id=str(current_user.home_branch_id) if current_user.home_branch_id else snapshot[3],
+            )
+        now = datetime.utcnow()
+        try:
+            device = (
+                await db.execute(select(MobileDevice).where(MobileDevice.device_token == device_token))
+            ).scalar_one_or_none()
+            if device is None:
+                device = MobileDevice(
+                    user_id=current_user.id,
+                    device_token=device_token,
+                    platform=platform,
+                    device_name=device_name,
+                    is_active=False,
+                    registered_at=now,
+                    unregistered_at=now,
+                    last_seen_at=now,
+                )
+                db.add(device)
+            else:
+                device.user_id = current_user.id
+                device.platform = platform
+                device.device_name = device_name
+                device.is_active = False
+                device.unregistered_at = now
+                device.last_seen_at = now
+            await db.commit()
+            return {
+                "device_token": device.device_token,
+                "platform": device.platform,
+                "device_name": device.device_name,
+                "registered": device.is_active,
+            }
+        finally:
+            if snapshot is not None:
+                await set_rls_context(
+                    db,
+                    user_id=snapshot[0],
+                    role=snapshot[1],
+                    gym_id=snapshot[2],
+                    branch_id=snapshot[3],
+                )
 
     @staticmethod
     async def get_coach_feedback_summary(*, current_user: User, db: AsyncSession) -> dict:

@@ -1,7 +1,9 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { api } from '@/lib/api';
+import { useBranch } from '@/context/BranchContext';
+import { BranchSelector } from '@/components/BranchSelector';
 import { ShieldAlert, RefreshCw, User, Activity, Clock, Target, ShieldCheck, ShieldX, ShieldQuestion, Lock } from 'lucide-react';
 import TablePagination from '@/components/TablePagination';
 import { useLocale } from '@/context/LocaleContext';
@@ -43,16 +45,20 @@ interface SecurityAudit {
 
 export default function AuditLogsPage() {
     const { t, formatDate } = useLocale();
+    const { branches, selectedBranchId, setSelectedBranchId } = useBranch();
     const [logs, setLogs] = useState<AuditLog[]>([]);
     const [securityAudit, setSecurityAudit] = useState<SecurityAudit | null>(null);
     const [loading, setLoading] = useState(true);
     const [page, setPage] = useState(1);
 
-    const fetchLogs = async () => {
+    const fetchLogs = useCallback(async () => {
         setLoading(true);
         try {
+            const params: Record<string, string | number> = { limit: 100 };
+            if (selectedBranchId) params.branch_id = selectedBranchId;
+
             const [logsRes, securityRes] = await Promise.all([
-                api.get('/audit/logs?limit=100'),
+                api.get('/audit/logs', { params }),
                 api.get('/audit/security'),
             ]);
             setLogs(logsRes.data.data || []);
@@ -62,11 +68,11 @@ export default function AuditLogsPage() {
         } finally {
             setLoading(false);
         }
-    };
+    }, [selectedBranchId]);
 
     useEffect(() => {
         fetchLogs();
-    }, []);
+    }, [fetchLogs]);
 
     useEffect(() => {
         setPage(1);
@@ -127,7 +133,13 @@ export default function AuditLogsPage() {
                     </h1>
                     <p className="text-sm text-muted-foreground mt-1">{t('audit.subtitle')}</p>
                 </div>
-                <button
+                <div className="flex items-center gap-3">
+                    <BranchSelector
+                        branches={branches}
+                        selectedBranchId={selectedBranchId}
+                        onSelect={setSelectedBranchId}
+                    />
+                    <button
                     onClick={fetchLogs}
                     disabled={loading}
                     className="btn-primary group"
@@ -136,6 +148,7 @@ export default function AuditLogsPage() {
                     {t('audit.refresh')}
                 </button>
             </div>
+        </div>
 
             <div className="kpi-card p-5 space-y-5">
                 <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">

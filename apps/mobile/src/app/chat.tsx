@@ -20,9 +20,9 @@ import { getCurrentRole, isAdminControlRole } from "@/lib/mobile-role";
 import { usePreferences } from "@/lib/preferences";
 import { useSession } from "@/lib/session";
 
-const ASSET_BASE_URL = API_BASE_URL.replace(/\/api\/v1\/?$/, "");
-
 import { useAudioPlayer, useAudioPlayerStatus, useAudioRecorder, useAudioRecorderState, RecordingPresets, requestRecordingPermissionsAsync, setAudioModeAsync } from "expo-audio";
+
+const ASSET_BASE_URL = API_BASE_URL.replace(/\/api\/v1\/?$/, "");
 
 type Thread = {
   id: string;
@@ -117,7 +117,7 @@ function ChatAudioPlayer({
   src: string;
   initialDurationSeconds?: number | null;
 }) {
-  const { copy, direction, fontSet, isRTL, theme } = usePreferences();
+  const { fontSet, theme } = usePreferences();
   const player = useAudioPlayer(src);
   const status = useAudioPlayerStatus(player);
 
@@ -175,7 +175,7 @@ export default function ChatScreen() {
     enabled: !readOnly,
     queryFn: async () => (await authorizedRequest<ChatContact[]>("/mobile/chat/contacts")).data,
   });
-  const contacts = contactsQuery.data ?? [];
+  const contacts = useMemo(() => contactsQuery.data ?? [], [contactsQuery.data]);
 
   useEffect(() => {
     if (!readOnly && contacts.length > 0 && !selectedCoachId) {
@@ -207,7 +207,7 @@ export default function ChatScreen() {
     queryKey: ["mobile-chat"],
     queryFn: async () => (await authorizedRequest<Thread[]>("/mobile/chat/threads")).data,
   });
-  const threads = threadsQuery.data ?? [];
+  const threads = useMemo(() => threadsQuery.data ?? [], [threadsQuery.data]);
   const deferredThreadSearch = useDeferredValue(threadSearch);
   const filteredThreads = useMemo(() => {
     const query = deferredThreadSearch.trim().toLowerCase();

@@ -4,8 +4,11 @@ import { useEffect, useState, useCallback, useMemo } from 'react';
 import { api } from '@/lib/api';
 import { Package, Plus, Search, Edit, Trash2, AlertTriangle, X } from 'lucide-react';
 import { useFeedback } from '@/components/FeedbackProvider';
+import { BranchSelector } from '@/components/BranchSelector';
 import TablePagination from '@/components/TablePagination';
+import { useBranch } from '@/context/BranchContext';
 import { useLocale } from '@/context/LocaleContext';
+import { getBranchParams } from '@/lib/branch';
 
 interface Product {
     id: string;
@@ -27,6 +30,7 @@ const INVENTORY_PAGE_SIZE = 10;
 export default function InventoryPage() {
     const { t, formatNumber } = useLocale();
     const { showToast, confirm: confirmAction } = useFeedback();
+    const { branches, selectedBranchId, setSelectedBranchId } = useBranch();
     const [products, setProducts] = useState<Product[]>([]);
     const [loading, setLoading] = useState(true);
     const [search, setSearch] = useState('');
@@ -69,6 +73,8 @@ export default function InventoryPage() {
             const params = new URLSearchParams();
             if (debouncedSearch) params.set('search', debouncedSearch);
             if (debouncedCategoryFilter) params.set('category', debouncedCategoryFilter);
+            const branchParams = getBranchParams(selectedBranchId);
+            if (branchParams.branch_id) params.set('branch_id', branchParams.branch_id);
             const res = await api.get(`/inventory/products?${params.toString()}`);
             setProducts(res.data.data);
         } catch {
@@ -76,7 +82,7 @@ export default function InventoryPage() {
         } finally {
             setLoading(false);
         }
-    }, [debouncedSearch, debouncedCategoryFilter]);
+    }, [debouncedSearch, debouncedCategoryFilter, selectedBranchId]);
 
     useEffect(() => {
         fetchProducts();
@@ -84,7 +90,7 @@ export default function InventoryPage() {
 
     useEffect(() => {
         setProductsPage(1);
-    }, [products.length]);
+    }, [products.length, selectedBranchId]);
 
     const totalProductPages = Math.max(1, Math.ceil(products.length / INVENTORY_PAGE_SIZE));
     const visibleProducts = useMemo(
@@ -109,7 +115,7 @@ export default function InventoryPage() {
         setShowModal(true);
     };
 
-    const handleSave = async () => {
+    const handleSave = useCallback(async () => {
         setSaving(true);
         try {
             const payload = {
@@ -121,6 +127,7 @@ export default function InventoryPage() {
                 stock_quantity: parseInt(form.stock_quantity) || 0,
                 low_stock_threshold: parseInt(form.low_stock_threshold) || 5,
                 image_url: form.image_url || null,
+                ...getBranchParams(selectedBranchId),
             };
             if (editingProduct) {
                 await api.put(`/inventory/products/${editingProduct.id}`, payload);
@@ -135,7 +142,7 @@ export default function InventoryPage() {
         } finally {
             setSaving(false);
         }
-    };
+    }, [editingProduct, fetchProducts, form, selectedBranchId, showToast, t]);
 
     const handleDelete = async (id: string) => {
         const confirmed = await confirmAction({
@@ -163,9 +170,16 @@ export default function InventoryPage() {
                     <h1 className="text-2xl font-bold text-foreground font-serif tracking-tight">{t('inventory.title')}</h1>
                     <p className="text-sm text-muted-foreground mt-1">{t('inventory.subtitle')}</p>
                 </div>
-                <button onClick={openCreate} className="btn-primary px-4 py-2 flex items-center gap-2 text-sm">
-                    <Plus size={16} /> {t('inventory.addProduct')}
-                </button>
+                <div className="flex flex-wrap items-center gap-2">
+                    <BranchSelector
+                        branches={branches}
+                        selectedBranchId={selectedBranchId}
+                        onSelect={setSelectedBranchId}
+                    />
+                    <button onClick={openCreate} className="btn-primary px-4 py-2 flex items-center gap-2 text-sm">
+                        <Plus size={16} /> {t('inventory.addProduct')}
+                    </button>
+                </div>
             </div>
 
             {/* Low Stock Alert */}
@@ -336,4 +350,3 @@ export default function InventoryPage() {
         </div>
     );
 }
-

@@ -13,22 +13,29 @@ type SupportTicket = {
   subject: string;
   status: string;
   category: string;
-  messages?: Array<{ id: string }>;
+  messages?: { id: string }[];
   customer?: { full_name?: string | null; email?: string | null } | null;
 };
 
 export default function SupportTab() {
   const router = useRouter();
-  const { authorizedRequest, bootstrap } = useSession();
+  const { authorizedRequest, bootstrap, selectedBranchId } = useSession();
   const { copy, direction, fontSet, isRTL, theme } = usePreferences();
   const role = getCurrentRole(bootstrap);
   const customer = isCustomerRole(role);
   const supportStaff = role === "RECEPTION" || role === "FRONT_DESK" || isAdminControlRole(role);
 
   const ticketsQuery = useQuery({
-    queryKey: ["mobile-support-tab", role],
+    queryKey: ["mobile-support-tab", role, selectedBranchId],
     enabled: customer || supportStaff,
-    queryFn: async () => (await authorizedRequest<SupportTicket[]>("/mobile/support/tickets")).data,
+    queryFn: async () => {
+      const params = new URLSearchParams();
+      if (selectedBranchId) {
+        params.set("branch_id", selectedBranchId);
+      }
+      const suffix = params.toString();
+      return (await authorizedRequest<SupportTicket[]>(suffix ? `/mobile/support/tickets?${suffix}` : "/mobile/support/tickets")).data;
+    },
   });
 
   if (role === "COACH") {

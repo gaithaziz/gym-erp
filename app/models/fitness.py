@@ -3,8 +3,9 @@ from sqlalchemy import String, Integer, ForeignKey, Text, Float, DateTime, Boole
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from datetime import datetime, timezone
 from app.database import Base
+from app.models.tenancy import GymScopedMixin
 
-class Exercise(Base):
+class Exercise(GymScopedMixin, Base):
     __tablename__ = "exercises"
 
     id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
@@ -13,7 +14,7 @@ class Exercise(Base):
     category: Mapped[str] = mapped_column(String, nullable=False) # e.g. Chest, Legs, Cardio
     video_url: Mapped[str] = mapped_column(String, nullable=True)
 
-class WorkoutPlan(Base):
+class WorkoutPlan(GymScopedMixin, Base):
     __tablename__ = "workout_plans"
 
     id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
@@ -35,7 +36,7 @@ class WorkoutPlan(Base):
     exercises = relationship("WorkoutExercise", back_populates="plan", cascade="all, delete-orphan")
     parent_plan = relationship("WorkoutPlan", remote_side=[id], backref="versions")
 
-class WorkoutExercise(Base):
+class WorkoutExercise(GymScopedMixin, Base):
     __tablename__ = "workout_exercises"
 
     id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
@@ -59,7 +60,7 @@ class WorkoutExercise(Base):
     plan = relationship("WorkoutPlan", back_populates="exercises")
     exercise = relationship("Exercise")
 
-class DietPlan(Base):
+class DietPlan(GymScopedMixin, Base):
     __tablename__ = "diet_plans"
 
     id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
@@ -82,7 +83,7 @@ class DietPlan(Base):
     parent_plan = relationship("DietPlan", remote_side=[id], backref="versions")
 
 
-class DietLibraryItem(Base):
+class DietLibraryItem(GymScopedMixin, Base):
     __tablename__ = "diet_library_items"
 
     id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
@@ -103,7 +104,7 @@ class DietLibraryItem(Base):
 
     owner_coach = relationship("User", foreign_keys=[owner_coach_id])
 
-class BiometricLog(Base):
+class BiometricLog(GymScopedMixin, Base):
     __tablename__ = "biometric_logs"
 
     id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
@@ -118,7 +119,7 @@ class BiometricLog(Base):
     member = relationship("User", foreign_keys=[member_id])
 
 
-class ExerciseLibraryItem(Base):
+class ExerciseLibraryItem(GymScopedMixin, Base):
     __tablename__ = "exercise_library_items"
 
     id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
@@ -135,7 +136,7 @@ class ExerciseLibraryItem(Base):
     owner_coach = relationship("User", foreign_keys=[owner_coach_id])
 
 
-class CoachExerciseTemplate(Base):
+class CoachExerciseTemplate(GymScopedMixin, Base):
     __tablename__ = "coach_exercise_templates"
 
     id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
@@ -151,7 +152,7 @@ class CoachExerciseTemplate(Base):
     exercise_library_item = relationship("ExerciseLibraryItem")
 
 
-class ExerciseLibraryRecent(Base):
+class ExerciseLibraryRecent(GymScopedMixin, Base):
     __tablename__ = "exercise_library_recent"
 
     id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)

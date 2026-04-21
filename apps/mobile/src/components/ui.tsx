@@ -1,11 +1,9 @@
 import { Ionicons } from "@expo/vector-icons";
-import { BottomTabBarHeightContext } from "@react-navigation/bottom-tabs";
 import { useQuery } from "@tanstack/react-query";
 import { Image } from "expo-image";
 import { usePathname, useRouter } from "expo-router";
 import { useContext, useEffect, useRef, type PropsWithChildren, type ReactNode, type RefObject } from "react";
 import {
-  ActivityIndicator,
   Animated,
   Pressable,
   ScrollView,
@@ -72,7 +70,6 @@ function FloatingChatButton() {
   const { authorizedRequest, bootstrap, status } = useSession();
   const { copy, isRTL, theme } = usePreferences();
   const insets = useSafeAreaInsets();
-  const tabBarHeight = useContext(BottomTabBarHeightContext);
 
   const hidden = status !== "signed_in" || pathname === "/login" || pathname.includes("/chat") || !hasCapability(bootstrap, "view_chat");
   const homeQuery = useQuery({
@@ -148,6 +145,7 @@ export function Screen({
 }>) {
   const pathname = usePathname();
   const router = useRouter();
+  const { bootstrap, selectedBranchId, setSelectedBranchId } = useSession();
   const { direction, isRTL, theme, themeMode, toggleLocale, toggleThemeMode, locale, fontSet } = usePreferences();
   const insets = useSafeAreaInsets();
   const resolvedContentPaddingBottom = contentPaddingBottom ?? (hideFloatingChat ? insets.bottom + 8 : insets.bottom + 28);
@@ -217,6 +215,30 @@ export function Screen({
         {isRTL ? headerActions : headerMain}
         {isRTL ? headerMain : headerActions}
       </View>
+      {bootstrap && (bootstrap.role === "ADMIN" || bootstrap.role === "MANAGER") && bootstrap.accessible_branches.length > 0 ? (
+        <View style={[styles.branchRow, { flexDirection: isRTL ? "row-reverse" : "row" }]}>
+          {bootstrap.accessible_branches.map((branch) => {
+            const active = branch.id === selectedBranchId;
+            return (
+              <Pressable
+                key={branch.id}
+                onPress={() => void setSelectedBranchId(branch.id)}
+                style={[
+                  styles.branchChip,
+                  {
+                    backgroundColor: active ? theme.primary : theme.cardAlt,
+                    borderColor: active ? theme.primary : theme.border,
+                  },
+                ]}
+              >
+                <Text style={{ color: active ? "#FFFFFF" : theme.foreground, fontFamily: fontSet.body, fontSize: 12 }}>
+                  {branch.display_name || branch.name}
+                </Text>
+              </Pressable>
+            );
+          })}
+        </View>
+      ) : null}
       {children}
     </>
   );
@@ -696,7 +718,7 @@ export function QueryState({
   loadingVariant?: QuerySkeletonVariant;
   skeletonCount?: number;
 }) {
-  const { direction, fontSet, isRTL, theme } = usePreferences();
+  const { direction, fontSet, isRTL } = usePreferences();
 
   if (loading) {
     return <QuerySkeleton variant={loadingVariant} count={skeletonCount} />;
@@ -794,6 +816,16 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "flex-start",
     flexShrink: 0,
+  },
+  branchRow: {
+    gap: 8,
+    flexWrap: "wrap",
+  },
+  branchChip: {
+    borderWidth: 1,
+    borderRadius: 999,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
   },
   screenTitle: {
     fontSize: 26,

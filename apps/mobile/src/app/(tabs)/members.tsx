@@ -4,7 +4,7 @@ import { useFocusEffect, useLocalSearchParams, useRouter } from "expo-router";
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
 import { Pressable, StyleSheet, Text, View } from "react-native";
 
-import { Card, InlineStat, Input, MutedText, PrimaryButton, QueryState, Screen, SecondaryButton, SectionTitle } from "@/components/ui";
+import { Card, InlineStat, Input, MutedText, QueryState, Screen, SecondaryButton, SectionTitle } from "@/components/ui";
 import { parseAdminPeopleSummaryEnvelope, parseStaffMemberDetailEnvelope } from "@/lib/api";
 import { localeTag, localizeAccessStatus, localizePlanStatus, localizeRole, localizeSubscriptionStatus } from "@/lib/mobile-format";
 import { getCurrentRole, hasCapability, isAdminControlRole } from "@/lib/mobile-role";
@@ -41,7 +41,7 @@ function visibleItems<T>(items: T[], expanded?: boolean, limit = SECTION_PREVIEW
 export default function MembersTab() {
   const router = useRouter();
   const params = useLocalSearchParams<{ memberId?: string }>();
-  const { authorizedRequest, bootstrap } = useSession();
+  const { authorizedRequest, bootstrap, selectedBranchId } = useSession();
   const { copy, direction, fontSet, isRTL, theme } = usePreferences();
   const locale = localeTag(isRTL);
   const role = getCurrentRole(bootstrap);
@@ -67,11 +67,20 @@ export default function MembersTab() {
   });
 
   const membersQuery = useQuery({
-    queryKey: ["mobile-staff-members", search],
-    queryFn: async () =>
-      (await authorizedRequest<StaffMemberSummary[]>(`/mobile/staff/members${search.trim() ? `?q=${encodeURIComponent(search.trim())}` : ""}`)).data,
+    queryKey: ["mobile-staff-members", search, selectedBranchId],
+    queryFn: async () => {
+      const params = new URLSearchParams();
+      if (search.trim()) {
+        params.set("q", search.trim());
+      }
+      if (selectedBranchId) {
+        params.set("branch_id", selectedBranchId);
+      }
+      const suffix = params.toString();
+      return (await authorizedRequest<StaffMemberSummary[]>(suffix ? `/mobile/staff/members?${suffix}` : "/mobile/staff/members")).data;
+    },
   });
-  const members = membersQuery.data ?? [];
+  const members = useMemo(() => membersQuery.data ?? [], [membersQuery.data]);
   const dropdownMembers = members.slice(0, MEMBER_DROPDOWN_LIMIT);
 
   useFocusEffect(
@@ -101,9 +110,12 @@ export default function MembersTab() {
   );
 
   const detailQuery = useQuery({
-    queryKey: ["mobile-staff-member-detail", selectedMemberId],
+    queryKey: ["mobile-staff-member-detail", selectedMemberId, selectedBranchId],
     enabled: Boolean(selectedMemberId),
-    queryFn: async () => parseStaffMemberDetailEnvelope(await authorizedRequest(`/mobile/staff/members/${selectedMemberId}`)).data,
+    queryFn: async () => {
+      const suffix = selectedBranchId ? `?branch_id=${encodeURIComponent(selectedBranchId)}` : "";
+      return parseStaffMemberDetailEnvelope(await authorizedRequest(`/mobile/staff/members/${selectedMemberId}${suffix}`)).data;
+    },
   });
 
   const selectedMember = detailQuery.data?.member
@@ -798,7 +810,7 @@ function SparklineChart({
   emptyMessage,
 }: {
   title: string;
-  points: Array<{ label: string; value?: number | null }>;
+  points: { label: string; value?: number | null }[];
   unit: string;
   emptyMessage: string;
 }) {
@@ -892,7 +904,7 @@ function CountBarChart({
   emptyMessage,
 }: {
   title: string;
-  points: Array<{ label: string; value?: number | null }>;
+  points: { label: string; value?: number | null }[];
   unit: string;
   emptyMessage: string;
 }) {

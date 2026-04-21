@@ -12,6 +12,7 @@ from app.models.user import User
 from app.models.enums import Role
 from app.models.audit import AuditLog
 from app.core.responses import StandardResponse
+from app.services.tenancy_service import TenancyService
 from app.security_audit.models import SecurityAuditResponse
 from app.security_audit import collect_security_audit
 
@@ -20,6 +21,7 @@ router = APIRouter()
 class AuditLogResponse(BaseModel):
     id: uuid.UUID
     user_id: uuid.UUID | None
+    branch_id: uuid.UUID | None
     action: str
     target_id: str | None
     timestamp: datetime
@@ -33,12 +35,26 @@ class AuditLogResponse(BaseModel):
 
 @router.get("/logs", response_model=StandardResponse[list[AuditLogResponse]])
 async def get_audit_logs(
-    current_user: Annotated[User, Depends(dependencies.RoleChecker([Role.ADMIN]))],
+    current_user: Annotated[User, Depends(dependencies.RoleChecker([Role.ADMIN, Role.MANAGER]))],
     db: Annotated[AsyncSession, Depends(get_db)],
+    branch_id: Annotated[uuid.UUID | None, Query()] = None,
     limit: int = 50,
+    offset: int = 0
 ):
-    """Retrieve the most recent audit logs (Admin only)."""
-    stmt = select(AuditLog).order_by(AuditLog.timestamp.desc()).limit(limit)
+    """Retrieve the most recent audit logs (Admin/Manager only)."""
+    from app.services.tenancy_service import TenancyService
+    stmt = select(AuditLog).order_by(AuditLog.timestamp.desc())
+
+    branch_ids = await TenancyService.branch_scope_ids(
+        db,
+        current_user=current_user,
+        branch_id=branch_id,
+        allow_all_for_admin=True,
+    )
+    if branch_ids:
+        stmt = stmt.where(AuditLog.branch_id.in_(branch_ids))
+
+    stmt = stmt.limit(limit)
     result = await db.execute(stmt)
     logs = result.scalars().all()
     

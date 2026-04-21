@@ -3,8 +3,9 @@ from datetime import datetime, timezone
 from sqlalchemy import String, ForeignKey, DateTime, Text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from app.database import Base
+from app.models.tenancy import BranchScopedMixin, GymScopedMixin
 
-class AuditLog(Base):
+class AuditLog(BranchScopedMixin, Base):
     __tablename__ = "audit_logs"
 
     id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)

@@ -233,7 +233,7 @@ function CustomerQrTab() {
 }
 
 function StaffQrTab() {
-  const { authorizedRequest, bootstrap } = useSession();
+  const { authorizedRequest, bootstrap, selectedBranchId } = useSession();
   const queryClient = useQueryClient();
   const { copy, direction, fontSet, isRTL, theme } = usePreferences();
   const params = useLocalSearchParams<{ memberId?: string }>();
@@ -252,9 +252,12 @@ function StaffQrTab() {
   });
 
   const selectedMemberQuery = useQuery({
-    queryKey: ["mobile-staff-member-detail", params.memberId],
+    queryKey: ["mobile-staff-member-detail", params.memberId, selectedBranchId],
     enabled: canCheckIn && typeof params.memberId === "string" && Boolean(params.memberId),
-    queryFn: async () => parseStaffMemberDetailEnvelope(await authorizedRequest(`/mobile/staff/members/${params.memberId}`)).data,
+    queryFn: async () => {
+      const suffix = selectedBranchId ? `?branch_id=${encodeURIComponent(selectedBranchId)}` : "";
+      return parseStaffMemberDetailEnvelope(await authorizedRequest(`/mobile/staff/members/${params.memberId}${suffix}`)).data;
+    },
   });
 
   const checkInMutation = useMutation({
@@ -262,7 +265,11 @@ function StaffQrTab() {
       parseCheckInResultEnvelope(
         await authorizedRequest("/mobile/staff/check-in/process", {
           method: "POST",
-          body: JSON.stringify({ member_id: memberId, kiosk_id: kioskId }),
+          body: JSON.stringify({
+            member_id: memberId,
+            kiosk_id: kioskId,
+            branch_id: selectedBranchId ?? undefined,
+          }),
         }),
       ).data,
   });

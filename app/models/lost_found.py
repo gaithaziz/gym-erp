@@ -6,6 +6,7 @@ from sqlalchemy import Date, DateTime, Enum as SAEnum, ForeignKey, Integer, Stri
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.database import Base
+from app.models.tenancy import BranchScopedMixin, GymScopedMixin
 
 
 class LostFoundStatus(str, Enum):
@@ -17,7 +18,7 @@ class LostFoundStatus(str, Enum):
     DISPOSED = "DISPOSED"
 
 
-class LostFoundItem(Base):
+class LostFoundItem(BranchScopedMixin, Base):
     __tablename__ = "lost_found_items"
 
     id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
@@ -54,7 +55,7 @@ class LostFoundItem(Base):
     comments = relationship("LostFoundComment", back_populates="item", cascade="all, delete-orphan")
 
 
-class LostFoundMedia(Base):
+class LostFoundMedia(GymScopedMixin, Base):
     __tablename__ = "lost_found_media"
 
     id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
@@ -69,7 +70,7 @@ class LostFoundMedia(Base):
     uploader = relationship("User")
 
 
-class LostFoundComment(Base):
+class LostFoundComment(GymScopedMixin, Base):
     __tablename__ = "lost_found_comments"
 
     id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)

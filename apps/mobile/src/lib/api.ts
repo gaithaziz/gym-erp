@@ -73,7 +73,7 @@ export type Envelope<T> = {
 };
 
 export type MobileFeedbackHistory = {
-  workout_feedback: Array<{
+  workout_feedback: {
     id: string;
     plan_id: string;
     plan_name: string;
@@ -81,8 +81,8 @@ export type MobileFeedbackHistory = {
     completed: boolean;
     difficulty_rating?: number | null;
     comment?: string | null;
-  }>;
-  diet_feedback: Array<{
+  }[];
+  diet_feedback: {
     id: string;
     diet_plan_id: string;
     diet_plan_name?: string | null;
@@ -90,14 +90,14 @@ export type MobileFeedbackHistory = {
     rating: number;
     comment?: string | null;
     created_at: string;
-  }>;
-  gym_feedback: Array<{
+  }[];
+  gym_feedback: {
     id: string;
     category: string;
     rating: number;
     comment?: string | null;
     created_at: string;
-  }>;
+  }[];
 };
 
 export type NotificationSettings = {
@@ -121,13 +121,13 @@ export type MobileGamificationStats = {
     current: number;
     goal: number;
   };
-  badges: Array<{
+  badges: {
     id: string;
     badge_type: string;
     badge_name: string;
     badge_description?: string | null;
     earned_at?: string | null;
-  }>;
+  }[];
 };
 
 export type AccessScanResult = {

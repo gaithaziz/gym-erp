@@ -7,7 +7,7 @@ import { useEffect, useMemo, useState } from "react";
 import { Pressable, Text, View } from "react-native";
 
 import { Card, Input, MediaPreview, MutedText, PrimaryButton, QueryState, Screen, SectionTitle, SecondaryButton, TextArea } from "@/components/ui";
-import { API_BASE_URL, parseClassSessionsEnvelope, parseCoachPlansEnvelope, type ClassSession } from "@/lib/api";
+import { API_BASE_URL, parseClassSessionsEnvelope, parseCoachPlansEnvelope } from "@/lib/api";
 import { pickImageOrVideoFromLibrary } from "@/lib/media-picker";
 import { localizePlanStatus } from "@/lib/mobile-format";
 import { getCurrentRole } from "@/lib/mobile-role";
@@ -26,7 +26,7 @@ type WorkoutPlan = {
   id: string;
   name: string;
   description?: string | null;
-  exercises?: Array<{
+  exercises?: {
     id?: string;
     exercise_id?: string | null;
     exercise_name?: string | null;
@@ -39,7 +39,7 @@ type WorkoutPlan = {
     uploaded_video_url?: string | null;
     video_url?: string | null;
     video_type?: string | null;
-  }>;
+  }[];
 };
 
 type DietTracker = {
@@ -48,19 +48,19 @@ type DietTracker = {
   description?: string | null;
   has_structured_content: boolean;
   legacy_content?: string | null;
-  days: Array<{
+  days: {
     id: string;
     name: string;
-    meals: Array<{
+    meals: {
       id: string;
       name: string;
       completed: boolean;
       note?: string | null;
       time_label?: string | null;
       instructions?: string | null;
-      items: Array<{ id: string; label: string; quantity?: string | null }>;
-    }>;
-  }>;
+      items: { id: string; label: string; quantity?: string | null }[];
+    }[];
+  }[];
   tracking_day?: {
     tracked_for: string;
     adherence_rating?: number | null;
@@ -72,7 +72,7 @@ type WorkoutDraft = {
   id: string;
   started_at: string;
   current_exercise_index: number;
-  entries: Array<{
+  entries: {
     id: string;
     exercise_name?: string | null;
     section_name?: string | null;
@@ -94,7 +94,7 @@ type WorkoutDraft = {
     set_details?: SetDetail[];
     skipped: boolean;
     completed_at?: string | null;
-  }>;
+  }[];
 };
 
 type SetDetail = {
@@ -338,7 +338,7 @@ function CustomerPlansTab() {
     queryFn: async () => {
       const [workouts, diets] = await Promise.all([
         authorizedRequest<WorkoutPlan[]>("/fitness/plans"),
-        authorizedRequest<Array<{ id: string; name: string; description?: string | null }>>("/fitness/diets"),
+        authorizedRequest<{ id: string; name: string; description?: string | null }[]>("/fitness/diets"),
       ]);
       return { workouts: workouts.data, diets: diets.data };
     },
@@ -385,7 +385,7 @@ function CustomerPlansTab() {
     enabled: !!selectedWorkoutPlanId,
     queryFn: async () => {
       const payload = await authorizedRequest<
-        Array<{
+        {
           id: string;
           performed_at: string;
           duration_minutes?: number | null;
@@ -396,7 +396,7 @@ function CustomerPlansTab() {
           attachment_url?: string | null;
           attachment_mime?: string | null;
           attachment_size_bytes?: number | null;
-          entries: Array<{
+          entries: {
             id?: string;
             exercise_name?: string | null;
             sets_completed: number;
@@ -406,8 +406,8 @@ function CustomerPlansTab() {
             is_pr?: boolean;
             skipped?: boolean;
             set_details?: SetDetail[];
-          }>;
-        }>
+          }[];
+        }[]
       >("/fitness/session-logs/me?plan_id=" + selectedWorkoutPlanId);
       return payload.data;
     },
@@ -441,7 +441,7 @@ function CustomerPlansTab() {
       prNotes: currentEntry.pr_notes || "",
     });
     setSetRows(buildDefaultSetRows(currentEntry));
-  }, [activeDraftQuery.data?.id, activeDraftQuery.data?.current_exercise_index]);
+  }, [activeDraftQuery.data]);
 
   useEffect(() => {
     if (!dietTrackerQuery.data) return;
@@ -943,7 +943,7 @@ function CustomerPlansTab() {
   });
 
   const saveDietMutation = useMutation({
-    mutationFn: async (overrideMeals?: Array<{ meal_id: string; completed: boolean; note?: string | null }>) => {
+    mutationFn: async (overrideMeals?: { meal_id: string; completed: boolean; note?: string | null }[]) => {
       if (!selectedDietId) throw new Error("No diet selected");
       const meals = overrideMeals ?? (selectedDietDay?.meals.map((meal) => ({
         meal_id: meal.id,
@@ -1008,7 +1008,7 @@ function CustomerPlansTab() {
     return () => {
       cancelled = true;
     };
-  }, [activeDraftQuery.data?.id]);
+  }, [activeDraftQuery.data?.id, currentEntry?.id]);
 
   useEffect(() => {
     const key = draftCacheKey(activeDraftQuery.data?.id);
@@ -1416,7 +1416,7 @@ function SetDetailsEditor({ rows, onChange }: { rows: SetDetail[]; onChange: (ro
 
 function CoachPlansTab() {
   const { authorizedRequest } = useSession();
-  const { copy, direction, fontSet, isRTL, theme } = usePreferences();
+  const { copy, fontSet, isRTL, theme } = usePreferences();
   const coachClassesCopy = copy.coachClasses;
   const queryClient = useQueryClient();
   const [editorMode, setEditorMode] = useState<"workout" | "diet" | "classes">("workout");
@@ -1451,8 +1451,8 @@ function CoachPlansTab() {
     queryFn: async () => parseClassSessionsEnvelope(await authorizedRequest("/classes/sessions")).data,
   });
 
-  const workoutPlans = coachPlansQuery.data?.workouts ?? [];
-  const dietPlans = coachPlansQuery.data?.diets ?? [];
+  const workoutPlans = useMemo(() => coachPlansQuery.data?.workouts ?? [], [coachPlansQuery.data?.workouts]);
+  const dietPlans = useMemo(() => coachPlansQuery.data?.diets ?? [], [coachPlansQuery.data?.diets]);
   const selectedWorkout = workoutPlans.find((plan) => plan.id === selectedWorkoutId) ?? null;
   const selectedDiet = dietPlans.find((plan) => plan.id === selectedDietId) ?? null;
   const workoutTemplateCount = useMemo(() => workoutPlans.filter((plan) => plan.is_template).length, [workoutPlans]);
@@ -1497,7 +1497,7 @@ function CoachPlansTab() {
           }))
         : [{ id: createRowId(), section_name: "General", exercise_name: "", sets: 3, reps: 10, order: 0 }],
     );
-  }, [selectedWorkout?.id]);
+  }, [selectedWorkout]);
 
   useEffect(() => {
     if (!selectedDiet) return;
@@ -1506,7 +1506,7 @@ function CoachPlansTab() {
     setDietDescription(selectedDiet.description || "");
     setDietContent(selectedDiet.content || "");
     setDietDays(normalizeDietDays(selectedDiet.content_structured).length ? normalizeDietDays(selectedDiet.content_structured) : [defaultDietDay()]);
-  }, [selectedDiet?.id]);
+  }, [selectedDiet]);
 
   function parseExercises() {
     return exerciseRows

@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { api } from '@/lib/api';
 import Image from 'next/image';
 import { useRouter } from 'next/navigation';
@@ -8,9 +8,12 @@ import { Pencil, Calculator, Save, Plus, Download, Eye } from 'lucide-react';
 import Modal from '@/components/Modal';
 import { useFeedback } from '@/components/FeedbackProvider';
 import TablePagination from '@/components/TablePagination';
+import { BranchSelector } from '@/components/BranchSelector';
 import { resolveProfileImageUrl } from '@/lib/profileImage';
 import { downloadBlob } from '@/lib/download';
+import { useBranch } from '@/context/BranchContext';
 import { useLocale } from '@/context/LocaleContext';
+import { getBranchParams } from '@/lib/branch';
 
 interface StaffMember {
     id: string;
@@ -59,6 +62,7 @@ export default function StaffPage() {
     const { locale, formatDate, formatNumber } = useLocale();
     const { showToast } = useFeedback();
     const router = useRouter();
+    const { branches, selectedBranchId, setSelectedBranchId } = useBranch();
     const [staff, setStaff] = useState<StaffMember[]>([]);
     const [loading, setLoading] = useState(true);
     const [isAddOpen, setIsAddOpen] = useState(false);
@@ -252,15 +256,16 @@ export default function StaffPage() {
 
     const canRenderImage = (url?: string) => !!url && !failedImageUrls[url];
 
-    const fetchStaff = async () => {
+    const fetchStaff = useCallback(async () => {
+        setLoading(true);
         try {
-            const res = await api.get('/hr/staff');
+            const res = await api.get('/hr/staff', { params: getBranchParams(selectedBranchId) });
             setStaff(res.data.data);
         } catch (err) { console.error(err); }
         setLoading(false);
-    };
+    }, [selectedBranchId]);
 
-    useEffect(() => { setTimeout(() => fetchStaff(), 0); }, []);
+    useEffect(() => { setTimeout(() => fetchStaff(), 0); }, [fetchStaff]);
 
     const handleAdd = async (e: React.FormEvent) => {
         e.preventDefault();
@@ -370,6 +375,11 @@ export default function StaffPage() {
                     <p className="text-sm text-muted-foreground mt-1">{filteredStaff.length} {txt.of} {staff.length} {txt.subtitle}</p>
                 </div>
                 <div className="flex items-center gap-3 w-full sm:w-auto">
+                    <BranchSelector
+                        branches={branches}
+                        selectedBranchId={selectedBranchId}
+                        onSelect={setSelectedBranchId}
+                    />
                     <select className="input-dark min-w-[180px]" value={roleFilter} onChange={(e) => setRoleFilter(e.target.value as StaffRoleFilter)}>
                         <option value="ALL">{txt.allRoles}</option>
                         {STAFF_ROLES.map((role) => (
@@ -678,4 +688,3 @@ export default function StaffPage() {
         </div>
     );
 }
-

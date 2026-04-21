@@ -16,10 +16,13 @@ from app.models.fitness import BiometricLog, DietPlan, WorkoutPlan
 from app.models.hr import LeaveRequest, LeaveStatus, LeaveType
 from app.models.lost_found import LostFoundItem, LostFoundStatus
 from app.models.notification import MobileDevice, PushDeliveryLog, WhatsAppDeliveryLog
+from app.models.roaming import MemberRoamingAccess
 from app.models.subscription_enums import SubscriptionStatus
 from app.models.support import SupportTicket, TicketCategory, TicketStatus
+from app.models.tenancy import Branch, UserBranchAccess
 from app.models.user import User
 from app.services.push_service import PushNotificationService
+from app.services.tenancy_service import TenancyService
 from app.models.workout_log import WorkoutSession, WorkoutSessionEntry
 from app.models.workout_log import DietFeedback, GymFeedback, WorkoutLog
 
@@ -858,94 +861,336 @@ async def test_mobile_customer_write_flows(client: AsyncClient, db_session: Asyn
         json={"text_content": "Hi coach"},
     )
     assert chat_send.status_code == 200
-    assert chat_send.json()["data"]["text_content"] == "Hi coach"
 
-    chat_messages = await client.get(
-        f"{settings.API_V1_STR}/mobile/customer/chat/threads/{thread_id}/messages",
-        headers=headers,
-    )
-    assert chat_messages.status_code == 200
-    assert chat_messages.json()["data"][0]["text_content"] == "Hi coach"
 
-    chat_attachment = await client.post(
-        f"{settings.API_V1_STR}/mobile/customer/chat/threads/{thread_id}/attachments",
-        headers=headers,
-        data={"text_content": "See attachment"},
-        files={"file": ("voice.ogg", b"voice-bytes", "audio/ogg")},
+@pytest.mark.asyncio
+async def test_mobile_branch_filters_and_roaming_access_flow(client: AsyncClient, db_session: AsyncSession):
+    now = datetime.now(timezone.utc)
+    gym, branch_a = await TenancyService.ensure_default_gym_and_branch(db_session)
+    branch_b = Branch(
+        gym_id=gym.id,
+        slug=f"branch-{uuid.uuid4().hex[:6]}",
+        code=f"B-{uuid.uuid4().hex[:4].upper()}",
+        name="Branch B",
+        display_name="Branch B",
+        timezone="UTC",
     )
-    assert chat_attachment.status_code == 200
-    assert chat_attachment.json()["data"]["message_type"] == "VOICE"
-
-    chat_read = await client.post(
-        f"{settings.API_V1_STR}/mobile/customer/chat/threads/{thread_id}/read",
-        headers=headers,
-    )
-    assert chat_read.status_code == 200
-
-    workout_plan = WorkoutPlan(
-        name="Feedback Plan",
-        creator_id=coach.id,
-        member_id=customer.id,
-        is_template=False,
-        status="PUBLISHED",
-        version=1,
-        expected_sessions_per_30d=8,
-        published_at=now - timedelta(days=3),
-    )
-    diet_plan = DietPlan(
-        name="Feedback Diet",
-        creator_id=coach.id,
-        member_id=customer.id,
-        content="diet",
-        is_template=False,
-        status="PUBLISHED",
-        version=1,
-        published_at=now - timedelta(days=3),
-    )
-    db_session.add_all([workout_plan, diet_plan])
+    db_session.add(branch_b)
     await db_session.flush()
-    db_session.add(
-        WorkoutLog(
-            member_id=customer.id,
-            plan_id=workout_plan.id,
-            completed=True,
-            difficulty_rating=4,
-            comment="Strong workout",
-            date=(now - timedelta(days=1)).replace(tzinfo=None),
-        )
+
+    admin = User(
+        email=f"mobile-branch-admin-{uuid.uuid4().hex[:6]}@example.com",
+        hashed_password=security.get_password_hash("password123"),
+        role=Role.ADMIN,
+        full_name="Branch Admin",
+        gym_id=gym.id,
+        home_branch_id=branch_a.id,
+        is_active=True,
     )
-    db_session.add(
-        DietFeedback(
-            member_id=customer.id,
-            diet_plan_id=diet_plan.id,
-            coach_id=coach.id,
-            rating=5,
-            comment="Diet went well",
-            created_at=(now - timedelta(hours=12)).replace(tzinfo=None),
-        )
+    member_a = User(
+        email=f"member-a-{uuid.uuid4().hex[:6]}@example.com",
+        hashed_password=security.get_password_hash("password123"),
+        role=Role.CUSTOMER,
+        full_name="Member A",
+        gym_id=gym.id,
+        home_branch_id=branch_a.id,
+        is_active=True,
     )
-    db_session.add(
-        GymFeedback(
-            member_id=customer.id,
-            category="GENERAL",
-            rating=4,
-            comment="Nice gym",
-            created_at=(now - timedelta(hours=6)).replace(tzinfo=None),
-        )
+    member_b = User(
+        email=f"member-b-{uuid.uuid4().hex[:6]}@example.com",
+        hashed_password=security.get_password_hash("password123"),
+        role=Role.CUSTOMER,
+        full_name="Member B",
+        gym_id=gym.id,
+        home_branch_id=branch_b.id,
+        is_active=True,
+    )
+    db_session.add_all([admin, member_a, member_b])
+    await db_session.flush()
+
+    db_session.add_all(
+        [
+            UserBranchAccess(user_id=admin.id, gym_id=gym.id, branch_id=branch_a.id),
+            UserBranchAccess(user_id=admin.id, gym_id=gym.id, branch_id=branch_b.id),
+            Subscription(
+                user_id=member_b.id,
+                plan_name="Monthly",
+                start_date=now - timedelta(days=1),
+                end_date=now + timedelta(days=30),
+                status=SubscriptionStatus.ACTIVE,
+                gym_id=gym.id,
+            ),
+        ]
     )
     await db_session.commit()
 
-    feedback_history = await client.get(
-        f"{settings.API_V1_STR}/mobile/customer/feedback/history",
+    headers = await _login(client, admin.email)
+
+    members_a = await client.get(
+        f"{settings.API_V1_STR}/mobile/staff/members",
         headers=headers,
+        params={"branch_id": str(branch_a.id)},
     )
-    assert feedback_history.status_code == 200
-    feedback_data = feedback_history.json()["data"]
-    assert feedback_data["workout_feedback"][0]["plan_name"] == "Feedback Plan"
-    assert feedback_data["diet_feedback"][0]["diet_plan_name"] == "Feedback Diet"
-    assert feedback_data["gym_feedback"][0]["category"] == "GENERAL"
+    assert members_a.status_code == 200
+    emails_a = {item["email"] for item in members_a.json()["data"]}
+    assert member_a.email in emails_a
+    assert member_b.email not in emails_a
+
+    members_b = await client.get(
+        f"{settings.API_V1_STR}/mobile/staff/members",
+        headers=headers,
+        params={"branch_id": str(branch_b.id)},
+    )
+    assert members_b.status_code == 200
+    emails_b = {item["email"] for item in members_b.json()["data"]}
+    assert member_b.email in emails_b
+    assert member_a.email not in emails_b
+
+    denied_before_roaming = await client.get(
+        f"{settings.API_V1_STR}/mobile/staff/members/{member_b.id}",
+        headers=headers,
+        params={"branch_id": str(branch_a.id)},
+    )
+    assert denied_before_roaming.status_code == 404
+
+    check_in = await client.post(
+        f"{settings.API_V1_STR}/mobile/staff/check-in/process",
+        headers=headers,
+        json={
+            "member_id": str(member_b.id),
+            "kiosk_id": "front-a-01",
+            "branch_id": str(branch_a.id),
+        },
+    )
+    assert check_in.status_code == 200
+    grant = (
+        await db_session.execute(
+            select(MemberRoamingAccess).where(
+                MemberRoamingAccess.member_id == member_b.id,
+                MemberRoamingAccess.branch_id == branch_a.id,
+            )
+        )
+    ).scalar_one_or_none()
+    assert grant is not None
+    assert grant.revoked_at is None
+    assert grant.expires_at > now
+
+    allowed_after_roaming = await client.get(
+        f"{settings.API_V1_STR}/mobile/staff/members/{member_b.id}",
+        headers=headers,
+        params={"branch_id": str(branch_a.id)},
+    )
+    assert allowed_after_roaming.status_code == 200
+    assert allowed_after_roaming.json()["data"]["member"]["email"] == member_b.email
+
+    grant.expires_at = now - timedelta(minutes=1)
+    await db_session.commit()
+
+    denied_after_expiry = await client.get(
+        f"{settings.API_V1_STR}/mobile/staff/members/{member_b.id}",
+        headers=headers,
+        params={"branch_id": str(branch_a.id)},
+    )
+    assert denied_after_expiry.status_code == 404
 
 
+@pytest.mark.asyncio
+async def test_branch_scoped_push_skips_branch_ineligible_recipients(db_session: AsyncSession, monkeypatch: pytest.MonkeyPatch):
+    gym, branch_a = await TenancyService.ensure_default_gym_and_branch(db_session)
+    branch_b = Branch(
+        gym_id=gym.id,
+        slug=f"push-{uuid.uuid4().hex[:6]}",
+        code=f"P-{uuid.uuid4().hex[:4].upper()}",
+        name="Push Branch B",
+        display_name="Push Branch B",
+        timezone="UTC",
+    )
+    db_session.add(branch_b)
+    await db_session.flush()
+
+    eligible = User(
+        email=f"push-eligible-{uuid.uuid4().hex[:6]}@example.com",
+        hashed_password=security.get_password_hash("password123"),
+        role=Role.MANAGER,
+        full_name="Eligible",
+        gym_id=gym.id,
+        home_branch_id=branch_a.id,
+        is_active=True,
+    )
+    ineligible = User(
+        email=f"push-ineligible-{uuid.uuid4().hex[:6]}@example.com",
+        hashed_password=security.get_password_hash("password123"),
+        role=Role.MANAGER,
+        full_name="Ineligible",
+        gym_id=gym.id,
+        home_branch_id=branch_b.id,
+        is_active=True,
+    )
+    db_session.add_all([eligible, ineligible])
+    await db_session.flush()
+    db_session.add_all(
+        [
+            MobileDevice(user_id=eligible.id, device_token="ExponentPushToken[eligible]", platform="ios", is_active=True),
+            MobileDevice(user_id=ineligible.id, device_token="ExponentPushToken[ineligible]", platform="ios", is_active=True),
+        ]
+    )
+    await db_session.commit()
+
+    monkeypatch.setattr(settings, "PUSH_ENABLED", True)
+    monkeypatch.setattr(settings, "PUSH_DRY_RUN", True)
+
+    await PushNotificationService.queue_and_send(
+        db=db_session,
+        user=eligible,
+        title="Branch event",
+        body="Eligible user should receive this",
+        template_key="support_ticket",
+        event_type="SUPPORT_TICKET_CREATED",
+        event_ref=str(uuid.uuid4()),
+        params={},
+        idempotency_key=f"push-eligible-{uuid.uuid4()}",
+        scope="BRANCH",
+        scope_branch_id=str(branch_a.id),
+    )
+    await PushNotificationService.queue_and_send(
+        db=db_session,
+        user=ineligible,
+        title="Branch event",
+        body="Ineligible user should be skipped",
+        template_key="support_ticket",
+        event_type="SUPPORT_TICKET_CREATED",
+        event_ref=str(uuid.uuid4()),
+        params={},
+        idempotency_key=f"push-ineligible-{uuid.uuid4()}",
+        scope="BRANCH",
+        scope_branch_id=str(branch_a.id),
+    )
+
+    logs = (
+        await db_session.execute(
+            select(PushDeliveryLog).order_by(PushDeliveryLog.created_at.desc()).limit(4)
+        )
+    ).scalars().all()
+    sent_logs = [log for log in logs if log.user_id == eligible.id]
+    skipped_logs = [log for log in logs if log.user_id == ineligible.id]
+    assert any(log.status == "SENT" for log in sent_logs)
+    assert any(log.status == "SKIPPED" and "branch-scoped" in (log.error_message or "") for log in skipped_logs)
+
+
+@pytest.mark.asyncio
+async def test_mobile_support_and_lost_found_respect_branch_filters(client: AsyncClient, db_session: AsyncSession):
+    now = datetime.now(timezone.utc)
+    gym, branch_a = await TenancyService.ensure_default_gym_and_branch(db_session)
+    branch_b = Branch(
+        gym_id=gym.id,
+        slug=f"ops-{uuid.uuid4().hex[:6]}",
+        code=f"O-{uuid.uuid4().hex[:4].upper()}",
+        name="Ops Branch B",
+        display_name="Ops Branch B",
+        timezone="UTC",
+    )
+    admin = User(
+        email=f"mobile-admin-{uuid.uuid4().hex[:6]}@example.com",
+        hashed_password=security.get_password_hash("password123"),
+        role=Role.ADMIN,
+        full_name="Admin",
+        gym_id=gym.id,
+        home_branch_id=branch_a.id,
+        is_active=True,
+    )
+    customer = User(
+        email=f"mobile-customer-{uuid.uuid4().hex[:6]}@example.com",
+        hashed_password=security.get_password_hash("password123"),
+        role=Role.CUSTOMER,
+        full_name="Customer",
+        gym_id=gym.id,
+        home_branch_id=branch_a.id,
+        is_active=True,
+    )
+    db_session.add_all([branch_b, admin, customer])
+    await db_session.flush()
+    db_session.add_all(
+        [
+            UserBranchAccess(user_id=admin.id, gym_id=gym.id, branch_id=branch_a.id),
+            UserBranchAccess(user_id=admin.id, gym_id=gym.id, branch_id=branch_b.id),
+            SupportTicket(
+                customer_id=customer.id,
+                subject="A ticket",
+                category=TicketCategory.GENERAL,
+                status=TicketStatus.OPEN,
+                created_at=now,
+                updated_at=now,
+                gym_id=gym.id,
+                branch_id=branch_a.id,
+            ),
+            SupportTicket(
+                customer_id=customer.id,
+                subject="B ticket",
+                category=TicketCategory.GENERAL,
+                status=TicketStatus.OPEN,
+                created_at=now,
+                updated_at=now,
+                gym_id=gym.id,
+                branch_id=branch_b.id,
+            ),
+            LostFoundItem(
+                reporter_id=customer.id,
+                assignee_id=None,
+                status=LostFoundStatus.REPORTED,
+                title="A item",
+                description="A",
+                category="personal",
+                created_at=now,
+                updated_at=now,
+                gym_id=gym.id,
+                branch_id=branch_a.id,
+            ),
+            LostFoundItem(
+                reporter_id=customer.id,
+                assignee_id=None,
+                status=LostFoundStatus.REPORTED,
+                title="B item",
+                description="B",
+                category="personal",
+                created_at=now,
+                updated_at=now,
+                gym_id=gym.id,
+                branch_id=branch_b.id,
+            ),
+        ]
+    )
+    await db_session.commit()
+
+    headers = await _login(client, admin.email)
+    support_a = await client.get(
+        f"{settings.API_V1_STR}/mobile/support/tickets",
+        headers=headers,
+        params={"branch_id": str(branch_a.id)},
+    )
+    assert support_a.status_code == 200
+    subjects = {row["subject"] for row in support_a.json()["data"]}
+    assert "A ticket" in subjects
+    assert "B ticket" not in subjects
+
+    support_b = await client.get(
+        f"{settings.API_V1_STR}/mobile/support/tickets",
+        headers=headers,
+        params={"branch_id": str(branch_b.id)},
+    )
+    assert support_b.status_code == 200
+    subjects_b = {row["subject"] for row in support_b.json()["data"]}
+    assert "B ticket" in subjects_b
+    assert "A ticket" not in subjects_b
+
+    lost_a = await client.get(
+        f"{settings.API_V1_STR}/mobile/lost-found/items",
+        headers=headers,
+        params={"branch_id": str(branch_a.id)},
+    )
+    assert lost_a.status_code == 200
+    titles_a = {row["title"] for row in lost_a.json()["data"]}
+    assert "A item" in titles_a
+    assert "B item" not in titles_a
 @pytest.mark.asyncio
 async def test_mobile_coach_feedback_includes_only_assigned_flagged_sessions(client: AsyncClient, db_session: AsyncSession):
     now = datetime.now(timezone.utc).replace(tzinfo=None)

@@ -6,6 +6,7 @@ from sqlalchemy.dialects.postgresql import UUID as PGUUID
 from sqlalchemy.orm import relationship
 
 from app.database import Base
+from app.models.tenancy import BranchScopedMixin, GymScopedMixin
 
 
 class TicketCategory(str, enum.Enum):
@@ -22,7 +23,7 @@ class TicketStatus(str, enum.Enum):
     CLOSED = "CLOSED"
 
 
-class SupportTicket(Base):
+class SupportTicket(BranchScopedMixin, Base):
     __tablename__ = "support_tickets"
 
     id = Column(PGUUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
@@ -38,7 +39,7 @@ class SupportTicket(Base):
     messages = relationship("SupportMessage", back_populates="ticket", cascade="all, delete-orphan", order_by="SupportMessage.created_at")
 
 
-class SupportMessage(Base):
+class SupportMessage(GymScopedMixin, Base):
     __tablename__ = "support_messages"
 
     id = Column(PGUUID(as_uuid=True), primary_key=True, default=uuid.uuid4)

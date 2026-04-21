@@ -6,11 +6,13 @@ from typing import TypeVar
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.auth import schemas
-from app.config import settings
+from app.database import set_rls_context
 from app.models.enums import Role
 from app.models.notification import MobileNotificationPreference
+from app.models.tenancy import Branch, Gym
 from app.models.user import User
 from app.services.subscription_status_service import SubscriptionAccessState, SubscriptionStatusService
+from app.services.tenancy_service import TenancyService
 
 T = TypeVar("T")
 
@@ -113,22 +115,21 @@ class MobileBootstrapService:
         *,
         current_user: User,
         db: AsyncSession,
+        is_impersonated: bool = False,
     ) -> schemas.MobileBootstrap:
-        enriched_user = await cls.build_user_response(current_user=current_user, db=db)
+        enriched_user = await cls.build_user_response(current_user=current_user, db=db, is_impersonated=is_impersonated)
         subscription = await cls.get_subscription_snapshot(current_user=current_user, db=db)
+        gym = await cls.get_gym_branding(current_user=current_user, db=db)
+        accessible_branches = await cls.get_accessible_branches(current_user=current_user, db=db)
+        home_branch = await cls.get_home_branch(current_user=current_user, db=db)
 
         return schemas.MobileBootstrap(
             user=enriched_user,
             role=current_user.role,
             subscription=subscription,
-            gym=schemas.GymBranding(
-                gym_name=settings.GYM_NAME or settings.PROJECT_NAME,
-                logo_url=settings.GYM_LOGO_URL,
-                primary_color=settings.GYM_PRIMARY_COLOR,
-                secondary_color=settings.GYM_SECONDARY_COLOR,
-                support_email=settings.GYM_SUPPORT_EMAIL,
-                support_phone=settings.GYM_SUPPORT_PHONE,
-            ),
+            gym=gym,
+            home_branch=home_branch,
+            accessible_branches=accessible_branches,
             capabilities=list(cls._values_for_role(cls._ROLE_CAPABILITIES, current_user.role)),
             enabled_modules=list(cls._values_for_role(cls._ROLE_MODULES, current_user.role)),
             notification_settings=await cls.get_notification_preferences(current_user=current_user, db=db),
@@ -140,11 +141,14 @@ class MobileBootstrapService:
         *,
         current_user: User,
         db: AsyncSession,
+        is_impersonated: bool = False,
     ) -> schemas.UserResponse:
         state = await cls._get_subscription_state(current_user=current_user, db=db)
         return schemas.UserResponse(
             id=current_user.id,
             email=current_user.email,
+            gym_id=current_user.gym_id,
+            home_branch_id=current_user.home_branch_id,
             full_name=current_user.full_name,
             is_active=current_user.is_active,
             role=current_user.role,
@@ -158,6 +162,7 @@ class MobileBootstrapService:
             subscription_plan_name=state.subscription_plan_name,
             is_subscription_blocked=state.is_subscription_blocked,
             block_reason=state.block_reason,
+            is_impersonated=is_impersonated,
         )
 
     @classmethod
@@ -183,7 +188,34 @@ class MobileBootstrapService:
         current_user: User,
         db: AsyncSession,
     ) -> schemas.NotificationPreference:
-        pref = await db.get(MobileNotificationPreference, current_user.id)
+        snapshot = None
+        if current_user.role == Role.CUSTOMER:
+            snapshot = (
+                db.info.get("rls_user_id", ""),
+                db.info.get("rls_user_role", "ANONYMOUS"),
+                db.info.get("rls_gym_id", ""),
+                db.info.get("rls_branch_id", ""),
+            )
+            await set_rls_context(
+                db,
+                user_id=str(current_user.id),
+                role=Role.ADMIN.value,
+                gym_id=str(current_user.gym_id) if current_user.gym_id else snapshot[2],
+                branch_id=str(current_user.home_branch_id) if current_user.home_branch_id else snapshot[3],
+            )
+
+        try:
+            pref = await db.get(MobileNotificationPreference, current_user.id)
+        finally:
+            if snapshot is not None:
+                await set_rls_context(
+                    db,
+                    user_id=snapshot[0],
+                    role=snapshot[1],
+                    gym_id=snapshot[2],
+                    branch_id=snapshot[3],
+                )
+
         if pref is None:
             return schemas.NotificationPreference()
         return schemas.NotificationPreference(
@@ -193,6 +225,40 @@ class MobileBootstrapService:
             billing_enabled=pref.billing_enabled,
             announcements_enabled=pref.announcements_enabled,
         )
+
+    @classmethod
+    async def get_gym_branding(
+        cls,
+        *,
+        current_user: User,
+        db: AsyncSession,
+    ) -> schemas.GymBranding:
+        gym = await db.get(Gym, current_user.gym_id)
+        if gym is None:
+            gym, _ = await TenancyService.ensure_default_gym_and_branch(db)
+        return schemas.GymBranding(
+            gym_id=gym.id,
+            gym_name=gym.name,
+            brand_name=gym.brand_name,
+            logo_url=gym.logo_url,
+            primary_color=gym.primary_color,
+            secondary_color=gym.secondary_color,
+            support_email=gym.support_email,
+            support_phone=gym.support_phone,
+            plan_tier=gym.plan_tier,
+            deployment_mode=gym.deployment_mode,
+            public_web_domain=gym.public_web_domain,
+            mobile_shell_key=gym.mobile_shell_key,
+        )
+
+    @classmethod
+    async def get_accessible_branches(
+        cls,
+        *,
+        current_user: User,
+        db: AsyncSession,
+    ) -> list[schemas.BranchSummary]:
+        return [cls._branch_summary(branch) for branch in await TenancyService.get_accessible_branches(db, user=current_user)]
 
     @staticmethod
     async def _get_subscription_state(
@@ -214,3 +280,29 @@ class MobileBootstrapService:
     @staticmethod
     def _values_for_role(mapping: dict[Role, tuple[T, ...]], role: Role) -> Iterable[T]:
         return mapping.get(role, ())
+
+    @staticmethod
+    def _branch_summary(branch) -> schemas.BranchSummary:
+        return schemas.BranchSummary(
+            id=branch.id,
+            gym_id=branch.gym_id,
+            name=branch.name,
+            display_name=branch.display_name,
+            code=branch.code,
+            slug=branch.slug,
+            timezone=branch.timezone,
+            phone=branch.phone,
+            email=branch.email,
+        )
+
+    @classmethod
+    async def get_home_branch(
+        cls,
+        *,
+        current_user: User,
+        db: AsyncSession,
+    ) -> schemas.BranchSummary | None:
+        if current_user.home_branch_id is None:
+            return None
+        branch = await db.get(Branch, current_user.home_branch_id)
+        return cls._branch_summary(branch) if branch else None

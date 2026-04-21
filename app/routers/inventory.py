@@ -1,7 +1,7 @@
 from typing import Annotated, Optional
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select
+from sqlalchemy import false, select
 from pydantic import BaseModel, Field
 import uuid
 from datetime import datetime, timezone, timedelta
@@ -13,16 +13,29 @@ from app.models.enums import Role
 from app.models.inventory import Product, ProductCategory
 from app.models.finance import Transaction, TransactionType, TransactionCategory, PaymentMethod
 from app.services.audit_service import AuditService
+from app.services.tenancy_service import TenancyService
 from app.core.responses import StandardResponse
 
 router = APIRouter()
 
 
-async def _get_product_or_404(db: AsyncSession, product_id: uuid.UUID) -> Product:
-    result = await db.execute(select(Product).where(Product.id == product_id))
+async def _get_product_or_404(db: AsyncSession, *, current_user: User, product_id: uuid.UUID) -> Product:
+    result = await db.execute(
+        select(Product).where(
+            Product.id == product_id,
+            Product.gym_id == current_user.gym_id,
+        )
+    )
     product = result.scalar_one_or_none()
     if not product:
         raise HTTPException(status_code=404, detail="Product not found")
+    if product.branch_id is not None:
+        await TenancyService.require_branch_access(
+            db,
+            current_user=current_user,
+            branch_id=product.branch_id,
+            allow_all_for_admin=current_user.role == Role.ADMIN,
+        )
     return product
 
 
@@ -65,6 +78,7 @@ def _serialize_transaction(transaction: Transaction) -> dict:
 
 class ProductCreate(BaseModel):
     name: str
+    branch_id: uuid.UUID | None = None
     sku: str | None = None
     category: ProductCategory = ProductCategory.OTHER
     price: float
@@ -89,6 +103,7 @@ class ProductUpdate(BaseModel):
 
 class ProductResponse(BaseModel):
     id: uuid.UUID
+    branch_id: uuid.UUID | None
     name: str
     sku: str | None
     category: ProductCategory
@@ -140,7 +155,15 @@ async def create_product(
     db: Annotated[AsyncSession, Depends(get_db)]
 ):
     """Create a new product in inventory."""
-    product = Product(**data.model_dump())
+    branch_id = data.branch_id or current_user.home_branch_id
+    if branch_id is not None:
+        await TenancyService.require_branch_access(
+            db,
+            current_user=current_user,
+            branch_id=branch_id,
+            allow_all_for_admin=True,
+        )
+    product = Product(**data.model_dump(exclude={"branch_id"}), branch_id=branch_id)
     db.add(product)
     await db.commit()
     await db.refresh(product)
@@ -164,9 +187,20 @@ async def list_products(
     search: Optional[str] = Query(None),
     category: Optional[ProductCategory] = Query(None),
     show_inactive: bool = Query(False),
+    branch_id: uuid.UUID | None = Query(None),
 ):
     """List inventory products with optional filters."""
     stmt = select(Product)
+    branch_ids = await TenancyService.branch_scope_ids(
+        db,
+        current_user=current_user,
+        branch_id=branch_id,
+        allow_all_for_admin=current_user.role == Role.ADMIN,
+    )
+    if branch_ids:
+        stmt = stmt.where(Product.branch_id.in_(branch_ids))
+    else:
+        stmt = stmt.where(false())
     if not show_inactive:
         stmt = stmt.where(Product.is_active.is_(True))
     if category:
@@ -183,7 +217,8 @@ async def list_products(
 @router.get("/products/low-stock", response_model=StandardResponse[list[ProductResponse]])
 async def get_low_stock_products(
     current_user: Annotated[User, Depends(dependencies.RoleChecker([Role.ADMIN, Role.EMPLOYEE, Role.CASHIER]))],
-    db: Annotated[AsyncSession, Depends(get_db)]
+    db: Annotated[AsyncSession, Depends(get_db)],
+    branch_id: uuid.UUID | None = Query(None),
 ):
     """Fetch products that have reached or fallen below their low stock threshold."""
     now = datetime.now(timezone.utc)
@@ -194,6 +229,16 @@ async def get_low_stock_products(
         .where((Product.low_stock_snoozed_until.is_(None)) | (Product.low_stock_snoozed_until <= now))
         .order_by(Product.stock_quantity.asc())
     )
+    branch_ids = await TenancyService.branch_scope_ids(
+        db,
+        current_user=current_user,
+        branch_id=branch_id,
+        allow_all_for_admin=current_user.role == Role.ADMIN,
+    )
+    if branch_ids:
+        stmt = stmt.where(Product.branch_id.in_(branch_ids))
+    else:
+        stmt = stmt.where(false())
     result = await db.execute(stmt)
     products = result.scalars().all()
     return StandardResponse(data=[ProductResponse.model_validate(p) for p in products])
@@ -205,7 +250,7 @@ async def acknowledge_low_stock(
     current_user: Annotated[User, Depends(dependencies.RoleChecker([Role.ADMIN, Role.EMPLOYEE, Role.CASHIER]))],
     db: Annotated[AsyncSession, Depends(get_db)],
 ):
-    product = await _get_product_or_404(db, product_id)
+    product = await _get_product_or_404(db, current_user=current_user, product_id=product_id)
 
     product.low_stock_acknowledged_at = datetime.now(timezone.utc)
     await db.commit()
@@ -229,7 +274,7 @@ async def snooze_low_stock(
     current_user: Annotated[User, Depends(dependencies.RoleChecker([Role.ADMIN, Role.EMPLOYEE, Role.CASHIER]))],
     db: Annotated[AsyncSession, Depends(get_db)],
 ):
-    product = await _get_product_or_404(db, product_id)
+    product = await _get_product_or_404(db, current_user=current_user, product_id=product_id)
 
     product.low_stock_snoozed_until = datetime.now(timezone.utc) + timedelta(hours=request.hours)
     await db.commit()
@@ -253,7 +298,7 @@ async def set_low_stock_restock_target(
     current_user: Annotated[User, Depends(dependencies.RoleChecker([Role.ADMIN, Role.EMPLOYEE, Role.CASHIER]))],
     db: Annotated[AsyncSession, Depends(get_db)],
 ):
-    product = await _get_product_or_404(db, product_id)
+    product = await _get_product_or_404(db, current_user=current_user, product_id=product_id)
 
     product.low_stock_restock_target = request.target_quantity
     await db.commit()
@@ -278,7 +323,7 @@ async def update_product(
     db: Annotated[AsyncSession, Depends(get_db)]
 ):
     """Update a product's details or stock."""
-    product = await _get_product_or_404(db, product_id)
+    product = await _get_product_or_404(db, current_user=current_user, product_id=product_id)
 
     update_data = data.model_dump(exclude_unset=True)
     for key, value in update_data.items():
@@ -305,7 +350,7 @@ async def delete_product(
     db: Annotated[AsyncSession, Depends(get_db)]
 ):
     """Soft-delete a product (set is_active=False)."""
-    product = await _get_product_or_404(db, product_id)
+    product = await _get_product_or_404(db, current_user=current_user, product_id=product_id)
 
     product.is_active = False
     await db.commit()
@@ -330,14 +375,25 @@ async def pos_sell(
     db: Annotated[AsyncSession, Depends(get_db)]
 ):
     """Process a POS sale: decrement stock and create a financial transaction."""
-    product = await _get_product_or_404(db, data.product_id)
+    product = await _get_product_or_404(db, current_user=current_user, product_id=data.product_id)
     if not product.is_active:
         raise HTTPException(status_code=400, detail="Product is no longer available")
     if product.stock_quantity < data.quantity:
         raise HTTPException(status_code=400, detail=f"Insufficient stock. Available: {product.stock_quantity}")
 
+    if data.member_id is not None:
+        await TenancyService.require_user_in_gym(
+            db,
+            current_user=current_user,
+            user_id=data.member_id,
+            detail="Member not found",
+        )
+
     if data.idempotency_key:
-        existing_stmt = select(Transaction).where(Transaction.idempotency_key == data.idempotency_key)
+        existing_stmt = select(Transaction).where(
+            Transaction.idempotency_key == data.idempotency_key,
+            Transaction.gym_id == current_user.gym_id,
+        )
         existing_result = await db.execute(existing_stmt)
         existing_transaction = existing_result.scalar_one_or_none()
         if existing_transaction:
@@ -364,6 +420,7 @@ async def pos_sell(
         description=f"POS: {data.quantity}x {product.name}",
         payment_method=data.payment_method,
         user_id=data.member_id,
+        branch_id=product.branch_id,
         idempotency_key=data.idempotency_key,
         date=datetime.now(timezone.utc),
     )
@@ -393,6 +450,7 @@ async def recent_sales(
     current_user: Annotated[User, Depends(dependencies.RoleChecker([Role.ADMIN, Role.EMPLOYEE, Role.CASHIER]))],
     db: Annotated[AsyncSession, Depends(get_db)],
     limit: int = Query(20, ge=1, le=100),
+    branch_id: uuid.UUID | None = Query(None),
 ):
     """Get recent POS sale transactions."""
     stmt = (
@@ -401,6 +459,16 @@ async def recent_sales(
         .order_by(Transaction.date.desc())
         .limit(limit)
     )
+    branch_ids = await TenancyService.branch_scope_ids(
+        db,
+        current_user=current_user,
+        branch_id=branch_id,
+        allow_all_for_admin=current_user.role == Role.ADMIN,
+    )
+    if branch_ids:
+        stmt = stmt.where(Transaction.branch_id.in_(branch_ids))
+    else:
+        stmt = stmt.where(false())
     result = await db.execute(stmt)
     transactions = result.scalars().all()
     serialized = [_serialize_transaction(transaction) for transaction in transactions]

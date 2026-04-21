@@ -6,6 +6,7 @@ from sqlalchemy import Enum as SAEnum, ForeignKey, Float, Integer, Date, DateTim
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from app.database import Base
 from app.models.finance import PaymentMethod
+from app.models.tenancy import GymScopedMixin
 
 class ContractType(str, Enum):
     FULL_TIME = "FULL_TIME"
@@ -28,7 +29,7 @@ class LeaveType(str, Enum):
     VACATION = "VACATION"
     OTHER = "OTHER"
 
-class Contract(Base):
+class Contract(GymScopedMixin, Base):
     __tablename__ = "contracts"
 
     id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
@@ -46,7 +47,7 @@ class Contract(Base):
 
     user = relationship("User", backref="contract")
 
-class Payroll(Base):
+class Payroll(GymScopedMixin, Base):
     __tablename__ = "payrolls"
     __table_args__ = (
         UniqueConstraint("user_id", "month", "year", name="uq_payroll_user_month_year"),
@@ -74,7 +75,7 @@ class Payroll(Base):
     payments = relationship("PayrollPayment", back_populates="payroll", cascade="all, delete-orphan")
 
 
-class PayrollPayment(Base):
+class PayrollPayment(GymScopedMixin, Base):
     __tablename__ = "payroll_payments"
 
     id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
@@ -91,13 +92,16 @@ class PayrollPayment(Base):
     paid_by_user = relationship("User")
 
 
-class PayrollSettings(Base):
+class PayrollSettings(GymScopedMixin, Base):
     __tablename__ = "payroll_settings"
+    __table_args__ = (
+        UniqueConstraint("gym_id", name="uq_payroll_settings_gym"),
+    )
 
-    id: Mapped[int] = mapped_column(Integer, primary_key=True, default=1)
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
     salary_cutoff_day: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
 
-class LeaveRequest(Base):
+class LeaveRequest(GymScopedMixin, Base):
     __tablename__ = "leave_requests"
     
     id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)

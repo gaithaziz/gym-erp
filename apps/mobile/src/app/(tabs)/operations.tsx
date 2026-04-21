@@ -33,14 +33,20 @@ function staffTransactionTitle(description: string | undefined, copy: ReturnType
 }
 
 export default function OperationsTab() {
-  const router = useRouter();
-  const { authorizedRequest, bootstrap } = useSession();
-  const { copy, direction, fontSet, isRTL, theme } = usePreferences();
+  const { bootstrap } = useSession();
   const role = getCurrentRole(bootstrap);
 
   if (isAdminControlRole(role)) {
     return <AdminOperationsTab />;
   }
+  return <StaffOperationsTab />;
+}
+
+function StaffOperationsTab() {
+  const router = useRouter();
+  const { authorizedRequest, bootstrap } = useSession();
+  const { copy, direction, fontSet, isRTL, theme } = usePreferences();
+  const role = getCurrentRole(bootstrap);
 
   const transactionsQuery = useQuery({
     queryKey: ["mobile-staff-transactions"],

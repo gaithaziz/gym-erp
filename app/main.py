@@ -26,23 +26,26 @@ from app.routers.lost_found import router as lost_found_router
 from app.routers.support import router as support_router
 from app.routers.mobile import router as mobile_router
 from app.routers.classes import router as classes_router
+from app.routers.system_admin import router as system_admin_router
 from app.core import exceptions
 from fastapi.staticfiles import StaticFiles
 import os
 import uuid
-from app.database import AsyncSessionLocal
-from app.models.classes import ClassTemplate
+from app.database import AsyncSessionLocal, engine, set_rls_context
+from app.models.classes import ClassReservation, ClassSession, ClassTemplate
 from app.models.enums import Role
 from app.models.user import User
 from app.services.payroll_automation_service import PayrollAutomationService
+from app.services.tenancy_service import TenancyService
 
 from fastapi.middleware.cors import CORSMiddleware
+from app.core.middleware import MaintenanceMiddleware
 
 logger = logging.getLogger(__name__)
 PAYROLL_SCHEDULER_LOCK_KEY = 995311042
 payroll_scheduler_task: asyncio.Task | None = None
 LOCAL_ADMIN_EMAIL = "admin@gym-erp.com"
-LOCAL_ADMIN_PASSWORD = "password123"
+LOCAL_ADMIN_PASSWORD = "GymPass123!"
 
 app = FastAPI(
     title=settings.PROJECT_NAME,
@@ -74,6 +77,8 @@ app.add_middleware(
     allow_headers=allow_headers,
 )
 
+app.add_middleware(MaintenanceMiddleware)
+
 
 @app.middleware("http")
 async def attach_request_id(request: Request, call_next):
@@ -97,6 +102,7 @@ app.include_router(analytics_router, prefix=f"{settings.API_V1_STR}/analytics", 
 app.include_router(gamification_router, prefix=f"{settings.API_V1_STR}/gamification", tags=["Gamification"])
 app.include_router(inventory_router, prefix=f"{settings.API_V1_STR}/inventory", tags=["Inventory"])
 app.include_router(users_router, prefix=f"{settings.API_V1_STR}/users", tags=["Users"])
+app.include_router(system_admin_router, prefix=f"{settings.API_V1_STR}/system", tags=["System Admin"])
 app.include_router(audit_router, prefix=f"{settings.API_V1_STR}/audit", tags=["Audit"])
 app.include_router(notifications_router, prefix=f"{settings.API_V1_STR}/admin/notifications", tags=["Notifications"])
 app.include_router(chat_router, prefix=f"{settings.API_V1_STR}/chat", tags=["Chat"])
@@ -195,25 +201,36 @@ async def _ensure_local_admin_user() -> None:
         return
 
     async with AsyncSessionLocal() as db:
+        await set_rls_context(db, role="SUPER_ADMIN")
+        gym, branch = await TenancyService.ensure_default_gym_and_branch(db)
+        # Re-set with gym_id to be extra safe
+        await set_rls_context(db, role="SUPER_ADMIN", gym_id=str(gym.id), branch_id=str(branch.id))
         existing = (await db.execute(select(User).where(User.email == LOCAL_ADMIN_EMAIL))).scalar_one_or_none()
         if existing is None:
             db.add(
                 User(
+                    gym_id=gym.id,
                     email=LOCAL_ADMIN_EMAIL,
                     hashed_password=get_password_hash(LOCAL_ADMIN_PASSWORD),
                     full_name="System Admin",
                     role=Role.ADMIN,
                     is_active=True,
+                    home_branch_id=branch.id,
                 )
             )
             logger.info("Created local development admin user: %s", LOCAL_ADMIN_EMAIL)
         else:
+            existing.gym_id = gym.id
             existing.hashed_password = get_password_hash(LOCAL_ADMIN_PASSWORD)
             existing.full_name = existing.full_name or "System Admin"
             existing.role = Role.ADMIN
             existing.is_active = True
+            existing.home_branch_id = branch.id
             logger.info("Reset local development admin password for: %s", LOCAL_ADMIN_EMAIL)
 
+        await db.commit()
+        existing = (await db.execute(select(User).where(User.email == LOCAL_ADMIN_EMAIL))).scalar_one()
+        await TenancyService.ensure_user_branch_access(db, user_id=existing.id, gym_id=gym.id, branch_id=branch.id)
         await db.commit()
 
 
@@ -232,12 +249,34 @@ async def _ensure_demo_classes_seed() -> None:
     await seed_demo_data()
 
 
+from app.services.subscription_automation_service import SubscriptionAutomationService
+
+subscription_scheduler_task: asyncio.Task | None = None
+
+async def _subscription_scheduler_loop() -> None:
+    while True:
+        # Run every 6 hours for gym subscription checks
+        try:
+            async with AsyncSessionLocal() as db:
+                summary = await SubscriptionAutomationService.run(db)
+                if summary["locked"] > 0 or summary["unlocked"] > 0:
+                    logger.info(f"Subscription scheduler: locked={summary['locked']}, unlocked={summary['unlocked']}")
+        except Exception:
+            logger.exception("Subscription scheduler iteration failed")
+        
+        await asyncio.sleep(60 * 60 * 6) # 6 hours
+
 @app.on_event("startup")
-async def startup_payroll_scheduler() -> None:
-    global payroll_scheduler_task
+async def startup_schedulers() -> None:
+    global payroll_scheduler_task, subscription_scheduler_task
     _validate_security_settings()
     await _ensure_local_admin_user()
     await _ensure_demo_classes_seed()
+    
+    # Subscription Scheduler
+    subscription_scheduler_task = asyncio.create_task(_subscription_scheduler_loop())
+    
+    # Payroll Scheduler
     if not settings.PAYROLL_AUTO_ENABLED:
         logger.info("Payroll auto scheduler disabled by config")
         return
@@ -253,15 +292,17 @@ async def startup_payroll_scheduler() -> None:
 
 
 @app.on_event("shutdown")
-async def shutdown_payroll_scheduler() -> None:
-    global payroll_scheduler_task
-    if payroll_scheduler_task and not payroll_scheduler_task.done():
-        payroll_scheduler_task.cancel()
-        try:
-            await payroll_scheduler_task
-        except asyncio.CancelledError:
-            pass
+async def shutdown_schedulers() -> None:
+    global payroll_scheduler_task, subscription_scheduler_task
+    for task in [payroll_scheduler_task, subscription_scheduler_task]:
+        if task and not task.done():
+            task.cancel()
+            try:
+                await task
+            except asyncio.CancelledError:
+                pass
     payroll_scheduler_task = None
+    subscription_scheduler_task = None
 
 
 def _validate_security_settings() -> None:

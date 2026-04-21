@@ -6,6 +6,9 @@ import { Check, X, Edit2, Printer } from 'lucide-react';
 import { useFeedback } from '@/components/FeedbackProvider';
 import { useLocale } from '@/context/LocaleContext';
 import { escapePrintHtml, renderPrintShell } from '@/lib/print';
+import { useBranch } from '@/context/BranchContext';
+import { BranchSelector } from '@/components/BranchSelector';
+import { getBranchParams } from '@/lib/branch';
 
 interface AttendanceLog {
     id: string;
@@ -91,6 +94,7 @@ export default function AttendancePage() {
     const [editIn, setEditIn] = useState('');
     const [editOut, setEditOut] = useState('');
     const [datePreset, setDatePreset] = useState<'all' | 'today' | '7d' | '30d' | 'custom'>('7d');
+    const { branches, selectedBranchId, setSelectedBranchId } = useBranch();
 
     const toDateInput = (d: Date) => {
         const year = d.getFullYear();
@@ -119,6 +123,7 @@ export default function AttendancePage() {
                 params.start_date = startDate;
                 params.end_date = endDate;
             }
+            Object.assign(params, getBranchParams(selectedBranchId));
             const res = await api.get('/hr/attendance', {
                 params,
             });
@@ -128,7 +133,7 @@ export default function AttendancePage() {
             showToast(txt.loadFailed, 'error');
         }
         setLoading(false);
-    }, [PAGE_SIZE, datePreset, endDate, page, showToast, startDate, txt.loadFailed, txt.startAfterEnd]);
+    }, [PAGE_SIZE, datePreset, endDate, page, showToast, startDate, txt.loadFailed, txt.startAfterEnd, selectedBranchId]);
 
     useEffect(() => { setTimeout(() => fetchLogs(), 0); }, [fetchLogs]);
 
@@ -251,7 +256,14 @@ export default function AttendancePage() {
             <div>
                 <h1 className="text-2xl font-bold text-foreground">{txt.attendanceTimesheet}</h1>
                 <p className="text-sm text-muted-foreground mt-1">{txt.attendanceSubtitle}</p>
-                <button className="btn-ghost mt-3" onClick={printAttendance}><Printer size={14} /> {txt.printAttendanceSummary}</button>
+                <div className="flex flex-wrap items-center gap-2 mt-3">
+                    <button className="btn-ghost" onClick={printAttendance}><Printer size={14} /> {txt.printAttendanceSummary}</button>
+                    <BranchSelector 
+                        branches={branches}
+                        selectedBranchId={selectedBranchId}
+                        onSelect={setSelectedBranchId}
+                    />
+                </div>
             </div>
 
             <div className="chart-card p-4 border border-border space-y-3">

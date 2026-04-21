@@ -316,7 +316,6 @@ function StaffHomeTab() {
   const router = useRouter();
   const { bootstrap, authorizedRequest } = useSession();
   const { copy, direction, fontSet, isRTL, theme } = usePreferences();
-  const role = getCurrentRole(bootstrap);
   const homeQuery = useQuery({
     queryKey: ["mobile-staff-home", bootstrap?.role],
     queryFn: async () => parseStaffHomeEnvelope(await authorizedRequest("/mobile/staff/home")).data,

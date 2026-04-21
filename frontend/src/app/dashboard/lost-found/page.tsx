@@ -8,6 +8,8 @@ import Modal from '@/components/Modal';
 import { useFeedback } from '@/components/FeedbackProvider';
 import { useAuth } from '@/context/AuthContext';
 import { useLocale } from '@/context/LocaleContext';
+import { useBranch } from '@/context/BranchContext';
+import { BranchSelector } from '@/components/BranchSelector';
 import { api } from '@/lib/api';
 
 type LostFoundStatus = 'REPORTED' | 'UNDER_REVIEW' | 'READY_FOR_PICKUP' | 'CLOSED' | 'REJECTED' | 'DISPOSED';
@@ -115,6 +117,7 @@ function statusBadgeClass(status: LostFoundStatus): string {
 export default function LostFoundPage() {
     const { locale } = useLocale();
     const { user } = useAuth();
+    const { branches, selectedBranchId, setSelectedBranchId } = useBranch();
     const { showToast, confirm: confirmAction } = useFeedback();
     const txt = locale === 'ar' ? {
         loading: 'جاري تحميل المفقودات والمعثورات...',
@@ -349,6 +352,7 @@ export default function LostFoundPage() {
             const params: Record<string, string | boolean> = {};
             if (statusFilter !== 'ALL') params.status = statusFilter;
             if (isAdmin) params.archived_only = viewMode === 'ARCHIVE';
+            if (selectedBranchId) params.branch_id = selectedBranchId;
             const response = await api.get('/lost-found/items', { params });
             const rows = (response.data?.data || []) as LostFoundItem[];
             setItems(rows);
@@ -359,17 +363,19 @@ export default function LostFoundPage() {
         } catch {
             setItems([]);
         }
-    }, [selectedItemId, statusFilter, isAdmin, viewMode]);
+    }, [selectedItemId, statusFilter, isAdmin, viewMode, selectedBranchId]);
 
     const fetchSummary = useCallback(async () => {
         if (!isHandler) return;
         try {
-            const response = await api.get('/lost-found/summary');
+            const params: Record<string, string> = {};
+            if (selectedBranchId) params.branch_id = selectedBranchId;
+            const response = await api.get('/lost-found/summary', { params });
             setSummary(response.data?.data || null);
         } catch {
             setSummary(null);
         }
-    }, [isHandler]);
+    }, [isHandler, selectedBranchId]);
 
     const fetchHandlers = useCallback(async () => {
         if (!isHandler) return;
@@ -408,6 +414,7 @@ export default function LostFoundPage() {
         try {
             const payload = {
                 ...reportForm,
+                branch_id: selectedBranchId || user?.home_branch_id,
                 found_date: reportForm.found_date || null,
                 found_location: reportForm.found_location || null,
                 contact_note: reportForm.contact_note || null,
@@ -545,7 +552,13 @@ export default function LostFoundPage() {
                     <h1 className="text-2xl font-bold text-foreground">{txt.title}</h1>
                     <p className="text-sm text-muted-foreground">{txt.subtitle}</p>
                 </div>
-                {isAdmin && (
+                <div className="flex items-center gap-3">
+                    <BranchSelector
+                        branches={branches}
+                        selectedBranchId={selectedBranchId}
+                        onSelect={setSelectedBranchId}
+                    />
+                    {isAdmin && (
                     <div className="flex bg-muted p-1 rounded-lg">
                         <button
                             type="button"
@@ -568,6 +581,7 @@ export default function LostFoundPage() {
                     </div>
                 )}
             </div>
+        </div>
 
             {isHandler && summary && (
                 <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">

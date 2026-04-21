@@ -59,10 +59,12 @@ function FinanceReportPrintPageContent() {
                 const category = searchParams.get('category');
                 const startDate = searchParams.get('start_date');
                 const endDate = searchParams.get('end_date');
+                const branchId = searchParams.get('branch_id');
                 if (txType) baseParams.tx_type = txType;
                 if (category) baseParams.category = category;
                 if (startDate) baseParams.start_date = startDate;
                 if (endDate) baseParams.end_date = endDate;
+                if (branchId) baseParams.branch_id = branchId;
 
                 const summaryPromise = api.get('/finance/summary', { params: baseParams });
                 const firstPagePromise = api.get('/finance/transactions', {

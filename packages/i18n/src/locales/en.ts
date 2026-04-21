@@ -29,6 +29,7 @@ export const enMessages = {
       finance: "Finance",
       coaching: "Coaching",
       account: "Account",
+      systemAdmin: "System Administration",
     },
     nav: {
       dashboard: "Dashboard",
@@ -60,6 +61,9 @@ export const enMessages = {
       achievements: "Achievements",
       subscription: "Subscription",
       support: "Support",
+      globalStats: "Global Stats",
+      gymManagement: "Gym Management",
+      systemUsers: "Global User Search",
     },
     openChat: "Open chat",
     home: {

@@ -16,6 +16,8 @@ from app.models.enums import Role
 from app.models.lost_found import LostFoundComment, LostFoundItem, LostFoundMedia, LostFoundStatus
 from app.models.user import User
 from app.services.audit_service import AuditService
+from app.services.push_service import PushNotificationService
+from app.services.tenancy_service import TenancyService
 
 router = APIRouter()
 
@@ -212,15 +214,66 @@ async def _log_and_commit(
     await db.commit()
 
 
+async def _notify_lost_found_staff(
+    *,
+    db: AsyncSession,
+    item: LostFoundItem,
+    title: str,
+    body: str,
+    event_type: str,
+    idempotency_suffix: str,
+    params: dict[str, str] | None = None,
+) -> None:
+    staff = (
+        await db.execute(
+            select(User).where(
+                User.role.in_([Role.ADMIN, Role.MANAGER, Role.RECEPTION, Role.FRONT_DESK]),
+                User.is_active.is_(True),
+                User.gym_id == item.gym_id,
+            )
+        )
+    ).scalars().all()
+    payload = {"item_id": str(item.id)}
+    if params:
+        payload.update(params)
+
+    for user in staff:
+        await PushNotificationService.queue_and_send(
+            db=db,
+            user=user,
+            title=title,
+            body=body,
+            template_key="lost_found_update",
+            event_type=event_type,
+            event_ref=str(item.id),
+            params=payload,
+            idempotency_key=f"lost-found:{item.id}:{user.id}:{idempotency_suffix}",
+            scope="BRANCH",
+            scope_branch_id=str(item.branch_id) if item.branch_id else None,
+        )
+
+
 @router.post("/items", response_model=StandardResponse[LostFoundItemResponse])
 async def create_lost_found_item(
     payload: LostFoundItemCreateRequest,
     current_user: Annotated[User, Depends(dependencies.get_current_active_user)],
     db: Annotated[AsyncSession, Depends(get_db)],
+    branch_id: Annotated[uuid.UUID | None, Query()] = None,
 ):
     now = datetime.now(timezone.utc)
+    effective_branch_id = branch_id or current_user.home_branch_id
+    if not effective_branch_id:
+        raise HTTPException(status_code=400, detail="branch_id is required")
+    await TenancyService.require_branch_access(
+        db,
+        current_user=current_user,
+        branch_id=effective_branch_id,
+        allow_all_for_admin=True,
+    )
+
     item = LostFoundItem(
         reporter_id=current_user.id,
+        branch_id=effective_branch_id,
         status=LostFoundStatus.REPORTED,
         title=payload.title.strip(),
         description=payload.description.strip(),
@@ -245,6 +298,15 @@ async def create_lost_found_item(
         target_id=str(item.id),
         details=f"Category: {item.category}",
     )
+    await _notify_lost_found_staff(
+        db=db,
+        item=item,
+        title="New lost & found report",
+        body=item.title,
+        event_type="LOST_FOUND_CREATED",
+        idempotency_suffix="created",
+        params={"status": item.status.value},
+    )
     item = await _get_item_or_404(db, item.id)
     return StandardResponse(data=_serialize_item(item))
 
@@ -253,12 +315,13 @@ async def create_lost_found_item(
 async def list_lost_found_items(
     current_user: Annotated[User, Depends(dependencies.get_current_active_user)],
     db: Annotated[AsyncSession, Depends(get_db)],
-    limit: int = Query(30, ge=1, le=100),
-    offset: int = Query(0, ge=0),
-    status: LostFoundStatus | None = Query(None),
-    assignee_id: uuid.UUID | None = Query(None),
-    reporter_id: uuid.UUID | None = Query(None),
-    archived_only: bool = Query(False),
+    limit: Annotated[int, Query(ge=1, le=100)] = 30,
+    offset: Annotated[int, Query(ge=0)] = 0,
+    status: Annotated[LostFoundStatus | None, Query()] = None,
+    assignee_id: Annotated[uuid.UUID | None, Query()] = None,
+    reporter_id: Annotated[uuid.UUID | None, Query()] = None,
+    branch_id: Annotated[uuid.UUID | None, Query()] = None,
+    archived_only: Annotated[bool, Query()] = False,
 ):
     stmt = (
         select(LostFoundItem)
@@ -272,6 +335,15 @@ async def list_lost_found_items(
         .limit(limit)
         .offset(offset)
     )
+
+    branch_ids = await TenancyService.branch_scope_ids(
+        db,
+        current_user=current_user,
+        branch_id=branch_id,
+        allow_all_for_admin=True,
+    )
+    if branch_ids:
+        stmt = stmt.where(LostFoundItem.branch_id.in_(branch_ids))
 
     if archived_only:
         if not _is_admin(current_user):
@@ -414,6 +486,15 @@ async def update_lost_found_status(
         target_id=str(item.id),
         details=f"{current.value} -> {target.value}" + (f" ({note})" if note else ""),
     )
+    await _notify_lost_found_staff(
+        db=db,
+        item=item,
+        title="Lost & found status updated",
+        body=f"{item.title}: {target.value.replace('_', ' ').title()}",
+        event_type="LOST_FOUND_STATUS_UPDATED",
+        idempotency_suffix=f"status-{target.value}",
+        params={"status": target.value},
+    )
     item = await _get_item_or_404(db, item.id)
     return StandardResponse(data=_serialize_item(item))
 
@@ -446,6 +527,15 @@ async def assign_lost_found_item(
         action="LOST_FOUND_ASSIGNED",
         target_id=str(item.id),
         details=f"Assigned to {assignee.email}",
+    )
+    await _notify_lost_found_staff(
+        db=db,
+        item=item,
+        title="Lost & found item assigned",
+        body=f"{item.title}: {assignee.full_name or assignee.email}",
+        event_type="LOST_FOUND_ASSIGNED",
+        idempotency_suffix=f"assigned-{assignee.id}",
+        params={"assignee_id": str(assignee.id)},
     )
     item = await _get_item_or_404(db, item.id)
     return StandardResponse(data=_serialize_item(item))

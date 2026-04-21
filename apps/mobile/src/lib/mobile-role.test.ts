@@ -20,6 +20,7 @@ function makeBootstrap(override: Partial<MobileBootstrap>): MobileBootstrap {
     user: {
       id: "00000000-0000-4000-8000-000000000001",
       email: "test@example.com",
+      gym_id: "00000000-0000-4000-8000-000000000010",
       full_name: "Test User",
       phone_number: null,
       profile_picture_url: null,
@@ -32,6 +33,7 @@ function makeBootstrap(override: Partial<MobileBootstrap>): MobileBootstrap {
       subscription_plan_name: "Monthly",
       is_subscription_blocked: false,
       block_reason: null,
+      is_impersonated: false,
     },
     role: "CUSTOMER",
     subscription: {
@@ -49,6 +51,8 @@ function makeBootstrap(override: Partial<MobileBootstrap>): MobileBootstrap {
       support_email: null,
       support_phone: null,
     },
+    home_branch: null,
+    accessible_branches: [],
     capabilities: [],
     enabled_modules: [],
     notification_settings: {

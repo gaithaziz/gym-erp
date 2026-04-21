@@ -6,7 +6,7 @@ from pathlib import Path
 from fastapi import APIRouter, Depends, Query, HTTPException, Response
 from fastapi.responses import HTMLResponse, Response
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, func, extract
+from sqlalchemy import false, select, func, extract
 from pydantic import BaseModel, Field
 import arabic_reshaper
 from bidi.algorithm import get_display
@@ -17,6 +17,7 @@ from app.models.user import User
 from app.models.enums import Role
 from app.models.finance import PaymentMethod, POSTransactionItem, Transaction, TransactionCategory, TransactionType
 from app.services.audit_service import AuditService
+from app.services.tenancy_service import TenancyService
 from app.core.responses import StandardResponse
 import uuid
 import csv
@@ -316,6 +317,20 @@ def _can_access_receipt(current_user: User, transaction: Transaction) -> bool:
     )
 
 
+async def _get_transaction_or_404(db: AsyncSession, *, current_user: User, transaction_id: uuid.UUID) -> Transaction:
+    transaction = (
+        await db.execute(
+            select(Transaction).where(
+                Transaction.id == transaction_id,
+                Transaction.gym_id == current_user.gym_id,
+            )
+        )
+    ).scalar_one_or_none()
+    if transaction is None:
+        raise HTTPException(status_code=404, detail="Transaction not found")
+    return transaction
+
+
 def _serialize_pos_line_items(items: list[POSTransactionItem]) -> list[dict]:
     return [
         {
@@ -560,6 +575,7 @@ class TransactionCreate(BaseModel):
     description: str | None = None
     payment_method: PaymentMethod = PaymentMethod.CASH
     user_id: uuid.UUID | None = None
+    branch_id: uuid.UUID | None = None
 
 class TransactionResponse(TransactionCreate):
     id: uuid.UUID
@@ -575,7 +591,17 @@ async def create_transaction(
     db: Annotated[AsyncSession, Depends(get_db)]
 ):
     """Log a manual transaction (Bill, One-off Income, etc)."""
-    transaction = Transaction(**data.model_dump())
+    branch_id = data.branch_id or current_user.home_branch_id
+    if branch_id is not None:
+        await TenancyService.require_branch_access(
+            db,
+            current_user=current_user,
+            branch_id=branch_id,
+            allow_all_for_admin=True,
+        )
+    if data.user_id is not None:
+        await TenancyService.require_user_in_gym(db, current_user=current_user, user_id=data.user_id)
+    transaction = Transaction(**data.model_dump(exclude={"branch_id"}), branch_id=branch_id)
     db.add(transaction)
     await db.commit()
     
@@ -603,6 +629,7 @@ async def list_transactions(
     category: Optional[TransactionCategory] = Query(None),
     start_date: Optional[date] = Query(None),
     end_date: Optional[date] = Query(None),
+    branch_id: uuid.UUID | None = Query(None),
 ):
     """List recent transactions, optionally filtered by month/year or date range."""
     if start_date and end_date and start_date > end_date:
@@ -610,6 +637,18 @@ async def list_transactions(
 
     stmt = select(Transaction)
     count_stmt = select(func.count(Transaction.id))
+    branch_ids = await TenancyService.branch_scope_ids(
+        db,
+        current_user=current_user,
+        branch_id=branch_id,
+        allow_all_for_admin=True,
+    )
+    if branch_ids:
+        stmt = stmt.where(Transaction.branch_id.in_(branch_ids))
+        count_stmt = count_stmt.where(Transaction.branch_id.in_(branch_ids))
+    else:
+        stmt = stmt.where(false())
+        count_stmt = count_stmt.where(false())
     if tx_type:
         stmt = stmt.where(Transaction.type == tx_type)
         count_stmt = count_stmt.where(Transaction.type == tx_type)
@@ -652,12 +691,23 @@ async def get_financial_summary(
     category: Optional[TransactionCategory] = Query(None),
     start_date: Optional[date] = Query(None),
     end_date: Optional[date] = Query(None),
+    branch_id: uuid.UUID | None = Query(None),
 ):
     """Get total Income vs Expenses, optionally filtered by month/year or date range."""
     if start_date and end_date and start_date > end_date:
         raise HTTPException(status_code=400, detail="start_date cannot be after end_date")
 
     base_filters = []
+    branch_ids = await TenancyService.branch_scope_ids(
+        db,
+        current_user=current_user,
+        branch_id=branch_id,
+        allow_all_for_admin=True,
+    )
+    if branch_ids:
+        base_filters.append(Transaction.branch_id.in_(branch_ids))
+    else:
+        base_filters.append(false())
     if tx_type:
         base_filters.append(Transaction.type == tx_type)
     if category:
@@ -701,10 +751,21 @@ async def get_financial_summary(
 @router.get("/my-transactions", response_model=StandardResponse)
 async def get_my_transactions(
     current_user: Annotated[User, Depends(dependencies.get_current_active_user)],
-    db: Annotated[AsyncSession, Depends(get_db)]
+    db: Annotated[AsyncSession, Depends(get_db)],
+    branch_id: uuid.UUID | None = Query(None),
 ):
     """Get transactions linked to the current user."""
     stmt = select(Transaction).where(Transaction.user_id == current_user.id).order_by(Transaction.date.desc())
+    branch_ids = await TenancyService.branch_scope_ids(
+        db,
+        current_user=current_user,
+        branch_id=branch_id,
+        allow_all_for_admin=False,
+    )
+    if branch_ids:
+        stmt = stmt.where(Transaction.branch_id.in_(branch_ids))
+    else:
+        stmt = stmt.where(false())
     result = await db.execute(stmt)
     transactions = result.scalars().all()
     serialized = [TransactionResponse.model_validate(t).model_dump(mode="json") for t in transactions]
@@ -717,19 +778,14 @@ async def generate_receipt(
     db: Annotated[AsyncSession, Depends(get_db)]
 ):
     """Generate a simple JSON layout for a printable receipt."""
-    stmt = select(Transaction).where(Transaction.id == transaction_id)
-    result = await db.execute(stmt)
-    transaction = result.scalar_one_or_none()
-    
-    if not transaction:
-        raise HTTPException(status_code=404, detail="Transaction not found")
+    transaction = await _get_transaction_or_404(db, current_user=current_user, transaction_id=transaction_id)
         
     if not _can_access_receipt(current_user, transaction):
         raise HTTPException(status_code=403, detail="Not authorized to view this receipt")
         
     user_name = "Guest/System"
     if transaction.user_id:
-        user_stmt = select(User).where(User.id == transaction.user_id)
+        user_stmt = select(User).where(User.id == transaction.user_id, User.gym_id == current_user.gym_id)
         user_result = await db.execute(user_stmt)
         u = user_result.scalar_one_or_none()
         if u:
@@ -758,19 +814,14 @@ async def generate_receipt_printable(
     db: Annotated[AsyncSession, Depends(get_db)],
     locale: str = Query("en"),
 ):
-    stmt = select(Transaction).where(Transaction.id == transaction_id)
-    result = await db.execute(stmt)
-    transaction = result.scalar_one_or_none()
-
-    if not transaction:
-        raise HTTPException(status_code=404, detail="Transaction not found")
+    transaction = await _get_transaction_or_404(db, current_user=current_user, transaction_id=transaction_id)
 
     if not _can_access_receipt(current_user, transaction):
         raise HTTPException(status_code=403, detail="Not authorized to view this receipt")
 
     user_name = "Guest/System"
     if transaction.user_id:
-        user_stmt = select(User).where(User.id == transaction.user_id)
+        user_stmt = select(User).where(User.id == transaction.user_id, User.gym_id == current_user.gym_id)
         user_result = await db.execute(user_stmt)
         user = user_result.scalar_one_or_none()
         if user:
@@ -813,19 +864,14 @@ async def export_receipt(
     current_user: Annotated[User, Depends(dependencies.get_current_active_user)],
     db: Annotated[AsyncSession, Depends(get_db)],
 ):
-    stmt = select(Transaction).where(Transaction.id == transaction_id)
-    result = await db.execute(stmt)
-    transaction = result.scalar_one_or_none()
-
-    if not transaction:
-        raise HTTPException(status_code=404, detail="Transaction not found")
+    transaction = await _get_transaction_or_404(db, current_user=current_user, transaction_id=transaction_id)
 
     if not _can_access_receipt(current_user, transaction):
         raise HTTPException(status_code=403, detail="Not authorized to export this receipt")
 
     user_name = "Guest/System"
     if transaction.user_id:
-        user_stmt = select(User).where(User.id == transaction.user_id)
+        user_stmt = select(User).where(User.id == transaction.user_id, User.gym_id == current_user.gym_id)
         user_result = await db.execute(user_stmt)
         user = user_result.scalar_one_or_none()
         if user:
@@ -874,12 +920,23 @@ async def export_transactions_report_csv(
     category: Optional[TransactionCategory] = Query(None),
     start_date: Optional[date] = Query(None),
     end_date: Optional[date] = Query(None),
+    branch_id: uuid.UUID | None = Query(None),
 ):
     _ = current_user
     if start_date and end_date and start_date > end_date:
         raise HTTPException(status_code=400, detail="start_date cannot be after end_date")
 
     stmt = select(Transaction)
+    branch_ids = await TenancyService.branch_scope_ids(
+        db,
+        current_user=current_user,
+        branch_id=branch_id,
+        allow_all_for_admin=True,
+    )
+    if branch_ids:
+        stmt = stmt.where(Transaction.branch_id.in_(branch_ids))
+    else:
+        stmt = stmt.where(false())
     if tx_type:
         stmt = stmt.where(Transaction.type == tx_type)
     if category:
@@ -933,12 +990,23 @@ async def print_transactions_report(
     start_date: Optional[date] = Query(None),
     end_date: Optional[date] = Query(None),
     locale: str = Query("en"),
+    branch_id: uuid.UUID | None = Query(None),
 ):
     _ = current_user
     if start_date and end_date and start_date > end_date:
         raise HTTPException(status_code=400, detail="start_date cannot be after end_date")
 
     stmt = select(Transaction)
+    branch_ids = await TenancyService.branch_scope_ids(
+        db,
+        current_user=current_user,
+        branch_id=branch_id,
+        allow_all_for_admin=True,
+    )
+    if branch_ids:
+        stmt = stmt.where(Transaction.branch_id.in_(branch_ids))
+    else:
+        stmt = stmt.where(false())
     if tx_type:
         stmt = stmt.where(Transaction.type == tx_type)
     if category:
@@ -1035,19 +1103,14 @@ async def export_receipt_pdf(
     db: Annotated[AsyncSession, Depends(get_db)],
     locale: str = Query("en"),
 ):
-    stmt = select(Transaction).where(Transaction.id == transaction_id)
-    result = await db.execute(stmt)
-    transaction = result.scalar_one_or_none()
-
-    if not transaction:
-        raise HTTPException(status_code=404, detail="Transaction not found")
+    transaction = await _get_transaction_or_404(db, current_user=current_user, transaction_id=transaction_id)
 
     if not _can_access_receipt(current_user, transaction):
         raise HTTPException(status_code=403, detail="Not authorized to export this receipt")
 
     user_name = "Guest/System"
     if transaction.user_id:
-        user_stmt = select(User).where(User.id == transaction.user_id)
+        user_stmt = select(User).where(User.id == transaction.user_id, User.gym_id == current_user.gym_id)
         user_result = await db.execute(user_stmt)
         user = user_result.scalar_one_or_none()
         if user:
@@ -1110,12 +1173,23 @@ async def export_transactions_report_pdf(
     start_date: Optional[date] = Query(None),
     end_date: Optional[date] = Query(None),
     locale: str = Query("en"),
+    branch_id: uuid.UUID | None = Query(None),
 ):
     _ = current_user
     if start_date and end_date and start_date > end_date:
         raise HTTPException(status_code=400, detail="start_date cannot be after end_date")
 
     stmt = select(Transaction)
+    branch_ids = await TenancyService.branch_scope_ids(
+        db,
+        current_user=current_user,
+        branch_id=branch_id,
+        allow_all_for_admin=True,
+    )
+    if branch_ids:
+        stmt = stmt.where(Transaction.branch_id.in_(branch_ids))
+    else:
+        stmt = stmt.where(false())
     if tx_type:
         stmt = stmt.where(Transaction.type == tx_type)
     if category:

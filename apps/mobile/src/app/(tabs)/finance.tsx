@@ -29,12 +29,12 @@ type ReceiptDetail = {
   payment_method: string;
   description: string;
   billed_to: string;
-  line_items?: Array<{
+  line_items?: {
     product_name: string;
     unit_price: number;
     quantity: number;
     line_total: number;
-  }>;
+  }[];
 };
 
 const PAYMENT_METHODS = ["CASH", "CARD", "TRANSFER"] as const;

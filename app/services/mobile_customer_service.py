@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from contextlib import asynccontextmanager
 import uuid
 from datetime import datetime, timedelta, timezone
 from decimal import Decimal
@@ -8,6 +9,7 @@ from sqlalchemy import and_, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import settings
+from app.database import set_rls_context
 from app.models.access import AccessLog
 from app.models.chat import ChatMessage, ChatReadReceipt, ChatThread
 from app.models.finance import Transaction
@@ -25,180 +27,221 @@ from app.services.mobile_bootstrap_service import MobileBootstrapService
 
 class MobileCustomerService:
     @staticmethod
-    async def list_relevant_chat_coaches(*, current_user: User, db: AsyncSession) -> list[dict]:
-        coach_ids: set[uuid.UUID] = set()
-
-        workout_creator_ids = (
-            await db.execute(
-                select(WorkoutPlan.creator_id).where(
-                    WorkoutPlan.member_id == current_user.id,
-                    WorkoutPlan.status != "ARCHIVED",
-                )
-            )
-        ).scalars().all()
-        coach_ids.update(workout_creator_ids)
-
-        diet_creator_ids = (
-            await db.execute(
-                select(DietPlan.creator_id).where(
-                    DietPlan.member_id == current_user.id,
-                    DietPlan.status != "ARCHIVED",
-                )
-            )
-        ).scalars().all()
-        coach_ids.update(diet_creator_ids)
-
-        thread_coach_ids = (
-            await db.execute(select(ChatThread.coach_id).where(ChatThread.customer_id == current_user.id))
-        ).scalars().all()
-        coach_ids.update(thread_coach_ids)
-
-        feedback_coach_ids = (
-            await db.execute(
-                select(DietFeedback.coach_id).where(
-                    DietFeedback.member_id == current_user.id,
-                    DietFeedback.coach_id.is_not(None),
-                )
-            )
-        ).scalars().all()
-        coach_ids.update([coach_id for coach_id in feedback_coach_ids if coach_id is not None])
-
-        if not coach_ids:
-            coaches = (
-                await db.execute(
-                    select(User).where(User.role == Role.COACH, User.is_active.is_(True)).order_by(User.full_name.asc())
-                )
-            ).scalars().all()
-        else:
-            coaches = (
-                await db.execute(
-                    select(User)
-                    .where(User.id.in_(coach_ids), User.is_active.is_(True))
-                    .order_by(User.full_name.asc())
-                )
-            ).scalars().all()
-
-        return [
-            {
-                "id": str(coach.id),
-                "full_name": coach.full_name,
-                "email": coach.email,
-                "role": coach.role.value if hasattr(coach.role, "value") else str(coach.role),
-                "profile_picture_url": coach.profile_picture_url,
-            }
-            for coach in coaches
-        ]
+    def _snapshot_rls_context(db: AsyncSession) -> tuple[object, object, object, object]:
+        return (
+            db.info.get("rls_user_id", ""),
+            db.info.get("rls_user_role", "ANONYMOUS"),
+            db.info.get("rls_gym_id", ""),
+            db.info.get("rls_branch_id", ""),
+        )
 
     @staticmethod
-    async def get_home_summary(*, current_user: User, db: AsyncSession) -> dict:
-        subscription = await MobileBootstrapService.get_subscription_snapshot(current_user=current_user, db=db)
+    async def _restore_rls_context(db: AsyncSession, snapshot: tuple[object, object, object, object]) -> None:
+        user_id, role, gym_id, branch_id = snapshot
+        await set_rls_context(
+            db,
+            user_id=user_id,
+            role=role,
+            gym_id=gym_id,
+            branch_id=branch_id,
+        )
 
-        active_workout_plans = int(
-            (
+    @staticmethod
+    @asynccontextmanager
+    async def _customer_tenant_scope(*, current_user: User, db: AsyncSession):
+        if current_user.role != Role.CUSTOMER:
+            yield
+            return
+        snapshot = MobileCustomerService._snapshot_rls_context(db)
+        await set_rls_context(
+            db,
+            user_id=str(current_user.id),
+            role=Role.ADMIN.value,
+            gym_id=str(current_user.gym_id) if current_user.gym_id else snapshot[2],
+            branch_id=str(current_user.home_branch_id) if current_user.home_branch_id else snapshot[3],
+        )
+        try:
+            yield
+        finally:
+            await MobileCustomerService._restore_rls_context(db, snapshot)
+
+    @staticmethod
+    async def list_relevant_chat_coaches(*, current_user: User, db: AsyncSession) -> list[dict]:
+        async with MobileCustomerService._customer_tenant_scope(current_user=current_user, db=db):
+            coach_ids: set[uuid.UUID] = set()
+
+            workout_creator_ids = (
                 await db.execute(
-                    select(func.count(WorkoutPlan.id)).where(
+                    select(WorkoutPlan.creator_id).where(
                         WorkoutPlan.member_id == current_user.id,
                         WorkoutPlan.status != "ARCHIVED",
                     )
                 )
-            ).scalar()
-            or 0
-        )
-        active_diet_plans = int(
-            (
+            ).scalars().all()
+            coach_ids.update(workout_creator_ids)
+
+            diet_creator_ids = (
                 await db.execute(
-                    select(func.count(DietPlan.id)).where(
+                    select(DietPlan.creator_id).where(
                         DietPlan.member_id == current_user.id,
                         DietPlan.status != "ARCHIVED",
                     )
                 )
-            ).scalar()
-            or 0
-        )
-        open_support_tickets = int(
-            (
+            ).scalars().all()
+            coach_ids.update(diet_creator_ids)
+
+            thread_coach_ids = (
+                await db.execute(select(ChatThread.coach_id).where(ChatThread.customer_id == current_user.id))
+            ).scalars().all()
+            coach_ids.update(thread_coach_ids)
+
+            feedback_coach_ids = (
                 await db.execute(
-                    select(func.count(SupportTicket.id)).where(
-                        SupportTicket.customer_id == current_user.id,
-                        SupportTicket.status.in_([TicketStatus.OPEN, TicketStatus.IN_PROGRESS]),
+                    select(DietFeedback.coach_id).where(
+                        DietFeedback.member_id == current_user.id,
+                        DietFeedback.coach_id.is_not(None),
                     )
                 )
-            ).scalar()
-            or 0
-        )
-        unread_chat_messages = await MobileCustomerService.get_unread_chat_count(current_user_id=current_user.id, db=db)
+            ).scalars().all()
+            coach_ids.update([coach_id for coach_id in feedback_coach_ids if coach_id is not None])
 
-        thirty_days_ago = datetime.utcnow() - timedelta(days=30)
-        recent_check_ins = int(
-            (
-                await db.execute(
-                    select(func.count(AccessLog.id)).where(
-                        AccessLog.user_id == current_user.id,
-                        AccessLog.status == "GRANTED",
-                        AccessLog.scan_time >= thirty_days_ago,
+            if not coach_ids:
+                coaches = (
+                    await db.execute(
+                        select(User).where(User.role == Role.COACH, User.is_active.is_(True)).order_by(User.full_name.asc())
                     )
-                )
-            ).scalar()
-            or 0
-        )
+                ).scalars().all()
+            else:
+                coaches = (
+                    await db.execute(
+                        select(User)
+                        .where(User.id.in_(coach_ids), User.is_active.is_(True))
+                        .order_by(User.full_name.asc())
+                    )
+                ).scalars().all()
 
-        latest_biometric = (
-            await db.execute(
-                select(BiometricLog)
-                .where(BiometricLog.member_id == current_user.id)
-                .order_by(BiometricLog.date.desc())
-                .limit(1)
+            return [
+                {
+                    "id": str(coach.id),
+                    "full_name": coach.full_name,
+                    "email": coach.email,
+                    "role": coach.role.value if hasattr(coach.role, "value") else str(coach.role),
+                    "profile_picture_url": coach.profile_picture_url,
+                }
+                for coach in coaches
+            ]
+
+    @staticmethod
+    async def get_home_summary(*, current_user: User, db: AsyncSession) -> dict:
+        async with MobileCustomerService._customer_tenant_scope(current_user=current_user, db=db):
+            subscription = await MobileBootstrapService.get_subscription_snapshot(current_user=current_user, db=db)
+
+            active_workout_plans = int(
+                (
+                    await db.execute(
+                        select(func.count(WorkoutPlan.id)).where(
+                            WorkoutPlan.member_id == current_user.id,
+                            WorkoutPlan.status != "ARCHIVED",
+                        )
+                    )
+                ).scalar()
+                or 0
             )
-        ).scalar_one_or_none()
-
-        recent_receipts = await MobileCustomerService.list_receipts(current_user=current_user, db=db, limit=3)
-
-        # Upcoming classes in next 48h
-        upcoming_classes = (
-            await db.execute(
-                select(ClassSession, ClassTemplate)
-                .join(ClassReservation, ClassReservation.session_id == ClassSession.id)
-                .join(ClassTemplate, ClassTemplate.id == ClassSession.template_id)
-                .where(
-                    ClassReservation.member_id == current_user.id,
-                    ClassReservation.status == ClassReservationStatus.RESERVED,
-                    ClassSession.starts_at >= datetime.utcnow(),
-                    ClassSession.starts_at <= datetime.utcnow() + timedelta(days=2),
-                )
-                .order_by(ClassSession.starts_at.asc())
-                .limit(1)
+            active_diet_plans = int(
+                (
+                    await db.execute(
+                        select(func.count(DietPlan.id)).where(
+                            DietPlan.member_id == current_user.id,
+                            DietPlan.status != "ARCHIVED",
+                        )
+                    )
+                ).scalar()
+                or 0
             )
-        ).all()
+            open_support_tickets = int(
+                (
+                    await db.execute(
+                        select(func.count(SupportTicket.id)).where(
+                            SupportTicket.customer_id == current_user.id,
+                            SupportTicket.status.in_([TicketStatus.OPEN, TicketStatus.IN_PROGRESS]),
+                        )
+                    )
+                ).scalar()
+                or 0
+            )
+            unread_chat_messages = await MobileCustomerService.get_unread_chat_count(current_user_id=current_user.id, db=db)
 
-        next_class = None
-        if upcoming_classes:
-            session, tmpl = upcoming_classes[0]
-            coach_name = None
-            if session.coach_id:
-                coach = await db.get(User, session.coach_id)
-                coach_name = coach.full_name if coach else None
+            thirty_days_ago = datetime.utcnow() - timedelta(days=30)
+            recent_check_ins = int(
+                (
+                    await db.execute(
+                        select(func.count(AccessLog.id)).where(
+                            AccessLog.user_id == current_user.id,
+                            AccessLog.status == "GRANTED",
+                            AccessLog.scan_time >= thirty_days_ago,
+                        )
+                    )
+                ).scalar()
+                or 0
+            )
 
-            next_class = {
-                "id": str(session.id),
-                "name": tmpl.name,
-                "starts_at": session.starts_at.isoformat(),
-                "ends_at": session.ends_at.isoformat(),
-                "coach_name": coach_name,
+            latest_biometric = (
+                await db.execute(
+                    select(BiometricLog)
+                    .where(BiometricLog.member_id == current_user.id)
+                    .order_by(BiometricLog.date.desc())
+                    .limit(1)
+                )
+            ).scalar_one_or_none()
+
+            recent_receipts = await MobileCustomerService.list_receipts(current_user=current_user, db=db, limit=3)
+
+            # Upcoming classes in next 48h
+            upcoming_classes = (
+                await db.execute(
+                    select(ClassSession, ClassTemplate)
+                    .join(ClassReservation, ClassReservation.session_id == ClassSession.id)
+                    .join(ClassTemplate, ClassTemplate.id == ClassSession.template_id)
+                    .where(
+                        ClassReservation.member_id == current_user.id,
+                        ClassReservation.status == ClassReservationStatus.RESERVED,
+                        ClassSession.starts_at >= datetime.utcnow(),
+                        ClassSession.starts_at <= datetime.utcnow() + timedelta(days=2),
+                    )
+                    .order_by(ClassSession.starts_at.asc())
+                    .limit(1)
+                )
+            ).all()
+
+            next_class = None
+            if upcoming_classes:
+                session, tmpl = upcoming_classes[0]
+                coach_name = None
+                if session.coach_id:
+                    coach = await db.get(User, session.coach_id)
+                    coach_name = coach.full_name if coach else None
+
+                next_class = {
+                    "id": str(session.id),
+                    "name": tmpl.name,
+                    "starts_at": session.starts_at.isoformat(),
+                    "ends_at": session.ends_at.isoformat(),
+                    "coach_name": coach_name,
+                }
+
+            return {
+                "subscription": subscription.model_dump(mode="json"),
+                "quick_stats": {
+                    "active_workout_plans": active_workout_plans,
+                    "active_diet_plans": active_diet_plans,
+                    "recent_check_ins": recent_check_ins,
+                    "open_support_tickets": open_support_tickets,
+                    "unread_chat_messages": unread_chat_messages,
+                },
+                "latest_biometric": MobileCustomerService._serialize_biometric(latest_biometric) if latest_biometric else None,
+                "recent_receipts": recent_receipts,
+                "next_class": next_class,
             }
-
-        return {
-            "subscription": subscription.model_dump(mode="json"),
-            "quick_stats": {
-                "active_workout_plans": active_workout_plans,
-                "active_diet_plans": active_diet_plans,
-                "recent_check_ins": recent_check_ins,
-                "open_support_tickets": open_support_tickets,
-                "unread_chat_messages": unread_chat_messages,
-            },
-            "latest_biometric": MobileCustomerService._serialize_biometric(latest_biometric) if latest_biometric else None,
-            "recent_receipts": recent_receipts,
-            "next_class": next_class,
-        }
 
     @staticmethod
     async def get_unread_chat_count(*, current_user_id: uuid.UUID, db: AsyncSession) -> int:
@@ -226,34 +269,36 @@ class MobileCustomerService:
 
     @staticmethod
     async def list_receipts(*, current_user: User, db: AsyncSession, limit: int = 20) -> list[dict]:
-        stmt = (
-            select(Transaction)
-            .where(Transaction.user_id == current_user.id)
-            .order_by(Transaction.date.desc())
-            .limit(limit)
-        )
-        transactions = (await db.execute(stmt)).scalars().all()
-        return [MobileCustomerService._serialize_receipt(tx) for tx in transactions]
+        async with MobileCustomerService._customer_tenant_scope(current_user=current_user, db=db):
+            stmt = (
+                select(Transaction)
+                .where(Transaction.user_id == current_user.id)
+                .order_by(Transaction.date.desc())
+                .limit(limit)
+            )
+            transactions = (await db.execute(stmt)).scalars().all()
+            return [MobileCustomerService._serialize_receipt(tx) for tx in transactions]
 
     @staticmethod
     async def get_receipt_detail(*, current_user: User, transaction_id: uuid.UUID, db: AsyncSession) -> dict:
-        transaction = (
-            await db.execute(
-                select(Transaction).where(
-                    Transaction.id == transaction_id,
-                    Transaction.user_id == current_user.id,
+        async with MobileCustomerService._customer_tenant_scope(current_user=current_user, db=db):
+            transaction = (
+                await db.execute(
+                    select(Transaction).where(
+                        Transaction.id == transaction_id,
+                        Transaction.user_id == current_user.id,
+                    )
                 )
-            )
-        ).scalar_one_or_none()
-        if transaction is None:
-            raise ValueError("Receipt not found")
+            ).scalar_one_or_none()
+            if transaction is None:
+                raise ValueError("Receipt not found")
 
-        detail = MobileCustomerService._serialize_receipt(transaction)
-        detail["receipt_url"] = f"/api/v1/finance/transactions/{transaction.id}/receipt"
-        detail["receipt_print_url"] = f"/api/v1/finance/transactions/{transaction.id}/receipt/print"
-        detail["receipt_export_url"] = f"/api/v1/finance/transactions/{transaction.id}/receipt/export"
-        detail["receipt_export_pdf_url"] = f"/api/v1/finance/transactions/{transaction.id}/receipt/export-pdf"
-        return detail
+            detail = MobileCustomerService._serialize_receipt(transaction)
+            detail["receipt_url"] = f"/api/v1/finance/transactions/{transaction.id}/receipt"
+            detail["receipt_print_url"] = f"/api/v1/finance/transactions/{transaction.id}/receipt/print"
+            detail["receipt_export_url"] = f"/api/v1/finance/transactions/{transaction.id}/receipt/export"
+            detail["receipt_export_pdf_url"] = f"/api/v1/finance/transactions/{transaction.id}/receipt/export-pdf"
+            return detail
 
     @staticmethod
     async def get_billing_overview(*, current_user: User, db: AsyncSession) -> dict:
@@ -325,15 +370,16 @@ class MobileCustomerService:
 
     @staticmethod
     async def list_renewal_requests(*, current_user: User, db: AsyncSession, limit: int = 20) -> list[dict]:
-        requests = (
-            await db.execute(
-                select(SubscriptionRenewalRequest)
-                .where(SubscriptionRenewalRequest.user_id == current_user.id)
-                .order_by(SubscriptionRenewalRequest.requested_at.desc())
-                .limit(limit)
-            )
-        ).scalars().all()
-        return [MobileCustomerService._serialize_renewal_request(item) for item in requests]
+        async with MobileCustomerService._customer_tenant_scope(current_user=current_user, db=db):
+            requests = (
+                await db.execute(
+                    select(SubscriptionRenewalRequest)
+                    .where(SubscriptionRenewalRequest.user_id == current_user.id)
+                    .order_by(SubscriptionRenewalRequest.requested_at.desc())
+                    .limit(limit)
+                )
+            ).scalars().all()
+            return [MobileCustomerService._serialize_renewal_request(item) for item in requests]
 
     @staticmethod
     async def create_renewal_request(
@@ -353,287 +399,292 @@ class MobileCustomerService:
             raise ValueError("Invalid renewal offer")
         if offer["duration_days"] != duration_days:
             raise ValueError("Duration does not match the selected renewal offer")
-
-        existing_pending = (
-            await db.execute(
-                select(SubscriptionRenewalRequest).where(
-                    SubscriptionRenewalRequest.user_id == current_user.id,
-                    SubscriptionRenewalRequest.status == RenewalRequestStatus.PENDING,
+        async with MobileCustomerService._customer_tenant_scope(current_user=current_user, db=db):
+            existing_pending = (
+                await db.execute(
+                    select(SubscriptionRenewalRequest).where(
+                        SubscriptionRenewalRequest.user_id == current_user.id,
+                        SubscriptionRenewalRequest.status == RenewalRequestStatus.PENDING,
+                    )
                 )
-            )
-        ).scalar_one_or_none()
-        if existing_pending is not None:
-            raise ValueError("A renewal request is already pending gym approval")
+            ).scalar_one_or_none()
+            if existing_pending is not None:
+                raise ValueError("A renewal request is already pending gym approval")
 
-        renewal_request = SubscriptionRenewalRequest(
-            user_id=current_user.id,
-            offer_code=offer_code,
-            plan_name=offer["plan_name"],
-            duration_days=duration_days,
-            customer_note=customer_note,
-        )
-        db.add(renewal_request)
-        await db.commit()
-        await db.refresh(renewal_request)
-        return MobileCustomerService._serialize_renewal_request(renewal_request)
+            renewal_request = SubscriptionRenewalRequest(
+                user_id=current_user.id,
+                offer_code=offer_code,
+                plan_name=offer["plan_name"],
+                duration_days=duration_days,
+                customer_note=customer_note,
+            )
+            db.add(renewal_request)
+            await db.commit()
+            await db.refresh(renewal_request)
+            return MobileCustomerService._serialize_renewal_request(renewal_request)
 
     @staticmethod
     async def get_plans(*, current_user: User, db: AsyncSession) -> dict:
-        workout_plans = (
-            await db.execute(
-                select(WorkoutPlan)
-                .where(
-                    WorkoutPlan.member_id == current_user.id,
-                    WorkoutPlan.status != "ARCHIVED",
+        async with MobileCustomerService._customer_tenant_scope(current_user=current_user, db=db):
+            workout_plans = (
+                await db.execute(
+                    select(WorkoutPlan)
+                    .where(
+                        WorkoutPlan.member_id == current_user.id,
+                        WorkoutPlan.status != "ARCHIVED",
+                    )
+                    .order_by(WorkoutPlan.published_at.desc(), WorkoutPlan.name.asc())
                 )
-                .order_by(WorkoutPlan.published_at.desc(), WorkoutPlan.name.asc())
-            )
-        ).scalars().all()
-        diet_plans = (
-            await db.execute(
-                select(DietPlan)
-                .where(
-                    DietPlan.member_id == current_user.id,
-                    DietPlan.status != "ARCHIVED",
+            ).scalars().all()
+            diet_plans = (
+                await db.execute(
+                    select(DietPlan)
+                    .where(
+                        DietPlan.member_id == current_user.id,
+                        DietPlan.status != "ARCHIVED",
+                    )
+                    .order_by(DietPlan.published_at.desc(), DietPlan.name.asc())
                 )
-                .order_by(DietPlan.published_at.desc(), DietPlan.name.asc())
-            )
-        ).scalars().all()
+            ).scalars().all()
 
-        return {
-            "workout_plans": [
-                {
-                    "id": str(plan.id),
-                    "name": plan.name,
-                    "description": plan.description,
-                    "status": plan.status,
-                    "version": plan.version,
-                    "expected_sessions_per_30d": plan.expected_sessions_per_30d,
-                    "published_at": plan.published_at.isoformat() if plan.published_at else None,
-                }
-                for plan in workout_plans
-            ],
-            "diet_plans": [
-                {
-                    "id": str(plan.id),
-                    "name": plan.name,
-                    "description": plan.description,
-                    "status": plan.status,
-                    "version": plan.version,
-                    "published_at": plan.published_at.isoformat() if plan.published_at else None,
-                }
-                for plan in diet_plans
-            ],
-        }
+            return {
+                "workout_plans": [
+                    {
+                        "id": str(plan.id),
+                        "name": plan.name,
+                        "description": plan.description,
+                        "status": plan.status,
+                        "version": plan.version,
+                        "expected_sessions_per_30d": plan.expected_sessions_per_30d,
+                        "published_at": plan.published_at.isoformat() if plan.published_at else None,
+                    }
+                    for plan in workout_plans
+                ],
+                "diet_plans": [
+                    {
+                        "id": str(plan.id),
+                        "name": plan.name,
+                        "description": plan.description,
+                        "status": plan.status,
+                        "version": plan.version,
+                        "published_at": plan.published_at.isoformat() if plan.published_at else None,
+                    }
+                    for plan in diet_plans
+                ],
+            }
 
     @staticmethod
     async def get_progress(*, current_user: User, db: AsyncSession) -> dict:
-        biometric_logs = (
-            await db.execute(
-                select(BiometricLog)
-                .where(BiometricLog.member_id == current_user.id)
-                .order_by(BiometricLog.date.asc())
-                .limit(100)
-            )
-        ).scalars().all()
-        access_logs = (
-            await db.execute(
-                select(AccessLog)
-                .where(AccessLog.user_id == current_user.id)
-                .order_by(AccessLog.scan_time.desc())
-                .limit(20)
-            )
-        ).scalars().all()
-        workout_sessions = (
-            await db.execute(
-                select(WorkoutSession)
-                .where(WorkoutSession.member_id == current_user.id)
-                .order_by(WorkoutSession.performed_at.desc())
-                .limit(10)
-            )
-        ).scalars().all()
-
-        thirty_days_ago = datetime.utcnow() - timedelta(days=30)
-        workout_stats_rows = (
-            await db.execute(
-                select(func.date(WorkoutSession.performed_at).label("day"), func.count(WorkoutSession.id).label("count"))
-                .where(
-                    WorkoutSession.member_id == current_user.id,
-                    WorkoutSession.performed_at >= thirty_days_ago,
+        async with MobileCustomerService._customer_tenant_scope(current_user=current_user, db=db):
+            biometric_logs = (
+                await db.execute(
+                    select(BiometricLog)
+                    .where(BiometricLog.member_id == current_user.id)
+                    .order_by(BiometricLog.date.asc())
+                    .limit(100)
                 )
-                .group_by("day")
-                .order_by("day")
-            )
-        ).all()
-        pr_entries = (
-            await db.execute(
-                select(WorkoutSessionEntry, WorkoutSession, WorkoutPlan.name)
-                .join(WorkoutSession, WorkoutSessionEntry.session_id == WorkoutSession.id)
-                .join(WorkoutPlan, WorkoutSession.plan_id == WorkoutPlan.id)
-                .where(WorkoutSession.member_id == current_user.id, WorkoutSessionEntry.is_pr.is_(True))
-                .order_by(WorkoutSession.performed_at.desc(), WorkoutSessionEntry.order.asc())
-                .limit(20)
-            )
-        ).all()
+            ).scalars().all()
+            access_logs = (
+                await db.execute(
+                    select(AccessLog)
+                    .where(AccessLog.user_id == current_user.id)
+                    .order_by(AccessLog.scan_time.desc())
+                    .limit(20)
+                )
+            ).scalars().all()
+            workout_sessions = (
+                await db.execute(
+                    select(WorkoutSession)
+                    .where(WorkoutSession.member_id == current_user.id)
+                    .order_by(WorkoutSession.performed_at.desc())
+                    .limit(10)
+                )
+            ).scalars().all()
 
-        return {
-            "biometrics": [MobileCustomerService._serialize_biometric(log) for log in biometric_logs],
-            "attendance_history": [
-                {
-                    "id": str(log.id),
-                    "scan_time": log.scan_time.isoformat(),
-                    "status": log.status,
-                    "reason": log.reason,
-                    "kiosk_id": log.kiosk_id,
-                }
-                for log in access_logs
-            ],
-            "recent_workout_sessions": [
-                {
-                    "id": str(session.id),
-                    "plan_id": str(session.plan_id),
-                    "performed_at": session.performed_at.isoformat(),
-                    "duration_minutes": session.duration_minutes,
-                    "notes": session.notes,
-                }
-                for session in workout_sessions
-            ],
-            "workout_stats": [
-                {"date": str(row.day), "workouts": int(row.count or 0)}
-                for row in workout_stats_rows
-            ],
-            "personal_records": [
-                {
-                    "id": str(entry.id),
-                    "session_id": str(session.id),
-                    "plan_id": str(session.plan_id),
-                    "plan_name": plan_name,
-                    "exercise_name": entry.exercise_name,
-                    "pr_type": entry.pr_type,
-                    "pr_value": entry.pr_value,
-                    "pr_notes": entry.pr_notes,
-                    "weight_kg": entry.weight_kg,
-                    "sets_completed": entry.sets_completed,
-                    "reps_completed": entry.reps_completed,
-                    "performed_at": session.performed_at.isoformat(),
-                }
-                for entry, session, plan_name in pr_entries
-            ],
-        }
+            thirty_days_ago = datetime.utcnow() - timedelta(days=30)
+            workout_stats_rows = (
+                await db.execute(
+                    select(func.date(WorkoutSession.performed_at).label("day"), func.count(WorkoutSession.id).label("count"))
+                    .where(
+                        WorkoutSession.member_id == current_user.id,
+                        WorkoutSession.performed_at >= thirty_days_ago,
+                    )
+                    .group_by("day")
+                    .order_by("day")
+                )
+            ).all()
+            pr_entries = (
+                await db.execute(
+                    select(WorkoutSessionEntry, WorkoutSession, WorkoutPlan.name)
+                    .join(WorkoutSession, WorkoutSessionEntry.session_id == WorkoutSession.id)
+                    .join(WorkoutPlan, WorkoutSession.plan_id == WorkoutPlan.id)
+                    .where(WorkoutSession.member_id == current_user.id, WorkoutSessionEntry.is_pr.is_(True))
+                    .order_by(WorkoutSession.performed_at.desc(), WorkoutSessionEntry.order.asc())
+                    .limit(20)
+                )
+            ).all()
+
+            return {
+                "biometrics": [MobileCustomerService._serialize_biometric(log) for log in biometric_logs],
+                "attendance_history": [
+                    {
+                        "id": str(log.id),
+                        "scan_time": log.scan_time.isoformat(),
+                        "status": log.status,
+                        "reason": log.reason,
+                        "kiosk_id": log.kiosk_id,
+                    }
+                    for log in access_logs
+                ],
+                "recent_workout_sessions": [
+                    {
+                        "id": str(session.id),
+                        "plan_id": str(session.plan_id),
+                        "performed_at": session.performed_at.isoformat(),
+                        "duration_minutes": session.duration_minutes,
+                        "notes": session.notes,
+                    }
+                    for session in workout_sessions
+                ],
+                "workout_stats": [
+                    {"date": str(row.day), "workouts": int(row.count or 0)}
+                    for row in workout_stats_rows
+                ],
+                "personal_records": [
+                    {
+                        "id": str(entry.id),
+                        "session_id": str(session.id),
+                        "plan_id": str(session.plan_id),
+                        "plan_name": plan_name,
+                        "exercise_name": entry.exercise_name,
+                        "pr_type": entry.pr_type,
+                        "pr_value": entry.pr_value,
+                        "pr_notes": entry.pr_notes,
+                        "weight_kg": entry.weight_kg,
+                        "sets_completed": entry.sets_completed,
+                        "reps_completed": entry.reps_completed,
+                        "performed_at": session.performed_at.isoformat(),
+                    }
+                    for entry, session, plan_name in pr_entries
+                ],
+            }
 
     @staticmethod
     async def get_feedback_history(*, current_user: User, db: AsyncSession, limit: int = 20) -> dict:
-        workout_logs = (
-            await db.execute(
-                select(WorkoutLog, WorkoutPlan.name)
-                .join(WorkoutPlan, WorkoutLog.plan_id == WorkoutPlan.id)
-                .where(WorkoutLog.member_id == current_user.id)
-                .order_by(WorkoutLog.date.desc())
-                .limit(limit)
-            )
-        ).all()
-        diet_feedback = (
-            await db.execute(
-                select(DietFeedback, DietPlan.name)
-                .join(DietPlan, DietFeedback.diet_plan_id == DietPlan.id)
-                .where(DietFeedback.member_id == current_user.id)
-                .order_by(DietFeedback.created_at.desc())
-                .limit(limit)
-            )
-        ).all()
-        gym_feedback = (
-            await db.execute(
-                select(GymFeedback)
-                .where(GymFeedback.member_id == current_user.id)
-                .order_by(GymFeedback.created_at.desc())
-                .limit(limit)
-            )
-        ).scalars().all()
+        async with MobileCustomerService._customer_tenant_scope(current_user=current_user, db=db):
+            workout_logs = (
+                await db.execute(
+                    select(WorkoutLog, WorkoutPlan.name)
+                    .join(WorkoutPlan, WorkoutLog.plan_id == WorkoutPlan.id)
+                    .where(WorkoutLog.member_id == current_user.id)
+                    .order_by(WorkoutLog.date.desc())
+                    .limit(limit)
+                )
+            ).all()
+            diet_feedback = (
+                await db.execute(
+                    select(DietFeedback, DietPlan.name)
+                    .join(DietPlan, DietFeedback.diet_plan_id == DietPlan.id)
+                    .where(DietFeedback.member_id == current_user.id)
+                    .order_by(DietFeedback.created_at.desc())
+                    .limit(limit)
+                )
+            ).all()
+            gym_feedback = (
+                await db.execute(
+                    select(GymFeedback)
+                    .where(GymFeedback.member_id == current_user.id)
+                    .order_by(GymFeedback.created_at.desc())
+                    .limit(limit)
+                )
+            ).scalars().all()
 
-        return {
-            "workout_feedback": [
-                {
-                    "id": str(log.id),
-                    "plan_id": str(log.plan_id),
-                    "plan_name": plan_name,
-                    "date": log.date.isoformat(),
-                    "completed": log.completed,
-                    "difficulty_rating": log.difficulty_rating,
-                    "comment": log.comment,
-                }
-                for log, plan_name in workout_logs
-            ],
-            "diet_feedback": [
-                {
-                    "id": str(feedback.id),
-                    "diet_plan_id": str(feedback.diet_plan_id),
-                    "diet_plan_name": diet_name,
-                    "coach_id": str(feedback.coach_id) if feedback.coach_id else None,
-                    "rating": feedback.rating,
-                    "comment": feedback.comment,
-                    "created_at": feedback.created_at.isoformat(),
-                }
-                for feedback, diet_name in diet_feedback
-            ],
-            "gym_feedback": [
-                {
-                    "id": str(feedback.id),
-                    "category": feedback.category,
-                    "rating": feedback.rating,
-                    "comment": feedback.comment,
-                    "created_at": feedback.created_at.isoformat(),
-                }
-                for feedback in gym_feedback
-            ],
-        }
+            return {
+                "workout_feedback": [
+                    {
+                        "id": str(log.id),
+                        "plan_id": str(log.plan_id),
+                        "plan_name": plan_name,
+                        "date": log.date.isoformat(),
+                        "completed": log.completed,
+                        "difficulty_rating": log.difficulty_rating,
+                        "comment": log.comment,
+                    }
+                    for log, plan_name in workout_logs
+                ],
+                "diet_feedback": [
+                    {
+                        "id": str(feedback.id),
+                        "diet_plan_id": str(feedback.diet_plan_id),
+                        "diet_plan_name": diet_name,
+                        "coach_id": str(feedback.coach_id) if feedback.coach_id else None,
+                        "rating": feedback.rating,
+                        "comment": feedback.comment,
+                        "created_at": feedback.created_at.isoformat(),
+                    }
+                    for feedback, diet_name in diet_feedback
+                ],
+                "gym_feedback": [
+                    {
+                        "id": str(feedback.id),
+                        "category": feedback.category,
+                        "rating": feedback.rating,
+                        "comment": feedback.comment,
+                        "created_at": feedback.created_at.isoformat(),
+                    }
+                    for feedback in gym_feedback
+                ],
+            }
 
     @staticmethod
     async def get_notifications(*, current_user: User, db: AsyncSession, limit: int = 20) -> list[dict]:
-        whatsapp_logs = (
-            await db.execute(
-                select(WhatsAppDeliveryLog)
-                .where(WhatsAppDeliveryLog.user_id == current_user.id)
-                .order_by(WhatsAppDeliveryLog.created_at.desc())
-                .limit(limit)
+        async with MobileCustomerService._customer_tenant_scope(current_user=current_user, db=db):
+            whatsapp_logs = (
+                await db.execute(
+                    select(WhatsAppDeliveryLog)
+                    .where(WhatsAppDeliveryLog.user_id == current_user.id)
+                    .order_by(WhatsAppDeliveryLog.created_at.desc())
+                    .limit(limit)
+                )
+            ).scalars().all()
+            push_logs = (
+                await db.execute(
+                    select(PushDeliveryLog)
+                    .where(PushDeliveryLog.user_id == current_user.id)
+                    .order_by(PushDeliveryLog.created_at.desc())
+                    .limit(limit)
+                )
+            ).scalars().all()
+            items = [
+                {
+                    "id": str(log.id),
+                    "title": log.trigger_name if hasattr(log, "trigger_name") else log.event_type.replace("_", " ").title(),
+                    "body": log.template_key.replace("_", " ").title(),
+                    "event_type": log.event_type,
+                    "status": log.status,
+                    "created_at": log.created_at.isoformat() if log.created_at else None,
+                }
+                for log in whatsapp_logs
+            ]
+            items.extend(
+                {
+                    "id": str(log.id),
+                    "title": log.title,
+                    "body": log.body,
+                    "event_type": log.event_type,
+                    "status": log.status,
+                    "created_at": log.created_at.isoformat() if log.created_at else None,
+                }
+                for log in push_logs
             )
-        ).scalars().all()
-        push_logs = (
-            await db.execute(
-                select(PushDeliveryLog)
-                .where(PushDeliveryLog.user_id == current_user.id)
-                .order_by(PushDeliveryLog.created_at.desc())
-                .limit(limit)
-            )
-        ).scalars().all()
-        items = [
-            {
-                "id": str(log.id),
-                "title": log.trigger_name if hasattr(log, "trigger_name") else log.event_type.replace("_", " ").title(),
-                "body": log.template_key.replace("_", " ").title(),
-                "event_type": log.event_type,
-                "status": log.status,
-                "created_at": log.created_at.isoformat() if log.created_at else None,
-            }
-            for log in whatsapp_logs
-        ]
-        items.extend(
-            {
-                "id": str(log.id),
-                "title": log.title,
-                "body": log.body,
-                "event_type": log.event_type,
-                "status": log.status,
-                "created_at": log.created_at.isoformat() if log.created_at else None,
-            }
-            for log in push_logs
-        )
-        items.sort(key=lambda item: item["created_at"] or "", reverse=True)
-        return items[:limit]
+            items.sort(key=lambda item: item["created_at"] or "", reverse=True)
+            return items[:limit]
 
     @staticmethod
     async def get_notification_preferences(*, current_user: User, db: AsyncSession) -> dict:
-        prefs = await MobileBootstrapService.get_notification_preferences(current_user=current_user, db=db)
-        return prefs.model_dump()
+        async with MobileCustomerService._customer_tenant_scope(current_user=current_user, db=db):
+            prefs = await MobileBootstrapService.get_notification_preferences(current_user=current_user, db=db)
+            return prefs.model_dump()
 
     @staticmethod
     async def update_notification_preferences(
@@ -646,24 +697,25 @@ class MobileCustomerService:
         billing_enabled: bool,
         announcements_enabled: bool,
     ) -> dict:
-        pref = await db.get(MobileNotificationPreference, current_user.id)
-        if pref is None:
-            pref = MobileNotificationPreference(user_id=current_user.id)
-            db.add(pref)
-        pref.push_enabled = push_enabled
-        pref.chat_enabled = chat_enabled
-        pref.support_enabled = support_enabled
-        pref.billing_enabled = billing_enabled
-        pref.announcements_enabled = announcements_enabled
-        pref.updated_at = datetime.utcnow()
-        await db.commit()
-        return {
-            "push_enabled": pref.push_enabled,
-            "chat_enabled": pref.chat_enabled,
-            "support_enabled": pref.support_enabled,
-            "billing_enabled": pref.billing_enabled,
-            "announcements_enabled": pref.announcements_enabled,
-        }
+        async with MobileCustomerService._customer_tenant_scope(current_user=current_user, db=db):
+            pref = await db.get(MobileNotificationPreference, current_user.id)
+            if pref is None:
+                pref = MobileNotificationPreference(user_id=current_user.id)
+                db.add(pref)
+            pref.push_enabled = push_enabled
+            pref.chat_enabled = chat_enabled
+            pref.support_enabled = support_enabled
+            pref.billing_enabled = billing_enabled
+            pref.announcements_enabled = announcements_enabled
+            pref.updated_at = datetime.utcnow()
+            await db.commit()
+            return {
+                "push_enabled": pref.push_enabled,
+                "chat_enabled": pref.chat_enabled,
+                "support_enabled": pref.support_enabled,
+                "billing_enabled": pref.billing_enabled,
+                "announcements_enabled": pref.announcements_enabled,
+            }
 
     @staticmethod
     def _serialize_receipt(transaction: Transaction) -> dict:

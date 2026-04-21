@@ -13,7 +13,12 @@ async def validation_exception_handler(request: Request, exc: RequestValidationE
 
 async def integrity_exception_handler(request: Request, exc: IntegrityError):
     request_id = getattr(request.state, "request_id", None)
+    original = str(getattr(exc, "orig", exc))
     return JSONResponse(
         status_code=status.HTTP_409_CONFLICT,
-        content={"detail": "Database conflict. A record with this identifier likely already exists.", "request_id": request_id},
+        content={
+            "detail": "Database conflict. A record with this identifier likely already exists.",
+            "error": original,
+            "request_id": request_id,
+        },
     )

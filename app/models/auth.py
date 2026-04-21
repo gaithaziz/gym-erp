@@ -3,9 +3,10 @@ from datetime import datetime, timezone
 from sqlalchemy import String, ForeignKey, DateTime
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from app.database import Base
+from app.models.tenancy import GymScopedMixin
 
 
-class RefreshToken(Base):
+class RefreshToken(GymScopedMixin, Base):
     __tablename__ = "refresh_tokens"
 
     id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)

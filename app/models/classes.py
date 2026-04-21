@@ -7,6 +7,7 @@ from sqlalchemy import Enum as SAEnum
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.database import Base
+from app.models.tenancy import BranchScopedMixin, GymScopedMixin
 
 
 class ClassSessionStatus(str, Enum):
@@ -24,7 +25,7 @@ class ClassReservationStatus(str, Enum):
     NO_SHOW = "NO_SHOW"
 
 
-class ClassTemplate(Base):
+class ClassTemplate(GymScopedMixin, Base):
     """Reusable class definition (e.g. 'Yoga Basics', 'HIIT Power')."""
 
     __tablename__ = "class_templates"
@@ -52,7 +53,7 @@ class ClassTemplate(Base):
     sessions = relationship("ClassSession", back_populates="template", cascade="all, delete-orphan")
 
 
-class ClassSession(Base):
+class ClassSession(BranchScopedMixin, Base):
     """A specific scheduled occurrence of a class template."""
 
     __tablename__ = "class_sessions"
@@ -98,12 +99,12 @@ class ClassSession(Base):
         return self.session_name or self.template.name
 
 
-class ClassReservation(Base):
+class ClassReservation(GymScopedMixin, Base):
     """A member's reservation (or waitlist entry) for a class session."""
 
     __tablename__ = "class_reservations"
     __table_args__ = (
-        UniqueConstraint("session_id", "member_id", name="uq_class_reservation_session_member"),
+        UniqueConstraint("gym_id", "session_id", "member_id", name="uq_class_reservation_gym_session_member"),
     )
 
     id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)

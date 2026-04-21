@@ -5,6 +5,7 @@ from decimal import Decimal
 from sqlalchemy import String, Enum as SAEnum, ForeignKey, DateTime, Numeric, Integer
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from app.database import Base
+from app.models.tenancy import BranchScopedMixin, GymScopedMixin
 
 class TransactionType(str, Enum):
     INCOME = "INCOME"
@@ -30,7 +31,7 @@ class PaymentMethod(str, Enum):
     TRANSFER = "TRANSFER"
     SYSTEM = "SYSTEM" # For auto-generated entries like Salaries
 
-class Transaction(Base):
+class Transaction(BranchScopedMixin, Base):
     __tablename__ = "transactions"
 
     id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
@@ -49,7 +50,7 @@ class Transaction(Base):
     pos_items = relationship("POSTransactionItem", back_populates="transaction", cascade="all, delete-orphan")
 
 
-class POSTransactionItem(Base):
+class POSTransactionItem(GymScopedMixin, Base):
     __tablename__ = "pos_transaction_items"
 
     id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)

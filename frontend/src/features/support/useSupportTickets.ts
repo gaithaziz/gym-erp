@@ -8,6 +8,7 @@ interface UseSupportTicketsArgs {
     isActive?: boolean;
     category?: TicketCategory | '';
     statusFilter?: TicketStatus;
+    branchId?: string | null;
     page: number;
     pageSize: number;
 }
@@ -30,6 +31,7 @@ export function useSupportTickets<T extends TicketRow>() {
             if (typeof args.isActive === 'boolean') params.is_active = args.isActive;
             if (args.category) params.category = args.category;
             if (args.statusFilter) params.status_filter = args.statusFilter;
+            if (args.branchId) params.branch_id = args.branchId;
 
             const response = await api.get('/support/tickets', { params });
             setTickets((response.data?.data || []) as T[]);

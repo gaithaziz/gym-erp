@@ -1,4 +1,4 @@
-import { createContext, useContext, useEffect, useMemo, useState, type PropsWithChildren } from "react";
+import { createContext, useCallback, useContext, useEffect, useMemo, useState, type PropsWithChildren } from "react";
 import * as SecureStore from "expo-secure-store";
 
 import { fonts, themes, type Locale, type ThemeMode } from "@/lib/theme";
@@ -1953,17 +1953,17 @@ export function PreferencesProvider({ children }: PropsWithChildren) {
     };
   }, []);
 
-  async function toggleLocale() {
+  const toggleLocale = useCallback(async () => {
     const next = locale === "en" ? "ar" : "en";
     setLocale(next);
     await SecureStore.setItemAsync(LOCALE_STORAGE_KEY, next);
-  }
+  }, [locale]);
 
-  async function toggleThemeMode() {
+  const toggleThemeMode = useCallback(async () => {
     const next = themeMode === "light" ? "dark" : "light";
     setThemeMode(next);
     await SecureStore.setItemAsync(THEME_STORAGE_KEY, next);
-  }
+  }, [themeMode]);
 
   const value = useMemo<PreferencesContextValue>(() => {
     const direction = locale === "ar" ? "rtl" : "ltr";
@@ -1978,7 +1978,7 @@ export function PreferencesProvider({ children }: PropsWithChildren) {
       toggleLocale,
       toggleThemeMode,
     };
-  }, [locale, themeMode]);
+  }, [locale, themeMode, toggleLocale, toggleThemeMode]);
 
   return <PreferencesContext.Provider value={value}>{children}</PreferencesContext.Provider>;
 }

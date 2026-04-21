@@ -5,9 +5,10 @@ from sqlalchemy import Boolean, DateTime, ForeignKey, Integer, String, Text, Uni
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.database import Base
+from app.models.tenancy import GymScopedMixin
 
 
-class WhatsAppDeliveryLog(Base):
+class WhatsAppDeliveryLog(GymScopedMixin, Base):
     __tablename__ = "whatsapp_delivery_logs"
     __table_args__ = (
         UniqueConstraint("idempotency_key", name="uq_whatsapp_delivery_logs_idempotency_key"),
@@ -32,7 +33,7 @@ class WhatsAppDeliveryLog(Base):
     user = relationship("User")
 
 
-class WhatsAppAutomationRule(Base):
+class WhatsAppAutomationRule(GymScopedMixin, Base):
     __tablename__ = "whatsapp_automation_rules"
     __table_args__ = (
         UniqueConstraint("event_type", name="uq_whatsapp_automation_rules_event_type"),
@@ -51,7 +52,7 @@ class WhatsAppAutomationRule(Base):
     updater = relationship("User")
 
 
-class MobileNotificationPreference(Base):
+class MobileNotificationPreference(GymScopedMixin, Base):
     __tablename__ = "mobile_notification_preferences"
 
     user_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id"), primary_key=True)
@@ -65,7 +66,7 @@ class MobileNotificationPreference(Base):
     user = relationship("User")
 
 
-class MobileDevice(Base):
+class MobileDevice(GymScopedMixin, Base):
     __tablename__ = "mobile_devices"
     __table_args__ = (
         UniqueConstraint("device_token", name="uq_mobile_devices_device_token"),
@@ -84,7 +85,7 @@ class MobileDevice(Base):
     user = relationship("User")
 
 
-class PushDeliveryLog(Base):
+class PushDeliveryLog(GymScopedMixin, Base):
     __tablename__ = "push_delivery_logs"
     __table_args__ = (
         UniqueConstraint("idempotency_key", name="uq_push_delivery_logs_idempotency_key"),

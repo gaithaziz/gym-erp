@@ -12,13 +12,14 @@ from typing import Annotated, Any
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from pydantic import BaseModel, Field
-from sqlalchemy import func, select
+from sqlalchemy import false, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from app.auth.dependencies import get_current_user
 from app.database import get_db
 from app.services.push_service import PushNotificationService
+from app.services.tenancy_service import TenancyService
 from app.models.classes import (
     ClassReservation,
     ClassReservationStatus,
@@ -74,6 +75,23 @@ async def _get_template_or_404(template_id: uuid.UUID, db: AsyncSession) -> Clas
     if obj is None:
         raise HTTPException(status_code=404, detail="Class template not found")
     return obj
+
+
+async def _ensure_session_branch_access(
+    *,
+    db: AsyncSession,
+    current_user: User,
+    session: ClassSession,
+    allow_all_for_admin: bool = False,
+) -> None:
+    if session.branch_id is None:
+        return
+    await TenancyService.require_branch_access(
+        db,
+        current_user=current_user,
+        branch_id=session.branch_id,
+        allow_all_for_admin=allow_all_for_admin,
+    )
 
 
 async def _reservation_count(session_id: uuid.UUID, db: AsyncSession) -> int:
@@ -162,7 +180,7 @@ async def _notify_reservation_update(
     Send a push notification to the member about their reservation status change.
     Integrates with the existing MobileDevice / PushDeliveryLog infra.
     """
-    user = await db.get(User, member_id)
+    user = await TenancyService.get_user_in_gym(db, gym_id=session.gym_id, user_id=member_id)
     if not user:
         return
 
@@ -237,6 +255,7 @@ class SessionCreate(BaseModel):
     template_duration_minutes: int | None = Field(None, ge=5, le=480)
     template_capacity: int | None = Field(None, ge=1, le=500)
     coach_id: uuid.UUID
+    branch_id: uuid.UUID | None = None
     starts_at: datetime
     session_name: str | None = Field(None, min_length=1, max_length=200)
     capacity_override: int | None = Field(None, ge=1, le=500)
@@ -247,6 +266,7 @@ class SessionCreate(BaseModel):
 
 class SessionUpdate(BaseModel):
     coach_id: uuid.UUID | None = None
+    branch_id: uuid.UUID | None = None
     starts_at: datetime | None = None
     session_name: str | None = Field(None, min_length=1, max_length=200)
     capacity_override: int | None = Field(None, ge=1, le=500)
@@ -257,6 +277,7 @@ class SessionUpdate(BaseModel):
 class SessionOut(BaseModel):
     id: uuid.UUID
     template_id: uuid.UUID
+    branch_id: uuid.UUID | None
     template_name: str
     session_name: str | None
     display_name: str
@@ -313,6 +334,7 @@ async def _session_out(session: ClassSession, db: AsyncSession) -> dict[str, Any
     return {
         "id": session.id,
         "template_id": session.template_id,
+        "branch_id": session.branch_id,
         "template_name": session.template.name,
         "session_name": session.session_name,
         "display_name": session.display_name,
@@ -434,6 +456,7 @@ async def list_sessions(
     coach_id: uuid.UUID | None = Query(None),
     template_id: uuid.UUID | None = Query(None),
     session_status: ClassSessionStatus | None = Query(None, alias="status"),
+    branch_id: uuid.UUID | None = Query(None),
 ):
     q = (
         select(ClassSession)
@@ -446,6 +469,16 @@ async def list_sessions(
         q = q.where(ClassSession.coach_id == current_user.id)
     elif coach_id:
         q = q.where(ClassSession.coach_id == coach_id)
+    branch_ids = await TenancyService.branch_scope_ids(
+        db,
+        current_user=current_user,
+        branch_id=branch_id,
+        allow_all_for_admin=current_user.role in {Role.ADMIN, Role.MANAGER},
+    )
+    if branch_ids:
+        q = q.where(ClassSession.branch_id.in_(branch_ids))
+    else:
+        q = q.where(false())
 
     if from_date:
         q = q.where(ClassSession.starts_at >= from_date)
@@ -472,6 +505,14 @@ async def create_session(body: SessionCreate, db: DbDep, current_user: RequireSt
     """
     tmpl = await _resolve_template_for_session(body, db=db, current_user=current_user)
     await _get_coach_or_400(body.coach_id, db)
+    target_branch_id = body.branch_id or current_user.home_branch_id
+    if target_branch_id is not None:
+        await TenancyService.require_branch_access(
+            db,
+            current_user=current_user,
+            branch_id=target_branch_id,
+            allow_all_for_admin=current_user.role in {Role.ADMIN, Role.MANAGER},
+        )
 
     # Coaches can only create sessions for themselves
     if current_user.role == Role.COACH and body.coach_id != current_user.id:
@@ -483,6 +524,7 @@ async def create_session(body: SessionCreate, db: DbDep, current_user: RequireSt
     for week_offset in range(recur_count + 1):
         starts = body.starts_at + timedelta(weeks=week_offset)
         session = _make_session(body, starts, tmpl)
+        session.branch_id = target_branch_id
         await _ensure_no_session_conflict(
             db=db,
             coach_id=session.coach_id,
@@ -505,11 +547,24 @@ async def create_session(body: SessionCreate, db: DbDep, current_user: RequireSt
 @router.put("/sessions/{session_id}", response_model=SessionOut)
 async def update_session(session_id: uuid.UUID, body: SessionUpdate, db: DbDep, current_user: RequireStaff):
     session = await _get_session_or_404(session_id, db)
+    await _ensure_session_branch_access(
+        db=db,
+        current_user=current_user,
+        session=session,
+        allow_all_for_admin=current_user.role in {Role.ADMIN, Role.MANAGER},
+    )
 
     if current_user.role == Role.COACH and session.coach_id != current_user.id:
         raise HTTPException(status_code=403, detail="Coaches can only edit their own sessions")
 
     updates = body.model_dump(exclude_none=True)
+    if "branch_id" in updates:
+        await TenancyService.require_branch_access(
+            db,
+            current_user=current_user,
+            branch_id=updates["branch_id"],
+            allow_all_for_admin=current_user.role in {Role.ADMIN, Role.MANAGER},
+        )
 
     if "coach_id" in updates:
         await _get_coach_or_400(updates["coach_id"], db)
@@ -539,6 +594,12 @@ async def update_session(session_id: uuid.UUID, body: SessionUpdate, db: DbDep, 
 @router.post("/sessions/{session_id}/cancel", response_model=SessionOut)
 async def cancel_session(session_id: uuid.UUID, db: DbDep, current_user: RequireAdminManager):
     session = await _get_session_or_404(session_id, db)
+    await _ensure_session_branch_access(
+        db=db,
+        current_user=current_user,
+        session=session,
+        allow_all_for_admin=True,
+    )
     if session.status == ClassSessionStatus.CANCELLED:
         raise HTTPException(status_code=400, detail="Session is already cancelled")
     session.status = ClassSessionStatus.CANCELLED
@@ -564,6 +625,12 @@ async def cancel_session(session_id: uuid.UUID, db: DbDep, current_user: Require
 @router.post("/sessions/{session_id}/complete", response_model=SessionOut)
 async def complete_session(session_id: uuid.UUID, db: DbDep, current_user: RequireStaff):
     session = await _get_session_or_404(session_id, db)
+    await _ensure_session_branch_access(
+        db=db,
+        current_user=current_user,
+        session=session,
+        allow_all_for_admin=current_user.role in {Role.ADMIN, Role.MANAGER},
+    )
     if current_user.role == Role.COACH and session.coach_id != current_user.id:
         raise HTTPException(status_code=403, detail="Cannot complete another coach's session")
     if session.status != ClassSessionStatus.SCHEDULED:
@@ -582,6 +649,12 @@ async def list_session_reservations(
     res_status: ClassReservationStatus | None = Query(None, alias="status"),
 ):
     session = await _get_session_or_404(session_id, db)
+    await _ensure_session_branch_access(
+        db=db,
+        current_user=current_user,
+        session=session,
+        allow_all_for_admin=current_user.role in {Role.ADMIN, Role.MANAGER},
+    )
     if current_user.role == Role.COACH and session.coach_id != current_user.id:
         raise HTTPException(status_code=403, detail="Cannot view another coach's attendees")
 
@@ -629,6 +702,12 @@ async def approve_reservations(
     If session is at capacity, approved members are placed on the waitlist instead.
     """
     session = await _get_session_or_404(session_id, db)
+    await _ensure_session_branch_access(
+        db=db,
+        current_user=current_user,
+        session=session,
+        allow_all_for_admin=current_user.role in {Role.ADMIN, Role.MANAGER},
+    )
     if current_user.role == Role.COACH and session.coach_id != current_user.id:
         raise HTTPException(status_code=403, detail="Coaches can only approve reservations for their own sessions")
 
@@ -669,6 +748,12 @@ async def reject_reservations(
 ):
     """Reject one or more PENDING reservations. Member gets a push notification."""
     session = await _get_session_or_404(session_id, db)
+    await _ensure_session_branch_access(
+        db=db,
+        current_user=current_user,
+        session=session,
+        allow_all_for_admin=current_user.role in {Role.ADMIN, Role.MANAGER},
+    )
     if current_user.role == Role.COACH and session.coach_id != current_user.id:
         raise HTTPException(status_code=403, detail="Coaches can only reject reservations for their own sessions")
 
@@ -693,6 +778,12 @@ async def reject_reservations(
 @router.post("/sessions/{session_id}/attendance", status_code=200)
 async def mark_attendance(session_id: uuid.UUID, body: AttendanceBulk, db: DbDep, current_user: RequireStaff):
     session = await _get_session_or_404(session_id, db)
+    await _ensure_session_branch_access(
+        db=db,
+        current_user=current_user,
+        session=session,
+        allow_all_for_admin=current_user.role in {Role.ADMIN, Role.MANAGER},
+    )
     if current_user.role == Role.COACH and session.coach_id != current_user.id:
         raise HTTPException(status_code=403, detail="Cannot mark attendance for another coach's session")
 
@@ -730,6 +821,12 @@ async def upcoming_sessions(
     now = datetime.now(timezone.utc)
     until = now + timedelta(days=days)
 
+    branch_ids = await TenancyService.branch_scope_ids(
+        db,
+        current_user=current_user,
+        allow_all_for_admin=current_user.role in {Role.ADMIN, Role.MANAGER},
+    )
+
     result = await db.execute(
         select(ClassSession)
         .options(selectinload(ClassSession.template), selectinload(ClassSession.coach))
@@ -737,6 +834,7 @@ async def upcoming_sessions(
             ClassSession.starts_at >= now,
             ClassSession.starts_at <= until,
             ClassSession.status == ClassSessionStatus.SCHEDULED,
+            ClassSession.branch_id.in_(branch_ids) if branch_ids else false(),
         )
         .order_by(ClassSession.starts_at)
     )
@@ -748,6 +846,11 @@ async def upcoming_sessions(
 async def my_reservations(db: DbDep, current_user: CurrentUser):
     """Return the calling member's upcoming reservations (all statuses except cancelled/rejected)."""
     now = datetime.now(timezone.utc)
+    branch_ids = await TenancyService.branch_scope_ids(
+        db,
+        current_user=current_user,
+        allow_all_for_admin=current_user.role in {Role.ADMIN, Role.MANAGER},
+    )
     result = await db.execute(
         select(ClassReservation)
         .options(
@@ -762,6 +865,7 @@ async def my_reservations(db: DbDep, current_user: CurrentUser):
                 [ClassReservationStatus.PENDING, ClassReservationStatus.RESERVED, ClassReservationStatus.WAITLISTED]
             ),
             ClassSession.starts_at >= now,
+            ClassSession.branch_id.in_(branch_ids) if branch_ids else false(),
         )
         .join(ClassSession, ClassReservation.session_id == ClassSession.id)
         .order_by(ClassSession.starts_at)
@@ -788,6 +892,11 @@ async def request_reservation(session_id: uuid.UUID, db: DbDep, current_user: Cu
         raise HTTPException(status_code=403, detail="Only members can request class reservations")
 
     session = await _get_session_or_404(session_id, db)
+    await _ensure_session_branch_access(
+        db=db,
+        current_user=current_user,
+        session=session,
+    )
 
     if session.status != ClassSessionStatus.SCHEDULED:
         raise HTTPException(status_code=400, detail="This session is not available for booking")
@@ -840,6 +949,12 @@ async def cancel_my_reservation(session_id: uuid.UUID, db: DbDep, current_user: 
     reservation = result.scalar_one_or_none()
     if reservation is None:
         raise HTTPException(status_code=404, detail="No active reservation found for this session")
+    session_obj = await _get_session_or_404(session_id, db)
+    await _ensure_session_branch_access(
+        db=db,
+        current_user=current_user,
+        session=session_obj,
+    )
 
     was_reserved = reservation.status == ClassReservationStatus.RESERVED
     now = datetime.now(timezone.utc)
@@ -859,7 +974,6 @@ async def cancel_my_reservation(session_id: uuid.UUID, db: DbDep, current_user: 
         )
         promoted = next_result.scalar_one_or_none()
         if promoted:
-            session_obj = await _get_session_or_404(session_id, db)
             promoted.status = ClassReservationStatus.RESERVED
             await _notify_reservation_update(promoted.member_id, ClassReservationStatus.RESERVED, session_obj, db)
 

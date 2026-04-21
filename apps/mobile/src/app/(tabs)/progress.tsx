@@ -310,7 +310,7 @@ function SparklineChart({
   emptyMessage,
 }: {
   title: string;
-  points: Array<{ label: string; value?: number | null }>;
+  points: { label: string; value?: number | null }[];
   unit: string;
   emptyMessage: string;
 }) {
@@ -407,7 +407,7 @@ function CountBarChart({
   emptyMessage,
 }: {
   title: string;
-  points: Array<{ label: string; value?: number | null }>;
+  points: { label: string; value?: number | null }[];
   unit: string;
   emptyMessage: string;
 }) {

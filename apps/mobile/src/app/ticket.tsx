@@ -58,7 +58,7 @@ function subscriptionSupportMessage(type: string, copy: ReturnType<typeof usePre
 
 export default function SupportScreen() {
   const params = useLocalSearchParams<{ type?: string; ticketId?: string }>();
-  const { authorizedRequest, bootstrap } = useSession();
+  const { authorizedRequest, bootstrap, selectedBranchId } = useSession();
   const { copy, direction, fontSet, isRTL, theme } = usePreferences();
   const role = getCurrentRole(bootstrap);
   const customer = isCustomerRole(role);
@@ -95,8 +95,11 @@ export default function SupportScreen() {
     if (categoryFilter !== "ALL") {
       search.set("category", categoryFilter);
     }
+    if (selectedBranchId) {
+      search.set("branch_id", selectedBranchId);
+    }
     return search.toString();
-  }, [categoryFilter, queueFilter]);
+  }, [categoryFilter, queueFilter, selectedBranchId]);
 
   const supportPath = ticketQueryString ? `/mobile/support/tickets?${ticketQueryString}` : "/mobile/support/tickets";
 
@@ -105,7 +108,7 @@ export default function SupportScreen() {
     retry: 1,
     queryFn: async () => (await authorizedRequest<SupportTicket[]>(supportPath)).data,
   });
-  const tickets = supportQuery.data ?? [];
+  const tickets = useMemo(() => supportQuery.data ?? [], [supportQuery.data]);
   const selectedTicket = useMemo(() => tickets.find((ticket) => ticket.id === selectedTicketId) ?? tickets[0] ?? null, [selectedTicketId, tickets]);
 
   useEffect(() => {
@@ -341,7 +344,7 @@ function ChipRow({
 }: {
   activeId: string;
   disabled?: boolean;
-  items: Array<{ id: string; label: string }>;
+  items: { id: string; label: string }[];
   onSelect: (id: string) => void;
 }) {
   const { fontSet, isRTL, theme } = usePreferences();

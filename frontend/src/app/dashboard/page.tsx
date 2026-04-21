@@ -3,7 +3,7 @@
 import { useAuth } from '@/context/AuthContext';
 import { api } from '@/lib/api';
 import { useEffect, useState, useCallback, useMemo } from 'react';
-import { Users, DollarSign, Clock, TrendingUp, QrCode, Dumbbell, Utensils, ChevronRight, MessageSquare, UserCheck, ClipboardList, Trophy, Activity, Download } from 'lucide-react';
+import { Users, DollarSign, Clock, TrendingUp, QrCode, Dumbbell, Utensils, ChevronRight, MessageSquare, UserCheck, ClipboardList, Trophy, Activity, Download, Building2 } from 'lucide-react';
 import {
     BarChart, Bar, Cell, LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip
 } from 'recharts';
@@ -18,6 +18,9 @@ import { DateRange } from 'react-day-picker';
 import { subDays } from 'date-fns';
 import { useLocale } from '@/context/LocaleContext';
 import SafeResponsiveChart from '@/components/SafeResponsiveChart';
+import { BranchSelector } from '@/components/BranchSelector';
+import { useBranch } from '@/context/BranchContext';
+import { getBranchParams } from '@/lib/branch';
 
 // ======================== ADMIN DASHBOARD ========================
 
@@ -49,6 +52,26 @@ interface ActivityItem {
     time: string;
     color: string;
     type: string;
+}
+
+interface BranchComparisonItem {
+    branch_id: string;
+    branch_name: string;
+    total_income: number;
+    total_expenses: number;
+    net_profit: number;
+    todays_revenue: number;
+    today_visitors: number;
+    attendance_events: number;
+    low_stock_count: number;
+    revenue_delta_pct: number;
+}
+
+interface BranchComparisonResponse {
+    total_branches: number;
+    top_branch: BranchComparisonItem | null;
+    bottom_branch: BranchComparisonItem | null;
+    branches: BranchComparisonItem[];
 }
 
 interface Plan {
@@ -120,8 +143,8 @@ const calculateAge = (dob?: string) => {
     return age >= 0 ? age : null;
 };
 
-function AdminDashboard({ userName }: { userName: string }) {
-    const { t, direction, formatCurrency, formatDate, locale } = useLocale();
+function AdminDashboard({ userName, userRole }: { userName: string; userRole: string }) {
+    const { t, direction, formatCurrency, formatDate, formatNumber, locale } = useLocale();
     const adminTxt = locale === 'ar'
         ? {
             justNow: 'الآن',
@@ -136,6 +159,16 @@ function AdminDashboard({ userName }: { userName: string }) {
             uniqueVisitors: 'الزوار الفريدون',
             noRows: 'لا توجد صفوف',
             csvFileName: 'daily_visitors_report_ar.csv',
+            globalViewTitle: 'نظرة شاملة لكل الفروع',
+            globalViewSubtitle: 'مقارنة أداء الفروع خلال النطاق الزمني المحدد.',
+            topBranch: 'أفضل فرع',
+            bottomBranch: 'أضعف فرع',
+            branchCount: 'عدد الفروع',
+            netProfit: 'صافي الربح',
+            revenueDelta: 'تغير الربحية',
+            visitorsToday: 'زوار اليوم',
+            lowStockAlerts: 'تنبيهات مخزون',
+            branchRanking: 'ترتيب الفروع',
         }
         : {
             justNow: 'Just now',
@@ -150,6 +183,16 @@ function AdminDashboard({ userName }: { userName: string }) {
             uniqueVisitors: 'Unique Visitors',
             noRows: 'No rows',
             csvFileName: 'daily_visitors_report_en.csv',
+            globalViewTitle: 'Global Branch View',
+            globalViewSubtitle: 'Compare branch performance across the selected date range.',
+            topBranch: 'Top Branch',
+            bottomBranch: 'Bottom Branch',
+            branchCount: 'Branches',
+            netProfit: 'Net Profit',
+            revenueDelta: 'Profit Delta',
+            visitorsToday: 'Visitors Today',
+            lowStockAlerts: 'Low Stock Alerts',
+            branchRanking: 'Branch Ranking',
         };
     const [stats, setStats] = useState<DashboardStats | null>(null);
     const [attendanceData, setAttendanceData] = useState<AttendanceData[]>([]);
@@ -161,11 +204,14 @@ function AdminDashboard({ userName }: { userName: string }) {
     const [recentActivity, setRecentActivity] = useState<ActivityItem[]>([]);
     const [lowStockItems, setLowStockItems] = useState<LowStockItem[]>([]);
     const [dailyVisitors, setDailyVisitors] = useState<DailyVisitorRow[]>([]);
+    const [branchComparison, setBranchComparison] = useState<BranchComparisonResponse | null>(null);
     const [dailyVisitorsPage, setDailyVisitorsPage] = useState(1);
     const [dateRange, setDateRange] = useState<DateRange | undefined>({
         from: subDays(new Date(), 30),
         to: new Date(),
     });
+    const { branches, selectedBranchId, setSelectedBranchId } = useBranch();
+    const isGlobalBranchMode = selectedBranchId === 'all' && userRole === 'SUPER_ADMIN';
 
     const selectedDays = useMemo(() => {
         if (!dateRange?.from || !dateRange?.to) return 30;
@@ -182,37 +228,49 @@ function AdminDashboard({ userName }: { userName: string }) {
     const fetchData = useCallback(() => {
         const from = dateRange?.from ? dateRange.from.toISOString().split('T')[0] : '';
         const to = dateRange?.to ? dateRange.to.toISOString().split('T')[0] : '';
-        const dateQuery = from && to ? `?from=${from}&to=${to}` : '';
+        const branchParams = getBranchParams(selectedBranchId);
+        const baseDateParams = from && to ? { from, to, ...branchParams } : branchParams;
 
-        // API calls (mocking query implementation on backend for now if not ready)
-        // Ideally backend should accept date range params
-        api.get('/analytics/dashboard' + dateQuery)
+        api.get('/analytics/dashboard', { params: baseDateParams })
             .then(res => setStats(res.data.data))
             .catch(err => console.error("Failed to fetch dashboard stats", err));
 
-        api.get(`/analytics/attendance?days=${selectedDays}`)
+        api.get('/analytics/attendance', { params: { days: selectedDays, ...branchParams } })
             .then(res => setAttendanceData(res.data.data || []))
             .catch(() => { });
 
-        api.get(`/analytics/revenue-chart?days=${selectedDays}`)
+        api.get('/analytics/revenue-chart', { params: { days: selectedDays, ...branchParams } })
             .then(res => setRevenueData(res.data.data || []))
             .catch(() => { });
 
-        api.get('/analytics/recent-activity')
+        api.get('/analytics/recent-activity', { params: branchParams })
             .then(res => setRecentActivity(res.data.data || []))
             .catch(() => setRecentActivity([]));
 
-        api.get('/inventory/products/low-stock')
+        api.get('/inventory/products/low-stock', { params: branchParams })
             .then(res => setLowStockItems(res.data.data || []))
             .catch(() => setLowStockItems([]));
 
-        api.get('/analytics/daily-visitors' + dateQuery)
+        api.get('/analytics/daily-visitors', { params: baseDateParams })
             .then(res => setDailyVisitors(res.data.data || []))
             .catch(() => setDailyVisitors([]));
-    }, [dateRange, selectedDays]);
+
+        if (isGlobalBranchMode) {
+            api.get('/analytics/branch-comparison', { params: from && to ? { from, to } : undefined })
+                .then(res => setBranchComparison(res.data.data || null))
+                .catch(() => setBranchComparison(null));
+        } else {
+            setBranchComparison(null);
+        }
+    }, [dateRange, isGlobalBranchMode, selectedDays, selectedBranchId]);
+
+    // Branches are now managed by BranchContext
 
     useEffect(() => {
-        fetchData();
+        const timer = window.setTimeout(() => {
+            fetchData();
+        }, 0);
+        return () => window.clearTimeout(timer);
     }, [fetchData]);
 
     const totalDailyVisitorPages = Math.max(1, Math.ceil(dailyVisitors.length / VISITOR_ROWS_PAGE_SIZE));
@@ -288,6 +346,8 @@ function AdminDashboard({ userName }: { userName: string }) {
         const params = new URLSearchParams();
         if (from) params.set('from', from);
         if (to) params.set('to', to);
+        const branchParams = getBranchParams(selectedBranchId);
+        if (branchParams.branch_id) params.set('branch_id', branchParams.branch_id);
         params.set('format', 'csv');
 
         try {
@@ -315,10 +375,64 @@ function AdminDashboard({ userName }: { userName: string }) {
                     <h1 className="text-2xl font-bold text-foreground font-serif tracking-tight">{t('dashboard.home.title')}</h1>
                     <p className="text-sm text-muted-foreground mt-1">{t('dashboard.home.operationsCenter')} | {userName}</p>
                 </div>
-                <div className="flex items-center gap-2 mt-1 md:mt-2">
+                <div className="flex flex-wrap items-center gap-2 mt-1 md:mt-2">
+                    <BranchSelector 
+                        branches={branches}
+                        selectedBranchId={selectedBranchId}
+                        onSelect={setSelectedBranchId}
+                    />
                     <DateRangePicker date={dateRange} setDate={setDateRange} className="z-10" />
                 </div>
             </div>
+
+            {isGlobalBranchMode && branchComparison ? (
+                <section className="kpi-card space-y-4 p-5">
+                    <div>
+                        <h3 className="text-base font-bold text-foreground">{adminTxt.globalViewTitle}</h3>
+                        <p className="text-xs text-muted-foreground mt-1">{adminTxt.globalViewSubtitle}</p>
+                    </div>
+                    <div className="grid gap-3 md:grid-cols-3">
+                        <div className="border border-border bg-muted/20 p-3">
+                            <p className="text-[11px] font-bold uppercase tracking-wider text-muted-foreground">{adminTxt.topBranch}</p>
+                            <p className="mt-2 text-base font-semibold text-foreground">{branchComparison.top_branch?.branch_name || '-'}</p>
+                            <p className="text-xs text-muted-foreground mt-1">{adminTxt.netProfit}: {formatCurrency(branchComparison.top_branch?.net_profit || 0, 'JOD', { currencyDisplay: 'code' })}</p>
+                        </div>
+                        <div className="border border-border bg-muted/20 p-3">
+                            <p className="text-[11px] font-bold uppercase tracking-wider text-muted-foreground">{adminTxt.bottomBranch}</p>
+                            <p className="mt-2 text-base font-semibold text-foreground">{branchComparison.bottom_branch?.branch_name || '-'}</p>
+                            <p className="text-xs text-muted-foreground mt-1">{adminTxt.netProfit}: {formatCurrency(branchComparison.bottom_branch?.net_profit || 0, 'JOD', { currencyDisplay: 'code' })}</p>
+                        </div>
+                        <div className="border border-border bg-muted/20 p-3">
+                            <p className="text-[11px] font-bold uppercase tracking-wider text-muted-foreground">{adminTxt.branchCount}</p>
+                            <p className="mt-2 text-base font-semibold text-foreground">{branchComparison.total_branches}</p>
+                        </div>
+                    </div>
+                    <div className="space-y-2">
+                        <p className="text-xs font-bold uppercase tracking-wider text-muted-foreground">{adminTxt.branchRanking}</p>
+                        <div className="grid gap-2">
+                            {branchComparison.branches.slice(0, 5).map((branch, index) => (
+                                <div key={branch.branch_id} className="flex items-center justify-between gap-3 border border-border px-3 py-2 text-sm">
+                                    <div className="flex items-center gap-2 min-w-0">
+                                        <span className="font-mono text-xs text-muted-foreground">#{index + 1}</span>
+                                        <Building2 size={14} className="text-muted-foreground" />
+                                        <span className="truncate text-foreground">{branch.branch_name}</span>
+                                    </div>
+                                    <div className="flex items-center gap-3 font-mono text-xs">
+                                        <span className="text-foreground">{adminTxt.netProfit}: {formatNumber(branch.net_profit)}</span>
+                                        <span className={branch.revenue_delta_pct >= 0 ? 'text-emerald-500' : 'text-red-500'}>
+                                            {adminTxt.revenueDelta}: {formatNumber(branch.revenue_delta_pct)}%
+                                        </span>
+                                        <span className="text-muted-foreground">{adminTxt.visitorsToday}: {branch.today_visitors}</span>
+                                        <span className={branch.low_stock_count > 0 ? 'text-red-500' : 'text-muted-foreground'}>
+                                            {adminTxt.lowStockAlerts}: {branch.low_stock_count}
+                                        </span>
+                                    </div>
+                                </div>
+                            ))}
+                        </div>
+                    </div>
+                </section>
+            ) : null}
 
             <DashboardGrid layoutId="admin_dashboard_v1">
                 {/* KPI Cards */}
@@ -1379,8 +1493,10 @@ export default function DashboardPage() {
     const userName = user.full_name || user.email;
 
     switch (user.role) {
+        case 'SUPER_ADMIN':
         case 'ADMIN':
-            return <AdminDashboard userName={userName} />;
+        case 'MANAGER':
+            return <AdminDashboard userName={userName} userRole={user.role} />;
         case 'COACH':
             return <CoachDashboard userName={userName} />;
         case 'CASHIER':

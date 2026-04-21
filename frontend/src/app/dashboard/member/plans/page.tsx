@@ -246,7 +246,7 @@ export default function MemberPlansPage() {
             }
         };
         load();
-    }, [showToast]);
+    }, [showToast, txt.loadFailed]);
 
     useEffect(() => {
         if (!selectedPlanId) {
@@ -357,7 +357,7 @@ export default function MemberPlansPage() {
             pr_value: currentEntry.pr_value || '',
             pr_notes: currentEntry.pr_notes || '',
         });
-    }, [currentEntry?.id]);
+    }, [currentEntry]);
 
     const handleStart = async () => {
         if (!selectedPlanId) return;

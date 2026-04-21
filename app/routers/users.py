@@ -28,7 +28,7 @@ async def update_user(
     db: Annotated[AsyncSession, Depends(get_db)]
 ):
     """Admin updates user details."""
-    stmt = select(User).where(User.id == user_id)
+    stmt = select(User).where(User.id == user_id, User.gym_id == current_user.gym_id)
     result = await db.execute(stmt)
     user = result.scalar_one_or_none()
     
@@ -59,7 +59,7 @@ async def delete_user(
     db: Annotated[AsyncSession, Depends(get_db)]
 ):
     """Soft delete a user (deactivate)."""
-    stmt = select(User).where(User.id == user_id)
+    stmt = select(User).where(User.id == user_id, User.gym_id == current_user.gym_id)
     result = await db.execute(stmt)
     user = result.scalar_one_or_none()
     

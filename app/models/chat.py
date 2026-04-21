@@ -5,12 +5,13 @@ from sqlalchemy import DateTime, ForeignKey, Integer, String, Text, UniqueConstr
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.database import Base
+from app.models.tenancy import GymScopedMixin
 
 
-class ChatThread(Base):
+class ChatThread(GymScopedMixin, Base):
     __tablename__ = "chat_threads"
     __table_args__ = (
-        UniqueConstraint("customer_id", "coach_id", name="uq_chat_threads_customer_coach"),
+        UniqueConstraint("gym_id", "customer_id", "coach_id", name="uq_chat_threads_gym_customer_coach"),
     )
 
     id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
@@ -25,7 +26,7 @@ class ChatThread(Base):
     messages = relationship("ChatMessage", back_populates="thread", cascade="all, delete-orphan")
 
 
-class ChatMessage(Base):
+class ChatMessage(GymScopedMixin, Base):
     __tablename__ = "chat_messages"
 
     id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
@@ -44,10 +45,10 @@ class ChatMessage(Base):
     sender = relationship("User")
 
 
-class ChatReadReceipt(Base):
+class ChatReadReceipt(GymScopedMixin, Base):
     __tablename__ = "chat_read_receipts"
     __table_args__ = (
-        UniqueConstraint("thread_id", "user_id", name="uq_chat_read_receipts_thread_user"),
+        UniqueConstraint("gym_id", "thread_id", "user_id", name="uq_chat_read_receipts_gym_thread_user"),
     )
 
     id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)

@@ -293,7 +293,7 @@ function ProductFormFields({ form, setForm }: { form: ProductForm; setForm: (for
   );
 }
 
-function ChipRow({ activeId, items, onSelect }: { activeId: string; items: Array<{ id: string; label: string }>; onSelect: (id: string) => void }) {
+function ChipRow({ activeId, items, onSelect }: { activeId: string; items: { id: string; label: string }[]; onSelect: (id: string) => void }) {
   const { direction, fontSet, isRTL, theme } = usePreferences();
   return (
     <View style={[styles.chipRow, { flexDirection: isRTL ? "row-reverse" : "row" }]}>

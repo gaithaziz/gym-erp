@@ -15,7 +15,7 @@ const PAYMENT_METHODS = ["CASH", "CARD", "TRANSFER"] as const;
 
 export default function ApprovalsScreen() {
   const { authorizedRequest, bootstrap } = useSession();
-  const { copy, direction, fontSet, isRTL, theme } = usePreferences();
+  const { copy, isRTL } = usePreferences();
   const role = getCurrentRole(bootstrap);
   const adminControl = isAdminControlRole(role);
   const queryClient = useQueryClient();

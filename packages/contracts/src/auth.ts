@@ -1,6 +1,7 @@
 import { z } from "zod";
 
 export const ROLE_VALUES = [
+  "SUPER_ADMIN",
   "ADMIN",
   "MANAGER",
   "FRONT_DESK",
@@ -37,6 +38,8 @@ export const authUserSchema = z.object({
   email: z.string().email(),
   full_name: z.string().nullable().optional().default(null),
   role: roleSchema,
+  gym_id: z.string().uuid(),
+  home_branch_id: z.string().uuid().nullable().optional(),
   profile_picture_url: z.string().nullable().optional(),
   phone_number: z.string().nullable().optional(),
   date_of_birth: z.string().nullable().optional(),
@@ -47,6 +50,7 @@ export const authUserSchema = z.object({
   subscription_plan_name: z.string().nullable().optional(),
   is_subscription_blocked: z.boolean(),
   block_reason: subscriptionBlockReasonSchema.nullable().optional(),
+  is_impersonated: z.boolean().optional().default(false),
 });
 
 export const tokenPairSchema = z.object({

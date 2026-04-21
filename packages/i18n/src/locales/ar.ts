@@ -29,6 +29,7 @@ export const arMessages = {
       finance: "المالية",
       coaching: "التدريب",
       account: "الحساب",
+      systemAdmin: "الإدارة العامة",
     },
     nav: {
       dashboard: "لوحة التحكم",
@@ -60,6 +61,9 @@ export const arMessages = {
       achievements: "الإنجازات",
       subscription: "الاشتراك",
       support: "الدعم",
+      globalStats: "الإحصائيات العامة",
+      gymManagement: "إدارة الصالات",
+      systemUsers: "البحث العام",
     },
     openChat: "فتح المحادثة",
     home: {

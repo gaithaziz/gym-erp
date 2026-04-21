@@ -172,6 +172,7 @@ class MobileStaffMemberRegistrationResponse(BaseModel):
 class MobileCheckInProcessRequest(BaseModel):
     member_id: uuid.UUID
     kiosk_id: str = Field(min_length=2, max_length=120)
+    branch_id: uuid.UUID | None = None
 
 
 class MobileCheckInLookupResponse(BaseModel):
@@ -578,6 +579,7 @@ async def create_customer_renewal_request(
 async def read_customer_support_tickets(
     current_user: Annotated[User, Depends(dependencies.RoleChecker([schemas.Role.CUSTOMER]))],
     db: Annotated[AsyncSession, Depends(get_db)],
+    branch_id: uuid.UUID | None = Query(None),
 ):
     response = type("ResponseStub", (), {"headers": {}})()
     result = await list_support_tickets(
@@ -587,6 +589,7 @@ async def read_customer_support_tickets(
         status_filter=None,
         is_active=None,
         category=None,
+        branch_id=branch_id,
         limit=50,
         offset=0,
     )
@@ -633,6 +636,7 @@ async def create_customer_support_ticket_attachment(
 async def read_customer_lost_found_items(
     current_user: Annotated[User, Depends(dependencies.RoleChecker([schemas.Role.CUSTOMER]))],
     db: Annotated[AsyncSession, Depends(get_db)],
+    branch_id: uuid.UUID | None = Query(None),
 ):
     return await list_customer_lost_found_items(
         current_user=current_user,
@@ -642,6 +646,7 @@ async def read_customer_lost_found_items(
         status=None,
         assignee_id=None,
         reporter_id=None,
+        branch_id=branch_id,
         archived_only=False,
     )
 
@@ -651,8 +656,14 @@ async def create_customer_lost_found_item(
     payload: LostFoundItemCreateRequest,
     current_user: Annotated[User, Depends(dependencies.RoleChecker([schemas.Role.CUSTOMER]))],
     db: Annotated[AsyncSession, Depends(get_db)],
+    branch_id: uuid.UUID | None = Query(None),
 ):
-    return await create_customer_lost_found_item_record(payload=payload, current_user=current_user, db=db)
+    return await create_customer_lost_found_item_record(
+        payload=payload,
+        current_user=current_user,
+        db=db,
+        branch_id=branch_id,
+    )
 
 
 @router.get("/customer/lost-found/items/{item_id}", response_model=StandardResponse)
@@ -937,6 +948,7 @@ async def read_support_tickets(
     status_filter: TicketStatus | None = Query(None),
     is_active: bool | None = Query(None),
     category: TicketCategory | None = Query(None),
+    branch_id: uuid.UUID | None = Query(None),
 ):
     response = type("ResponseStub", (), {"headers": {}})()
     return await list_support_tickets(
@@ -946,6 +958,7 @@ async def read_support_tickets(
         status_filter=status_filter,
         is_active=is_active,
         category=category,
+        branch_id=branch_id,
         limit=50,
         offset=0,
     )
@@ -995,6 +1008,7 @@ async def update_support_ticket_status_mobile(
 async def read_lost_found_items_mobile(
     current_user: Annotated[User, Depends(dependencies.get_current_active_user)],
     db: Annotated[AsyncSession, Depends(get_db)],
+    branch_id: uuid.UUID | None = Query(None),
 ):
     return await list_customer_lost_found_items(
         current_user=current_user,
@@ -1004,6 +1018,7 @@ async def read_lost_found_items_mobile(
         status=None,
         assignee_id=None,
         reporter_id=None,
+        branch_id=branch_id,
         archived_only=False,
     )
 
@@ -1013,8 +1028,14 @@ async def create_lost_found_item_mobile(
     payload: LostFoundItemCreateRequest,
     current_user: Annotated[User, Depends(dependencies.get_current_active_user)],
     db: Annotated[AsyncSession, Depends(get_db)],
+    branch_id: uuid.UUID | None = Query(None),
 ):
-    return await create_customer_lost_found_item_record(payload=payload, current_user=current_user, db=db)
+    return await create_customer_lost_found_item_record(
+        payload=payload,
+        current_user=current_user,
+        db=db,
+        branch_id=branch_id,
+    )
 
 
 @router.get("/lost-found/items/{item_id}", response_model=StandardResponse)
@@ -1347,8 +1368,14 @@ async def read_staff_members(
     ],
     db: Annotated[AsyncSession, Depends(get_db)],
     q: str | None = Query(default=None),
+    branch_id: uuid.UUID | None = Query(default=None),
 ):
-    items = await MobileStaffService.list_members(current_user=current_user, db=db, query=q)
+    items = await MobileStaffService.list_members(
+        current_user=current_user,
+        db=db,
+        query=q,
+        branch_id=branch_id,
+    )
     return StandardResponse(data=[MobileStaffMemberSummaryResponse(**item) for item in items])
 
 
@@ -1396,9 +1423,15 @@ async def read_staff_member_detail(
         ),
     ],
     db: Annotated[AsyncSession, Depends(get_db)],
+    branch_id: uuid.UUID | None = Query(default=None),
 ):
     try:
-        data = await MobileStaffService.get_member_detail(current_user=current_user, member_id=member_id, db=db)
+        data = await MobileStaffService.get_member_detail(
+            current_user=current_user,
+            member_id=member_id,
+            db=db,
+            branch_id=branch_id,
+        )
     except ValueError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
     return StandardResponse(data=MobileStaffMemberDetailResponse(**data))
@@ -1440,6 +1473,7 @@ async def process_staff_check_in(
             db=db,
             member_id=payload.member_id,
             kiosk_id=payload.kiosk_id,
+            branch_id=payload.branch_id,
         )
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc

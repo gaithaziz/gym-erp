@@ -5,7 +5,10 @@ import { api } from '@/lib/api';
 import { Check, X, Search, Printer } from 'lucide-react';
 import { useFeedback } from '@/components/FeedbackProvider';
 import TablePagination from '@/components/TablePagination';
+import { BranchSelector } from '@/components/BranchSelector';
+import { useBranch } from '@/context/BranchContext';
 import { useLocale } from '@/context/LocaleContext';
+import { getBranchParams } from '@/lib/branch';
 import { escapePrintHtml, renderPrintShell } from '@/lib/print';
 
 interface LeaveRequest {
@@ -23,6 +26,7 @@ const LEAVES_PAGE_SIZE = 10;
 export default function AdminLeavesPage() {
     const { locale, direction, formatDate } = useLocale();
     const { showToast } = useFeedback();
+    const { branches, selectedBranchId, setSelectedBranchId } = useBranch();
     const [leaves, setLeaves] = useState<LeaveRequest[]>([]);
     const [loading, setLoading] = useState(true);
     const [statusFilter, setStatusFilter] = useState('ALL');
@@ -136,6 +140,7 @@ export default function AdminLeavesPage() {
             if (search.trim()) params.search = search.trim();
             if (startDate) params.start_date = startDate;
             if (endDate) params.end_date = endDate;
+            Object.assign(params, getBranchParams(selectedBranchId));
             const res = await api.get('/hr/leaves', { params });
             setLeaves(res.data.data || []);
         } catch (err) {
@@ -144,7 +149,7 @@ export default function AdminLeavesPage() {
         } finally {
             setLoading(false);
         }
-    }, [endDate, search, showToast, startDate, statusFilter, typeFilter, txt.loadError]);
+    }, [endDate, search, selectedBranchId, showToast, startDate, statusFilter, typeFilter, txt.loadError]);
 
     useEffect(() => {
         setTimeout(() => fetchLeaves(), 0);
@@ -152,7 +157,7 @@ export default function AdminLeavesPage() {
 
     useEffect(() => {
         setTablePage(1);
-    }, [leaves.length]);
+    }, [leaves.length, selectedBranchId]);
 
     const updateStatus = async (id: string, status: string) => {
         try {
@@ -242,10 +247,19 @@ export default function AdminLeavesPage() {
 
     return (
         <div className="space-y-8 p-4 sm:p-0">
-            <div>
-                <h1 className="text-2xl font-bold text-foreground font-mono">{txt.leaveRequests}</h1>
-                <p className="text-sm text-muted-foreground mt-1">{txt.subtitle}</p>
-                <button className="btn-ghost mt-3" onClick={printLeaves}><Printer size={14} /> {txt.printSummary}</button>
+            <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
+                <div>
+                    <h1 className="text-2xl font-bold text-foreground font-mono">{txt.leaveRequests}</h1>
+                    <p className="text-sm text-muted-foreground mt-1">{txt.subtitle}</p>
+                </div>
+                <div className="flex items-center gap-3 w-full sm:w-auto">
+                    <BranchSelector
+                        branches={branches}
+                        selectedBranchId={selectedBranchId}
+                        onSelect={setSelectedBranchId}
+                    />
+                    <button className="btn-ghost" onClick={printLeaves}><Printer size={14} /> {txt.printSummary}</button>
+                </div>
             </div>
 
             <div className="chart-card p-4 border border-border space-y-3">
@@ -335,4 +349,3 @@ export default function AdminLeavesPage() {
         </div>
     );
 }
-

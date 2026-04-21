@@ -15,6 +15,9 @@ class TokenPayload(BaseModel):
     sub: Optional[str] = None
     exp: Optional[int] = None
     type: Optional[str] = None
+    gym_id: Optional[uuid.UUID] = None
+    home_branch_id: Optional[uuid.UUID] = None
+    is_impersonated: bool = False
 
 class LoginRequest(BaseModel):
     email: EmailStr
@@ -60,11 +63,14 @@ class UserCreate(UserBase):
 
 class UserResponse(UserBase):
     id: uuid.UUID
+    gym_id: uuid.UUID
+    home_branch_id: Optional[uuid.UUID] = None
     subscription_status: Literal["ACTIVE", "FROZEN", "EXPIRED", "NONE"] = "ACTIVE"
     subscription_end_date: Optional[datetime] = None
     subscription_plan_name: Optional[str] = None
     is_subscription_blocked: bool = False
     block_reason: Optional[Literal["SUBSCRIPTION_EXPIRED", "SUBSCRIPTION_FROZEN", "NO_ACTIVE_SUBSCRIPTION"]] = None
+    is_impersonated: bool = False
     
     class Config:
         from_attributes = True
@@ -151,12 +157,30 @@ class SubscriptionSnapshot(BaseModel):
 
 
 class GymBranding(BaseModel):
+    gym_id: uuid.UUID
     gym_name: str
+    brand_name: str
     logo_url: Optional[str] = None
     primary_color: str
     secondary_color: str
     support_email: Optional[str] = None
     support_phone: Optional[str] = None
+    plan_tier: str = "standard"
+    deployment_mode: str = "shared"
+    public_web_domain: Optional[str] = None
+    mobile_shell_key: Optional[str] = None
+
+
+class BranchSummary(BaseModel):
+    id: uuid.UUID
+    gym_id: uuid.UUID
+    name: str
+    display_name: Optional[str] = None
+    code: str
+    slug: str
+    timezone: str
+    phone: Optional[str] = None
+    email: Optional[str] = None
 
 
 class NotificationPreference(BaseModel):
@@ -172,6 +196,8 @@ class MobileBootstrap(BaseModel):
     role: Role
     subscription: SubscriptionSnapshot
     gym: GymBranding
+    home_branch: Optional[BranchSummary] = None
+    accessible_branches: list[BranchSummary] = []
     capabilities: list[CapabilityValue]
     enabled_modules: list[EnabledModuleValue]
     notification_settings: NotificationPreference

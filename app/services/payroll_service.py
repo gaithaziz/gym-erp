@@ -53,7 +53,7 @@ class PayrollService:
         settings = result.scalar_one_or_none()
         if settings:
             return settings.salary_cutoff_day
-        settings = PayrollSettings(id=1, salary_cutoff_day=1)
+        settings = PayrollSettings(salary_cutoff_day=1)
         db.add(settings)
         await db.flush()
         return settings.salary_cutoff_day

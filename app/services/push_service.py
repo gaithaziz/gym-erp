@@ -9,6 +9,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import settings
 from app.models.notification import MobileDevice, MobileNotificationPreference, PushDeliveryLog
+from app.models.tenancy import UserBranchAccess
 from app.models.user import User
 
 
@@ -47,6 +48,8 @@ def _event_preference_field(event_type: str) -> str | None:
         return "chat_enabled"
     if event_type.startswith("SUPPORT_"):
         return "support_enabled"
+    if event_type.startswith("LOST_FOUND_"):
+        return "support_enabled"
     if event_type.startswith("SUBSCRIPTION_") or event_type.startswith("PAYMENT_") or event_type.startswith("RECEIPT_"):
         return "billing_enabled"
     if event_type.startswith("ANNOUNCEMENT_"):
@@ -68,6 +71,27 @@ def _default_body(template_key: str, params: dict[str, Any]) -> str:
 
 class PushNotificationService:
     @staticmethod
+    async def _is_user_branch_eligible(
+        *,
+        db: AsyncSession,
+        user: User,
+        scope_branch_id: str | None,
+    ) -> bool:
+        if not scope_branch_id:
+            return True
+        if user.home_branch_id and str(user.home_branch_id) == str(scope_branch_id):
+            return True
+        assignment = (
+            await db.execute(
+                select(UserBranchAccess.id).where(
+                    UserBranchAccess.user_id == user.id,
+                    UserBranchAccess.branch_id == scope_branch_id,
+                )
+            )
+        ).scalar_one_or_none()
+        return assignment is not None
+
+    @staticmethod
     async def queue_and_send(
         *,
         db: AsyncSession,
@@ -79,6 +103,8 @@ class PushNotificationService:
         event_ref: str | None,
         params: dict[str, Any],
         idempotency_key: str,
+        scope: str = "GLOBAL",
+        scope_branch_id: str | None = None,
     ) -> list[PushDeliveryLog]:
         resolved_title = title or _default_title(event_type)
         resolved_body = body or _default_body(template_key, params)
@@ -103,6 +129,27 @@ class PushNotificationService:
             log.failed_at = datetime.now(timezone.utc)
             await db.commit()
             return [log]
+
+        if scope == "BRANCH":
+            is_eligible = await PushNotificationService._is_user_branch_eligible(
+                db=db,
+                user=user,
+                scope_branch_id=scope_branch_id,
+            )
+            if not is_eligible:
+                return [
+                    await PushNotificationService._skip(
+                        db,
+                        user,
+                        resolved_title,
+                        resolved_body,
+                        data_json,
+                        event_type,
+                        event_ref,
+                        f"{idempotency_key}:branch-mismatch",
+                        "Recipient is not eligible for branch-scoped notification",
+                    )
+                ]
 
         pref = await db.get(MobileNotificationPreference, user.id)
         if pref and not pref.push_enabled:

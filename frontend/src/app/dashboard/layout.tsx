@@ -229,6 +229,10 @@ export default function DashboardLayout({
         { href: '/dashboard/member/achievements', labelKey: 'dashboard.nav.achievements', icon: Trophy, roles: ['CUSTOMER'], section: 'account' },
         { href: '/dashboard/subscription', labelKey: 'dashboard.nav.subscription', icon: ShieldAlert, roles: ['CUSTOMER'], section: 'account' },
         { href: '/dashboard/support', labelKey: 'dashboard.nav.support', icon: MessageSquare, roles: ['CUSTOMER'], section: 'account' },
+        { href: '/dashboard/system/stats', labelKey: 'dashboard.nav.globalStats', icon: Activity, roles: ['SUPER_ADMIN'], section: 'systemAdmin' },
+        { href: '/dashboard/system/gyms', labelKey: 'dashboard.nav.gymManagement', icon: LayoutDashboard, roles: ['SUPER_ADMIN'], section: 'systemAdmin' },
+        { href: '/dashboard/system/users', labelKey: 'dashboard.nav.systemUsers', icon: Users, roles: ['SUPER_ADMIN'], section: 'systemAdmin' },
+        { href: '/dashboard/system/audit', labelKey: 'dashboard.nav.auditLogs', icon: ShieldAlert, roles: ['SUPER_ADMIN'], section: 'systemAdmin' },
     ] as const;
 
     const navSections: Array<{ key: string; labelKey: TranslationKey }> = [
@@ -237,18 +241,47 @@ export default function DashboardLayout({
         { key: 'finance', labelKey: 'dashboard.sections.finance' },
         { key: 'coaching', labelKey: 'dashboard.sections.coaching' },
         { key: 'account', labelKey: 'dashboard.sections.account' },
+        { key: 'systemAdmin', labelKey: 'dashboard.sections.systemAdmin' },
     ] as const;
 
-    const filteredNav = navItems.filter(item => item.roles.includes(user.role)).filter((item) => {
+    const filteredNav = navItems.filter(item => user.role === 'SUPER_ADMIN' || item.roles.includes(user.role)).filter((item) => {
         if (!isBlockedCustomer) return true;
         return BLOCKED_ALLOWED_ROUTES.some((route) => item.href.startsWith(route));
     });
 
     return (
         <div className="flex min-h-dvh bg-background">
+            {/* Impersonation Banner */}
+            {user?.is_impersonated && (
+                <div className="fixed top-0 inset-x-0 z-[100] bg-yellow-500 text-black py-1 px-4 flex items-center justify-between font-bold text-[10px] sm:text-xs uppercase tracking-wider">
+                    <div className="flex items-center gap-2">
+                        <ShieldAlert size={14} />
+                        <span>Support Mode Active: Impersonating {user.full_name}</span>
+                    </div>
+                    <button 
+                        onClick={() => {
+                            const adminAccess = localStorage.getItem('admin_access_token');
+                            const adminRefresh = localStorage.getItem('admin_refresh_token');
+                            if (adminAccess && adminRefresh) {
+                                localStorage.setItem('access_token', adminAccess);
+                                localStorage.setItem('refresh_token', adminRefresh);
+                                localStorage.removeItem('admin_access_token');
+                                localStorage.removeItem('admin_refresh_token');
+                                window.location.href = '/dashboard/system/users';
+                            } else {
+                                logout();
+                            }
+                        }}
+                        className="bg-black text-white px-3 py-1 rounded hover:bg-black/80 transition-colors"
+                    >
+                        Exit Mode
+                    </button>
+                </div>
+            )}
+
             {/* Mobile top bar */}
             <div
-                className="fixed top-0 inset-x-0 z-[70] flex items-center justify-between px-4 py-3 md:hidden bg-card"
+                className={`fixed ${user?.is_impersonated ? 'top-8 sm:top-6' : 'top-0'} inset-x-0 z-[70] flex items-center justify-between px-4 py-3 md:hidden bg-card`}
             >
                 <div className="flex items-center gap-3">
                     <button
@@ -277,7 +310,7 @@ export default function DashboardLayout({
             {/* Sidebar */}
             <aside
                 className={`
-                    fixed md:static z-[65] top-[60px] h-[calc(100dvh-60px)] md:top-0 md:h-auto w-64 overflow-y-auto
+                    fixed md:static z-[65] ${user?.is_impersonated ? 'top-[92px] sm:top-[84px]' : 'top-[60px]'} h-[calc(100dvh-60px)] md:top-0 md:h-auto w-64 overflow-y-auto
                     transform [transform:var(--sidebar-transform)] md:[transform:translateX(0)]
                     transition-transform duration-300 ease-in-out
                     bg-card
@@ -369,7 +402,7 @@ export default function DashboardLayout({
             </aside>
 
             {/* Main Content */}
-            <main className="flex-1 min-h-0 overflow-auto p-4 pt-20 md:p-8 md:pt-8 bg-background">
+            <main className={`flex-1 min-h-0 overflow-auto p-4 ${user?.is_impersonated ? 'pt-28 sm:pt-24 md:pt-14' : 'pt-20 md:pt-8'} bg-background`}>
                 {canUseChat && !pathname.startsWith('/dashboard/chat') && (
                     <button
                         type="button"

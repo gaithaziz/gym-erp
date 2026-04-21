@@ -62,17 +62,30 @@ async def _add_subscription_for_user(
     end_date: datetime,
     status: SubscriptionStatus,
 ) -> None:
-    await set_rls_context(db_session, user_id=str(user_id), role="CUSTOMER")
-    db_session.add(
-        Subscription(
-            user_id=user_id,
-            plan_name=plan_name,
-            start_date=start_date,
-            end_date=end_date,
-            status=status,
+    prev_user_id = db_session.info.get("rls_user_id")
+    prev_role = db_session.info.get("rls_user_role")
+    prev_gym_id = db_session.info.get("rls_gym_id")
+    prev_branch_id = db_session.info.get("rls_branch_id")
+    try:
+        await set_rls_context(db_session, user_id=str(user_id), role="CUSTOMER")
+        db_session.add(
+            Subscription(
+                user_id=user_id,
+                plan_name=plan_name,
+                start_date=start_date,
+                end_date=end_date,
+                status=status,
+            )
         )
-    )
-    await db_session.flush()
+        await db_session.flush()
+    finally:
+        await set_rls_context(
+            db_session,
+            user_id=prev_user_id,
+            role=prev_role,
+            gym_id=prev_gym_id,
+            branch_id=prev_branch_id,
+        )
 
 @pytest.mark.asyncio
 async def test_access_flow(client: AsyncClient, db_session: AsyncSession):

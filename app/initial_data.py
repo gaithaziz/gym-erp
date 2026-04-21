@@ -10,6 +10,7 @@ from app.models.enums import Role
 from app.models.access import Subscription, SubscriptionStatus
 from app.models.hr import Contract, ContractType
 from app.auth.security import get_password_hash
+from app.services.tenancy_service import TenancyService
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -96,7 +97,8 @@ USERS = [
 
 async def seed_data():
     async with AsyncSessionLocal() as session:
-        await set_rls_context(session, role=Role.ADMIN.value)
+        gym, branch = await TenancyService.ensure_default_gym_and_branch(session)
+        await set_rls_context(session, role=Role.ADMIN.value, gym_id=str(gym.id), branch_id=str(branch.id))
         for user_data in USERS:
             stmt = select(User).where(User.email == user_data["email"])
             result = await session.execute(stmt)
@@ -105,17 +107,23 @@ async def seed_data():
             user = existing_user
             if not existing_user:
                 new_user = User(
+                    gym_id=gym.id,
                     email=user_data["email"],
                     full_name=user_data["full_name"],
                     hashed_password=get_password_hash(user_data["password"]),
                     role=user_data["role"],
                     is_active=True,
+                    home_branch_id=branch.id,
                 )
                 session.add(new_user)
                 await session.flush() # Get ID
                 user = new_user
+                await TenancyService.ensure_user_branch_access(session, user_id=user.id, gym_id=gym.id, branch_id=branch.id)
                 logger.info(f"Created user: {user_data['email']}")
             else:
+                user.gym_id = gym.id
+                user.home_branch_id = user.home_branch_id or branch.id
+                await TenancyService.ensure_user_branch_access(session, user_id=user.id, gym_id=gym.id, branch_id=user.home_branch_id)
                 logger.info(f"User already exists: {user_data['email']}")
             
             assert user is not None

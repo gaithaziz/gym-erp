@@ -47,7 +47,7 @@ npm run seed:all
 You only need to seed once for a given Docker volume. Normal `npm run down` and `npm run up` cycles keep the database data.
 
 Local development login notes:
-- `admin@gym-erp.com` / `password123`
+- `admin@gym-erp.com` / `GymPass123!`
   - In `development`, backend startup resets this local admin password automatically.
 - `admin.demo@gym-erp.com` / `DemoPass123!`
 - `alice@client.com` / `GymPass123!`
@@ -198,7 +198,7 @@ ipconfig getifaddr en1
 
 Demo mobile login:
 - `alice@client.com` / `GymPass123!`
-- `admin@gym-erp.com` / `password123`
+- `admin@gym-erp.com` / `GymPass123!`
 
 Stop the Expo / Metro mobile process with `Ctrl+C` in the terminal where it is running.
 

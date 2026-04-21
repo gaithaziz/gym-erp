@@ -31,20 +31,40 @@ async def get_current_user(
         payload = jwt.decode(token, settings.SECRET_KEY, algorithms=[settings.ALGORITHM])
         username = payload.get("sub")
         token_type = payload.get("type")
+        token_gym_id = payload.get("gym_id")
         if username is None or token_type != "access":
             raise credentials_exception
-        token_data = TokenPayload(sub=username, type=token_type)
+        token_data = TokenPayload(
+            sub=username,
+            type=token_type,
+            gym_id=token_gym_id,
+            home_branch_id=payload.get("home_branch_id"),
+            is_impersonated=payload.get("is_impersonated", False),
+        )
     except JWTError:
         raise credentials_exception
 
+    # Use SUPER_ADMIN role to bypass tenant isolation for identifying the user from the token.
+    # The get_db dependency resets RLS to ANONYMOUS, which would block this lookup.
+    await set_rls_context(db, role=Role.SUPER_ADMIN.value)
     stmt = select(User).where(User.email == token_data.sub)
     result = await db.execute(stmt)
     user = result.scalar_one_or_none()
     
     if user is None:
         raise credentials_exception
+    
+    user.is_impersonated = token_data.is_impersonated
     user.role = _coerce_role(user.role)
-    await set_rls_context(db, user_id=str(user.id), role=user.role.value)
+    if token_data.gym_id and str(user.gym_id) != str(token_data.gym_id):
+        raise credentials_exception
+    await set_rls_context(
+        db,
+        user_id=str(user.id),
+        role=user.role.value,
+        gym_id=str(user.gym_id),
+        branch_id=str(user.home_branch_id) if user.home_branch_id else "",
+    )
     return user
 
 async def get_current_active_user(
@@ -68,12 +88,12 @@ class RoleChecker:
         return user
 
 # Hierarchical Role Dependencies
-get_current_admin = RoleChecker([Role.ADMIN])
+get_current_admin = RoleChecker([Role.SUPER_ADMIN, Role.ADMIN])
 # Managers can do everything Front Desk can, plus more. Admins can do everything.
-get_current_manager = RoleChecker([Role.ADMIN, Role.MANAGER])
-get_current_front_desk = RoleChecker([Role.ADMIN, Role.MANAGER, Role.FRONT_DESK, Role.RECEPTION])
-get_current_coach = RoleChecker([Role.ADMIN, Role.MANAGER, Role.COACH])
-get_current_employee = RoleChecker([Role.ADMIN, Role.MANAGER, Role.FRONT_DESK, Role.RECEPTION, Role.COACH, Role.EMPLOYEE, Role.CASHIER])
+get_current_manager = RoleChecker([Role.SUPER_ADMIN, Role.ADMIN, Role.MANAGER])
+get_current_front_desk = RoleChecker([Role.SUPER_ADMIN, Role.ADMIN, Role.MANAGER, Role.FRONT_DESK, Role.RECEPTION])
+get_current_coach = RoleChecker([Role.SUPER_ADMIN, Role.ADMIN, Role.MANAGER, Role.COACH])
+get_current_employee = RoleChecker([Role.SUPER_ADMIN, Role.ADMIN, Role.MANAGER, Role.FRONT_DESK, Role.RECEPTION, Role.COACH, Role.EMPLOYEE, Role.CASHIER])
 
 
 async def require_active_customer_subscription(

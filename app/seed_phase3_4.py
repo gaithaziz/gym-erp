@@ -3,7 +3,7 @@ import logging
 import uuid
 from datetime import datetime, timezone
 from sqlalchemy import select
-from app.database import AsyncSessionLocal
+from app.database import AsyncSessionLocal, set_rls_context
 from app.models.user import User
 from app.models.fitness import DietPlan, WorkoutPlan
 from app.models.workout_log import WorkoutLog
@@ -13,6 +13,7 @@ logger = logging.getLogger(__name__)
 
 async def seed_phase3_4():
     async with AsyncSessionLocal() as session:
+        await set_rls_context(session, role="SUPER_ADMIN")
         # Get Coach Mike
         stmt = select(User).where(User.email == "coach.mike@gym-erp.com")
         result = await session.execute(stmt)
@@ -30,6 +31,8 @@ async def seed_phase3_4():
         if not bob:
             logger.error("Bob not found! Run initial seed first.")
             return
+
+        await set_rls_context(session, role="SUPER_ADMIN", gym_id=coach.gym_id)
 
         # 1. Create Diet Plan
         logger.info("Creating Diet Plan...")

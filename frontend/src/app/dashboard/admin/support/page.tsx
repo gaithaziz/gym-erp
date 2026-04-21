@@ -21,10 +21,13 @@ import {
 import { SupportTicketWithCustomer, SupportTicketWithMessages, TicketCategory, TicketStatus } from '@/features/support/types';
 import { useSupportTickets } from '@/features/support/useSupportTickets';
 import { useLocale } from '@/context/LocaleContext';
+import { useBranch } from '@/context/BranchContext';
+import { BranchSelector } from '@/components/BranchSelector';
 
 export default function AdminSupportPage() {
     const {} = useAuth();
     const { t, direction, formatDate } = useLocale();
+    const { branches, selectedBranchId, setSelectedBranchId } = useBranch();
     const { showToast, confirm: confirmAction } = useFeedback();
     const [activeTab, setActiveTab] = useState<'ACTIVE' | 'COMPLETED'>('ACTIVE');
     const { tickets, total: ticketsTotal, loading, error, fetchTickets } = useSupportTickets<SupportTicketWithCustomer>();
@@ -49,10 +52,11 @@ export default function AdminSupportPage() {
             fetchTickets({
                 isActive: activeTab === 'ACTIVE',
                 category: categoryFilter,
+                branchId: selectedBranchId,
                 page: ticketsPage,
                 pageSize: TICKETS_PAGE_SIZE,
             }),
-        [activeTab, categoryFilter, fetchTickets, ticketsPage]
+        [activeTab, categoryFilter, fetchTickets, ticketsPage, selectedBranchId]
     );
 
     useEffect(() => {
@@ -344,8 +348,14 @@ export default function AdminSupportPage() {
                     <p className="text-sm text-muted-foreground mt-1">{t('support.admin.subtitle')}</p>
                 </div>
 
-                {/* Tabs */}
-                <div className="flex bg-muted p-1 rounded-lg">
+                <div className="flex items-center gap-4">
+                    <BranchSelector
+                        branches={branches}
+                        selectedBranchId={selectedBranchId}
+                        onSelect={setSelectedBranchId}
+                    />
+                    {/* Tabs */}
+                    <div className="flex bg-muted p-1 rounded-lg">
                     <button
                         onClick={() => {
                             setTicketsPage(1);
@@ -372,6 +382,7 @@ export default function AdminSupportPage() {
                     </button>
                 </div>
             </div>
+        </div>
 
             {error && (
                 <div className="p-4 bg-red-500/10 border border-red-500/20 rounded-lg text-red-500 text-sm">

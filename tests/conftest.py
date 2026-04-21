@@ -5,13 +5,14 @@ from alembic.config import Config
 from typing import AsyncGenerator
 from httpx import AsyncClient
 from sqlalchemy import text
+from sqlalchemy.exc import PendingRollbackError
 from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession, async_sessionmaker
 from sqlalchemy.pool import NullPool
 
 if not os.path.exists("/.dockerenv") and os.environ.get("POSTGRES_HOST") in (None, "", "db"):
     os.environ["POSTGRES_HOST"] = os.environ.get("TEST_POSTGRES_HOST", "127.0.0.1")
 
-from app.database import get_db, set_rls_context
+from app.database import get_db, reset_rls_context, set_rls_context
 from app.config import settings
 from app.main import app
 from app.core.rate_limit import reset_rate_limiter_state
@@ -79,9 +80,33 @@ async def db_session(db_engine, migrated_test_database) -> AsyncGenerator[AsyncS
 @pytest.fixture(scope="function")
 async def client(db_session) -> AsyncGenerator[AsyncClient, None]:
     await reset_rate_limiter_state()
+    base_user_id = db_session.info.get("rls_user_id", "")
+    base_role = db_session.info.get("rls_user_role", "ADMIN")
+    base_gym_id = db_session.info.get("rls_gym_id", "")
+    base_branch_id = db_session.info.get("rls_branch_id", "")
 
     async def override_get_db():
-        yield db_session
+        await reset_rls_context(db_session)
+        try:
+            yield db_session
+        finally:
+            try:
+                await set_rls_context(
+                    db_session,
+                    user_id=base_user_id,
+                    role=base_role,
+                    gym_id=base_gym_id,
+                    branch_id=base_branch_id,
+                )
+            except PendingRollbackError:
+                await db_session.rollback()
+                await set_rls_context(
+                    db_session,
+                    user_id=base_user_id,
+                    role=base_role,
+                    gym_id=base_gym_id,
+                    branch_id=base_branch_id,
+                )
 
     app.dependency_overrides[get_db] = override_get_db
     from httpx import ASGITransport

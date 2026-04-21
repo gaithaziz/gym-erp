@@ -198,7 +198,7 @@ function FeedbackSection({
 }: {
   title: string;
   emptyLabel: string;
-  items: Array<{ id: string; memberId?: string | null; title: string; subtitle: string; meta: string; comment: string; date: string }>;
+  items: { id: string; memberId?: string | null; title: string; subtitle: string; meta: string; comment: string; date: string }[];
   locale: string;
   onOpenMember: (memberId: string) => void;
 }) {

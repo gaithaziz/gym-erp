@@ -3,6 +3,7 @@ from datetime import date, datetime
 from sqlalchemy import Boolean, Date, Integer, ForeignKey, Text, DateTime, Float, String, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from app.database import Base
+from app.models.tenancy import GymScopedMixin
 
 __all__ = [
     "WorkoutLog",
@@ -17,7 +18,7 @@ __all__ = [
 ]
 
 
-class WorkoutLog(Base):
+class WorkoutLog(GymScopedMixin, Base):
     __tablename__ = "workout_logs"
 
     id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
@@ -32,7 +33,7 @@ class WorkoutLog(Base):
     plan = relationship("WorkoutPlan")
 
 
-class WorkoutSession(Base):
+class WorkoutSession(GymScopedMixin, Base):
     __tablename__ = "workout_sessions"
 
     id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
@@ -58,7 +59,7 @@ class WorkoutSession(Base):
     entries = relationship("WorkoutSessionEntry", back_populates="session", cascade="all, delete-orphan")
 
 
-class WorkoutSessionEntry(Base):
+class WorkoutSessionEntry(GymScopedMixin, Base):
     __tablename__ = "workout_session_entries"
 
     id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
@@ -83,7 +84,7 @@ class WorkoutSessionEntry(Base):
     exercise = relationship("Exercise")
 
 
-class WorkoutSessionDraft(Base):
+class WorkoutSessionDraft(GymScopedMixin, Base):
     __tablename__ = "workout_session_drafts"
 
     id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
@@ -100,7 +101,7 @@ class WorkoutSessionDraft(Base):
     entries = relationship("WorkoutSessionDraftEntry", back_populates="draft", cascade="all, delete-orphan")
 
 
-class WorkoutSessionDraftEntry(Base):
+class WorkoutSessionDraftEntry(GymScopedMixin, Base):
     __tablename__ = "workout_session_draft_entries"
 
     id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
@@ -137,10 +138,10 @@ class WorkoutSessionDraftEntry(Base):
     workout_exercise = relationship("WorkoutExercise")
 
 
-class MemberDietTrackingDay(Base):
+class MemberDietTrackingDay(GymScopedMixin, Base):
     __tablename__ = "member_diet_tracking_days"
     __table_args__ = (
-        UniqueConstraint("member_id", "diet_plan_id", "tracked_for", name="uq_member_diet_tracking_day"),
+        UniqueConstraint("gym_id", "member_id", "diet_plan_id", "tracked_for", name="uq_member_diet_tracking_gym_day"),
     )
 
     id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
@@ -157,7 +158,7 @@ class MemberDietTrackingDay(Base):
     meals = relationship("MemberDietTrackingMeal", back_populates="tracking_day", cascade="all, delete-orphan")
 
 
-class MemberDietTrackingMeal(Base):
+class MemberDietTrackingMeal(GymScopedMixin, Base):
     __tablename__ = "member_diet_tracking_meals"
     __table_args__ = (
         UniqueConstraint("tracking_day_id", "meal_key", name="uq_member_diet_tracking_meal"),
@@ -174,7 +175,7 @@ class MemberDietTrackingMeal(Base):
     tracking_day = relationship("MemberDietTrackingDay", back_populates="meals")
 
 
-class DietFeedback(Base):
+class DietFeedback(GymScopedMixin, Base):
     __tablename__ = "diet_feedback"
 
     id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
@@ -190,7 +191,7 @@ class DietFeedback(Base):
     diet_plan = relationship("DietPlan")
 
 
-class GymFeedback(Base):
+class GymFeedback(GymScopedMixin, Base):
     __tablename__ = "gym_feedback"
 
     id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)

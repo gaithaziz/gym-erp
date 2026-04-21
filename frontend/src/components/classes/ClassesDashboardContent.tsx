@@ -5,9 +5,12 @@ import { AlertTriangle, Calendar, Check, Clock3, Loader2, Repeat, Users, X } fro
 
 import { useFeedback } from '@/components/FeedbackProvider';
 import Modal from '@/components/Modal';
+import { BranchSelector } from '@/components/BranchSelector';
 import { useAuth } from '@/context/AuthContext';
+import { useBranch } from '@/context/BranchContext';
 import { useLocale } from '@/context/LocaleContext';
 import { api } from '@/lib/api';
+import { getBranchParams } from '@/lib/branch';
 
 type DashboardRole = 'ADMIN' | 'MANAGER' | 'COACH' | 'CUSTOMER';
 type SessionStatus = 'SCHEDULED' | 'CANCELLED' | 'COMPLETED';
@@ -142,12 +145,14 @@ export default function ClassesDashboardContent({ role }: { role: DashboardRole 
     const { user } = useAuth();
     const { locale } = useLocale();
     const { showToast, confirm } = useFeedback();
+    const { branches, selectedBranchId, setSelectedBranchId } = useBranch();
 
     const isArabic = locale === 'ar';
     const sessionLocale = isArabic ? 'ar' : 'en';
     const isCustomer = role === 'CUSTOMER';
     const isCoach = role === 'COACH';
     const isStaffView = !isCustomer;
+    const isBranchScopedStaff = isStaffView && !isCoach;
     const canAssignCoach = !isCustomer && !isCoach;
     const canCancelSessions = !isCustomer && !isCoach;
 
@@ -367,12 +372,13 @@ export default function ClassesDashboardContent({ role }: { role: DashboardRole 
     }, []);
 
     const loadStaffData = useCallback(async () => {
-        const sessionsResponse = await api.get('/classes/sessions');
+        const branchParams = getBranchParams(selectedBranchId);
+        const sessionsResponse = await api.get('/classes/sessions', { params: branchParams });
         const nextSessions = unwrapData<ClassSession[]>(sessionsResponse.data as ClassSession[] | Envelope<ClassSession[]>) || [];
         setSessions(nextSessions);
 
         if (canAssignCoach) {
-            const staffResponse = await api.get('/hr/staff');
+            const staffResponse = await api.get('/hr/staff', { params: branchParams });
             const staffPayload = unwrapData<{ data?: StaffUser[] } | StaffUser[]>(
                 (staffResponse.data ?? []) as { data?: StaffUser[] } | StaffUser[]
             );
@@ -382,7 +388,7 @@ export default function ClassesDashboardContent({ role }: { role: DashboardRole 
             setCoaches([{ id: user.id, full_name: user.full_name || user.email || 'Coach', role: user.role }]);
         }
 
-    }, [canAssignCoach, user]);
+    }, [canAssignCoach, selectedBranchId, user]);
 
     const loadData = useCallback(async () => {
         try {
@@ -453,6 +459,7 @@ export default function ClassesDashboardContent({ role }: { role: DashboardRole 
                 coach_id: canAssignCoach ? sessionForm.coach_id : user.id,
                 starts_at: startsAt.toISOString(),
                 recur_weekly_count: Number(sessionForm.repeat_weeks) > 0 ? Number(sessionForm.repeat_weeks) : null,
+                ...getBranchParams(selectedBranchId),
             });
             setSessionForm((current) => ({
                 ...current,
@@ -1115,6 +1122,13 @@ export default function ClassesDashboardContent({ role }: { role: DashboardRole 
                     <h1 className="text-3xl font-bold text-foreground">{txt.pageTitle}</h1>
                     <p className="mt-1 text-sm text-muted-foreground">{txt.pageSubtitle}</p>
                 </div>
+                {isBranchScopedStaff ? (
+                    <BranchSelector
+                        branches={branches}
+                        selectedBranchId={selectedBranchId}
+                        onSelect={setSelectedBranchId}
+                    />
+                ) : null}
             </div>
 
             {isStaffView && !isCoach ? (

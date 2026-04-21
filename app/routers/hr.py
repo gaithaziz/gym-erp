@@ -30,6 +30,7 @@ from app.models.access import AttendanceLog
 from app.services.payroll_service import PayrollService
 from app.services.payroll_automation_service import PayrollAutomationService
 from app.services.audit_service import AuditService
+from app.services.tenancy_service import TenancyService
 from app.services.whatsapp_service import WhatsAppNotificationService
 from app.core.responses import StandardResponse
 import uuid
@@ -39,6 +40,48 @@ from reportlab.pdfgen import canvas
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
+
+
+async def _get_payroll_or_404(db: AsyncSession, *, current_user: User, payroll_id: uuid.UUID) -> Payroll:
+    payroll = (
+        await db.execute(
+            select(Payroll).where(
+                Payroll.id == payroll_id,
+                Payroll.gym_id == current_user.gym_id,
+            )
+        )
+    ).scalar_one_or_none()
+    if payroll is None:
+        raise HTTPException(status_code=404, detail="Payroll record not found")
+    return payroll
+
+
+async def _get_leave_or_404(db: AsyncSession, *, current_user: User, leave_id: uuid.UUID) -> LeaveRequest:
+    leave = (
+        await db.execute(
+            select(LeaveRequest).where(
+                LeaveRequest.id == leave_id,
+                LeaveRequest.gym_id == current_user.gym_id,
+            )
+        )
+    ).scalar_one_or_none()
+    if leave is None:
+        raise HTTPException(status_code=404, detail="Leave request not found")
+    return leave
+
+
+async def _get_attendance_or_404(db: AsyncSession, *, current_user: User, attendance_id: uuid.UUID) -> AttendanceLog:
+    log = (
+        await db.execute(
+            select(AttendanceLog).where(
+                AttendanceLog.id == attendance_id,
+                AttendanceLog.gym_id == current_user.gym_id,
+            )
+        )
+    ).scalar_one_or_none()
+    if log is None:
+        raise HTTPException(status_code=404, detail="Attendance record not found")
+    return log
 
 
 def _pdf_bytes(title: str, lines: list[str]) -> bytes:
@@ -351,10 +394,12 @@ async def create_contract(
     db: Annotated[AsyncSession, Depends(get_db)]
 ):
     # Check if user exists
-    user_stmt = select(User).where(User.id == contract_data.user_id)
-    result = await db.execute(user_stmt)
-    if not result.scalar_one_or_none():
-        raise HTTPException(status_code=404, detail="User not found")
+    await TenancyService.require_user_in_gym(
+        db,
+        current_user=current_user,
+        user_id=contract_data.user_id,
+        detail="User not found",
+    )
 
     # Check existing contract
     contract_stmt = select(Contract).where(Contract.user_id == contract_data.user_id)
@@ -455,7 +500,7 @@ async def get_payroll_settings(
     result = await db.execute(stmt)
     settings = result.scalar_one_or_none()
     if not settings:
-        settings = PayrollSettings(id=1, salary_cutoff_day=1)
+        settings = PayrollSettings(salary_cutoff_day=1)
         db.add(settings)
         await db.commit()
     return StandardResponse(data={"salary_cutoff_day": settings.salary_cutoff_day})
@@ -471,7 +516,7 @@ async def update_payroll_settings(
     result = await db.execute(stmt)
     settings = result.scalar_one_or_none()
     if not settings:
-        settings = PayrollSettings(id=1, salary_cutoff_day=request.salary_cutoff_day)
+        settings = PayrollSettings(salary_cutoff_day=request.salary_cutoff_day)
         db.add(settings)
     else:
         settings.salary_cutoff_day = request.salary_cutoff_day
@@ -535,6 +580,7 @@ async def list_pending_payrolls(
     status: Optional[PayrollStatus] = Query(None),
     user_id: Optional[uuid.UUID] = Query(None),
     search: Optional[str] = Query(None),
+    branch_id: Optional[uuid.UUID] = Query(None),
     limit: int = Query(100, ge=1, le=500),
     offset: int = Query(0, ge=0),
 ):
@@ -544,6 +590,15 @@ async def list_pending_payrolls(
         .join(User, User.id == Payroll.user_id)
         .options(selectinload(Payroll.payments))
     )
+    branch_ids = await TenancyService.branch_scope_ids(
+        db,
+        current_user=current_user,
+        branch_id=branch_id,
+        allow_all_for_admin=True,
+    )
+    if branch_ids:
+        stmt = stmt.where(User.home_branch_id.in_(branch_ids))
+        count_stmt = count_stmt.where(User.home_branch_id.in_(branch_ids))
 
     if month:
         stmt = stmt.where(Payroll.month == month)
@@ -609,6 +664,7 @@ async def create_payroll_payment(
         payment_method=request.payment_method,
         description=request.description or f"Salary payment - {staff_user.full_name} ({period})",
         user_id=payroll.user_id,
+        branch_id=staff_user.home_branch_id,
     )
     db.add(tx)
     await db.flush()
@@ -738,18 +794,13 @@ async def generate_payslip(
     db: Annotated[AsyncSession, Depends(get_db)]
 ):
     """Generate a simple JSON layout for a printable payslip."""
-    stmt = select(Payroll).where(Payroll.id == payroll_id)
-    result = await db.execute(stmt)
-    payroll = result.scalar_one_or_none()
-    
-    if not payroll:
-        raise HTTPException(status_code=404, detail="Payroll record not found")
+    payroll = await _get_payroll_or_404(db, current_user=current_user, payroll_id=payroll_id)
         
     if current_user.role != Role.ADMIN and current_user.id != payroll.user_id:
         raise HTTPException(status_code=403, detail="Cannot access this payslip")
         
     # Get user and contract info
-    user_stmt = select(User).where(User.id == payroll.user_id)
+    user_stmt = select(User).where(User.id == payroll.user_id, User.gym_id == current_user.gym_id)
     u_res = await db.execute(user_stmt)
     u = u_res.scalar_one_or_none()
     
@@ -781,17 +832,12 @@ async def generate_payslip_printable(
     current_user: Annotated[User, Depends(dependencies.get_current_active_user)],
     db: Annotated[AsyncSession, Depends(get_db)]
 ):
-    stmt = select(Payroll).where(Payroll.id == payroll_id)
-    result = await db.execute(stmt)
-    payroll = result.scalar_one_or_none()
-
-    if not payroll:
-        raise HTTPException(status_code=404, detail="Payroll record not found")
+    payroll = await _get_payroll_or_404(db, current_user=current_user, payroll_id=payroll_id)
 
     if current_user.role != Role.ADMIN and current_user.id != payroll.user_id:
         raise HTTPException(status_code=403, detail="Cannot access this payslip")
 
-    user_stmt = select(User).where(User.id == payroll.user_id)
+    user_stmt = select(User).where(User.id == payroll.user_id, User.gym_id == current_user.gym_id)
     user_result = await db.execute(user_stmt)
     user = user_result.scalar_one_or_none()
 
@@ -842,17 +888,12 @@ async def export_payslip(
     current_user: Annotated[User, Depends(dependencies.get_current_active_user)],
     db: Annotated[AsyncSession, Depends(get_db)]
 ):
-    stmt = select(Payroll).where(Payroll.id == payroll_id)
-    result = await db.execute(stmt)
-    payroll = result.scalar_one_or_none()
-
-    if not payroll:
-        raise HTTPException(status_code=404, detail="Payroll record not found")
+    payroll = await _get_payroll_or_404(db, current_user=current_user, payroll_id=payroll_id)
 
     if current_user.role != Role.ADMIN and current_user.id != payroll.user_id:
         raise HTTPException(status_code=403, detail="Cannot access this payslip")
 
-    user_stmt = select(User).where(User.id == payroll.user_id)
+    user_stmt = select(User).where(User.id == payroll.user_id, User.gym_id == current_user.gym_id)
     user_result = await db.execute(user_stmt)
     user = user_result.scalar_one_or_none()
 
@@ -907,17 +948,12 @@ async def export_payslip_pdf(
     current_user: Annotated[User, Depends(dependencies.get_current_active_user)],
     db: Annotated[AsyncSession, Depends(get_db)]
 ):
-    stmt = select(Payroll).where(Payroll.id == payroll_id)
-    result = await db.execute(stmt)
-    payroll = result.scalar_one_or_none()
-
-    if not payroll:
-        raise HTTPException(status_code=404, detail="Payroll record not found")
+    payroll = await _get_payroll_or_404(db, current_user=current_user, payroll_id=payroll_id)
 
     if current_user.role != Role.ADMIN and current_user.id != payroll.user_id:
         raise HTTPException(status_code=403, detail="Cannot access this payslip")
 
-    user_stmt = select(User).where(User.id == payroll.user_id)
+    user_stmt = select(User).where(User.id == payroll.user_id, User.gym_id == current_user.gym_id)
     user_result = await db.execute(user_stmt)
     user = user_result.scalar_one_or_none()
 
@@ -941,16 +977,26 @@ async def export_payslip_pdf(
 
 @router.get("/staff", response_model=StandardResponse)
 async def get_staff(
-    current_user: Annotated[User, Depends(dependencies.RoleChecker([Role.ADMIN]))],
-    db: Annotated[AsyncSession, Depends(get_db)]
+    current_user: Annotated[User, Depends(dependencies.RoleChecker([Role.ADMIN, Role.MANAGER]))],
+    db: Annotated[AsyncSession, Depends(get_db)],
+    branch_id: Optional[uuid.UUID] = Query(None),
 ):
     """List all users with staff roles, including their contract info."""
     stmt = (
         select(User, Contract)
         .outerjoin(Contract, Contract.user_id == User.id)
         .where(User.role.in_([Role.COACH, Role.EMPLOYEE, Role.CASHIER, Role.RECEPTION, Role.FRONT_DESK]))
-        .order_by(User.full_name)
     )
+    branch_ids = await TenancyService.branch_scope_ids(
+        db,
+        current_user=current_user,
+        branch_id=branch_id,
+        allow_all_for_admin=True,
+    )
+    if branch_ids:
+        stmt = stmt.where(User.home_branch_id.in_(branch_ids))
+
+    stmt = stmt.order_by(User.full_name)
     result = await db.execute(stmt)
     staff_members = result.all()
 
@@ -992,6 +1038,7 @@ async def list_attendance(
     user_id: Optional[uuid.UUID] = Query(None),
     start_date: Optional[date] = Query(None),
     end_date: Optional[date] = Query(None),
+    branch_id: Optional[uuid.UUID] = Query(None),
     limit: int = Query(100, ge=1, le=500),
     offset: int = Query(0, ge=0),
 ):
@@ -1002,6 +1049,15 @@ async def list_attendance(
         .order_by(AttendanceLog.check_in_time.desc())
     )
     count_stmt = select(func.count(AttendanceLog.id)).join(User, User.id == AttendanceLog.user_id)
+    branch_ids = await TenancyService.branch_scope_ids(
+        db,
+        current_user=current_user,
+        branch_id=branch_id,
+        allow_all_for_admin=True,
+    )
+    if branch_ids:
+        stmt = stmt.where(AttendanceLog.branch_id.in_(branch_ids))
+        count_stmt = count_stmt.where(AttendanceLog.branch_id.in_(branch_ids))
     if user_id:
         stmt = stmt.where(AttendanceLog.user_id == user_id)
         count_stmt = count_stmt.where(AttendanceLog.user_id == user_id)
@@ -1050,7 +1106,7 @@ async def get_staff_summary(
     if start_date and end_date and start_date > end_date:
         raise HTTPException(status_code=400, detail="start_date cannot be after end_date")
 
-    user_stmt = select(User, Contract).outerjoin(Contract, Contract.user_id == User.id).where(User.id == user_id)
+    user_stmt = select(User, Contract).outerjoin(Contract, Contract.user_id == User.id).where(User.id == user_id, User.gym_id == current_user.gym_id)
     user_result = await db.execute(user_stmt)
     row = user_result.first()
     if not row:
@@ -1294,12 +1350,7 @@ async def correct_attendance(
     db: Annotated[AsyncSession, Depends(get_db)]
 ):
     """Admin manually corrects an attendance record."""
-    stmt = select(AttendanceLog).where(AttendanceLog.id == attendance_id)
-    result = await db.execute(stmt)
-    log = result.scalar_one_or_none()
-
-    if not log:
-        raise HTTPException(status_code=404, detail="Attendance record not found")
+    log = await _get_attendance_or_404(db, current_user=current_user, attendance_id=attendance_id)
 
     if correction.check_in_time is not None:
         log.check_in_time = correction.check_in_time
@@ -1343,12 +1394,21 @@ async def correct_attendance(
 @router.get("/members", response_model=StandardResponse)
 async def list_members(
     current_user: Annotated[User, Depends(dependencies.RoleChecker([Role.ADMIN, Role.COACH, Role.RECEPTION, Role.FRONT_DESK]))],
-    db: Annotated[AsyncSession, Depends(get_db)]
+    db: Annotated[AsyncSession, Depends(get_db)],
+    branch_id: Optional[uuid.UUID] = Query(None),
 ):
     """List all users with MEMBER role."""
     from app.models.access import Subscription
     from app.models.subscription_enums import SubscriptionStatus
     stmt = select(User).where(User.role == Role.CUSTOMER).order_by(User.full_name)
+    branch_ids = await TenancyService.branch_scope_ids(
+        db,
+        current_user=current_user,
+        branch_id=branch_id,
+        allow_all_for_admin=current_user.role == Role.ADMIN,
+    )
+    if branch_ids:
+        stmt = stmt.where(User.home_branch_id.in_(branch_ids))
     result = await db.execute(stmt)
     users = result.scalars().all()
     now = datetime.now(timezone.utc)
@@ -1456,8 +1516,7 @@ async def create_subscription(
 
     await db.commit()
 
-    user_result = await db.execute(select(User).where(User.id == data.user_id))
-    member = user_result.scalar_one_or_none()
+    member = await TenancyService.get_user_in_gym(db, gym_id=current_user.gym_id, user_id=data.user_id)
     if member:
         await WhatsAppNotificationService.queue_and_send(
             db=db,
@@ -1514,8 +1573,7 @@ async def update_subscription(
     sub.status = SubscriptionStatus(data.status)
     await db.commit()
 
-    user_result = await db.execute(select(User).where(User.id == user_id))
-    member = user_result.scalar_one_or_none()
+    member = await TenancyService.get_user_in_gym(db, gym_id=current_user.gym_id, user_id=user_id)
     if member:
         await WhatsAppNotificationService.queue_and_send(
             db=db,
@@ -1651,12 +1709,7 @@ async def update_leave_status(
     db: Annotated[AsyncSession, Depends(get_db)]
 ):
     """Admin updates leave status"""
-    stmt = select(LeaveRequest).where(LeaveRequest.id == leave_id)
-    res = await db.execute(stmt)
-    leave = res.scalar_one_or_none()
-    
-    if not leave:
-        raise HTTPException(status_code=404, detail="Leave request not found")
+    leave = await _get_leave_or_404(db, current_user=current_user, leave_id=leave_id)
         
     old_status = leave.status
     leave.status = request.status
@@ -1690,3 +1743,19 @@ async def update_leave_status(
             logger.exception("Payroll auto-recalc failed for leave status change %s", leave_id)
 
     return StandardResponse(message=f"Leave status updated to {request.status.value}")
+    
+@router.get("/branches", response_model=StandardResponse)
+async def list_accessible_branches(
+    current_user: Annotated[User, Depends(dependencies.get_current_active_user)],
+    db: Annotated[AsyncSession, Depends(get_db)]
+):
+    """List branches accessible to the current user."""
+    branches = await TenancyService.get_accessible_branches(db, user=current_user)
+    return StandardResponse(data=[
+        {
+            "id": str(b.id),
+            "name": b.name,
+            "display_name": b.display_name,
+            "code": b.code
+        } for b in branches
+    ])

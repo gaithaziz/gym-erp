@@ -1,9 +1,10 @@
 import uuid
 from datetime import datetime, timezone
 from enum import Enum
-from sqlalchemy import String, Float, Integer, Boolean, Enum as SAEnum, DateTime
+from sqlalchemy import String, Float, Integer, Boolean, Enum as SAEnum, DateTime, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column
 from app.database import Base
+from app.models.tenancy import BranchScopedMixin
 
 
 class ProductCategory(str, Enum):
@@ -14,13 +15,16 @@ class ProductCategory(str, Enum):
     OTHER = "OTHER"
 
 
-class Product(Base):
+class Product(BranchScopedMixin, Base):
     """Inventory product available for sale at the gym."""
     __tablename__ = "products"
+    __table_args__ = (
+        UniqueConstraint("gym_id", "branch_id", "sku", name="uq_products_gym_branch_sku"),
+    )
 
     id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
     name: Mapped[str] = mapped_column(String, nullable=False)
-    sku: Mapped[str] = mapped_column(String, nullable=True, unique=True)
+    sku: Mapped[str] = mapped_column(String, nullable=True)
     category: Mapped[ProductCategory] = mapped_column(
         SAEnum(ProductCategory, native_enum=False), default=ProductCategory.OTHER, nullable=False
     )

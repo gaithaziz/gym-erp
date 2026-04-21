@@ -5,6 +5,7 @@ from sqlalchemy import String, Enum as SAEnum, ForeignKey, DateTime
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from app.database import Base
 from app.models.subscription_enums import SubscriptionStatus
+from app.models.tenancy import BranchScopedMixin, GymScopedMixin
 
 
 class RenewalRequestStatus(str, Enum):
@@ -14,7 +15,7 @@ class RenewalRequestStatus(str, Enum):
     CANCELLED = "CANCELLED"
 
 
-class Subscription(Base):
+class Subscription(GymScopedMixin, Base):
     __tablename__ = "subscriptions"
 
     id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
@@ -26,7 +27,7 @@ class Subscription(Base):
 
     user = relationship("User", backref="subscription")
 
-class AccessLog(Base):
+class AccessLog(BranchScopedMixin, Base):
     __tablename__ = "access_logs"
 
     id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
@@ -38,7 +39,7 @@ class AccessLog(Base):
 
     user = relationship("User")
 
-class AttendanceLog(Base):
+class AttendanceLog(BranchScopedMixin, Base):
     __tablename__ = "attendance_logs"
 
     id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
@@ -50,7 +51,7 @@ class AttendanceLog(Base):
     user = relationship("User")
 
 
-class SubscriptionRenewalRequest(Base):
+class SubscriptionRenewalRequest(GymScopedMixin, Base):
     __tablename__ = "subscription_renewal_requests"
 
     id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)

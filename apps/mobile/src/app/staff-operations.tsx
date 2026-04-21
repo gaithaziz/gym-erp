@@ -1,4 +1,3 @@
-import { Ionicons } from "@expo/vector-icons";
 import { useQuery } from "@tanstack/react-query";
 import { useMemo, useState } from "react";
 import { Pressable, StyleSheet, Text, View } from "react-native";
@@ -16,7 +15,7 @@ const STATUS_FILTERS = ["all", "active", "inactive"] as const;
 
 export default function StaffOperationsScreen() {
   const { authorizedRequest, bootstrap } = useSession();
-  const { copy, direction, fontSet, isRTL, locale, theme } = usePreferences();
+  const { copy, isRTL } = usePreferences();
   const role = getCurrentRole(bootstrap);
   const [search, setSearch] = useState("");
   const [roleFilter, setRoleFilter] = useState<(typeof ROLE_FILTERS)[number]>("ALL");
@@ -39,7 +38,7 @@ export default function StaffOperationsScreen() {
     },
   });
 
-  const staff = staffQuery.data?.items ?? [];
+  const staff = useMemo(() => staffQuery.data?.items ?? [], [staffQuery.data?.items]);
   const selectedStaff = useMemo(
     () => staff.find((item) => item.id === selectedId) ?? staff[0] ?? null,
     [selectedId, staff],

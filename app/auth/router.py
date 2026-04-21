@@ -1,4 +1,5 @@
 import os
+import logging
 import shutil
 import uuid
 from typing import Annotated
@@ -18,8 +19,14 @@ from app.services.audit_service import AuditService
 from app.core.responses import StandardResponse
 from app.services.mobile_bootstrap_service import MobileBootstrapService
 from app.core.rate_limit import rate_limit_dependency
+from app.services.tenancy_service import TenancyService
 
 router = APIRouter()
+logger = logging.getLogger(__name__)
+
+
+def _role_value(role: Role | str) -> str:
+    return role.value if hasattr(role, "value") else str(role)
 
 
 def _to_utc_datetime(value: int | float | datetime) -> datetime:
@@ -32,11 +39,13 @@ async def _persist_refresh_token(db: AsyncSession, user_id, refresh_token: str):
     payload = jwt.decode(refresh_token, settings.SECRET_KEY, algorithms=[settings.ALGORITHM])
     jti = payload.get("jti")
     exp = payload.get("exp")
+    gym_id = payload.get("gym_id")
     if not jti or exp is None:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid refresh token payload")
 
     token_record = RefreshToken(
         user_id=user_id,
+        gym_id=gym_id,
         jti=str(jti),
         token_hash=security.hash_token(refresh_token),
         expires_at=_to_utc_datetime(exp),
@@ -45,8 +54,25 @@ async def _persist_refresh_token(db: AsyncSession, user_id, refresh_token: str):
 
 
 async def _get_user_by_email(db: AsyncSession, email: str) -> User | None:
+    # Use SUPER_ADMIN role to bypass tenant isolation for identifying users by email globally.
+    # We save and restore the previous context to avoid side effects in other parts of the request.
+    prev_role = db.info.get("rls_user_role", "ANONYMOUS")
+    prev_user_id = db.info.get("rls_user_id", "")
+    prev_gym_id = db.info.get("rls_gym_id", "")
+    prev_branch_id = db.info.get("rls_branch_id", "")
+
+    await dependencies.set_rls_context(db, role=Role.SUPER_ADMIN.value)
     result = await db.execute(select(User).where(User.email == email))
-    return result.scalar_one_or_none()
+    user = result.scalar_one_or_none()
+    
+    await dependencies.set_rls_context(
+        db, 
+        user_id=prev_user_id, 
+        role=prev_role, 
+        gym_id=prev_gym_id, 
+        branch_id=prev_branch_id
+    )
+    return user
 
 
 def _credentials_exception() -> HTTPException:
@@ -94,23 +120,34 @@ async def register(
         )
     
     # Create new user
+    home_branch_id = current_user.home_branch_id
     user = User(
+        gym_id=current_user.gym_id,
         email=user_in.email,
         hashed_password=security.get_password_hash(user_in.password),
         full_name=user_in.full_name,
         role=user_in.role,
-        is_active=True
+        is_active=True,
+        home_branch_id=home_branch_id,
     )
     db.add(user)
     await db.commit()
     await db.refresh(user)
+    if home_branch_id:
+        await TenancyService.ensure_user_branch_access(
+            db,
+            user_id=user.id,
+            gym_id=user.gym_id,
+            branch_id=home_branch_id,
+        )
+        await db.commit()
 
     await _log_and_commit(
         db,
         user_id=current_user.id,
         action="REGISTER_USER",
         target_id=str(user.id),
-        details=f"Registered user {user.email} with role {user.role.value}",
+        details=f"Registered user {user.email} with role {_role_value(user.role)}",
     )
     
     return StandardResponse(data=user, message="User registered successfully")
@@ -132,22 +169,46 @@ async def login(
     login_data: schemas.LoginRequest,
     db: Annotated[AsyncSession, Depends(get_db)]
 ):
+    logger.info("Login attempt for email: %s", login_data.email)
     user = await _get_user_by_email(db, login_data.email)
 
-    if not user or not security.verify_password(login_data.password, user.hashed_password):
+    if not user:
+        logger.warning("User not found for email: %s", login_data.email)
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Incorrect email or password",
             headers={"WWW-Authenticate": "Bearer"},
         )
     
+    if not security.verify_password(login_data.password, user.hashed_password):
+        logger.warning("Invalid password for user: %s", login_data.email)
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Incorrect email or password",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+    
+    logger.info("Login successful for user: %s (gym_id: %s)", user.email, user.gym_id)
     access_token_expires = timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES)
     access_token = security.create_access_token(
-        subject=user.email, expires_delta=access_token_expires
+        subject=user.email,
+        expires_delta=access_token_expires,
+        gym_id=str(user.gym_id),
+        home_branch_id=str(user.home_branch_id) if user.home_branch_id else None,
     )
     refresh_token = security.create_refresh_token(
-        subject=user.email
+        subject=user.email,
+        gym_id=str(user.gym_id),
+        home_branch_id=str(user.home_branch_id) if user.home_branch_id else None,
     )
+    # Set context to the identified user to allow persisting their refresh token and other actions
+    await dependencies.set_rls_context(
+        db,
+        user_id=str(user.id),
+        role=_role_value(user.role),
+        gym_id=str(user.gym_id)
+    )
+
     await _persist_refresh_token(db, user.id, refresh_token)
     await db.commit()
     
@@ -176,6 +237,8 @@ async def refresh_token(
         username = payload.get("sub")
         token_type = payload.get("type")
         jti = payload.get("jti")
+        gym_id = payload.get("gym_id")
+        is_impersonated = payload.get("is_impersonated", False)
         if username is None or token_type != "refresh" or jti is None:
             raise credentials_exception
     except JWTError:
@@ -186,8 +249,17 @@ async def refresh_token(
     if user is None:
         raise credentials_exception
         
+    # Set context to the identified user to allow finding their refresh token
+    await dependencies.set_rls_context(
+        db, 
+        user_id=str(user.id), 
+        role=_role_value(user.role), 
+        gym_id=str(user.gym_id)
+    )
+    
     refresh_stmt = select(RefreshToken).where(
         RefreshToken.user_id == user.id,
+        RefreshToken.gym_id == user.gym_id,
         RefreshToken.jti == str(jti),
         RefreshToken.revoked_at.is_(None)
     )
@@ -209,9 +281,18 @@ async def refresh_token(
 
     access_token_expires = timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES)
     access_token = security.create_access_token(
-        subject=user.email, expires_delta=access_token_expires
+        subject=user.email,
+        expires_delta=access_token_expires,
+        gym_id=str(user.gym_id),
+        home_branch_id=str(user.home_branch_id) if user.home_branch_id else None,
+        is_impersonated=is_impersonated,
     )
-    new_refresh_token = security.create_refresh_token(subject=user.email)
+    new_refresh_token = security.create_refresh_token(
+        subject=user.email,
+        gym_id=str(user.gym_id),
+        home_branch_id=str(user.home_branch_id) if user.home_branch_id else None,
+        is_impersonated=is_impersonated,
+    )
     await _persist_refresh_token(db, user.id, new_refresh_token)
     await db.commit()
     
@@ -229,7 +310,11 @@ async def read_users_me(
     current_user: Annotated[User, Depends(dependencies.get_current_active_user)],
     db: Annotated[AsyncSession, Depends(get_db)],
 ):
-    user_payload = await MobileBootstrapService.build_user_response(current_user=current_user, db=db)
+    user_payload = await MobileBootstrapService.build_user_response(
+        current_user=current_user, 
+        db=db,
+        is_impersonated=current_user.is_impersonated
+    )
     return StandardResponse(data=user_payload)
 
 @router.put("/me", response_model=StandardResponse[schemas.UserResponse])

@@ -13,12 +13,15 @@ import type { MobileBootstrap, TokenPair } from "@gym-erp/contracts";
 
 const TOKEN_STORAGE_KEY = "gym-erp.mobile.tokens";
 const PUSH_STORAGE_KEY = "gym-erp.mobile.push-registration";
+const BRANCH_STORAGE_KEY_PREFIX = "gym-erp.mobile.selected-branch";
 
 type SessionStatus = "loading" | "signed_out" | "signed_in";
 
 type SessionContextValue = {
   apiBaseUrl: string;
   bootstrap: MobileBootstrap | null;
+  selectedBranchId: string | null;
+  setSelectedBranchId: (branchId: string | null) => Promise<void>;
   error: string | null;
   status: SessionStatus;
   signIn: (email: string, password: string) => Promise<void>;
@@ -28,6 +31,33 @@ type SessionContextValue = {
 };
 
 const SessionContext = createContext<SessionContextValue | null>(null);
+
+function supportsBranchSelection(bootstrap: MobileBootstrap | null) {
+  return bootstrap?.role === "ADMIN" || bootstrap?.role === "MANAGER";
+}
+
+function branchStorageKey(userId: string) {
+  return `${BRANCH_STORAGE_KEY_PREFIX}:${userId}`;
+}
+
+function resolveBranchSelection(
+  bootstrap: MobileBootstrap,
+  preferredBranchId: string | null,
+): string | null {
+  if (!supportsBranchSelection(bootstrap)) {
+    return null;
+  }
+  const accessibleIds = new Set((bootstrap.accessible_branches ?? []).map((item) => item.id));
+  if (preferredBranchId && accessibleIds.has(preferredBranchId)) {
+    return preferredBranchId;
+  }
+  const homeBranchId = bootstrap.home_branch?.id ?? null;
+  if (homeBranchId && accessibleIds.has(homeBranchId)) {
+    return homeBranchId;
+  }
+  const firstBranchId = bootstrap.accessible_branches?.[0]?.id ?? null;
+  return firstBranchId;
+}
 
 async function readJsonResponse<T>(response: Response): Promise<Envelope<T>> {
   const raw = await response.text();
@@ -106,6 +136,19 @@ async function loadPushRegistration() {
   return JSON.parse(raw) as PushRegistration;
 }
 
+async function persistSelectedBranch(userId: string, branchId: string | null) {
+  const key = branchStorageKey(userId);
+  if (!branchId) {
+    await SecureStore.deleteItemAsync(key);
+    return;
+  }
+  await SecureStore.setItemAsync(key, branchId);
+}
+
+async function loadSelectedBranch(userId: string) {
+  return SecureStore.getItemAsync(branchStorageKey(userId));
+}
+
 async function sendDeviceRegistration(path: string, accessToken: string, registration: PushRegistration) {
   await fetch(`${API_BASE_URL}${path}`, {
     method: "POST",
@@ -123,6 +166,7 @@ export function SessionProvider({ children }: PropsWithChildren) {
   const [error, setError] = useState<string | null>(null);
   const [tokenPair, setTokenPair] = useState<TokenPair | null>(null);
   const [bootstrap, setBootstrap] = useState<MobileBootstrap | null>(null);
+  const [selectedBranchId, setSelectedBranchIdState] = useState<string | null>(null);
   const tokenPairRef = useRef<TokenPair | null>(null);
 
   useEffect(() => {
@@ -137,6 +181,7 @@ export function SessionProvider({ children }: PropsWithChildren) {
     }
     setTokenPair(null);
     setBootstrap(null);
+    setSelectedBranchIdState(null);
     setError(null);
     tokenPairRef.current = null;
     await persistTokenPair(null);
@@ -201,8 +246,26 @@ export function SessionProvider({ children }: PropsWithChildren) {
   const refreshBootstrap = useCallback(async () => {
     const payload = await authorizedRequest<MobileBootstrap>("/mobile/bootstrap");
     const parsed = parseBootstrapEnvelope(payload);
+    const storedBranch = await loadSelectedBranch(parsed.data.user.id);
+    const resolvedBranch = resolveBranchSelection(parsed.data, storedBranch);
     setBootstrap(parsed.data);
+    setSelectedBranchIdState(resolvedBranch);
+    await persistSelectedBranch(parsed.data.user.id, resolvedBranch);
   }, [authorizedRequest]);
+
+  const setSelectedBranchId = useCallback(
+    async (nextBranchId: string | null) => {
+      const current = bootstrap;
+      if (!current || !supportsBranchSelection(current)) {
+        setSelectedBranchIdState(null);
+        return;
+      }
+      const resolved = resolveBranchSelection(current, nextBranchId);
+      setSelectedBranchIdState(resolved);
+      await persistSelectedBranch(current.user.id, resolved);
+    },
+    [bootstrap],
+  );
 
   const registerCurrentDevice = useCallback(async (accessToken: string) => {
     try {
@@ -249,7 +312,10 @@ export function SessionProvider({ children }: PropsWithChildren) {
         throw new Error(bootstrapPayload.message || "Bootstrap failed");
       }
 
+      const resolvedBranch = resolveBranchSelection(bootstrapPayload.data, await loadSelectedBranch(bootstrapPayload.data.user.id));
       setBootstrap(bootstrapPayload.data);
+      setSelectedBranchIdState(resolvedBranch);
+      await persistSelectedBranch(bootstrapPayload.data.user.id, resolvedBranch);
       setStatus("signed_in");
       void registerCurrentDevice(payload.data.access_token);
     },
@@ -293,7 +359,10 @@ export function SessionProvider({ children }: PropsWithChildren) {
             throw new Error(payload.message || "Bootstrap failed");
           }
           if (alive) {
+            const resolvedBranch = resolveBranchSelection(payload.data, await loadSelectedBranch(payload.data.user.id));
             setBootstrap(payload.data);
+            setSelectedBranchIdState(resolvedBranch);
+            await persistSelectedBranch(payload.data.user.id, resolvedBranch);
             setStatus("signed_in");
             void registerCurrentDevice(refreshed.access_token);
           }
@@ -306,7 +375,10 @@ export function SessionProvider({ children }: PropsWithChildren) {
         }
 
         if (alive) {
+          const resolvedBranch = resolveBranchSelection(payload.data, await loadSelectedBranch(payload.data.user.id));
           setBootstrap(payload.data);
+          setSelectedBranchIdState(resolvedBranch);
+          await persistSelectedBranch(payload.data.user.id, resolvedBranch);
           setStatus("signed_in");
           void registerCurrentDevice(stored.access_token);
         }
@@ -330,6 +402,8 @@ export function SessionProvider({ children }: PropsWithChildren) {
     () => ({
       apiBaseUrl: API_BASE_URL,
       bootstrap,
+      selectedBranchId,
+      setSelectedBranchId,
       error,
       status,
       signIn,
@@ -337,7 +411,7 @@ export function SessionProvider({ children }: PropsWithChildren) {
       refreshBootstrap,
       authorizedRequest,
     }),
-    [authorizedRequest, bootstrap, error, refreshBootstrap, signIn, signOut, status],
+    [authorizedRequest, bootstrap, selectedBranchId, setSelectedBranchId, error, refreshBootstrap, signIn, signOut, status],
   );
 
   return <SessionContext.Provider value={value}>{children}</SessionContext.Provider>;

@@ -3,9 +3,10 @@ from datetime import datetime, timezone
 from sqlalchemy import String, ForeignKey, DateTime, Integer
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from app.database import Base
+from app.models.tenancy import GymScopedMixin
 
 
-class Badge(Base):
+class Badge(GymScopedMixin, Base):
     """Represents an achievement badge earned by a user."""
     __tablename__ = "badges"
 
@@ -19,7 +20,7 @@ class Badge(Base):
     user = relationship("User")
 
 
-class AttendanceStreak(Base):
+class AttendanceStreak(GymScopedMixin, Base):
     """Tracks the current and best attendance streak for a user."""
     __tablename__ = "attendance_streaks"
 

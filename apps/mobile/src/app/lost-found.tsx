@@ -41,7 +41,7 @@ type PendingPhoto = {
 const SUPPORTED_PHOTO_MIME_TYPES = new Set(["image/jpeg", "image/png", "image/webp", "image/heic", "image/heif"]);
 
 export default function LostFoundScreen() {
-  const { authorizedRequest } = useSession();
+  const { authorizedRequest, selectedBranchId } = useSession();
   const { copy, direction, fontSet, isRTL, theme } = usePreferences();
   const locale = localeTag(isRTL);
   const queryClient = useQueryClient();
@@ -56,10 +56,13 @@ export default function LostFoundScreen() {
   const [pendingPhotos, setPendingPhotos] = useState<PendingPhoto[]>([]);
 
   const itemsQuery = useQuery({
-    queryKey: ["mobile-lost-found"],
-    queryFn: async () => (await authorizedRequest<LostFoundItem[]>("/mobile/lost-found/items")).data,
+    queryKey: ["mobile-lost-found", selectedBranchId],
+    queryFn: async () => {
+      const suffix = selectedBranchId ? `?branch_id=${encodeURIComponent(selectedBranchId)}` : "";
+      return (await authorizedRequest<LostFoundItem[]>(`/mobile/lost-found/items${suffix}`)).data;
+    },
   });
-  const items = itemsQuery.data ?? [];
+  const items = useMemo(() => itemsQuery.data ?? [], [itemsQuery.data]);
   const selectedItem = useMemo(() => items.find((item) => item.id === selectedItemId) ?? items[0] ?? null, [items, selectedItemId]);
 
   const itemDetailQuery = useQuery({
@@ -97,7 +100,10 @@ export default function LostFoundScreen() {
       if (unsupported) {
         throw new Error(copy.lostFoundScreen.unsupportedPhoto);
       }
-      const created = await authorizedRequest("/mobile/lost-found/items", {
+      const createPath = selectedBranchId
+        ? `/mobile/lost-found/items?branch_id=${encodeURIComponent(selectedBranchId)}`
+        : "/mobile/lost-found/items";
+      const created = await authorizedRequest(createPath, {
         method: "POST",
         body: JSON.stringify({
           title,

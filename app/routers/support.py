@@ -16,6 +16,7 @@ from app.models.enums import Role
 from app.models.support import SupportTicket, SupportMessage, TicketCategory, TicketStatus
 from app.models.user import User
 from app.services.push_service import PushNotificationService
+from app.services.tenancy_service import TenancyService
 
 router = APIRouter()
 
@@ -113,7 +114,11 @@ def _serialize_ticket(ticket: SupportTicket) -> dict:
 async def _notify_support_staff(db: AsyncSession, ticket: SupportTicket, message: str) -> None:
     staff = (
         await db.execute(
-            select(User).where(User.role.in_([Role.ADMIN, Role.MANAGER, Role.RECEPTION, Role.FRONT_DESK]), User.is_active.is_(True))
+            select(User).where(
+                User.role.in_([Role.ADMIN, Role.MANAGER, Role.RECEPTION, Role.FRONT_DESK]),
+                User.is_active.is_(True),
+                User.gym_id == ticket.gym_id,
+            )
         )
     ).scalars().all()
     for user in staff:
@@ -127,11 +132,13 @@ async def _notify_support_staff(db: AsyncSession, ticket: SupportTicket, message
             event_ref=str(ticket.id),
             params={"ticket_id": str(ticket.id), "message": message[:240]},
             idempotency_key=f"support-ticket:{ticket.id}:{user.id}",
+            scope="BRANCH",
+            scope_branch_id=str(ticket.branch_id) if ticket.branch_id else None,
         )
 
 
 async def _notify_support_customer(db: AsyncSession, ticket: SupportTicket, message: SupportMessage) -> None:
-    customer = await db.get(User, ticket.customer_id)
+    customer = await TenancyService.get_user_in_gym(db, gym_id=ticket.gym_id, user_id=ticket.customer_id)
     if not customer:
         return
     await PushNotificationService.queue_and_send(
@@ -165,6 +172,7 @@ async def create_ticket(
         subject=data.subject,
         category=data.category,
         status=TicketStatus.OPEN,
+        branch_id=current_user.home_branch_id,
         created_at=now,
         updated_at=now,
     )
@@ -199,17 +207,28 @@ async def list_tickets(
     current_user: Annotated[User, Depends(get_current_active_user)],
     db: Annotated[AsyncSession, Depends(get_db)],
     response: Response,
-    status_filter: TicketStatus | None = Query(None, description="Filter by exact status"),
-    is_active: bool | None = Query(None, description="If true, filters OPEN and IN_PROGRESS. If false, filters RESOLVED and CLOSED."),
-    category: TicketCategory | None = Query(None),
+    status_filter: Annotated[TicketStatus | None, Query(description="Filter by exact status")] = None,
+    is_active: Annotated[bool | None, Query(description="If true, filters OPEN and IN_PROGRESS. If false, filters RESOLVED and CLOSED.")] = None,
+    category: Annotated[TicketCategory | None, Query()] = None,
+    branch_id: Annotated[uuid.UUID | None, Query()] = None,
     limit: int = 50,
     offset: int = 0
 ):
     stmt = select(SupportTicket).options(
         selectinload(SupportTicket.messages),
         selectinload(SupportTicket.customer)
+    ).where(SupportTicket.gym_id == current_user.gym_id)
+    count_stmt = select(func.count(SupportTicket.id)).where(SupportTicket.gym_id == current_user.gym_id)
+
+    branch_ids = await TenancyService.branch_scope_ids(
+        db,
+        current_user=current_user,
+        branch_id=branch_id,
+        allow_all_for_admin=True,
     )
-    count_stmt = select(func.count(SupportTicket.id))
+    if branch_ids:
+        stmt = stmt.where(SupportTicket.branch_id.in_(branch_ids))
+        count_stmt = count_stmt.where(SupportTicket.branch_id.in_(branch_ids))
 
     if current_user.role == Role.CUSTOMER:
         stmt = stmt.where(SupportTicket.customer_id == current_user.id)
@@ -250,16 +269,7 @@ async def get_ticket(
     current_user: Annotated[User, Depends(get_current_active_user)],
     db: Annotated[AsyncSession, Depends(get_db)]
 ):
-    stmt = (
-        select(SupportTicket)
-        .where(SupportTicket.id == ticket_id)
-        .options(selectinload(SupportTicket.messages), selectinload(SupportTicket.customer))
-    )
-    result = await db.execute(stmt)
-    ticket = result.scalar_one_or_none()
-
-    if not ticket:
-        raise HTTPException(status_code=404, detail="Ticket not found")
+    ticket = await _get_ticket_or_404(db, current_user=current_user, ticket_id=ticket_id, include_messages=True)
 
     if current_user.role == Role.CUSTOMER and ticket.customer_id != current_user.id:
         raise HTTPException(status_code=403, detail="Not authorized to view this ticket")
@@ -276,12 +286,7 @@ async def add_ticket_message(
     current_user: Annotated[User, Depends(get_current_active_user)],
     db: Annotated[AsyncSession, Depends(get_db)]
 ):
-    stmt = select(SupportTicket).where(SupportTicket.id == ticket_id)
-    result = await db.execute(stmt)
-    ticket = result.scalar_one_or_none()
-
-    if not ticket:
-        raise HTTPException(status_code=404, detail="Ticket not found")
+    ticket = await _get_ticket_or_404(db, current_user=current_user, ticket_id=ticket_id)
 
     if current_user.role == Role.CUSTOMER and ticket.customer_id != current_user.id:
         raise HTTPException(status_code=403, detail="Not authorized to reply to this ticket")
@@ -325,12 +330,7 @@ async def add_ticket_attachment(
     file: UploadFile = File(...),
     message: str | None = Form(None),
 ):
-    stmt = select(SupportTicket).where(SupportTicket.id == ticket_id)
-    result = await db.execute(stmt)
-    ticket = result.scalar_one_or_none()
-
-    if not ticket:
-        raise HTTPException(status_code=404, detail="Ticket not found")
+    ticket = await _get_ticket_or_404(db, current_user=current_user, ticket_id=ticket_id)
 
     if current_user.role == Role.CUSTOMER and ticket.customer_id != current_user.id:
         raise HTTPException(status_code=403, detail="Not authorized to reply to this ticket")
@@ -403,12 +403,7 @@ async def update_ticket_status(
     current_user: Annotated[User, Depends(get_current_active_user)],
     db: Annotated[AsyncSession, Depends(get_db)]
 ):
-    stmt = select(SupportTicket).where(SupportTicket.id == ticket_id).options(selectinload(SupportTicket.customer))
-    result = await db.execute(stmt)
-    ticket = result.scalar_one_or_none()
-
-    if not ticket:
-        raise HTTPException(status_code=404, detail="Ticket not found")
+    ticket = await _get_ticket_or_404(db, current_user=current_user, ticket_id=ticket_id)
 
     if current_user.role == Role.CUSTOMER:
         if ticket.customer_id != current_user.id:
@@ -425,8 +420,25 @@ async def update_ticket_status(
     await db.refresh(ticket)
     
     # Reload relation
-    stmt2 = select(SupportTicket).where(SupportTicket.id == ticket_id).options(selectinload(SupportTicket.messages), selectinload(SupportTicket.customer))
-    res2 = await db.execute(stmt2)
-    loaded_ticket = res2.scalar_one()
+    loaded_ticket = await _get_ticket_or_404(db, current_user=current_user, ticket_id=ticket_id, include_messages=True)
 
     return StandardResponse(data=_serialize_ticket(loaded_ticket))
+async def _get_ticket_or_404(
+    db: AsyncSession,
+    *,
+    current_user: User,
+    ticket_id: uuid.UUID,
+    include_messages: bool = False,
+) -> SupportTicket:
+    stmt = select(SupportTicket).where(
+        SupportTicket.id == ticket_id,
+        SupportTicket.gym_id == current_user.gym_id,
+    )
+    options = [selectinload(SupportTicket.customer)]
+    if include_messages:
+        options.append(selectinload(SupportTicket.messages))
+    stmt = stmt.options(*options)
+    ticket = (await db.execute(stmt)).scalar_one_or_none()
+    if ticket is None:
+        raise HTTPException(status_code=404, detail="Ticket not found")
+    return ticket

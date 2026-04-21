@@ -1,6 +1,7 @@
 import json
 import os
 import uuid
+from contextlib import asynccontextmanager
 from datetime import datetime, timezone
 from typing import Annotated, Literal
 
@@ -14,7 +15,7 @@ from sqlalchemy.orm import selectinload
 from app.auth import dependencies
 from app.config import settings
 from app.core.responses import StandardResponse
-from app.database import AsyncSessionLocal, get_db
+from app.database import AsyncSessionLocal, get_db, set_rls_context
 from app.models.chat import ChatMessage, ChatReadReceipt, ChatThread
 from app.models.enums import Role
 from app.models.user import User
@@ -95,6 +96,44 @@ def _to_contact(user: User) -> ChatContactResponse:
         role=user.role.value,
         profile_picture_url=user.profile_picture_url,
     )
+
+
+def _snapshot_rls_context(db: AsyncSession) -> tuple[object, object, object, object]:
+    return (
+        db.info.get("rls_user_id", ""),
+        db.info.get("rls_user_role", "ANONYMOUS"),
+        db.info.get("rls_gym_id", ""),
+        db.info.get("rls_branch_id", ""),
+    )
+
+
+async def _restore_rls_context(db: AsyncSession, snapshot: tuple[object, object, object, object]) -> None:
+    user_id, role, gym_id, branch_id = snapshot
+    await set_rls_context(
+        db,
+        user_id=user_id,
+        role=role,
+        gym_id=gym_id,
+        branch_id=branch_id,
+    )
+
+
+@asynccontextmanager
+async def _chat_tenant_scope(db: AsyncSession, user: User):
+    snapshot = _snapshot_rls_context(db)
+    gym_id = str(user.gym_id) if getattr(user, "gym_id", None) else snapshot[2]
+    branch_id = str(user.home_branch_id) if getattr(user, "home_branch_id", None) else snapshot[3]
+    await set_rls_context(
+        db,
+        user_id=str(user.id),
+        role=Role.ADMIN.value,
+        gym_id=gym_id,
+        branch_id=branch_id,
+    )
+    try:
+        yield
+    finally:
+        await _restore_rls_context(db, snapshot)
 
 
 def _resolve_message_type(mime: str) -> Literal["IMAGE", "VIDEO", "VOICE"]:
@@ -314,16 +353,17 @@ async def list_chat_contacts(
     if not _is_chat_role(current_user.role):
         raise HTTPException(status_code=403, detail="Operation not permitted")
 
-    if current_user.role == Role.ADMIN:
-        stmt = select(User).where(User.role.in_([Role.COACH, Role.CUSTOMER])).order_by(User.full_name)
-    elif current_user.role == Role.CUSTOMER:
-        stmt = select(User).where(User.role == Role.COACH).order_by(User.full_name)
-    else:
-        stmt = select(User).where(User.role == Role.CUSTOMER).order_by(User.full_name)
+    async with _chat_tenant_scope(db, current_user):
+        if current_user.role == Role.ADMIN:
+            stmt = select(User).where(User.role.in_([Role.COACH, Role.CUSTOMER])).order_by(User.full_name)
+        elif current_user.role == Role.CUSTOMER:
+            stmt = select(User).where(User.role == Role.COACH).order_by(User.full_name)
+        else:
+            stmt = select(User).where(User.role == Role.CUSTOMER).order_by(User.full_name)
 
-    result = await db.execute(stmt)
-    users = result.scalars().all()
-    return StandardResponse(data=[_to_contact(user) for user in users])
+        result = await db.execute(stmt)
+        users = result.scalars().all()
+        return StandardResponse(data=[_to_contact(user) for user in users])
 
 
 @router.post("/threads", response_model=StandardResponse[ThreadResponse])
@@ -337,52 +377,53 @@ async def create_or_get_thread(
     if current_user.role not in [Role.CUSTOMER, Role.COACH]:
         raise HTTPException(status_code=403, detail="Operation not permitted")
 
-    if current_user.role == Role.CUSTOMER:
-        if not data.coach_id:
-            raise HTTPException(status_code=400, detail="coach_id is required")
-        coach_id = data.coach_id
-        customer_id = current_user.id
-    else:
-        if not data.customer_id:
-            raise HTTPException(status_code=400, detail="customer_id is required")
-        coach_id = current_user.id
-        customer_id = data.customer_id
+    async with _chat_tenant_scope(db, current_user):
+        if current_user.role == Role.CUSTOMER:
+            if not data.coach_id:
+                raise HTTPException(status_code=400, detail="coach_id is required")
+            coach_id = data.coach_id
+            customer_id = current_user.id
+        else:
+            if not data.customer_id:
+                raise HTTPException(status_code=400, detail="customer_id is required")
+            coach_id = current_user.id
+            customer_id = data.customer_id
 
-    users_stmt = select(User).where(User.id.in_([coach_id, customer_id]))
-    users_result = await db.execute(users_stmt)
-    users = users_result.scalars().all()
-    user_map = {u.id: u for u in users}
+        users_stmt = select(User).where(User.id.in_([coach_id, customer_id]))
+        users_result = await db.execute(users_stmt)
+        users = users_result.scalars().all()
+        user_map = {u.id: u for u in users}
 
-    coach = user_map.get(coach_id)
-    customer = user_map.get(customer_id)
-    if not coach or coach.role != Role.COACH:
-        raise HTTPException(status_code=404, detail="Coach not found")
-    if not customer or customer.role != Role.CUSTOMER:
-        raise HTTPException(status_code=404, detail="Customer not found")
+        coach = user_map.get(coach_id)
+        customer = user_map.get(customer_id)
+        if not coach or coach.role != Role.COACH:
+            raise HTTPException(status_code=404, detail="Coach not found")
+        if not customer or customer.role != Role.CUSTOMER:
+            raise HTTPException(status_code=404, detail="Customer not found")
 
-    existing_stmt = (
-        select(ChatThread)
-        .where(ChatThread.customer_id == customer_id, ChatThread.coach_id == coach_id)
-        .options(selectinload(ChatThread.customer), selectinload(ChatThread.coach))
-    )
-    existing_result = await db.execute(existing_stmt)
-    thread = existing_result.scalar_one_or_none()
-
-    if not thread:
-        now = datetime.now(timezone.utc)
-        thread = ChatThread(
-            customer_id=customer_id,
-            coach_id=coach_id,
-            created_at=now,
-            updated_at=now,
+        existing_stmt = (
+            select(ChatThread)
+            .where(ChatThread.customer_id == customer_id, ChatThread.coach_id == coach_id)
+            .options(selectinload(ChatThread.customer), selectinload(ChatThread.coach))
         )
-        db.add(thread)
-        await db.commit()
-        await db.refresh(thread)
-        await db.refresh(thread, attribute_names=["customer", "coach"])
+        existing_result = await db.execute(existing_stmt)
+        thread = existing_result.scalar_one_or_none()
 
-    payload = await _serialize_thread_for_user(db, thread, current_user)
-    return StandardResponse(data=payload)
+        if not thread:
+            now = datetime.now(timezone.utc)
+            thread = ChatThread(
+                customer_id=customer_id,
+                coach_id=coach_id,
+                created_at=now,
+                updated_at=now,
+            )
+            db.add(thread)
+            await db.commit()
+            await db.refresh(thread)
+            await db.refresh(thread, attribute_names=["customer", "coach"])
+
+        payload = await _serialize_thread_for_user(db, thread, current_user)
+        return StandardResponse(data=payload)
 
 
 @router.get("/threads", response_model=StandardResponse[list[ThreadResponse]])
@@ -399,27 +440,28 @@ async def list_threads(
     if not _is_chat_role(current_user.role):
         raise HTTPException(status_code=403, detail="Operation not permitted")
 
-    stmt = select(ChatThread).options(selectinload(ChatThread.customer), selectinload(ChatThread.coach))
+    async with _chat_tenant_scope(db, current_user):
+        stmt = select(ChatThread).options(selectinload(ChatThread.customer), selectinload(ChatThread.coach))
 
-    if current_user.role in [Role.ADMIN, Role.MANAGER]:
-        if coach_id:
-            stmt = stmt.where(ChatThread.coach_id == coach_id)
-        if customer_id:
-            stmt = stmt.where(ChatThread.customer_id == customer_id)
-    elif current_user.role == Role.CUSTOMER:
-        stmt = stmt.where(ChatThread.customer_id == current_user.id)
-    else:
-        stmt = stmt.where(ChatThread.coach_id == current_user.id)
+        if current_user.role in [Role.ADMIN, Role.MANAGER]:
+            if coach_id:
+                stmt = stmt.where(ChatThread.coach_id == coach_id)
+            if customer_id:
+                stmt = stmt.where(ChatThread.customer_id == customer_id)
+        elif current_user.role == Role.CUSTOMER:
+            stmt = stmt.where(ChatThread.customer_id == current_user.id)
+        else:
+            stmt = stmt.where(ChatThread.coach_id == current_user.id)
 
-    sort_field = ChatThread.last_message_at if sort_by == "last_message_at" else ChatThread.created_at
-    stmt = stmt.order_by(sort_field.asc() if sort_order == "asc" else sort_field.desc(), ChatThread.updated_at.desc())
-    stmt = stmt.offset(offset).limit(limit)
+        sort_field = ChatThread.last_message_at if sort_by == "last_message_at" else ChatThread.created_at
+        stmt = stmt.order_by(sort_field.asc() if sort_order == "asc" else sort_field.desc(), ChatThread.updated_at.desc())
+        stmt = stmt.offset(offset).limit(limit)
 
-    result = await db.execute(stmt)
-    threads = result.scalars().all()
+        result = await db.execute(stmt)
+        threads = result.scalars().all()
 
-    data = await _serialize_threads_for_user(db, threads, current_user)
-    return StandardResponse(data=data)
+        data = await _serialize_threads_for_user(db, threads, current_user)
+        return StandardResponse(data=data)
 
 
 @router.get("/threads/{thread_id}/messages", response_model=StandardResponse[list[MessageResponse]])
@@ -433,24 +475,25 @@ async def list_thread_messages(
     if not _is_chat_role(current_user.role):
         raise HTTPException(status_code=403, detail="Operation not permitted")
 
-    thread = await _get_thread_or_404(db, thread_id)
-    await _ensure_visible_thread(current_user, thread)
+    async with _chat_tenant_scope(db, current_user):
+        thread = await _get_thread_or_404(db, thread_id)
+        await _ensure_visible_thread(current_user, thread)
 
-    stmt = (
-        select(ChatMessage)
-        .where(
-            ChatMessage.thread_id == thread_id,
-            ChatMessage.is_deleted.is_(False),
+        stmt = (
+            select(ChatMessage)
+            .where(
+                ChatMessage.thread_id == thread_id,
+                ChatMessage.is_deleted.is_(False),
+            )
+            .order_by(ChatMessage.created_at.desc())
+            .limit(limit)
         )
-        .order_by(ChatMessage.created_at.desc())
-        .limit(limit)
-    )
-    if before:
-        stmt = stmt.where(ChatMessage.created_at < before)
+        if before:
+            stmt = stmt.where(ChatMessage.created_at < before)
 
-    result = await db.execute(stmt)
-    messages = list(reversed(result.scalars().all()))
-    return StandardResponse(data=[MessageResponse.model_validate(message) for message in messages])
+        result = await db.execute(stmt)
+        messages = list(reversed(result.scalars().all()))
+        return StandardResponse(data=[MessageResponse.model_validate(message) for message in messages])
 
 
 async def _persist_message(
@@ -499,28 +542,29 @@ async def send_text_message(
     if not cleaned:
         raise HTTPException(status_code=400, detail="Message text cannot be empty")
 
-    thread = await _get_thread_or_404(db, thread_id)
-    await _ensure_sender_allowed(current_user, thread)
+    async with _chat_tenant_scope(db, current_user):
+        thread = await _get_thread_or_404(db, thread_id)
+        await _ensure_sender_allowed(current_user, thread)
 
-    message = await _persist_message(db, thread, current_user, message_type="TEXT", text_content=cleaned)
-    response_payload = MessageResponse.model_validate(message)
-    ws_payload = await _build_message_payload(db, thread, message, "chat.message.created")
-    recipient_id = thread.coach_id if current_user.id == thread.customer_id else thread.customer_id
-    recipient = await db.get(User, recipient_id)
-    if recipient:
-        await PushNotificationService.queue_and_send(
-            db=db,
-            user=recipient,
-            title="New chat message",
-            body=f"{current_user.full_name or current_user.email}: {cleaned[:120]}",
-            template_key="chat_message",
-            event_type="CHAT_MESSAGE",
-            event_ref=str(message.id),
-            params={"thread_id": str(thread.id), "message": cleaned[:240]},
-            idempotency_key=f"chat-message:{message.id}",
-        )
-    await ws_manager.broadcast_thread(thread, ws_payload)
-    return StandardResponse(data=response_payload)
+        message = await _persist_message(db, thread, current_user, message_type="TEXT", text_content=cleaned)
+        response_payload = MessageResponse.model_validate(message)
+        ws_payload = await _build_message_payload(db, thread, message, "chat.message.created")
+        recipient_id = thread.coach_id if current_user.id == thread.customer_id else thread.customer_id
+        recipient = await db.get(User, recipient_id)
+        if recipient:
+            await PushNotificationService.queue_and_send(
+                db=db,
+                user=recipient,
+                title="New chat message",
+                body=f"{current_user.full_name or current_user.email}: {cleaned[:120]}",
+                template_key="chat_message",
+                event_type="CHAT_MESSAGE",
+                event_ref=str(message.id),
+                params={"thread_id": str(thread.id), "message": cleaned[:240]},
+                idempotency_key=f"chat-message:{message.id}",
+            )
+        await ws_manager.broadcast_thread(thread, ws_payload)
+        return StandardResponse(data=response_payload)
 
 
 @router.post("/threads/{thread_id}/attachments", response_model=StandardResponse[MessageResponse])
@@ -537,71 +581,72 @@ async def upload_attachment(
     if current_user.role in [Role.ADMIN, Role.MANAGER]:
         raise HTTPException(status_code=403, detail="Admin and manager are read-only for chat")
 
-    thread = await _get_thread_or_404(db, thread_id)
-    await _ensure_sender_allowed(current_user, thread)
+    async with _chat_tenant_scope(db, current_user):
+        thread = await _get_thread_or_404(db, thread_id)
+        await _ensure_sender_allowed(current_user, thread)
 
-    raw_content_type = (file.content_type or "").lower()
-    content_type = raw_content_type.split(";")[0].strip()
-    if content_type not in ALL_MIME_TYPES:
-        raise HTTPException(status_code=400, detail=f"Unsupported media type: {raw_content_type or 'unknown'}")
+        raw_content_type = (file.content_type or "").lower()
+        content_type = raw_content_type.split(";")[0].strip()
+        if content_type not in ALL_MIME_TYPES:
+            raise HTTPException(status_code=400, detail=f"Unsupported media type: {raw_content_type or 'unknown'}")
 
-    max_size = MAX_BYTES_BY_MIME[content_type]
-    ext = os.path.splitext(file.filename or "")[1].lower()
-    if not ext:
-        ext = ".bin"
+        max_size = MAX_BYTES_BY_MIME[content_type]
+        ext = os.path.splitext(file.filename or "")[1].lower()
+        if not ext:
+            ext = ".bin"
 
-    thread_dir = os.path.join(UPLOAD_DIR, str(thread.id))
-    os.makedirs(thread_dir, exist_ok=True)
+        thread_dir = os.path.join(UPLOAD_DIR, str(thread.id))
+        os.makedirs(thread_dir, exist_ok=True)
 
-    file_name = f"{uuid.uuid4()}{ext}"
-    file_path = os.path.join(thread_dir, file_name)
+        file_name = f"{uuid.uuid4()}{ext}"
+        file_path = os.path.join(thread_dir, file_name)
 
-    total = 0
-    with open(file_path, "wb") as out_file:
-        while True:
-            chunk = await file.read(1024 * 1024)
-            if not chunk:
-                break
-            total += len(chunk)
-            if total > max_size:
-                out_file.close()
-                try:
-                    os.remove(file_path)
-                except OSError:
-                    pass
-                raise HTTPException(status_code=400, detail="Attachment exceeds allowed size")
-            out_file.write(chunk)
+        total = 0
+        with open(file_path, "wb") as out_file:
+            while True:
+                chunk = await file.read(1024 * 1024)
+                if not chunk:
+                    break
+                total += len(chunk)
+                if total > max_size:
+                    out_file.close()
+                    try:
+                        os.remove(file_path)
+                    except OSError:
+                        pass
+                    raise HTTPException(status_code=400, detail="Attachment exceeds allowed size")
+                out_file.write(chunk)
 
-    message_type = _resolve_message_type(content_type)
-    message = await _persist_message(
-        db,
-        thread,
-        current_user,
-        message_type=message_type,
-        text_content=(text_content or "").strip() or None,
-        media_url=f"/static/chat_media/{thread.id}/{file_name}",
-        media_mime=content_type,
-        media_size_bytes=total,
-        voice_duration_seconds=voice_duration_seconds if message_type == "VOICE" else None,
-    )
-    response_payload = MessageResponse.model_validate(message)
-    ws_payload = await _build_message_payload(db, thread, message, "chat.message.created")
-    recipient_id = thread.coach_id if current_user.id == thread.customer_id else thread.customer_id
-    recipient = await db.get(User, recipient_id)
-    if recipient:
-        await PushNotificationService.queue_and_send(
-            db=db,
-            user=recipient,
-            title="New chat attachment",
-            body=f"{current_user.full_name or current_user.email} sent an attachment",
-            template_key="chat_attachment",
-            event_type="CHAT_MESSAGE",
-            event_ref=str(message.id),
-            params={"thread_id": str(thread.id), "message": message_type.lower()},
-            idempotency_key=f"chat-message:{message.id}",
+        message_type = _resolve_message_type(content_type)
+        message = await _persist_message(
+            db,
+            thread,
+            current_user,
+            message_type=message_type,
+            text_content=(text_content or "").strip() or None,
+            media_url=f"/static/chat_media/{thread.id}/{file_name}",
+            media_mime=content_type,
+            media_size_bytes=total,
+            voice_duration_seconds=voice_duration_seconds if message_type == "VOICE" else None,
         )
-    await ws_manager.broadcast_thread(thread, ws_payload)
-    return StandardResponse(data=response_payload)
+        response_payload = MessageResponse.model_validate(message)
+        ws_payload = await _build_message_payload(db, thread, message, "chat.message.created")
+        recipient_id = thread.coach_id if current_user.id == thread.customer_id else thread.customer_id
+        recipient = await db.get(User, recipient_id)
+        if recipient:
+            await PushNotificationService.queue_and_send(
+                db=db,
+                user=recipient,
+                title="New chat attachment",
+                body=f"{current_user.full_name or current_user.email} sent an attachment",
+                template_key="chat_attachment",
+                event_type="CHAT_MESSAGE",
+                event_ref=str(message.id),
+                params={"thread_id": str(thread.id), "message": message_type.lower()},
+                idempotency_key=f"chat-message:{message.id}",
+            )
+        await ws_manager.broadcast_thread(thread, ws_payload)
+        return StandardResponse(data=response_payload)
 
 
 @router.post("/threads/{thread_id}/read", response_model=StandardResponse)
@@ -615,43 +660,44 @@ async def mark_thread_as_read(
     if current_user.role in [Role.ADMIN, Role.MANAGER]:
         raise HTTPException(status_code=403, detail="Admin and manager are read-only for chat")
 
-    thread = await _get_thread_or_404(db, thread_id)
-    await _ensure_sender_allowed(current_user, thread)
+    async with _chat_tenant_scope(db, current_user):
+        thread = await _get_thread_or_404(db, thread_id)
+        await _ensure_sender_allowed(current_user, thread)
 
-    latest_stmt = (
-        select(ChatMessage)
-        .where(ChatMessage.thread_id == thread_id, ChatMessage.is_deleted.is_(False))
-        .order_by(ChatMessage.created_at.desc())
-        .limit(1)
-    )
-    latest_result = await db.execute(latest_stmt)
-    latest_message = latest_result.scalar_one_or_none()
+        latest_stmt = (
+            select(ChatMessage)
+            .where(ChatMessage.thread_id == thread_id, ChatMessage.is_deleted.is_(False))
+            .order_by(ChatMessage.created_at.desc())
+            .limit(1)
+        )
+        latest_result = await db.execute(latest_stmt)
+        latest_message = latest_result.scalar_one_or_none()
 
-    now = datetime.now(timezone.utc)
-    receipt_stmt = select(ChatReadReceipt).where(
-        ChatReadReceipt.thread_id == thread_id,
-        ChatReadReceipt.user_id == current_user.id,
-    )
-    receipt_result = await db.execute(receipt_stmt)
-    receipt = receipt_result.scalar_one_or_none()
-    if receipt is None:
-        receipt = ChatReadReceipt(thread_id=thread_id, user_id=current_user.id)
-        db.add(receipt)
+        now = datetime.now(timezone.utc)
+        receipt_stmt = select(ChatReadReceipt).where(
+            ChatReadReceipt.thread_id == thread_id,
+            ChatReadReceipt.user_id == current_user.id,
+        )
+        receipt_result = await db.execute(receipt_stmt)
+        receipt = receipt_result.scalar_one_or_none()
+        if receipt is None:
+            receipt = ChatReadReceipt(thread_id=thread_id, user_id=current_user.id)
+            db.add(receipt)
 
-    receipt.last_read_at = now
-    receipt.last_read_message_id = latest_message.id if latest_message else None
-    await db.commit()
+        receipt.last_read_at = now
+        receipt.last_read_message_id = latest_message.id if latest_message else None
+        await db.commit()
 
-    await ws_manager.broadcast_thread(
-        thread,
-        {
-            "event": "chat.read.updated",
-            "thread_id": str(thread.id),
-            "user_id": str(current_user.id),
-            "last_read_at": now.isoformat(),
-        },
-    )
-    return StandardResponse(message="Read state updated")
+        await ws_manager.broadcast_thread(
+            thread,
+            {
+                "event": "chat.read.updated",
+                "thread_id": str(thread.id),
+                "user_id": str(current_user.id),
+                "last_read_at": now.isoformat(),
+            },
+        )
+        return StandardResponse(message="Read state updated")
 
 
 async def _get_ws_user(token: str) -> User:

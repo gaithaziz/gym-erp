@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { api } from '@/lib/api';
 import Image from 'next/image';
 import { useRouter } from 'next/navigation';
@@ -8,11 +8,14 @@ import { Search, UserPlus, Save, Shield, Snowflake, RefreshCw, Pencil, Trash2, E
 import Modal from '@/components/Modal';
 import { useFeedback } from '@/components/FeedbackProvider';
 import TablePagination from '@/components/TablePagination';
+import { BranchSelector } from '@/components/BranchSelector';
 import { useAuth } from '@/context/AuthContext';
+import { useBranch } from '@/context/BranchContext';
 import { resolveProfileImageUrl } from '@/lib/profileImage';
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip } from 'recharts';
 import { useLocale } from '@/context/LocaleContext';
 import SafeResponsiveChart from '@/components/SafeResponsiveChart';
+import { getBranchParams } from '@/lib/branch';
 
 interface Member {
     id: string;
@@ -108,6 +111,7 @@ export default function MembersPage() {
     const { t, formatDate, locale } = useLocale();
     const router = useRouter();
     const { user } = useAuth();
+    const { branches, selectedBranchId, setSelectedBranchId } = useBranch();
     const canManageMembers = ['ADMIN', 'RECEPTION', 'FRONT_DESK'].includes(user?.role || '');
     const canAssignPlans = ['ADMIN', 'COACH'].includes(user?.role || '');
     const canMessageClient = ['ADMIN', 'COACH'].includes(user?.role || '');
@@ -451,17 +455,20 @@ export default function MembersPage() {
         return age >= 0 ? age : null;
     };
 
-    const fetchMembers = async () => {
+    const fetchMembers = useCallback(async () => {
+        setLoading(true);
         try {
-            const res = await api.get('/hr/members');
+            const res = await api.get('/hr/members', { params: getBranchParams(selectedBranchId) });
             setMembers(res.data.data);
         } catch (err) { console.error(err); }
         setLoading(false);
-    };
+    }, [selectedBranchId]);
 
     const fetchPlans = async () => {
+        const branchParams = getBranchParams(selectedBranchId);
         try {
-            const res = await api.get('/fitness/plan-summaries').catch(() => api.get('/fitness/plans'));
+            const res = await api.get('/fitness/plan-summaries', { params: branchParams })
+                .catch(() => api.get('/fitness/plans', { params: branchParams }));
             const allPlans = res.data?.data ?? [];
             setPlans(allPlans.filter((plan: WorkoutPlan) => !plan.member_id));
         } catch (err) {
@@ -471,12 +478,14 @@ export default function MembersPage() {
     };
 
     const fetchDietPlans = async () => {
+        const branchParams = getBranchParams(selectedBranchId);
         try {
             const res = await api.get('/fitness/diet-summaries', {
                 params: {
                     include_archived: true,
                     include_all_creators: true,
                     templates_only: true,
+                    ...branchParams,
                 },
             }).catch(
                 () => api.get('/fitness/diets', {
@@ -484,6 +493,7 @@ export default function MembersPage() {
                         include_archived: true,
                         include_all_creators: true,
                         templates_only: true,
+                        ...branchParams,
                     },
                 }),
             );
@@ -497,7 +507,12 @@ export default function MembersPage() {
 
     useEffect(() => {
         setTimeout(() => fetchMembers(), 0);
-    }, []);
+    }, [fetchMembers]);
+
+    useEffect(() => {
+        setPlans([]);
+        setDietPlans([]);
+    }, [selectedBranchId]);
 
     useEffect(() => {
         const timer = setTimeout(() => {
@@ -722,6 +737,11 @@ export default function MembersPage() {
                     <p className="text-sm text-muted-foreground mt-1">{members.length} {canManageMembers ? t('members.registeredMembers') : t('members.registeredClients')}</p>
                 </div>
                 <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3 w-full sm:w-auto">
+                    <BranchSelector
+                        branches={branches}
+                        selectedBranchId={selectedBranchId}
+                        onSelect={setSelectedBranchId}
+                    />
                     <div className="field-with-icon">
                         <Search size={16} className="field-icon" />
                         <input

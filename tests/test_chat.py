@@ -24,9 +24,22 @@ def _active_subscription(user_id):
 
 
 async def _add_active_subscription(db_session: AsyncSession, user_id) -> None:
-    await set_rls_context(db_session, user_id=str(user_id), role=Role.CUSTOMER.value)
-    db_session.add(_active_subscription(user_id))
-    await db_session.flush()
+    prev_user_id = db_session.info.get("rls_user_id")
+    prev_role = db_session.info.get("rls_user_role")
+    prev_gym_id = db_session.info.get("rls_gym_id")
+    prev_branch_id = db_session.info.get("rls_branch_id")
+    try:
+        await set_rls_context(db_session, user_id=str(user_id), role=Role.CUSTOMER.value)
+        db_session.add(_active_subscription(user_id))
+        await db_session.flush()
+    finally:
+        await set_rls_context(
+            db_session,
+            user_id=prev_user_id,
+            role=prev_role,
+            gym_id=prev_gym_id,
+            branch_id=prev_branch_id,
+        )
 
 
 async def _login(client: AsyncClient, email: str, password: str = "password123") -> dict[str, str]:

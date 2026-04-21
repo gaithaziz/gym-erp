@@ -4,7 +4,10 @@ import { useCallback, useEffect, useState } from 'react';
 import { api } from '@/lib/api';
 import { Plus, ArrowUpCircle, ArrowDownCircle, Wallet, Printer, FileText, CircleDollarSign, RotateCcw, CheckCircle2, Search, Settings2 } from 'lucide-react';
 import { useFeedback } from '@/components/FeedbackProvider';
+import { BranchSelector } from '@/components/BranchSelector';
+import { useBranch } from '@/context/BranchContext';
 import { useLocale } from '@/context/LocaleContext';
+import { getBranchParams } from '@/lib/branch';
 
 interface Transaction {
     id: string;
@@ -58,6 +61,7 @@ interface FinanceSummary {
 export default function FinancePage() {
     const { t, formatDate, formatNumber, formatCurrency, locale } = useLocale();
     const { showToast } = useFeedback();
+    const { branches, selectedBranchId, setSelectedBranchId } = useBranch();
     const PAGE_SIZE = 50;
     const [transactions, setTransactions] = useState<Transaction[]>([]);
     const [payrolls, setPayrolls] = useState<PayrollItem[]>([]);
@@ -204,6 +208,7 @@ export default function FinancePage() {
         const params: Record<string, string | number> = {
             limit: PAGE_SIZE,
             offset: (transactionsPage - 1) * PAGE_SIZE,
+            ...getBranchParams(selectedBranchId),
         };
         if (typeFilter !== 'ALL') params.tx_type = typeFilter;
         if (categoryFilter !== 'ALL') params.category = categoryFilter;
@@ -214,10 +219,12 @@ export default function FinancePage() {
         const listRes = await api.get('/finance/transactions', { params });
         setTransactions(listRes.data.data || []);
         setTransactionsTotal(Number(listRes.headers['x-total-count'] || 0));
-    }, [PAGE_SIZE, categoryFilter, datePreset, endDate, startDate, transactionsPage, typeFilter]);
+    }, [PAGE_SIZE, categoryFilter, datePreset, endDate, selectedBranchId, startDate, transactionsPage, typeFilter]);
 
     const fetchSummary = useCallback(async () => {
-        const params: Record<string, string | number> = {};
+        const params: Record<string, string | number> = {
+            ...getBranchParams(selectedBranchId),
+        };
         if (typeFilter !== 'ALL') params.tx_type = typeFilter;
         if (categoryFilter !== 'ALL') params.category = categoryFilter;
         if (datePreset !== 'all') {
@@ -226,19 +233,20 @@ export default function FinancePage() {
         }
         const summaryRes = await api.get('/finance/summary', { params });
         setSummary(summaryRes.data?.data || { total_income: 0, total_expenses: 0, net_profit: 0 });
-    }, [categoryFilter, datePreset, endDate, startDate, typeFilter]);
+    }, [categoryFilter, datePreset, endDate, selectedBranchId, startDate, typeFilter]);
 
     const fetchPayrolls = useCallback(async () => {
         const params: Record<string, string | number> = {
             limit: PAGE_SIZE,
             offset: (payrollsPage - 1) * PAGE_SIZE,
+            ...getBranchParams(selectedBranchId),
         };
         if (salaryStatusFilter !== 'ALL') params.status = salaryStatusFilter;
         if (salarySearch.trim()) params.search = salarySearch.trim();
         const payrollRes = await api.get('/hr/payrolls/pending', { params });
         setPayrolls(payrollRes.data.data || []);
         setPayrollsTotal(Number(payrollRes.headers['x-total-count'] || 0));
-    }, [PAGE_SIZE, payrollsPage, salarySearch, salaryStatusFilter]);
+    }, [PAGE_SIZE, payrollsPage, salarySearch, salaryStatusFilter, selectedBranchId]);
 
     const fetchPayrollSettings = useCallback(async () => {
         const settingsRes = await api.get('/hr/payrolls/settings');
@@ -283,11 +291,11 @@ export default function FinancePage() {
 
     useEffect(() => {
         setTransactionsPage(1);
-    }, [typeFilter, categoryFilter, datePreset, startDate, endDate]);
+    }, [typeFilter, categoryFilter, datePreset, startDate, endDate, selectedBranchId]);
 
     useEffect(() => {
         setPayrollsPage(1);
-    }, [salaryStatusFilter, salarySearch]);
+    }, [salaryStatusFilter, salarySearch, selectedBranchId]);
 
     const handlePrintReceipt = async (tx: Transaction) => {
         try {
@@ -305,6 +313,8 @@ export default function FinancePage() {
             const params = new URLSearchParams();
             if (typeFilter !== 'ALL') params.set('tx_type', typeFilter);
             if (categoryFilter !== 'ALL') params.set('category', categoryFilter);
+            const branchParams = getBranchParams(selectedBranchId);
+            if (branchParams.branch_id) params.set('branch_id', branchParams.branch_id);
             if (datePreset !== 'all') {
                 params.set('start_date', startDate);
                 params.set('end_date', endDate);
@@ -323,11 +333,12 @@ export default function FinancePage() {
         try {
             await api.post('/finance/transactions', {
                 ...formData,
-                amount: parseFloat(formData.amount)
+                amount: parseFloat(formData.amount),
+                ...getBranchParams(selectedBranchId),
             });
             setShowModal(false);
             setFormData({ amount: '', type: 'INCOME', category: 'OTHER_INCOME', description: '', payment_method: 'CASH' });
-            await fetchTransactions();
+            await Promise.all([fetchTransactions(), fetchSummary()]);
         } catch {
             showToast(t('finance.logTransactionError'), 'error');
         }
@@ -362,7 +373,7 @@ export default function FinancePage() {
         }
     };
 
-    const submitPayrollPayment = async () => {
+    const submitPayrollPayment = useCallback(async () => {
         if (!selectedPayroll) return;
         const amount = Number(payAmount);
         if (!Number.isFinite(amount) || amount <= 0) {
@@ -378,7 +389,15 @@ export default function FinancePage() {
             });
             showToast(t('finance.paymentRecorded'), 'success');
             await Promise.all([fetchPayrolls(), fetchTransactions()]);
-            const refreshed = await api.get('/hr/payrolls/pending', { params: { user_id: selectedPayroll.user_id, month: selectedPayroll.month, year: selectedPayroll.year, limit: 1 } });
+            const refreshed = await api.get('/hr/payrolls/pending', {
+                params: {
+                    user_id: selectedPayroll.user_id,
+                    month: selectedPayroll.month,
+                    year: selectedPayroll.year,
+                    limit: 1,
+                    ...getBranchParams(selectedBranchId),
+                },
+            });
             const updated = (refreshed.data?.data || []).find((p: PayrollItem) => p.id === selectedPayroll.id) || null;
             setSelectedPayroll(updated);
             if (updated) setPayAmount(String(updated.pending_amount > 0 ? updated.pending_amount : ''));
@@ -388,7 +407,7 @@ export default function FinancePage() {
         } finally {
             setPayingPayrollId(null);
         }
-    };
+    }, [fetchPayrolls, fetchTransactions, payAmount, payMethod, payNote, selectedBranchId, selectedPayroll, showToast, t]);
 
     if (loading) return (
         <div className="flex h-64 items-center justify-center"><div className="h-8 w-8 animate-spin rounded-full border-4 border-[#FF6B00] border-t-transparent" /></div>
@@ -401,7 +420,12 @@ export default function FinancePage() {
                     <h1 className="text-2xl font-bold text-foreground">{t('finance.title')}</h1>
                     <p className="text-sm text-muted-foreground mt-1">{t('finance.subtitle')}</p>
                 </div>
-                <div className="flex items-center gap-2">
+                <div className="flex flex-wrap items-center gap-2">
+                    <BranchSelector
+                        branches={branches}
+                        selectedBranchId={selectedBranchId}
+                        onSelect={setSelectedBranchId}
+                    />
                     {activeSection === 'transactions' && (
                         <>
                             <button onClick={handlePrintReport} className="btn-ghost"><FileText size={16} /> {t('finance.printReport')}</button>

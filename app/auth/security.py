@@ -14,23 +14,49 @@ def verify_password(plain_password: str, hashed_password: str) -> bool:
 def get_password_hash(password: str) -> str:
     return pwd_context.hash(password)
 
-def create_access_token(subject: Union[str, Any], expires_delta: Optional[timedelta] = None) -> str:
+def create_access_token(
+    subject: Union[str, Any],
+    expires_delta: Optional[timedelta] = None,
+    *,
+    gym_id: Optional[str] = None,
+    home_branch_id: Optional[str] = None,
+    is_impersonated: bool = False,
+) -> str:
     if expires_delta:
         expire = datetime.now(timezone.utc) + expires_delta
     else:
         expire = datetime.now(timezone.utc) + timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES)
     
     to_encode = {"exp": expire, "sub": str(subject), "type": "access"}
+    if gym_id:
+        to_encode["gym_id"] = gym_id
+    if home_branch_id:
+        to_encode["home_branch_id"] = home_branch_id
+    if is_impersonated:
+        to_encode["is_impersonated"] = True
     encoded_jwt = jwt.encode(to_encode, settings.SECRET_KEY, algorithm=settings.ALGORITHM)
     return encoded_jwt
 
-def create_refresh_token(subject: Union[str, Any], expires_delta: Optional[timedelta] = None) -> str:
+def create_refresh_token(
+    subject: Union[str, Any],
+    expires_delta: Optional[timedelta] = None,
+    *,
+    gym_id: Optional[str] = None,
+    home_branch_id: Optional[str] = None,
+    is_impersonated: bool = False,
+) -> str:
     if expires_delta:
         expire = datetime.now(timezone.utc) + expires_delta
     else:
         expire = datetime.now(timezone.utc) + timedelta(days=7) # Refresh tokens live longer
     
     to_encode = {"exp": expire, "sub": str(subject), "type": "refresh", "jti": str(uuid.uuid4())}
+    if gym_id:
+        to_encode["gym_id"] = gym_id
+    if home_branch_id:
+        to_encode["home_branch_id"] = home_branch_id
+    if is_impersonated:
+        to_encode["is_impersonated"] = True
     encoded_jwt = jwt.encode(to_encode, settings.SECRET_KEY, algorithm=settings.ALGORITHM)
     return encoded_jwt
 

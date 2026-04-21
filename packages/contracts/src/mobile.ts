@@ -71,11 +71,25 @@ export const notificationPreferenceSchema = z.object({
   announcements_enabled: z.boolean(),
 });
 
+export const branchSummarySchema = z.object({
+  id: z.string().uuid(),
+  gym_id: z.string().uuid(),
+  name: z.string().min(1),
+  display_name: z.string().nullable().optional(),
+  code: z.string().min(1),
+  slug: z.string().min(1),
+  timezone: z.string().min(1),
+  phone: z.string().nullable().optional(),
+  email: z.string().email().nullable().optional(),
+});
+
 const rawMobileBootstrapSchema = z.object({
   user: authUserSchema,
   role: roleSchema,
   subscription: subscriptionSnapshotSchema,
   gym: gymBrandingSchema,
+  home_branch: branchSummarySchema.nullable().optional(),
+  accessible_branches: z.array(branchSummarySchema).default([]),
   capabilities: z.array(z.string()),
   enabled_modules: z.array(enabledModuleSchema),
   notification_settings: notificationPreferenceSchema,

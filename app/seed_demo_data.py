@@ -4,7 +4,7 @@ import uuid
 from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal
 
-from sqlalchemy import delete, select
+from sqlalchemy import delete, select, text
 from sqlalchemy.orm import selectinload
 
 from app.auth.security import get_password_hash
@@ -38,6 +38,7 @@ from app.models.subscription_enums import SubscriptionStatus
 from app.models.user import User
 from app.models.chat import ChatMessage, ChatReadReceipt, ChatThread
 from app.models.workout_log import DietFeedback, GymFeedback, WorkoutLog, WorkoutSession, WorkoutSessionEntry
+from app.services.tenancy_service import TenancyService
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -48,6 +49,7 @@ DEMO_KIOSK_ID = "demo-seed-kiosk-01"
 DEMO_TAG = "[DEMO]"
 
 LOCAL_DEFAULT_USERS = [
+    {"email": "superadmin@gym-erp.com", "full_name": "Platform Super Admin", "role": Role.SUPER_ADMIN, "password": LOCAL_DEFAULT_PASSWORD},
     {"email": "admin@gym-erp.com", "full_name": "System Administrator", "role": Role.ADMIN, "password": LOCAL_DEFAULT_PASSWORD},
     {"email": "gaithdiabat11@gmail.com", "full_name": "Gaith Diabat", "role": Role.ADMIN, "password": LOCAL_DEFAULT_PASSWORD},
     {"email": "coach.mike@gym-erp.com", "full_name": "Coach Mike", "role": Role.COACH, "password": LOCAL_DEFAULT_PASSWORD},
@@ -153,6 +155,8 @@ async def _upsert_user(session, payload: dict) -> User:
             full_name=payload["full_name"],
             role=payload["role"],
             is_active=True,
+            gym_id=payload["gym_id"],
+            home_branch_id=payload["home_branch_id"],
         )
         session.add(user)
         await session.flush()
@@ -161,11 +165,19 @@ async def _upsert_user(session, payload: dict) -> User:
         user.role = payload["role"]
         user.hashed_password = get_password_hash(payload.get("password", DEMO_PASSWORD))
         user.is_active = True
+        user.gym_id = payload["gym_id"]
+        user.home_branch_id = payload["home_branch_id"]
 
     user.phone_number = payload.get("phone_number")
     user.date_of_birth = payload.get("date_of_birth")
     user.emergency_contact = payload.get("emergency_contact")
     user.bio = payload.get("bio")
+    await TenancyService.ensure_user_branch_access(
+        session,
+        user_id=user.id,
+        gym_id=user.gym_id,
+        branch_id=user.home_branch_id,
+    )
     return user
 
 
@@ -203,7 +215,13 @@ async def _upsert_subscription(
 
 
 async def _act_as(session, user: User) -> None:
-    await set_rls_context(session, user_id=str(user.id), role=user.role.value)
+    await set_rls_context(
+        session,
+        user_id=str(user.id),
+        role=user.role.value,
+        gym_id=str(user.gym_id),
+        branch_id=str(user.home_branch_id) if user.home_branch_id else "",
+    )
 
 
 async def _upsert_contract(
@@ -385,13 +403,16 @@ async def _upsert_class_reservation(
 
 async def seed_demo_data():
     async with AsyncSessionLocal() as session:
-        await set_rls_context(session, role=Role.ADMIN.value)
+        gym, branch = await TenancyService.ensure_default_gym_and_branch(session)
+        await set_rls_context(session, role=Role.SUPER_ADMIN.value, gym_id=str(gym.id), branch_id=str(branch.id))
         logger.info("Seeding demo users...")
         users_by_email: dict[str, User] = {}
         for payload in LOCAL_DEFAULT_USERS:
+            payload = {**payload, "gym_id": gym.id, "home_branch_id": branch.id}
             user = await _upsert_user(session, payload)
             users_by_email[user.email] = user
         for payload in DEMO_USERS:
+            payload = {**payload, "gym_id": gym.id, "home_branch_id": branch.id}
             user = await _upsert_user(session, payload)
             users_by_email[user.email] = user
         await session.commit()
@@ -1131,12 +1152,12 @@ Pre-workout: Espresso + dates""",
                 ticket.status = item["status"]
                 ticket.updated_at = now_ts
 
-            for msg_idx, (sender, text) in enumerate(item["messages"]):
+            for msg_idx, (sender, msg_text) in enumerate(item["messages"]):
                 await _act_as(session, sender)
                 msg_stmt = select(SupportMessage).where(
                     SupportMessage.ticket_id == ticket.id,
                     SupportMessage.sender_id == sender.id,
-                    SupportMessage.message == text,
+                    SupportMessage.message == msg_text,
                 )
                 exists_msg = (await session.execute(msg_stmt)).scalar_one_or_none()
                 if exists_msg:
@@ -1145,14 +1166,16 @@ Pre-workout: Espresso + dates""",
                     SupportMessage(
                         ticket_id=ticket.id,
                         sender_id=sender.id,
-                        message=text,
+                        message=msg_text,
                         created_at=now_ts + timedelta(minutes=(msg_idx + 1) * 7),
                     )
                 )
                 await session.flush()
         await session.commit()
 
+        await set_rls_context(session, role=Role.SUPER_ADMIN.value, gym_id=str(gym.id), branch_id=str(branch.id))
         logger.info("Seeding chat threads, messages, and read receipts...")
+        await session.execute(text("SELECT set_config('app.current_user_role', 'SUPER_ADMIN', false)")) # Force it again
         chat_pairs = [
             (users_by_email["member.anna.demo@gym-erp.com"], coach),
             (users_by_email["member.leo.demo@gym-erp.com"], coach),
@@ -1183,13 +1206,13 @@ Pre-workout: Espresso + dates""",
                 (customer, "IMAGE", f"{DEMO_TAG} Uploaded meal photo", "image/jpeg"),
             ]
             last_message = None
-            for msg_idx, (sender, msg_type, text, mime) in enumerate(msg_defs):
+            for msg_idx, (sender, msg_type, msg_text, mime) in enumerate(msg_defs):
                 created_msg_at = created_at + timedelta(minutes=(msg_idx + 1) * 9)
                 msg_stmt = select(ChatMessage).where(
                     ChatMessage.thread_id == thread.id,
                     ChatMessage.sender_id == sender.id,
                     ChatMessage.message_type == msg_type,
-                    ChatMessage.text_content == text,
+                    ChatMessage.text_content == msg_text,
                 )
                 existing_msg = (await session.execute(msg_stmt)).scalar_one_or_none()
                 if existing_msg:
@@ -1199,7 +1222,7 @@ Pre-workout: Espresso + dates""",
                     thread_id=thread.id,
                     sender_id=sender.id,
                     message_type=msg_type,
-                    text_content=text,
+                    text_content=msg_text,
                     media_url=f"/static/chat_media/{thread.id}/demo-{msg_idx + 1}.jpg" if msg_type == "IMAGE" else None,
                     media_mime=mime,
                     media_size_bytes=164823 if msg_type == "IMAGE" else None,
@@ -1324,12 +1347,12 @@ Pre-workout: Espresso + dates""",
                 (reporter.id, f"{DEMO_TAG} Reported by member."),
                 (assignee.id, f"{DEMO_TAG} Reviewed by handler."),
             ]
-            for comment_author_id, text in comments:
+            for comment_author_id, comment_text in comments:
                 await _act_as(session, reporter if comment_author_id == reporter.id else assignee)
                 comment_stmt = select(LostFoundComment).where(
                     LostFoundComment.item_id == item.id,
                     LostFoundComment.author_id == comment_author_id,
-                    LostFoundComment.text == text,
+                    LostFoundComment.text == comment_text,
                 )
                 existing_comment = (await session.execute(comment_stmt)).scalar_one_or_none()
                 if existing_comment:
@@ -1338,7 +1361,7 @@ Pre-workout: Espresso + dates""",
                     LostFoundComment(
                         item_id=item.id,
                         author_id=comment_author_id,
-                        text=text,
+                        text=comment_text,
                         created_at=created_at + timedelta(minutes=12),
                     )
                 )
@@ -1551,6 +1574,7 @@ Pre-workout: Espresso + dates""",
         logger.info("Demo data seeding complete.")
         logger.info("Login credentials:")
         logger.info("  Local defaults password: %s", LOCAL_DEFAULT_PASSWORD)
+        logger.info("  Super-Admin: superadmin@gym-erp.com / %s", LOCAL_DEFAULT_PASSWORD)
         logger.info("  Admin: admin@gym-erp.com / %s", LOCAL_DEFAULT_PASSWORD)
         logger.info("  Owner: gaithdiabat11@gmail.com / %s", LOCAL_DEFAULT_PASSWORD)
         logger.info("  Coach: coach.mike@gym-erp.com / %s", LOCAL_DEFAULT_PASSWORD)

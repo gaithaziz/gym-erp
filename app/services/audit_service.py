@@ -10,7 +10,8 @@ class AuditService:
         user_id: uuid.UUID,
         action: str,
         target_id: str | None = None,
-        details: str | None = None
+        details: str | None = None,
+        branch_id: uuid.UUID | None = None,
     ):
         """
         Log an audit event.
@@ -20,6 +21,7 @@ class AuditService:
             action=action,
             target_id=target_id,
             details=details,
+            branch_id=branch_id,
             timestamp=datetime.now(timezone.utc)
         )
         db.add(audit_entry)

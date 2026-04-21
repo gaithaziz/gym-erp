@@ -29,10 +29,11 @@ async def _fetch_scalars_with_rls(
 ) -> list[str]:
     bind = db_session.bind
     assert bind is not None
+    gym_id = str((await db_session.get(User, uuid.UUID(user_id))).gym_id)
     async with bind.connect() as conn:
         session = AsyncSession(bind=conn, expire_on_commit=False)
         try:
-            await set_rls_context(session, user_id=user_id, role=role)
+            await set_rls_context(session, user_id=user_id, role=role, gym_id=gym_id)
             rows = await session.execute(text(sql))
             return list(rows.scalars().all())
         finally:
@@ -46,7 +47,8 @@ async def _add_with_rls_context(
     role: str,
     model: object,
 ) -> None:
-    await set_rls_context(db_session, user_id=user_id, role=role)
+    gym_id = str((await db_session.get(User, uuid.UUID(user_id))).gym_id)
+    await set_rls_context(db_session, user_id=user_id, role=role, gym_id=gym_id)
     db_session.add(model)
     await db_session.flush()
 
@@ -209,3 +211,65 @@ async def test_audit_log_rls_is_admin_only(db_session: AsyncSession):
     )
     assert "ADMIN_ACTION" in actions
     assert "CUSTOMER_ACTION" in actions
+
+
+@pytest.mark.asyncio
+async def test_support_and_audit_tables_have_rls_enabled_and_policies(db_session: AsyncSession):
+    _postgres_only(db_session)
+
+    bind = db_session.bind
+    assert bind is not None
+    async with bind.connect() as conn:
+        support_meta = (
+            await conn.execute(
+                text(
+                    """
+                    SELECT relrowsecurity, relforcerowsecurity
+                    FROM pg_class
+                    WHERE oid = 'support_tickets'::regclass
+                    """
+                )
+            )
+        ).first()
+        assert support_meta is not None
+        assert support_meta[0] is True
+        assert support_meta[1] is True
+
+        audit_meta = (
+            await conn.execute(
+                text(
+                    """
+                    SELECT relrowsecurity, relforcerowsecurity
+                    FROM pg_class
+                    WHERE oid = 'audit_logs'::regclass
+                    """
+                )
+            )
+        ).first()
+        assert audit_meta is not None
+        assert audit_meta[0] is True
+        assert audit_meta[1] is True
+
+        support_policies = (
+            await conn.execute(
+                text(
+                    """
+                    SELECT COUNT(*) FROM pg_policy
+                    WHERE polrelid = 'support_tickets'::regclass
+                    """
+                )
+            )
+        ).scalar_one()
+        assert int(support_policies) > 0
+
+        audit_policies = (
+            await conn.execute(
+                text(
+                    """
+                    SELECT COUNT(*) FROM pg_policy
+                    WHERE polrelid = 'audit_logs'::regclass
+                    """
+                )
+            )
+        ).scalar_one()
+        assert int(audit_policies) > 0
