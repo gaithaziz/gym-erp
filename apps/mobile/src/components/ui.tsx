@@ -3,18 +3,21 @@ import { BottomTabBarHeightContext } from "@react-navigation/bottom-tabs";
 import { useQuery } from "@tanstack/react-query";
 import { Image } from "expo-image";
 import { usePathname, useRouter } from "expo-router";
-import { useContext, useEffect, type PropsWithChildren, type ReactNode, type RefObject } from "react";
+import { useContext, useEffect, useRef, type PropsWithChildren, type ReactNode, type RefObject } from "react";
 import {
   ActivityIndicator,
+  Animated,
   Pressable,
   ScrollView,
   StyleSheet,
   Text,
   TextInput,
   View,
+  type DimensionValue,
   type PressableProps,
   type TextInputProps,
   type ViewProps,
+  type ViewStyle,
 } from "react-native";
 import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
 
@@ -467,15 +470,236 @@ export function MediaPreview({
   );
 }
 
-export function QueryState({ loading, error, empty, emptyMessage = "No data yet." }: { loading: boolean; error?: string | null; empty?: boolean; emptyMessage?: string }) {
+export type QuerySkeletonVariant =
+  | "card"
+  | "list"
+  | "detail"
+  | "dashboard"
+  | "stats"
+  | "form"
+  | "chat"
+  | "thread"
+  | "grid";
+
+function useSkeletonAnimation() {
+  const opacity = useRef(new Animated.Value(0.45)).current;
+
+  useEffect(() => {
+    const animation = Animated.loop(
+      Animated.sequence([
+        Animated.timing(opacity, {
+          toValue: 0.9,
+          duration: 850,
+          useNativeDriver: true,
+        }),
+        Animated.timing(opacity, {
+          toValue: 0.45,
+          duration: 850,
+          useNativeDriver: true,
+        }),
+      ]),
+    );
+    animation.start();
+    return () => animation.stop();
+  }, [opacity]);
+
+  return opacity;
+}
+
+export function SkeletonBlock({
+  height,
+  width = "100%",
+  style,
+}: {
+  height: number;
+  width?: DimensionValue;
+  style?: ViewStyle;
+}) {
+  const { theme } = usePreferences();
+  const opacity = useSkeletonAnimation();
+  return (
+    <Animated.View
+      style={[
+        styles.skeletonBlock,
+        {
+          height,
+          width,
+          backgroundColor: theme.cardAlt,
+          borderColor: theme.border,
+          opacity,
+        },
+        style,
+      ]}
+    />
+  );
+}
+
+function QuerySkeleton({ variant = "list", count = 3 }: { variant?: QuerySkeletonVariant; count?: number }) {
+  switch (variant) {
+    case "card":
+      return (
+        <Card>
+          <SkeletonBlock height={14} width="38%" />
+          <SkeletonBlock height={30} width="72%" style={{ marginTop: 12 }} />
+          <SkeletonBlock height={16} width="92%" style={{ marginTop: 14 }} />
+          <SkeletonBlock height={16} width="78%" style={{ marginTop: 10 }} />
+        </Card>
+      );
+    case "detail":
+      return (
+        <>
+          <Card>
+            <SkeletonBlock height={20} width="46%" />
+            <SkeletonBlock height={16} width="88%" style={{ marginTop: 14 }} />
+            <SkeletonBlock height={16} width="74%" style={{ marginTop: 10 }} />
+            <SkeletonBlock height={44} width="100%" style={{ marginTop: 18 }} />
+          </Card>
+          <Card>
+            <SkeletonBlock height={18} width="34%" />
+            <SkeletonBlock height={14} width="100%" style={{ marginTop: 14 }} />
+            <SkeletonBlock height={14} width="92%" style={{ marginTop: 10 }} />
+            <SkeletonBlock height={14} width="68%" style={{ marginTop: 10 }} />
+          </Card>
+        </>
+      );
+    case "dashboard":
+      return (
+        <>
+          <Card>
+            <SkeletonBlock height={12} width="28%" />
+            <SkeletonBlock height={28} width="54%" style={{ marginTop: 12 }} />
+            <SkeletonBlock height={16} width="100%" style={{ marginTop: 16 }} />
+            <SkeletonBlock height={16} width="82%" style={{ marginTop: 10 }} />
+            <SkeletonBlock height={46} width="100%" style={{ marginTop: 18 }} />
+          </Card>
+          <View style={styles.querySkeletonRow}>
+            <Card style={styles.querySkeletonFlexCard}>
+              <SkeletonBlock height={12} width="42%" />
+              <SkeletonBlock height={22} width="60%" style={{ marginTop: 10 }} />
+            </Card>
+            <Card style={styles.querySkeletonFlexCard}>
+              <SkeletonBlock height={12} width="42%" />
+              <SkeletonBlock height={22} width="60%" style={{ marginTop: 10 }} />
+            </Card>
+          </View>
+          <View style={styles.querySkeletonRow}>
+            <Card style={styles.querySkeletonFlexCard}>
+              <SkeletonBlock height={12} width="42%" />
+              <SkeletonBlock height={22} width="60%" style={{ marginTop: 10 }} />
+            </Card>
+            <Card style={styles.querySkeletonFlexCard}>
+              <SkeletonBlock height={12} width="42%" />
+              <SkeletonBlock height={22} width="60%" style={{ marginTop: 10 }} />
+            </Card>
+          </View>
+        </>
+      );
+    case "stats":
+      return (
+        <View style={styles.querySkeletonRow}>
+          {Array.from({ length: Math.max(2, Math.min(count, 4)) }).map((_, index) => (
+            <Card key={index} style={styles.querySkeletonFlexCard}>
+              <SkeletonBlock height={12} width="52%" />
+              <SkeletonBlock height={24} width="68%" style={{ marginTop: 10 }} />
+            </Card>
+          ))}
+        </View>
+      );
+    case "form":
+      return (
+        <Card>
+          <SkeletonBlock height={18} width="36%" />
+          <SkeletonBlock height={46} width="100%" style={{ marginTop: 14 }} />
+          <SkeletonBlock height={46} width="100%" style={{ marginTop: 12 }} />
+          <SkeletonBlock height={112} width="100%" style={{ marginTop: 12 }} />
+          <SkeletonBlock height={46} width="100%" style={{ marginTop: 16 }} />
+        </Card>
+      );
+    case "chat":
+      return (
+        <Card>
+          {Array.from({ length: count }).map((_, index) => (
+            <View key={index} style={[styles.querySkeletonListRow, index === 0 ? null : styles.querySkeletonListRowBorder]}>
+              <SkeletonBlock height={42} width={42} style={{ borderRadius: 999 }} />
+              <View style={styles.querySkeletonListContent}>
+                <SkeletonBlock height={15} width="46%" />
+                <SkeletonBlock height={13} width="78%" style={{ marginTop: 8 }} />
+              </View>
+            </View>
+          ))}
+        </Card>
+      );
+    case "thread":
+      return (
+        <Card>
+          {Array.from({ length: count }).map((_, index) => (
+            <View
+              key={index}
+              style={[
+                styles.threadSkeletonRow,
+                {
+                  justifyContent: index % 2 === 0 ? "flex-start" : "flex-end",
+                },
+              ]}
+            >
+              <SkeletonBlock
+                height={index % 3 === 0 ? 54 : 42}
+                width={index % 2 === 0 ? "74%" : "66%"}
+                style={{ borderRadius: 16 }}
+              />
+            </View>
+          ))}
+        </Card>
+      );
+    case "grid":
+      return (
+        <View style={styles.querySkeletonGrid}>
+          {Array.from({ length: count }).map((_, index) => (
+            <Card key={index} style={styles.querySkeletonGridCard}>
+              <SkeletonBlock height={18} width="62%" />
+              <SkeletonBlock height={14} width="100%" style={{ marginTop: 14 }} />
+              <SkeletonBlock height={14} width="72%" style={{ marginTop: 10 }} />
+            </Card>
+          ))}
+        </View>
+      );
+    case "list":
+    default:
+      return (
+        <Card>
+          {Array.from({ length: count }).map((_, index) => (
+            <View key={index} style={[styles.querySkeletonListRow, index === 0 ? null : styles.querySkeletonListRowBorder]}>
+              <View style={styles.querySkeletonListContent}>
+                <SkeletonBlock height={16} width="56%" />
+                <SkeletonBlock height={13} width="84%" style={{ marginTop: 8 }} />
+              </View>
+              <SkeletonBlock height={16} width={56} />
+            </View>
+          ))}
+        </Card>
+      );
+  }
+}
+
+export function QueryState({
+  loading,
+  error,
+  empty,
+  emptyMessage = "No data yet.",
+  loadingVariant = "list",
+  skeletonCount = 3,
+}: {
+  loading: boolean;
+  error?: string | null;
+  empty?: boolean;
+  emptyMessage?: string;
+  loadingVariant?: QuerySkeletonVariant;
+  skeletonCount?: number;
+}) {
   const { direction, fontSet, isRTL, theme } = usePreferences();
 
   if (loading) {
-    return (
-      <Card>
-        <ActivityIndicator color={theme.primary} />
-      </Card>
-    );
+    return <QuerySkeleton variant={loadingVariant} count={skeletonCount} />;
   }
   if (error) {
     if (isEmptyStateError(error)) {
@@ -723,6 +947,44 @@ const styles = StyleSheet.create({
   mediaLabel: {
     fontSize: 12,
     fontWeight: "700",
+  },
+  skeletonBlock: {
+    borderRadius: 10,
+    borderWidth: StyleSheet.hairlineWidth,
+  },
+  querySkeletonRow: {
+    flexDirection: "row",
+    gap: 12,
+  },
+  querySkeletonFlexCard: {
+    flex: 1,
+  },
+  querySkeletonListRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 12,
+    paddingVertical: 4,
+  },
+  querySkeletonListRowBorder: {
+    borderTopWidth: StyleSheet.hairlineWidth,
+    borderTopColor: "#00000018",
+    paddingTop: 16,
+    marginTop: 8,
+  },
+  querySkeletonListContent: {
+    flex: 1,
+  },
+  threadSkeletonRow: {
+    width: "100%",
+  },
+  querySkeletonGrid: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 12,
+  },
+  querySkeletonGridCard: {
+    width: "47%",
+    minWidth: 150,
   },
   errorText: {
     fontSize: 13,

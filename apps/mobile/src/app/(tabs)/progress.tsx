@@ -71,7 +71,7 @@ export default function ProgressTab() {
 
   return (
     <Screen title={copy.progress.title} subtitle={copy.progress.subtitle}>
-      <QueryState loading={progressQuery.isLoading} error={progressQuery.error instanceof Error ? progressQuery.error.message : null} />
+      <QueryState loading={progressQuery.isLoading} loadingVariant="detail" error={progressQuery.error instanceof Error ? progressQuery.error.message : null} />
       {progress ? (
         <>
           <Card>

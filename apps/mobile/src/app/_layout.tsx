@@ -5,6 +5,7 @@ import * as Notifications from "expo-notifications";
 import { Stack, useRouter } from "expo-router";
 import { StatusBar } from "expo-status-bar";
 import { useEffect, useRef, useState } from "react";
+import { LogBox } from "react-native";
 
 import { parseNotificationDeepLink } from "@/lib/deep-link";
 import { NetworkContext } from "@/lib/network-context";
@@ -22,6 +23,10 @@ export default function RootLayout() {
     Tajawal_700Bold,
     Tajawal_800ExtraBold,
   });
+
+  useEffect(() => {
+    LogBox.ignoreLogs(["Sending `onAnimatedValueUpdate` with no listeners registered."]);
+  }, []);
 
   if (!fontsLoaded) {
     return null;

@@ -59,11 +59,12 @@ export default function OperationsTab() {
       {role === "CASHIER" ? (
         <Card>
           <SectionTitle>{copy.operationsScreen.recentTransactions}</SectionTitle>
-          <QueryState
-            loading={transactionsQuery.isLoading}
-            error={transactionsQuery.error instanceof Error ? transactionsQuery.error.message : null}
-            empty={!transactionsQuery.isLoading && (transactionsQuery.data ?? []).length === 0}
-            emptyMessage={copy.operationsScreen.noTransactions}
+            <QueryState
+              loading={transactionsQuery.isLoading}
+              loadingVariant="list"
+              error={transactionsQuery.error instanceof Error ? transactionsQuery.error.message : null}
+              empty={!transactionsQuery.isLoading && (transactionsQuery.data ?? []).length === 0}
+              emptyMessage={copy.operationsScreen.noTransactions}
           />
           {(transactionsQuery.data ?? []).map((item) => (
             <View key={item.id} style={[styles.row, { borderTopColor: theme.border, flexDirection: isRTL ? "row-reverse" : "row" }]}>
@@ -83,6 +84,7 @@ export default function OperationsTab() {
             <SectionTitle>{copy.operationsScreen.myLeaves}</SectionTitle>
             <QueryState
               loading={leavesQuery.isLoading}
+              loadingVariant="list"
               error={leavesQuery.error instanceof Error ? leavesQuery.error.message : null}
               empty={!leavesQuery.isLoading && (leavesQuery.data ?? []).length === 0}
               emptyMessage={copy.operationsScreen.noLeaves}
@@ -182,7 +184,7 @@ function AdminOperationsTab() {
 
   return (
     <Screen title={copy.operationsScreen.title} subtitle={copy.adminControl.subtitle} showSubtitle>
-      <QueryState loading={operationsQuery.isLoading} error={operationsQuery.error instanceof Error ? operationsQuery.error.message : null} />
+      <QueryState loading={operationsQuery.isLoading} loadingVariant="dashboard" error={operationsQuery.error instanceof Error ? operationsQuery.error.message : null} />
       {operations ? (
         <>
           <Card>
@@ -247,7 +249,7 @@ function AdminOperationsTab() {
         </>
       ) : null}
 
-      <QueryState loading={inventoryQuery.isLoading} error={inventoryQuery.error instanceof Error ? inventoryQuery.error.message : null} />
+      <QueryState loading={inventoryQuery.isLoading} loadingVariant="list" error={inventoryQuery.error instanceof Error ? inventoryQuery.error.message : null} />
       {inventory ? (
         <Card>
           <SectionTitle>{copy.adminControl.inventory}</SectionTitle>
@@ -271,7 +273,7 @@ function AdminOperationsTab() {
         </Card>
       ) : null}
 
-      {canViewAudit ? <QueryState loading={auditQuery.isLoading} error={auditQuery.error instanceof Error ? auditQuery.error.message : null} /> : null}
+      {canViewAudit ? <QueryState loading={auditQuery.isLoading} loadingVariant="list" error={auditQuery.error instanceof Error ? auditQuery.error.message : null} /> : null}
       {canViewAudit && audit ? (
         <Card>
           <SectionTitle>{copy.adminControl.audit}</SectionTitle>

@@ -512,7 +512,7 @@ export default function ChatScreen() {
         style={styles.flex}
       >
         <View style={styles.flex}>
-          <QueryState loading={threadsLoading} error={threadError} />
+          <QueryState loading={threadsLoading} loadingVariant="chat" skeletonCount={5} error={threadError} />
           {!threadsLoading && !threadError ? (
             <>
               {threads.length > 0 ? (
@@ -687,6 +687,8 @@ export default function ChatScreen() {
                     >
                       <QueryState
                         loading={messagesQuery.isLoading}
+                        loadingVariant="thread"
+                        skeletonCount={6}
                         error={messagesQuery.error instanceof Error ? messagesQuery.error.message : null}
                         empty={!messagesQuery.isLoading && (messagesQuery.data?.length ?? 0) === 0}
                         emptyMessage={copy.common.noMessagesYet}

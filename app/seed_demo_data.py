@@ -1465,40 +1465,62 @@ Pre-workout: Espresso + dates""",
         await session.commit()
 
         logger.info("Seeding gamification...")
-        streak_stmt = select(AttendanceStreak).where(AttendanceStreak.user_id == anna.id)
-        streak = (await session.execute(streak_stmt)).scalar_one_or_none()
-        if not streak:
-            streak = AttendanceStreak(
-                user_id=anna.id,
-                current_streak=8,
-                best_streak=12,
-                last_visit_date=datetime.now(timezone.utc),
-            )
-            session.add(streak)
-        else:
-            streak.current_streak = 8
-            streak.best_streak = 12
-            streak.last_visit_date = datetime.now(timezone.utc)
-
-        badge_defs = [
-            ("STREAK_3", "3-Day Streak", "Visited 3 days in a row"),
-            ("STREAK_7", "Weekly Warrior", "Visited 7 days in a row"),
-            ("VISITS_10", "10 Club Visits", "Checked in 10 times"),
-            ("VISITS_25", "25 Club Visits", "Checked in 25 times"),
-            ("EARLY_BIRD", "Early Bird", "Checked in before 7 AM"),
+        await _act_as(session, admin_actor)
+        demo_gamification = [
+            (
+                users_by_email["member.anna.demo@gym-erp.com"],
+                8,
+                12,
+                [
+                    ("STREAK_3", "3-Day Streak", "Visited 3 days in a row"),
+                    ("STREAK_7", "Weekly Warrior", "Visited 7 days in a row"),
+                    ("VISITS_10", "10 Club Visits", "Checked in 10 times"),
+                    ("VISITS_25", "25 Club Visits", "Checked in 25 times"),
+                    ("VISITS_50", "50 Club Visits", "Checked in 50 times"),
+                    ("EARLY_BIRD", "Early Bird", "Checked in before 7 AM"),
+                ],
+            ),
+            (
+                users_by_email["alice@client.com"],
+                5,
+                9,
+                [
+                    ("STREAK_3", "3-Day Streak", "Visited 3 days in a row"),
+                    ("VISITS_10", "10 Club Visits", "Checked in 10 times"),
+                    ("VISITS_25", "25 Club Visits", "Checked in 25 times"),
+                    ("VISITS_50", "50 Club Visits", "Checked in 50 times"),
+                    ("EARLY_BIRD", "Early Bird", "Checked in before 7 AM"),
+                ],
+            ),
         ]
-        for badge_type, badge_name, badge_description in badge_defs:
-            stmt = select(Badge).where(Badge.user_id == anna.id, Badge.badge_type == badge_type)
-            badge = (await session.execute(stmt)).scalar_one_or_none()
-            if not badge:
-                session.add(
-                    Badge(
-                        user_id=anna.id,
-                        badge_type=badge_type,
-                        badge_name=badge_name,
-                        badge_description=f"{DEMO_TAG} {badge_description}",
-                    )
+        for member, current_streak, best_streak, badge_defs in demo_gamification:
+            streak_stmt = select(AttendanceStreak).where(AttendanceStreak.user_id == member.id)
+            streak = (await session.execute(streak_stmt)).scalar_one_or_none()
+            if not streak:
+                streak = AttendanceStreak(
+                    user_id=member.id,
+                    current_streak=current_streak,
+                    best_streak=best_streak,
+                    last_visit_date=datetime.now(timezone.utc),
                 )
+                session.add(streak)
+            else:
+                streak.current_streak = current_streak
+                streak.best_streak = best_streak
+                streak.last_visit_date = datetime.now(timezone.utc)
+
+            for badge_type, badge_name, badge_description in badge_defs:
+                stmt = select(Badge).where(Badge.user_id == member.id, Badge.badge_type == badge_type)
+                badge = (await session.execute(stmt)).scalar_one_or_none()
+                if not badge:
+                    session.add(
+                        Badge(
+                            user_id=member.id,
+                            badge_type=badge_type,
+                            badge_name=badge_name,
+                            badge_description=f"{DEMO_TAG} {badge_description}",
+                        )
+                    )
         await session.commit()
 
         logger.info("Seeding audit logs...")

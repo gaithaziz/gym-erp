@@ -2,8 +2,10 @@ import pytest
 import asyncio
 import uuid
 from httpx import AsyncClient
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from app.config import settings
+from app.models.gamification import AttendanceStreak, Badge
 from app.models.user import User
 from app.models.access import Subscription, SubscriptionStatus
 from app.auth.security import get_password_hash
@@ -163,6 +165,57 @@ async def test_access_flow(client: AsyncClient, db_session: AsyncSession):
     checkout_resp = await client.post(f"{settings.API_V1_STR}/access/check-out", headers={"Authorization": f"Bearer {token_staff}"})
     assert checkout_resp.status_code == 200
     assert "Hours:" in checkout_resp.json()["message"]
+
+
+@pytest.mark.asyncio
+async def test_granted_scan_updates_gamification(client: AsyncClient, db_session: AsyncSession):
+    password = "password123"
+    hashed = get_password_hash(password)
+    user = User(email="gamified_scan@gym.com", hashed_password=hashed, role="CUSTOMER", full_name="Gamified Scan")
+    db_session.add(user)
+    await db_session.flush()
+
+    now = datetime.now(timezone.utc)
+    await _add_subscription_for_user(
+        db_session,
+        user_id=user.id,
+        plan_name="Gold",
+        start_date=now - timedelta(days=1),
+        end_date=now + timedelta(days=30),
+        status=SubscriptionStatus.ACTIVE,
+    )
+    await db_session.commit()
+
+    login_resp = await client.post(
+        f"{settings.API_V1_STR}/auth/login",
+        json={"email": "gamified_scan@gym.com", "password": password},
+    )
+    assert login_resp.status_code == 200
+    token = login_resp.json()["data"]["access_token"]
+
+    qr_resp = await client.get(f"{settings.API_V1_STR}/access/qr", headers={"Authorization": f"Bearer {token}"})
+    assert qr_resp.status_code == 200
+    qr_token = qr_resp.json()["data"]["qr_token"]
+    kiosk_headers = await _issue_kiosk_headers(client, db_session, "gamified-kiosk")
+
+    scan_resp = await client.post(
+        f"{settings.API_V1_STR}/access/scan",
+        json={"qr_token": qr_token, "kiosk_id": "gamified-kiosk"},
+        headers=kiosk_headers,
+    )
+    assert scan_resp.status_code == 200
+    assert scan_resp.json()["data"]["status"] == "GRANTED"
+
+    streak_stmt = select(AttendanceStreak).where(AttendanceStreak.user_id == user.id)
+    streak = (await db_session.execute(streak_stmt)).scalar_one_or_none()
+    assert streak is not None
+    assert streak.current_streak == 1
+    assert streak.best_streak == 1
+
+    badge_stmt = select(Badge).where(Badge.user_id == user.id)
+    badges = list((await db_session.execute(badge_stmt)).scalars().all())
+    assert all(not badge.badge_type.startswith("STREAK_") for badge in badges)
+    assert all(not badge.badge_type.startswith("VISITS_") for badge in badges)
 
 
 @pytest.mark.asyncio
@@ -356,6 +409,11 @@ async def test_authenticated_session_scan_flow(client: AsyncClient, db_session: 
     )
     assert first.status_code == 200
     assert first.json()["data"]["status"] == "GRANTED"
+
+    streak_stmt = select(AttendanceStreak).where(AttendanceStreak.user_id == customer.id)
+    streak = (await db_session.execute(streak_stmt)).scalar_one_or_none()
+    assert streak is not None
+    assert streak.current_streak == 1
 
     second = await client.post(
         f"{settings.API_V1_STR}/access/scan-session",

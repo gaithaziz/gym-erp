@@ -4,7 +4,7 @@ import { useLocalSearchParams } from "expo-router";
 import { useMemo, useState } from "react";
 import { Pressable, StyleSheet, Text, View } from "react-native";
 
-import { Card, Input, MutedText, PrimaryButton, QueryState, Screen, SectionTitle, ValueText } from "@/components/ui";
+import { Card, Input, MutedText, PrimaryButton, QueryState, Screen, SectionTitle, SkeletonBlock, ValueText } from "@/components/ui";
 import { parseCheckInLookupEnvelope, parseCheckInResultEnvelope, parseStaffMemberDetailEnvelope, type AccessScanResult } from "@/lib/api";
 import { localizeAccessReason, localizeAccessStatus, localizeSubscriptionStatus, localeTag } from "@/lib/mobile-format";
 import { getCurrentRole, hasCapability, isCustomerRole } from "@/lib/mobile-role";
@@ -81,7 +81,7 @@ function CustomerQrTab() {
   return (
     <Screen title={copy.qr.title} subtitle={copy.qr.subtitle} showSubtitle>
       {!permission ? (
-        <QueryState loading error={null} />
+        <QueryState loading error={null} loadingVariant="detail" />
       ) : permission.granted ? (
         <>
           <Card>
@@ -322,12 +322,12 @@ function StaffQrTab() {
 
   return (
     <Screen title={role === "COACH" ? copy.qr.staffShiftTitle : copy.staffTabs.checkIn} subtitle={copy.qr.staffScreenSubtitle} showSubtitle>
-      <QueryState loading={selectedMemberQuery.isLoading} error={selectedMemberQuery.error instanceof Error ? selectedMemberQuery.error.message : null} />
+      <QueryState loading={selectedMemberQuery.isLoading} loadingVariant="detail" error={selectedMemberQuery.error instanceof Error ? selectedMemberQuery.error.message : null} />
       <Card style={[styles.cameraShell, { backgroundColor: theme.cardAlt, borderColor: theme.border }]}>
         <SectionTitle>{copy.qr.staffShiftTitle}</SectionTitle>
         <MutedText>{copy.qr.staffShiftHint}</MutedText>
         {!permission ? (
-          <QueryState loading error={null} />
+          <QueryState loading error={null} loadingVariant="detail" />
         ) : permission.granted ? (
           <View style={[styles.cameraWrap, { borderColor: theme.border, backgroundColor: theme.background }]}>
             <CameraView
@@ -422,7 +422,9 @@ function StaffQrTab() {
 
           {lookupQuery.isLoading ? (
             <Card>
-              <MutedText>{copy.common.loading}</MutedText>
+              <SkeletonBlock height={16} width="44%" />
+              <SkeletonBlock height={14} width="88%" style={{ marginTop: 10 }} />
+              <SkeletonBlock height={14} width="70%" style={{ marginTop: 8 }} />
             </Card>
           ) : null}
 

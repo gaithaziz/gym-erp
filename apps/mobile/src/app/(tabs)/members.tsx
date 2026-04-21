@@ -190,7 +190,7 @@ export default function MembersTab() {
     <Screen title={copy.membersScreen.title} subtitle={copy.membersScreen.subtitle} showSubtitle={role === "COACH"}>
       {adminControl ? (
         <>
-          <QueryState loading={adminSummaryQuery.isLoading} error={adminSummaryQuery.error instanceof Error ? adminSummaryQuery.error.message : null} />
+          <QueryState loading={adminSummaryQuery.isLoading} loadingVariant="stats" skeletonCount={4} error={adminSummaryQuery.error instanceof Error ? adminSummaryQuery.error.message : null} />
           {adminSummaryQuery.data ? (
             <Card style={styles.adminSummaryCard}>
               <View style={[styles.sectionHeader, { flexDirection: isRTL ? "row-reverse" : "row" }]}>
@@ -272,6 +272,7 @@ export default function MembersTab() {
 
       <QueryState
         loading={membersQuery.isLoading}
+        loadingVariant="list"
         error={membersQuery.error instanceof Error ? membersQuery.error.message : null}
         empty={!membersQuery.isLoading && members.length === 0 && !selectedMemberId}
         emptyMessage={copy.membersScreen.noMembers}
@@ -308,7 +309,7 @@ export default function MembersTab() {
         </Card>
       ) : null}
 
-      <QueryState loading={detailQuery.isLoading} error={detailQuery.error instanceof Error ? detailQuery.error.message : null} />
+      <QueryState loading={detailQuery.isLoading} loadingVariant="detail" error={detailQuery.error instanceof Error ? detailQuery.error.message : null} />
       {detailQuery.data ? (
         <>
           <Card style={styles.heroCard}>
@@ -528,7 +529,7 @@ function AssignmentCard({
     <Card style={styles.assignmentCard}>
       <SectionTitle>{title}</SectionTitle>
       <MutedText>{hint}</MutedText>
-      <QueryState loading={loading} error={error} empty={!loading && plans.length === 0} emptyMessage={emptyMessage} />
+      <QueryState loading={loading} loadingVariant="list" error={error} empty={!loading && plans.length === 0} emptyMessage={emptyMessage} />
       {plans.length > 0 ? (
         <>
           <Pressable

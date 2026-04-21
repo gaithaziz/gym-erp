@@ -9,6 +9,7 @@ import uuid
 from app.config import settings
 from app.models.user import User
 from app.models.access import AccessLog, AttendanceLog, Subscription, SubscriptionStatus
+from app.services import gamification_service
 from app.services.whatsapp_service import WhatsAppNotificationService
 
 
@@ -131,6 +132,12 @@ class AccessService:
             scan_time=now
         )
         db.add(access_log)
+        if status_decision == "GRANTED":
+            # Flush the granted access log first so milestone queries include this check-in.
+            await db.flush()
+            await gamification_service.update_streak(user.id, db)
+            await gamification_service.check_time_based_badge(user.id, now, db)
+
         await db.commit()
         if status_decision == "GRANTED":
             await WhatsAppNotificationService.queue_and_send(
@@ -208,6 +215,12 @@ class AccessService:
             scan_time=now
         )
         db.add(access_log)
+        if status_decision == "GRANTED":
+            # Flush the granted access log first so milestone queries include this check-in.
+            await db.flush()
+            await gamification_service.update_streak(user.id, db)
+            await gamification_service.check_time_based_badge(user.id, now, db)
+
         await db.commit()
         if status_decision == "GRANTED":
             await WhatsAppNotificationService.queue_and_send(

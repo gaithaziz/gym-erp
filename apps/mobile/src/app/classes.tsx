@@ -4,7 +4,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { Alert, Modal, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 import { useFocusEffect } from "expo-router";
 
-import { Input, MutedText, PrimaryButton, QueryState, Screen, SecondaryButton } from "@/components/ui";
+import { Input, MutedText, PrimaryButton, QueryState, Screen, SecondaryButton, SkeletonBlock } from "@/components/ui";
 import {
   parseClassSessionsEnvelope,
   parseMyReservationsEnvelope,
@@ -273,6 +273,7 @@ function CustomerClassesScreen() {
 
       <QueryState
         loading={tab === "upcoming" ? upcomingQuery.isLoading : myReservationsQuery.isLoading}
+        loadingVariant="list"
         error={
           tab === "upcoming"
             ? upcomingQuery.error instanceof Error ? upcomingQuery.error.message : null
@@ -545,7 +546,7 @@ function StaffClassesScreen() {
         </View>
       </View>
 
-      <QueryState loading={sessionsQuery.isLoading} error={sessionsQuery.error instanceof Error ? sessionsQuery.error.message : null} />
+      <QueryState loading={sessionsQuery.isLoading} loadingVariant="dashboard" error={sessionsQuery.error instanceof Error ? sessionsQuery.error.message : null} />
 
       <View style={{ gap: 12, paddingBottom: 32 }}>
         {!isCoach ? (
@@ -919,7 +920,14 @@ function StaffClassesScreen() {
               {selectedSession ? `${classesCopy.attendeesTitle}: ${selectedSession.display_name}` : classesCopy.attendeesTitle}
             </Text>
             {sessionReservationsQuery.isLoading ? (
-              <MutedText>{classesCopy.attendeesLoading}</MutedText>
+              <View style={{ gap: 10 }}>
+                {Array.from({ length: 3 }).map((_, index) => (
+                  <View key={index} style={[styles.attendeeCard, { borderColor: theme.border, backgroundColor: theme.cardAlt }]}>
+                    <SkeletonBlock height={16} width="54%" />
+                    <SkeletonBlock height={12} width="72%" style={{ marginTop: 8 }} />
+                  </View>
+                ))}
+              </View>
             ) : sessionReservationsQuery.error ? (
               <MutedText>{classesCopy.attendeesFailed}</MutedText>
             ) : (sessionReservationsQuery.data?.length ?? 0) === 0 ? (

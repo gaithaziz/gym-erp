@@ -40,7 +40,7 @@ export default function CoachFeedbackScreen() {
 
   return (
     <Screen title={copy.common.feedbackHistory} subtitle={copy.feedbackScreen.coachSubtitle}>
-      <QueryState loading={feedbackQuery.isLoading} error={feedbackQuery.error instanceof Error ? feedbackQuery.error.message : null} />
+      <QueryState loading={feedbackQuery.isLoading} loadingVariant="dashboard" error={feedbackQuery.error instanceof Error ? feedbackQuery.error.message : null} />
 
       {feedback ? (
         <>

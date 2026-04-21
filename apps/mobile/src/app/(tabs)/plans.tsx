@@ -1031,7 +1031,7 @@ function CustomerPlansTab() {
 
   return (
     <Screen title={copy.plans.title}>
-      <QueryState loading={plansQuery.isLoading} error={plansQuery.error instanceof Error ? plansQuery.error.message : null} />
+      <QueryState loading={plansQuery.isLoading} loadingVariant="list" error={plansQuery.error instanceof Error ? plansQuery.error.message : null} />
       {plansQuery.data ? (
         <>
           <Card>
@@ -1208,7 +1208,7 @@ function CustomerPlansTab() {
 
           <Card>
             <SectionTitle>{copy.plans.recentSessions}</SectionTitle>
-            <QueryState loading={historyQuery.isLoading} error={historyQuery.error instanceof Error ? historyQuery.error.message : null} empty={!historyQuery.data?.length} emptyMessage={copy.plans.noSessionHistory} />
+            <QueryState loading={historyQuery.isLoading} loadingVariant="list" error={historyQuery.error instanceof Error ? historyQuery.error.message : null} empty={!historyQuery.data?.length} emptyMessage={copy.plans.noSessionHistory} />
             {historyQuery.data?.map((session) => {
               const canEditSession = Date.now() - new Date(session.performed_at).getTime() <= 24 * 60 * 60 * 1000;
               const editing = editingSessionId === session.id;
@@ -1675,7 +1675,7 @@ function CoachPlansTab() {
   return (
     <Screen title={copy.tabs.plans} subtitle={copy.coachPlans.subtitle}>
       <Card>
-        <QueryState loading={coachPlansQuery.isLoading} error={coachPlansQuery.error instanceof Error ? coachPlansQuery.error.message : null} />
+        <QueryState loading={coachPlansQuery.isLoading} loadingVariant="grid" skeletonCount={4} error={coachPlansQuery.error instanceof Error ? coachPlansQuery.error.message : null} />
         <View style={{ flexDirection: isRTL ? "row-reverse" : "row", alignItems: "center", justifyContent: "space-between", gap: 12 }}>
           <SectionTitle>{copy.staffHome.title}</SectionTitle>
           <View style={{ flexDirection: isRTL ? "row-reverse" : "row", gap: 6, flexShrink: 1, flexWrap: "wrap", justifyContent: isRTL ? "flex-start" : "flex-end" }}>
@@ -1944,7 +1944,7 @@ function CoachPlansTab() {
         <Card>
           <SectionTitle>{coachClassesCopy.title}</SectionTitle>
           <MutedText>{coachClassesCopy.subtitle}</MutedText>
-          <QueryState loading={coachClassesQuery.isLoading} error={coachClassesQuery.error instanceof Error ? coachClassesQuery.error.message : null} />
+          <QueryState loading={coachClassesQuery.isLoading} loadingVariant="list" error={coachClassesQuery.error instanceof Error ? coachClassesQuery.error.message : null} />
           {coachClassesQuery.data?.length === 0 ? (
             <MutedText>{coachClassesCopy.empty}</MutedText>
           ) : (

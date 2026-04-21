@@ -166,7 +166,7 @@ export default function ProfileScreen() {
 
   return (
     <Screen title={copy.common.profile} subtitle={copy.profileScreen.subtitle}>
-      <QueryState loading={profileQuery.isLoading} error={profileQuery.error instanceof Error ? profileQuery.error.message : null} />
+      <QueryState loading={profileQuery.isLoading} loadingVariant="detail" error={profileQuery.error instanceof Error ? profileQuery.error.message : null} />
       {profileQuery.data ? (
         <>
           <Card style={[styles.profilePhotoCard, { flexDirection: isRTL ? "row-reverse" : "row" }]}>
@@ -214,7 +214,7 @@ export default function ProfileScreen() {
         </>
       ) : null}
 
-      <QueryState loading={notificationsQuery.isLoading} error={notificationsQuery.error instanceof Error ? notificationsQuery.error.message : null} />
+      <QueryState loading={notificationsQuery.isLoading} loadingVariant="form" error={notificationsQuery.error instanceof Error ? notificationsQuery.error.message : null} />
       {notificationsQuery.data ? (
         <Card>
           <SectionTitle>{copy.profileScreen.notificationSettings}</SectionTitle>

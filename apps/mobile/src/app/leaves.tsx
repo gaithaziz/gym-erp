@@ -73,6 +73,7 @@ export default function LeavesScreen() {
         <SectionTitle>{copy.leavesScreen.myLeaves}</SectionTitle>
         <QueryState
           loading={leavesQuery.isLoading}
+          loadingVariant="list"
           error={leavesQuery.error instanceof Error ? leavesQuery.error.message : null}
           empty={!leavesQuery.isLoading && (leavesQuery.data ?? []).length === 0}
           emptyMessage={copy.leavesScreen.noLeaves}

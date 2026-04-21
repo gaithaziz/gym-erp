@@ -33,7 +33,7 @@ export default function AdminAuditScreen() {
 
   return (
     <Screen title={copy.adminControl.auditSummary} subtitle={copy.adminControl.auditAdminOnly} showSubtitle>
-      <QueryState loading={auditQuery.isLoading} error={auditQuery.error instanceof Error ? auditQuery.error.message : null} />
+      <QueryState loading={auditQuery.isLoading} loadingVariant="dashboard" error={auditQuery.error instanceof Error ? auditQuery.error.message : null} />
       {audit ? (
         <>
           <Card>

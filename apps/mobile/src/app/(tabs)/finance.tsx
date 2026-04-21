@@ -166,7 +166,7 @@ export default function FinanceTab() {
     <Screen title={copy.financeScreen.title} subtitle={copy.financeScreen.subtitle}>
       {adminControl ? (
         <>
-          <QueryState loading={adminFinanceQuery.isLoading} error={adminFinanceQuery.error instanceof Error ? adminFinanceQuery.error.message : null} />
+          <QueryState loading={adminFinanceQuery.isLoading} loadingVariant="dashboard" error={adminFinanceQuery.error instanceof Error ? adminFinanceQuery.error.message : null} />
           {adminFinance ? (
             <>
               <Card>
@@ -214,7 +214,7 @@ export default function FinanceTab() {
 
       {!adminControl || showAdminPos ? (
         <>
-      <QueryState loading={summaryQuery.isLoading} error={summaryQuery.error instanceof Error ? summaryQuery.error.message : null} />
+      <QueryState loading={summaryQuery.isLoading} loadingVariant="dashboard" error={summaryQuery.error instanceof Error ? summaryQuery.error.message : null} />
       {summary ? (
         <Card>
           <SectionTitle>{copy.financeScreen.todaySales}</SectionTitle>
@@ -231,6 +231,7 @@ export default function FinanceTab() {
         <Input value={search} onChangeText={setSearch} placeholder={copy.financeScreen.searchProducts} />
         <QueryState
           loading={productsQuery.isLoading}
+          loadingVariant="list"
           error={productsQuery.error instanceof Error ? productsQuery.error.message : null}
           empty={!productsQuery.isLoading && products.length === 0}
           emptyMessage={copy.financeScreen.noProducts}
@@ -299,7 +300,7 @@ export default function FinanceTab() {
       {selectedReceiptId ? (
         <Card>
           <SectionTitle>{copy.financeScreen.receiptDetail}</SectionTitle>
-          <QueryState loading={receiptQuery.isLoading} error={receiptQuery.error instanceof Error ? receiptQuery.error.message : null} />
+          <QueryState loading={receiptQuery.isLoading} loadingVariant="detail" error={receiptQuery.error instanceof Error ? receiptQuery.error.message : null} />
           {receipt ? (
             <>
               <MutedText>{`${copy.financeScreen.receiptNo}: ${receipt.receipt_no}`}</MutedText>

@@ -1,7 +1,7 @@
 """Gamification service — Streak tracking and badge awarding logic."""
 from datetime import datetime, timezone, timedelta
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, func
+from sqlalchemy import delete, select, func
 import uuid
 
 from app.models.gamification import Badge, AttendanceStreak
@@ -28,6 +28,33 @@ SPECIAL_BADGES = {
     "EARLY_BIRD": ("🌅 Early Bird", "Checked in before 7 AM"),
     "NIGHT_OWL":  ("🦉 Night Owl",  "Checked in after 9 PM"),
 }
+
+
+def _normalize_scan_time(scan_time: datetime) -> datetime:
+    if scan_time.tzinfo is None:
+        return scan_time.replace(tzinfo=timezone.utc)
+    return scan_time.astimezone(timezone.utc)
+
+
+def _compute_streaks_from_visit_dates(visit_dates: list[datetime.date]) -> tuple[int, int]:
+    if not visit_dates:
+        return 0, 0
+
+    current_streak = 1
+    running_streak = 1
+    best_streak = 1
+
+    for previous, current in zip(visit_dates, visit_dates[1:]):
+        if current == previous:
+            continue
+        if current == previous + timedelta(days=1):
+            running_streak += 1
+        else:
+            running_streak = 1
+        best_streak = max(best_streak, running_streak)
+        current_streak = running_streak
+
+    return current_streak, best_streak
 
 
 async def update_streak(user_id: uuid.UUID, db: AsyncSession) -> AttendanceStreak:
@@ -185,3 +212,107 @@ async def get_user_stats(user_id: uuid.UUID, db: AsyncSession) -> dict:
             for b in badges
         ],
     }
+
+
+async def rebuild_user_gamification(user_id: uuid.UUID, db: AsyncSession) -> dict:
+    """Recompute a user's streak and badges from historical granted access logs."""
+    result = await db.execute(
+        select(AccessLog)
+        .where(AccessLog.user_id == user_id, AccessLog.status == "GRANTED")
+        .order_by(AccessLog.scan_time.asc(), AccessLog.id.asc())
+    )
+    access_logs = list(result.scalars().all())
+
+    await db.execute(delete(Badge).where(Badge.user_id == user_id))
+    await db.execute(delete(AttendanceStreak).where(AttendanceStreak.user_id == user_id))
+
+    if not access_logs:
+        await db.flush()
+        return {
+            "user_id": str(user_id),
+            "total_visits": 0,
+            "current_streak": 0,
+            "best_streak": 0,
+            "badge_types": [],
+        }
+
+    normalized_logs = [_normalize_scan_time(log.scan_time) for log in access_logs]
+    visit_dates = sorted({scan_time.date() for scan_time in normalized_logs})
+    current_streak, best_streak = _compute_streaks_from_visit_dates(visit_dates)
+    latest_visit = normalized_logs[-1]
+
+    db.add(
+        AttendanceStreak(
+            user_id=user_id,
+            current_streak=current_streak,
+            best_streak=best_streak,
+            last_visit_date=latest_visit,
+        )
+    )
+
+    badge_types: list[str] = []
+
+    for threshold, badge_type, name, desc in STREAK_BADGES:
+        if best_streak >= threshold:
+            db.add(Badge(user_id=user_id, badge_type=badge_type, badge_name=name, badge_description=desc))
+            badge_types.append(badge_type)
+
+    total_visits = len(normalized_logs)
+    for threshold, badge_type, name, desc in VISIT_MILESTONES:
+        if total_visits >= threshold:
+            db.add(Badge(user_id=user_id, badge_type=badge_type, badge_name=name, badge_description=desc))
+            badge_types.append(badge_type)
+
+    first_early_bird = next((scan_time for scan_time in normalized_logs if scan_time.hour < 7), None)
+    if first_early_bird is not None:
+        name, desc = SPECIAL_BADGES["EARLY_BIRD"]
+        db.add(Badge(user_id=user_id, badge_type="EARLY_BIRD", badge_name=name, badge_description=desc, earned_at=first_early_bird))
+        badge_types.append("EARLY_BIRD")
+
+    first_night_owl = next((scan_time for scan_time in normalized_logs if scan_time.hour >= 21), None)
+    if first_night_owl is not None:
+        name, desc = SPECIAL_BADGES["NIGHT_OWL"]
+        db.add(Badge(user_id=user_id, badge_type="NIGHT_OWL", badge_name=name, badge_description=desc, earned_at=first_night_owl))
+        badge_types.append("NIGHT_OWL")
+
+    await db.flush()
+
+    return {
+        "user_id": str(user_id),
+        "total_visits": total_visits,
+        "current_streak": current_streak,
+        "best_streak": best_streak,
+        "badge_types": sorted(badge_types),
+    }
+
+
+async def rebuild_all_gamification(db: AsyncSession) -> list[dict]:
+    """Recompute gamification for every user with access or gamification records."""
+    user_ids = {
+        *(
+            user_id
+            for user_id in (
+                await db.execute(select(AccessLog.user_id).distinct())
+            ).scalars().all()
+            if user_id is not None
+        ),
+        *(
+            user_id
+            for user_id in (
+                await db.execute(select(AttendanceStreak.user_id).distinct())
+            ).scalars().all()
+            if user_id is not None
+        ),
+        *(
+            user_id
+            for user_id in (
+                await db.execute(select(Badge.user_id).distinct())
+            ).scalars().all()
+            if user_id is not None
+        ),
+    }
+
+    results: list[dict] = []
+    for user_id in sorted(user_ids, key=str):
+        results.append(await rebuild_user_gamification(user_id, db))
+    return results

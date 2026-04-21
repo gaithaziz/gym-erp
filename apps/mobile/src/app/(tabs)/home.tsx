@@ -3,7 +3,7 @@ import { useQuery } from "@tanstack/react-query";
 import { useRouter } from "expo-router";
 import { Pressable, StyleSheet, Text, View } from "react-native";
 
-import { Card, InlineStat, MutedText, PrimaryButton, QueryState, Screen, SecondaryButton, SecondaryLink, SectionTitle, ValueText } from "@/components/ui";
+import { Card, InlineStat, MutedText, PrimaryButton, QueryState, Screen, SecondaryButton, SecondaryLink, SectionTitle, SkeletonBlock, ValueText } from "@/components/ui";
 import { parseAdminHomeEnvelope, parseEnvelope, parseHomeEnvelope, parseMyReservationsEnvelope, parseStaffHomeEnvelope, type ClassReservation, type MobileGamificationStats } from "@/lib/api";
 import { localeTag, localizeAuditAction, localizeFinanceCategory, localizeFinanceTransactionType, localizePaymentMethod, localizeRole, localizeSubscriptionStatus, localizeTicketStatus } from "@/lib/mobile-format";
 import { getCurrentRole, isAdminControlRole, isCustomerRole } from "@/lib/mobile-role";
@@ -68,7 +68,7 @@ function CustomerHomeTab() {
         </Pressable>
       }
     >
-      <QueryState loading={homeQuery.isLoading} error={homeQuery.error instanceof Error ? homeQuery.error.message : null} />
+      <QueryState loading={homeQuery.isLoading} loadingVariant="dashboard" error={homeQuery.error instanceof Error ? homeQuery.error.message : null} />
       {home ? (
         <>
           <Card style={[styles.heroCard, { backgroundColor: theme.cardAlt, borderColor: theme.border }]}>
@@ -195,7 +195,17 @@ function CustomerHomeTab() {
               <InlineStat label={copy.home.totalVisits} value={gamification?.total_visits ?? "--"} />
               <InlineStat label={copy.home.unlocked} value={`${gamification?.badges.length ?? 0}/11`} />
             </View>
-            {gamificationQuery.isLoading ? <MutedText>{copy.common.loading}</MutedText> : null}
+            {gamificationQuery.isLoading ? (
+              <View style={[styles.badgeGrid, { flexDirection: isRTL ? "row-reverse" : "row" }]}>
+                {Array.from({ length: 4 }).map((_, index) => (
+                  <View key={index} style={[styles.achievementBadge, { backgroundColor: theme.primarySoft, borderColor: theme.border }]}>
+                    <SkeletonBlock height={24} width={24} style={{ alignSelf: "center", borderRadius: 999 }} />
+                    <SkeletonBlock height={12} width="80%" style={{ marginTop: 12, alignSelf: "center" }} />
+                    <SkeletonBlock height={12} width="58%" style={{ marginTop: 8, alignSelf: "center" }} />
+                  </View>
+                ))}
+              </View>
+            ) : null}
             {gamification?.badges.length ? (
               <View style={[styles.badgeGrid, { flexDirection: isRTL ? "row-reverse" : "row" }]}>
                 {gamification.badges.slice(0, 4).map((badge) => (
@@ -258,7 +268,15 @@ function CustomerHomeTab() {
           <Card>
             <SectionTitle>{classesCopy.upcoming}</SectionTitle>
             {classesQuery.isLoading ? (
-              <MutedText>{copy.common.loading}</MutedText>
+              Array.from({ length: 2 }).map((_, index) => (
+                <View key={index} style={[styles.listRow, { borderTopColor: theme.border, flexDirection: isRTL ? "row-reverse" : "row" }]}>
+                  <View style={styles.listTextBlock}>
+                    <SkeletonBlock height={16} width="62%" />
+                    <SkeletonBlock height={12} width="78%" style={{ marginTop: 8 }} />
+                  </View>
+                  <SkeletonBlock height={16} width={58} />
+                </View>
+              ))
             ) : upcomingClasses.length === 0 ? (
               <MutedText>{classesCopy.noBookings}</MutedText>
             ) : (
@@ -319,7 +337,7 @@ function StaffHomeTab() {
 
   return (
     <Screen title={copy.staffHome.title} subtitle={bootstrap?.gym.gym_name || copy.staffHome.subtitle}>
-      <QueryState loading={homeQuery.isLoading} error={homeQuery.error instanceof Error ? homeQuery.error.message : null} />
+      <QueryState loading={homeQuery.isLoading} loadingVariant="dashboard" error={homeQuery.error instanceof Error ? homeQuery.error.message : null} />
       {home ? (
         <>
           <Card style={[styles.heroCard, { backgroundColor: theme.cardAlt, borderColor: theme.border }]}>
@@ -391,7 +409,7 @@ function AdminHomeTab() {
 
   return (
     <Screen title={copy.adminControl.title} subtitle={bootstrap?.gym.gym_name || copy.adminControl.admin} showSubtitle>
-      <QueryState loading={homeQuery.isLoading} error={homeQuery.error instanceof Error ? homeQuery.error.message : null} />
+      <QueryState loading={homeQuery.isLoading} loadingVariant="dashboard" error={homeQuery.error instanceof Error ? homeQuery.error.message : null} />
       {home ? (
         <>
           <Card style={[styles.heroCard, { backgroundColor: theme.cardAlt, borderColor: theme.border }]}>

@@ -251,6 +251,7 @@ export default function SupportScreen() {
 
       <QueryState
         loading={supportQuery.isLoading && !supportQuery.data}
+        loadingVariant="list"
         error={supportQuery.error instanceof Error ? supportQuery.error.message : null}
         empty={!supportQuery.isLoading && tickets.length === 0}
         emptyMessage={copy.supportScreen.noTickets}
