@@ -19,3 +19,9 @@ node_modules/
 .pub/
 flutter_app/build/
 flutter_app/.dart_tool/
+scratch/
+frontend/test-results/
+static/chat_media/
+static/lost_found_media/
+static/support_media/
+static/profiles/
