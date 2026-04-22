@@ -148,6 +148,8 @@ class MemberDietTrackingDay(GymScopedMixin, Base):
     member_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id"), nullable=False, index=True)
     diet_plan_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("diet_plans.id"), nullable=False, index=True)
     tracked_for: Mapped[date] = mapped_column(Date, nullable=False, index=True)
+    active_day_id: Mapped[str | None] = mapped_column(String, nullable=True)
+    current_meal_index: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
     adherence_rating: Mapped[int | None] = mapped_column(Integer, nullable=True)
     notes: Mapped[str | None] = mapped_column(Text, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False)
@@ -169,6 +171,7 @@ class MemberDietTrackingMeal(GymScopedMixin, Base):
     meal_key: Mapped[str] = mapped_column(String, nullable=False)
     meal_name: Mapped[str] = mapped_column(String, nullable=False)
     completed: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    skipped: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     note: Mapped[str | None] = mapped_column(Text, nullable=True)
     updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
 

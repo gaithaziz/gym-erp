@@ -48,6 +48,8 @@ type DietTracker = {
   description?: string | null;
   has_structured_content: boolean;
   legacy_content?: string | null;
+  active_day_id?: string | null;
+  current_meal_index?: number;
   days: {
     id: string;
     name: string;
@@ -55,6 +57,7 @@ type DietTracker = {
       id: string;
       name: string;
       completed: boolean;
+      skipped?: boolean;
       note?: string | null;
       time_label?: string | null;
       instructions?: string | null;
@@ -63,6 +66,8 @@ type DietTracker = {
   }[];
   tracking_day?: {
     tracked_for: string;
+    active_day_id?: string | null;
+    current_meal_index?: number;
     adherence_rating?: number | null;
     notes?: string | null;
   } | null;
@@ -211,7 +216,12 @@ function estimateSessionDurationMinutes(draft?: WorkoutDraft | null) {
 }
 
 function draftCacheKey(draftId?: string | null) {
-  return draftId ? `gym-erp.mobile.workout-draft.${draftId}` : null;
+  if (!draftId) return null;
+  let hash = 0;
+  for (let index = 0; index < draftId.length; index += 1) {
+    hash = (hash * 31 + draftId.charCodeAt(index)) >>> 0;
+  }
+  return `gymerpmobileworkoutdraft${hash.toString(36)}`;
 }
 
 function buildDefaultSetRows(entry?: WorkoutDraft["entries"][number] | null): SetDetail[] {
@@ -445,7 +455,10 @@ function CustomerPlansTab() {
 
   useEffect(() => {
     if (!dietTrackerQuery.data) return;
-    setSelectedDietDayId((current) => current ?? dietTrackerQuery.data.days[0]?.id ?? null);
+    setSelectedDietDayId((current) => {
+      if (dietTrackerQuery.data?.active_day_id) return dietTrackerQuery.data.active_day_id;
+      return current ?? dietTrackerQuery.data.days[0]?.id ?? null;
+    });
     setDietDayNotes(dietTrackerQuery.data.tracking_day?.notes || "");
     setDietAdherence(String(dietTrackerQuery.data.tracking_day?.adherence_rating || 3));
   }, [dietTrackerQuery.data]);
@@ -496,7 +509,12 @@ function CustomerPlansTab() {
     };
   }, [authorizedRequest, copy.plans.syncComplete, copy.plans.syncFailed, queryClient, selectedWorkoutPlanId]);
 
-  const selectedDietDay = dietTrackerQuery.data?.days.find((day) => day.id === selectedDietDayId) ?? dietTrackerQuery.data?.days[0] ?? null;
+  const selectedDietDay =
+    dietTrackerQuery.data?.days.find((day) => day.id === (dietTrackerQuery.data.active_day_id || selectedDietDayId)) ??
+    dietTrackerQuery.data?.days[0] ??
+    null;
+  const selectedDietMealIndex = dietTrackerQuery.data?.current_meal_index ?? 0;
+  const currentDietMeal = selectedDietDay && selectedDietMealIndex < selectedDietDay.meals.length ? selectedDietDay.meals[selectedDietMealIndex] : null;
   const currentEntry = activeDraftQuery.data?.entries[activeDraftQuery.data.current_exercise_index] ?? null;
   const completedCount = activeDraftQuery.data?.entries.filter((entry) => entry.completed_at || entry.skipped).length ?? 0;
   const canFinishSession = !!activeDraftQuery.data && completedCount > 0;
@@ -942,21 +960,16 @@ function CustomerPlansTab() {
     onError: (error) => setWorkoutNotice({ kind: "error", message: error instanceof Error ? error.message : copy.common.errorTryAgain }),
   });
 
-  const saveDietMutation = useMutation({
-    mutationFn: async (overrideMeals?: { meal_id: string; completed: boolean; note?: string | null }[]) => {
+  const saveDietDayMutation = useMutation({
+    mutationFn: async () => {
       if (!selectedDietId) throw new Error("No diet selected");
-      const meals = overrideMeals ?? (selectedDietDay?.meals.map((meal) => ({
-        meal_id: meal.id,
-        completed: meal.completed,
-        note: meal.note || null,
-      })) || []);
       const payload = await authorizedRequest<DietTracker>(`/fitness/diets/${selectedDietId}/tracking`, {
         method: "PUT",
         body: JSON.stringify({
           tracked_for: today,
           adherence_rating: Number(dietAdherence),
           notes: dietDayNotes || null,
-          meals,
+          meals: [],
         }),
       });
       return payload.data;
@@ -966,15 +979,61 @@ function CustomerPlansTab() {
     },
   });
 
-  const handleToggleMeal = async (mealId: string, completed: boolean) => {
-    if (!selectedDietDay) return;
-    const meals = selectedDietDay.meals.map((meal) => ({
-      meal_id: meal.id,
-      completed: meal.id === mealId ? completed : meal.completed,
-      note: meal.note || null,
-    }));
-    await saveDietMutation.mutateAsync(meals);
-  };
+  const startDietDayMutation = useMutation({
+    mutationFn: async () => {
+      if (!selectedDietId || !selectedDietDayId) throw new Error("No diet day selected");
+      const payload = await authorizedRequest<DietTracker>(`/fitness/diets/${selectedDietId}/tracking/start`, {
+        method: "POST",
+        body: JSON.stringify({ tracked_for: today, day_id: selectedDietDayId }),
+      });
+      return payload.data;
+    },
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({ queryKey: ["member-diet-tracker", selectedDietId, today] });
+    },
+  });
+
+  const completeDietMealMutation = useMutation({
+    mutationFn: async () => {
+      if (!selectedDietId || !selectedDietDay || !currentDietMeal) throw new Error("No active diet meal");
+      const payload = await authorizedRequest<DietTracker>(
+        `/fitness/diets/${selectedDietId}/tracking/days/${selectedDietDay.id}/meals/${currentDietMeal.id}?tracked_for=${today}`,
+        { method: "PUT", body: JSON.stringify({ note: currentDietMeal.note || null }) },
+      );
+      return payload.data;
+    },
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({ queryKey: ["member-diet-tracker", selectedDietId, today] });
+    },
+  });
+
+  const skipDietMealMutation = useMutation({
+    mutationFn: async () => {
+      if (!selectedDietId || !selectedDietDay || !currentDietMeal) throw new Error("No active diet meal");
+      const payload = await authorizedRequest<DietTracker>(
+        `/fitness/diets/${selectedDietId}/tracking/days/${selectedDietDay.id}/meals/${currentDietMeal.id}/skip?tracked_for=${today}`,
+        { method: "POST", body: JSON.stringify({ note: currentDietMeal.note || null }) },
+      );
+      return payload.data;
+    },
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({ queryKey: ["member-diet-tracker", selectedDietId, today] });
+    },
+  });
+
+  const previousDietMealMutation = useMutation({
+    mutationFn: async () => {
+      if (!selectedDietId || !selectedDietDay) throw new Error("No active diet day");
+      const payload = await authorizedRequest<DietTracker>(
+        `/fitness/diets/${selectedDietId}/tracking/days/${selectedDietDay.id}/previous?tracked_for=${today}`,
+        { method: "POST" },
+      );
+      return payload.data;
+    },
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({ queryKey: ["member-diet-tracker", selectedDietId, today] });
+    },
+  });
 
   useEffect(() => {
     const key = draftCacheKey(activeDraftQuery.data?.id);
@@ -1310,23 +1369,51 @@ function CustomerPlansTab() {
                       </SecondaryButton>
                     ))}
                   </View>
-                  {selectedDietDay?.meals.map((meal) => (
-                    <View key={meal.id} style={{ paddingVertical: 10 }}>
-                      <Text style={{ color: theme.foreground, fontFamily: fontSet.display, textAlign: isRTL ? "right" : "left", writingDirection: direction }}>
-                        {meal.name}
-                      </Text>
-                      <MutedText>{meal.time_label || ""}</MutedText>
-                      {meal.items.map((item) => (
-                        <MutedText key={item.id}>{item.label}{item.quantity ? ` • ${item.quantity}` : ""}</MutedText>
+                  <PrimaryButton disabled={startDietDayMutation.isPending || !selectedDietDayId} onPress={() => startDietDayMutation.mutate()}>
+                    {startDietDayMutation.isPending ? copy.common.loading : copy.plans.startSession}
+                  </PrimaryButton>
+                  {selectedDietDay ? (
+                    <>
+                      <MutedText>
+                        {copy.plans.progress}: {selectedDietDay.meals.filter((meal) => meal.completed || meal.skipped).length}/{selectedDietDay.meals.length}
+                      </MutedText>
+                      {currentDietMeal ? (
+                        <View style={{ paddingVertical: 10, gap: 8 }}>
+                          <Text style={{ color: theme.foreground, fontFamily: fontSet.display, textAlign: isRTL ? "right" : "left", writingDirection: direction }}>
+                            {copy.plans.currentExercise}: {currentDietMeal.name}
+                          </Text>
+                          <MutedText>{currentDietMeal.time_label || ""}</MutedText>
+                          {currentDietMeal.items.map((item) => (
+                            <MutedText key={item.id}>{item.label}{item.quantity ? ` • ${item.quantity}` : ""}</MutedText>
+                          ))}
+                          <PrimaryButton disabled={completeDietMealMutation.isPending} onPress={() => completeDietMealMutation.mutate()}>
+                            {completeDietMealMutation.isPending ? copy.common.loading : copy.plans.completeExercise}
+                          </PrimaryButton>
+                          <SecondaryButton disabled={skipDietMealMutation.isPending} onPress={() => skipDietMealMutation.mutate()}>
+                            {skipDietMealMutation.isPending ? copy.common.loading : copy.plans.skipExercise}
+                          </SecondaryButton>
+                          <SecondaryButton disabled={previousDietMealMutation.isPending} onPress={() => previousDietMealMutation.mutate()}>
+                            {previousDietMealMutation.isPending ? copy.common.loading : copy.plans.previousExercise}
+                          </SecondaryButton>
+                        </View>
+                      ) : (
+                        <MutedText>{copy.plans.finishSession}</MutedText>
+                      )}
+                      {selectedDietDay.meals.map((meal) => (
+                        <View key={meal.id} style={{ paddingVertical: 8, borderTopWidth: 1, borderTopColor: theme.border }}>
+                          <Text style={{ color: theme.foreground, fontFamily: fontSet.body, textAlign: isRTL ? "right" : "left", writingDirection: direction }}>
+                            {meal.name}
+                          </Text>
+                          <MutedText>
+                            {meal.completed ? copy.plans.done : meal.skipped ? copy.plans.skipExercise : copy.plans.markDone}
+                          </MutedText>
+                        </View>
                       ))}
-                      <SecondaryButton onPress={() => void handleToggleMeal(meal.id, !meal.completed)}>
-                        {meal.completed ? copy.plans.done : copy.plans.markDone}
-                      </SecondaryButton>
-                    </View>
-                  ))}
+                    </>
+                  ) : null}
                   <Input value={dietAdherence} onChangeText={setDietAdherence} placeholder={copy.plans.dayAdherence} />
                   <TextArea value={dietDayNotes} onChangeText={setDietDayNotes} placeholder={copy.plans.dayNotes} />
-                  <PrimaryButton onPress={() => saveDietMutation.mutate(undefined)}>{copy.plans.saveDay}</PrimaryButton>
+                  <PrimaryButton onPress={() => saveDietDayMutation.mutate()}>{copy.plans.saveDay}</PrimaryButton>
                 </>
               ) : (
                 <>

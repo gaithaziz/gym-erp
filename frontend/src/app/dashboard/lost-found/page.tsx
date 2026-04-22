@@ -78,7 +78,7 @@ interface LostFoundSummary {
     total_open: number;
 }
 
-const handlerRoles = ['ADMIN', 'RECEPTION'];
+const handlerRoles = ['ADMIN', 'MANAGER', 'RECEPTION', 'FRONT_DESK'];
 
 const statusOptions: Array<{ value: LostFoundStatus }> = [
     { value: 'REPORTED' },
@@ -313,6 +313,7 @@ export default function LostFoundPage() {
     const [statusFilter, setStatusFilter] = useState<LostFoundStatus | 'ALL'>('ALL');
     const [commentText, setCommentText] = useState('');
     const [statusNote, setStatusNote] = useState('');
+    const [loadError, setLoadError] = useState<string | null>(null);
     const [reportOpen, setReportOpen] = useState(false);
     const [saving, setSaving] = useState(false);
     const [pendingFile, setPendingFile] = useState<File | null>(null);
@@ -351,25 +352,27 @@ export default function LostFoundPage() {
         try {
             const params: Record<string, string | boolean> = {};
             if (statusFilter !== 'ALL') params.status = statusFilter;
-            if (isAdmin) params.archived_only = viewMode === 'ARCHIVE';
-            if (selectedBranchId) params.branch_id = selectedBranchId;
+            params.archived_only = viewMode === 'ARCHIVE';
+            if (selectedBranchId && selectedBranchId !== 'all') params.branch_id = selectedBranchId;
             const response = await api.get('/lost-found/items', { params });
             const rows = (response.data?.data || []) as LostFoundItem[];
             setItems(rows);
+            setLoadError(null);
             if (!selectedItemId && rows.length > 0) setSelectedItemId(rows[0].id);
             if (selectedItemId && !rows.some((item) => item.id === selectedItemId)) {
                 setSelectedItemId(rows[0]?.id || null);
             }
         } catch {
             setItems([]);
+            setLoadError(locale === 'ar' ? 'تعذر تحميل المفقودات والمعثورات.' : 'Failed to load Lost & Found reports.');
         }
-    }, [selectedItemId, statusFilter, isAdmin, viewMode, selectedBranchId]);
+    }, [selectedItemId, statusFilter, viewMode, selectedBranchId, locale]);
 
     const fetchSummary = useCallback(async () => {
         if (!isHandler) return;
         try {
             const params: Record<string, string> = {};
-            if (selectedBranchId) params.branch_id = selectedBranchId;
+            if (selectedBranchId && selectedBranchId !== 'all') params.branch_id = selectedBranchId;
             const response = await api.get('/lost-found/summary', { params });
             setSummary(response.data?.data || null);
         } catch {
@@ -412,9 +415,12 @@ export default function LostFoundPage() {
         e.preventDefault();
         setSaving(true);
         try {
+            const scopedBranchId = selectedBranchId && selectedBranchId !== 'all'
+                ? selectedBranchId
+                : user?.home_branch_id;
             const payload = {
                 ...reportForm,
-                branch_id: selectedBranchId || user?.home_branch_id,
+                branch_id: scopedBranchId,
                 found_date: reportForm.found_date || null,
                 found_location: reportForm.found_location || null,
                 contact_note: reportForm.contact_note || null,
@@ -558,7 +564,7 @@ export default function LostFoundPage() {
                         selectedBranchId={selectedBranchId}
                         onSelect={setSelectedBranchId}
                     />
-                    {isAdmin && (
+                    {(
                     <div className="flex bg-muted p-1 rounded-lg">
                         <button
                             type="button"
@@ -582,6 +588,12 @@ export default function LostFoundPage() {
                 )}
             </div>
         </div>
+
+            {loadError && (
+                <div className="rounded-md border border-red-500/30 bg-red-500/10 px-3 py-2 text-sm text-red-300">
+                    {loadError}
+                </div>
+            )}
 
             {isHandler && summary && (
                 <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">

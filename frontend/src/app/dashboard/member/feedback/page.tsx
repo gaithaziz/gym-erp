@@ -25,13 +25,18 @@ export default function MemberFeedbackPage() {
     useEffect(() => {
         const loadDiets = async () => {
             setLoadingDiets(true);
-            const data = await fetchMemberDiets();
-            setDiets(data);
-            setDietPlanId(data[0]?.id || '');
-            setLoadingDiets(false);
+            try {
+                const data = await fetchMemberDiets();
+                setDiets(data);
+                setDietPlanId(data[0]?.id || '');
+            } catch (error) {
+                showToast(error instanceof Error ? error.message : (locale === 'ar' ? 'فشل تحميل الخطط الغذائية' : 'Failed to load diet plans'), 'error');
+            } finally {
+                setLoadingDiets(false);
+            }
         };
         loadDiets();
-    }, []);
+    }, [showToast, locale]);
 
     const submitDietFeedback = async (e: FormEvent) => {
         e.preventDefault();

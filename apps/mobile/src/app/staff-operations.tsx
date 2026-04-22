@@ -15,7 +15,7 @@ const STATUS_FILTERS = ["all", "active", "inactive"] as const;
 
 export default function StaffOperationsScreen() {
   const { authorizedRequest, bootstrap } = useSession();
-  const { copy, isRTL } = usePreferences();
+  const { copy, direction, fontSet, isRTL, theme } = usePreferences();
   const role = getCurrentRole(bootstrap);
   const [search, setSearch] = useState("");
   const [roleFilter, setRoleFilter] = useState<(typeof ROLE_FILTERS)[number]>("ALL");
@@ -99,6 +99,25 @@ export default function StaffOperationsScreen() {
               onPress={() => setSelectedId(item.id)}
             />
           ))}
+        </Card>
+      ) : null}
+
+      {selectedStaff ? (
+        <Card>
+          <SectionTitle>{copy.adminControl.staffDetail}</SectionTitle>
+          <View style={[styles.headerRow, { flexDirection: isRTL ? "row-reverse" : "row" }]}>
+            <View style={styles.flex}>
+              <MutedText>{isRTL ? "الموظف المحدد" : "Selected employee"}</MutedText>
+              <Text style={[styles.staffName, { color: theme.foreground, fontFamily: fontSet.body, textAlign: isRTL ? "right" : "left", writingDirection: direction }]}>
+                {selectedStaff.full_name || selectedStaff.email}
+              </Text>
+              <MutedText>{[localizeRole(selectedStaff.role, isRTL), selectedStaff.email].filter(Boolean).join(" • ")}</MutedText>
+            </View>
+            <SecondaryButton onPress={() => detailQuery.refetch()} disabled={detailQuery.isFetching}>
+              {detailQuery.isFetching ? copy.common.loading : isRTL ? "إعادة المحاولة" : "Retry"}
+            </SecondaryButton>
+          </View>
+          <MutedText>{isRTL ? "اختر موظفًا من القائمة أعلاه لعرض تفاصيله المالية والحضور والإجازات." : "Tap a staff member above to switch the detailed view."}</MutedText>
         </Card>
       ) : null}
 

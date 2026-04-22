@@ -107,6 +107,7 @@ export interface WorkoutSessionEntry {
     pr_notes?: string | null;
     skipped?: boolean;
     set_details?: WorkoutSetDetail[];
+    entry_volume?: number | null;
     order: number;
 }
 
@@ -127,6 +128,7 @@ export interface WorkoutSessionLog {
     reviewed_at?: string | null;
     reviewed_by_user_id?: string | null;
     reviewer_note?: string | null;
+    session_volume?: number | null;
     entries: WorkoutSessionEntry[];
 }
 
@@ -162,12 +164,15 @@ export interface MemberDietTrackingMeal {
     id: string;
     name: string;
     completed: boolean;
+    skipped?: boolean;
     note?: string | null;
 }
 
 export interface MemberDietTrackingDay {
     id: string;
     tracked_for: string;
+    active_day_id?: string | null;
+    current_meal_index?: number;
     adherence_rating?: number | null;
     notes?: string | null;
     meals: MemberDietTrackingMeal[];
@@ -177,6 +182,7 @@ export interface MemberDietTrackerMeal {
     id: string;
     name: string;
     completed: boolean;
+    skipped?: boolean;
     note?: string | null;
     time_label?: string | null;
     instructions?: string | null;
@@ -200,6 +206,8 @@ export interface MemberDietTracker {
     description?: string | null;
     has_structured_content: boolean;
     legacy_content?: string | null;
+    active_day_id?: string | null;
+    current_meal_index?: number;
     days: MemberDietTrackerDay[];
     tracking_day?: MemberDietTrackingDay | null;
 }

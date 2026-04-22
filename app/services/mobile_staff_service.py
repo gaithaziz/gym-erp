@@ -59,6 +59,33 @@ def _parse_set_details(value: str | None) -> list[dict]:
     return parsed if isinstance(parsed, list) else []
 
 
+def _entry_volume(entry: WorkoutSessionEntry) -> float:
+    set_details = _parse_set_details(entry.set_details)
+    if set_details:
+        total = 0.0
+        for row in set_details:
+            if not isinstance(row, dict):
+                continue
+            try:
+                reps = float(row.get("reps", 0) or 0)
+                weight = float(row.get("weightKg", 0) or 0)
+            except (TypeError, ValueError):
+                continue
+            total += max(reps, 0.0) * max(weight, 0.0)
+        if total > 0:
+            return total
+    if entry.skipped:
+        return 0.0
+    sets_completed = max(float(entry.sets_completed or 0), 1.0)
+    reps_completed = max(float(entry.reps_completed or 0), 0.0)
+    weight_kg = max(float(entry.weight_kg or 0), 0.0)
+    return sets_completed * reps_completed * weight_kg
+
+
+def _session_volume(session: WorkoutSession) -> float:
+    return sum(_entry_volume(entry) for entry in sorted(session.entries or [], key=lambda item: item.order))
+
+
 def _session_summary(session: WorkoutSession, plan_name: str | None = None, member_name: str | None = None) -> dict:
     entries = sorted(session.entries or [], key=lambda entry: entry.order)
     skipped_count = sum(1 for entry in entries if entry.skipped)
@@ -84,6 +111,7 @@ def _session_summary(session: WorkoutSession, plan_name: str | None = None, memb
         "reviewer_note": session.reviewer_note,
         "skipped_count": skipped_count,
         "pr_count": pr_count,
+        "session_volume": round(_session_volume(session), 2),
         "entries": [
             {
                 "id": str(entry.id),
@@ -95,6 +123,7 @@ def _session_summary(session: WorkoutSession, plan_name: str | None = None, memb
                 "is_pr": entry.is_pr,
                 "skipped": entry.skipped,
                 "set_details": _parse_set_details(entry.set_details),
+                "entry_volume": round(_entry_volume(entry), 2),
                 "order": entry.order,
             }
             for entry in entries
@@ -857,7 +886,15 @@ class MobileStaffService:
                 )
             )
         ).scalar()
-        lost_found_allowed = current_user.role in {Role.EMPLOYEE, Role.ADMIN, Role.MANAGER, Role.RECEPTION, Role.FRONT_DESK}
+        lost_found_allowed = current_user.role in {
+            Role.EMPLOYEE,
+            Role.ADMIN,
+            Role.MANAGER,
+            Role.RECEPTION,
+            Role.FRONT_DESK,
+            Role.COACH,
+            Role.CASHIER,
+        }
         recent_attendance = (
             await db.execute(
                 select(AttendanceLog)

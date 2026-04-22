@@ -13,14 +13,12 @@ import { getBranchParams } from '@/lib/branch';
 interface Product {
     id: string;
     name: string;
-    sku: string | null;
     category: string;
     price: number;
     cost_price: number | null;
     stock_quantity: number;
     low_stock_threshold: number;
     is_active: boolean;
-    image_url: string | null;
     created_at: string;
 }
 
@@ -41,8 +39,12 @@ export default function InventoryPage() {
     const [showModal, setShowModal] = useState(false);
     const [editingProduct, setEditingProduct] = useState<Product | null>(null);
     const [form, setForm] = useState({
-        name: '', sku: '', category: 'OTHER', price: '', cost_price: '',
-        stock_quantity: '', low_stock_threshold: '5', image_url: ''
+        name: '',
+        category: 'OTHER',
+        price: '',
+        cost_price: '',
+        stock_quantity: '',
+        low_stock_threshold: '5',
     });
     const [saving, setSaving] = useState(false);
     const categoryLabel = (value: string) => {
@@ -100,17 +102,19 @@ export default function InventoryPage() {
 
     const openCreate = () => {
         setEditingProduct(null);
-        setForm({ name: '', sku: '', category: 'OTHER', price: '', cost_price: '', stock_quantity: '', low_stock_threshold: '5', image_url: '' });
+        setForm({ name: '', category: 'OTHER', price: '', cost_price: '', stock_quantity: '', low_stock_threshold: '5' });
         setShowModal(true);
     };
 
     const openEdit = (p: Product) => {
         setEditingProduct(p);
         setForm({
-            name: p.name, sku: p.sku || '', category: p.category,
-            price: String(p.price), cost_price: p.cost_price ? String(p.cost_price) : '',
-            stock_quantity: String(p.stock_quantity), low_stock_threshold: String(p.low_stock_threshold),
-            image_url: p.image_url || ''
+            name: p.name,
+            category: p.category,
+            price: String(p.price),
+            cost_price: p.cost_price ? String(p.cost_price) : '',
+            stock_quantity: String(p.stock_quantity),
+            low_stock_threshold: String(p.low_stock_threshold),
         });
         setShowModal(true);
     };
@@ -120,13 +124,11 @@ export default function InventoryPage() {
         try {
             const payload = {
                 name: form.name,
-                sku: form.sku || null,
                 category: form.category,
                 price: parseFloat(form.price),
                 cost_price: form.cost_price ? parseFloat(form.cost_price) : null,
                 stock_quantity: parseInt(form.stock_quantity) || 0,
                 low_stock_threshold: parseInt(form.low_stock_threshold) || 5,
-                image_url: form.image_url || null,
                 ...getBranchParams(selectedBranchId),
             };
             if (editingProduct) {
@@ -246,7 +248,6 @@ export default function InventoryPage() {
                                 <tr key={p.id} className="border-b border-border hover:bg-muted/10 transition-colors">
                                     <td className="px-4 py-3">
                                         <p className="font-bold text-foreground">{p.name}</p>
-                                        {p.sku && <p className="text-xs text-muted-foreground font-mono">{p.sku}</p>}
                                     </td>
                                     <td className="px-4 py-3">
                                         <span className="text-xs font-mono px-2 py-0.5 bg-muted/30 border border-border">
@@ -303,44 +304,39 @@ export default function InventoryPage() {
                             <div>
                                 <label className="block text-xs font-bold text-muted-foreground uppercase mb-1 font-mono">{t('inventory.nameRequired')}</label>
                                 <input value={form.name} onChange={e => setForm({ ...form, name: e.target.value })} className="input-dark text-sm" />
+                                <p className="mt-1 text-xs text-muted-foreground">{t('inventory.productNameHint')}</p>
                             </div>
-                            <div className="grid grid-cols-2 gap-4">
-                                <div>
-                                    <label className="block text-xs font-bold text-muted-foreground uppercase mb-1 font-mono">{t('inventory.sku')}</label>
-                                    <input value={form.sku} onChange={e => setForm({ ...form, sku: e.target.value })} className="input-dark text-sm" />
-                                </div>
-                                <div>
-                                    <label className="block text-xs font-bold text-muted-foreground uppercase mb-1 font-mono">{t('inventory.category')}</label>
-                                    <select value={form.category} onChange={e => setForm({ ...form, category: e.target.value })} className="input-dark text-sm">
-                                        {CATEGORIES.map(c => <option key={c} value={c}>{categoryLabel(c)}</option>)}
-                                    </select>
-                                </div>
+                            <div>
+                                <label className="block text-xs font-bold text-muted-foreground uppercase mb-1 font-mono">{t('inventory.category')}</label>
+                                <select value={form.category} onChange={e => setForm({ ...form, category: e.target.value })} className="input-dark text-sm">
+                                    {CATEGORIES.map(c => <option key={c} value={c}>{categoryLabel(c)}</option>)}
+                                </select>
                             </div>
                             <div className="grid grid-cols-2 gap-4">
                                 <div>
                                     <label className="block text-xs font-bold text-muted-foreground uppercase mb-1 font-mono">{t('inventory.price')} *</label>
                                     <input type="number" step="0.01" value={form.price} onChange={e => setForm({ ...form, price: e.target.value })} className="input-dark text-sm" />
+                                    <p className="mt-1 text-xs text-muted-foreground">{t('inventory.priceHint')}</p>
                                 </div>
                                 <div>
                                     <label className="block text-xs font-bold text-muted-foreground uppercase mb-1 font-mono">{t('inventory.costPrice')}</label>
                                     <input type="number" step="0.01" value={form.cost_price} onChange={e => setForm({ ...form, cost_price: e.target.value })} className="input-dark text-sm" />
+                                    <p className="mt-1 text-xs text-muted-foreground">{t('inventory.costPriceHint')}</p>
                                 </div>
                             </div>
                             <div className="grid grid-cols-2 gap-4">
                                 <div>
                                     <label className="block text-xs font-bold text-muted-foreground uppercase mb-1 font-mono">{t('inventory.stockQty')}</label>
                                     <input type="number" value={form.stock_quantity} onChange={e => setForm({ ...form, stock_quantity: e.target.value })} className="input-dark text-sm" />
+                                    <p className="mt-1 text-xs text-muted-foreground">{t('inventory.stockQtyHint')}</p>
                                 </div>
                                 <div>
                                     <label className="block text-xs font-bold text-muted-foreground uppercase mb-1 font-mono">{t('inventory.lowStockThreshold')}</label>
                                     <input type="number" value={form.low_stock_threshold} onChange={e => setForm({ ...form, low_stock_threshold: e.target.value })} className="input-dark text-sm" />
+                                    <p className="mt-1 text-xs text-muted-foreground">{t('inventory.lowStockThresholdHint')}</p>
                                 </div>
                             </div>
-                            <button
-                                onClick={handleSave}
-                                disabled={saving || !form.name || !form.price}
-                                className="btn-primary w-full py-2.5 text-sm mt-2"
-                            >
+                            <button onClick={handleSave} disabled={saving || !form.name || !form.price} className="btn-primary w-full py-2.5 text-sm mt-2">
                                 {saving ? t('inventory.saving') : editingProduct ? t('inventory.updateProduct') : t('inventory.createProductAction')}
                             </button>
                         </div>

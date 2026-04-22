@@ -247,9 +247,13 @@ function AdminDashboard({ userName, userRole }: { userName: string; userRole: st
             .then(res => setRecentActivity(res.data.data || []))
             .catch(() => setRecentActivity([]));
 
-        api.get('/inventory/products/low-stock', { params: branchParams })
-            .then(res => setLowStockItems(res.data.data || []))
-            .catch(() => setLowStockItems([]));
+        if (userRole !== 'SUPER_ADMIN') {
+            api.get('/inventory/products/low-stock', { params: branchParams })
+                .then(res => setLowStockItems(res.data.data || []))
+                .catch(() => setLowStockItems([]));
+        } else {
+            setLowStockItems([]);
+        }
 
         api.get('/analytics/daily-visitors', { params: baseDateParams })
             .then(res => setDailyVisitors(res.data.data || []))
@@ -262,7 +266,7 @@ function AdminDashboard({ userName, userRole }: { userName: string; userRole: st
         } else {
             setBranchComparison(null);
         }
-    }, [dateRange, isGlobalBranchMode, selectedDays, selectedBranchId]);
+    }, [dateRange, isGlobalBranchMode, selectedDays, selectedBranchId, userRole]);
 
     // Branches are now managed by BranchContext
 
@@ -1133,10 +1137,16 @@ function CustomerDashboard({
     useEffect(() => {
         const loadData = async () => {
             setLoading(true);
-            const overview = await fetchMemberOverviewData();
-            setStats(overview.stats);
-            setBiometrics(overview.biometrics);
-            setLoading(false);
+            try {
+                const overview = await fetchMemberOverviewData();
+                setStats(overview.stats);
+                setBiometrics(overview.biometrics);
+            } catch {
+                setStats(null);
+                setBiometrics([]);
+            } finally {
+                setLoading(false);
+            }
         };
         loadData();
     }, []);

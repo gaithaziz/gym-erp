@@ -379,7 +379,7 @@ export default function DietPlansPage() {
         setRefreshing(true);
         try {
             const [plansRes, membersRes] = await Promise.all([
-                api.get('/fitness/diets', { params: { include_archived: true } }),
+                api.get('/fitness/diets', { params: { include_archived: true, include_all_creators: true } }),
                 api.get('/hr/members').catch(() => ({ data: { data: [] } })),
             ]);
             setPlans(plansRes.data.data || []);

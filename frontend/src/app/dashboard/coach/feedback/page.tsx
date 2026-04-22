@@ -60,6 +60,7 @@ interface FlaggedWorkoutSession {
     effort_feedback?: string | null;
     attachment_url?: string | null;
     attachment_mime?: string | null;
+    session_volume?: number | null;
     review_status?: string;
     reviewed_at?: string | null;
     reviewer_note?: string | null;
@@ -75,6 +76,7 @@ interface FlaggedWorkoutSession {
         is_pr?: boolean;
         skipped?: boolean;
         set_details?: Array<{ set?: unknown; reps?: unknown; weightKg?: unknown }>;
+        entry_volume?: number | null;
     }>;
 }
 
@@ -192,6 +194,7 @@ export default function FeedbackPage() {
     const minuteLabel = locale === 'ar' ? 'د' : 'min';
     const weightUnit = locale === 'ar' ? 'كجم' : 'kg';
     const prLabel = locale === 'ar' ? 'إنجازات' : 'PRs';
+    const volumeUnit = locale === 'ar' ? 'كجم' : 'kg';
 
     const attachmentHref = (value?: string | null) => {
         if (!value) return null;
@@ -266,6 +269,7 @@ export default function FeedbackPage() {
                                 </div>
                                 <div className="flex flex-wrap gap-2 text-xs text-muted-foreground">
                                     {session.duration_minutes != null && <span>{session.duration_minutes} {minuteLabel}</span>}
+                                    {session.session_volume != null && <span>{locale === 'ar' ? 'الحجم' : 'Volume'} {Math.round(session.session_volume)} {volumeUnit}</span>}
                                     {session.rpe != null && <span>RPE {session.rpe}</span>}
                                     {session.pain_level != null && <span>{locale === 'ar' ? 'الألم' : 'Pain'} {session.pain_level}</span>}
                                     {session.effort_feedback && <span>{effortLabel(session.effort_feedback)}</span>}
@@ -301,7 +305,9 @@ export default function FeedbackPage() {
                                                         {entry.is_pr ? ' • PR' : ''}
                                                     </span>
                                                     <span className="font-mono text-muted-foreground">
-                                                        {entry.skipped ? (locale === 'ar' ? 'تم التخطي' : 'Skipped') : `${entry.sets_completed}x${entry.reps_completed} @ ${entry.weight_kg ?? 0}${weightUnit}`}
+                                                        {entry.skipped
+                                                            ? (locale === 'ar' ? 'تم التخطي' : 'Skipped')
+                                                            : `${entry.sets_completed}x${entry.reps_completed} @ ${entry.weight_kg ?? 0}${weightUnit}${entry.entry_volume != null ? ` • ${Math.round(entry.entry_volume)} ${volumeUnit}` : ''}`}
                                                     </span>
                                                 </div>
                                                 {entry.set_details?.length ? (

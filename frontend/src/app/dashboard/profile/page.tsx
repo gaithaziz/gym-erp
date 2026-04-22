@@ -250,12 +250,13 @@ export default function ProfilePage() {
         setLoadingBioData(true);
         setBioDataMsg(null);
         try {
-            await api.post('/fitness/biometrics', {
-                height_cm: bioData.height_cm ? parseFloat(bioData.height_cm) : null,
-                weight_kg: bioData.weight_kg ? parseFloat(bioData.weight_kg) : null,
-                body_fat_pct: bioData.body_fat_pct ? parseFloat(bioData.body_fat_pct) : null,
-                muscle_mass_kg: bioData.muscle_mass_kg ? parseFloat(bioData.muscle_mass_kg) : null,
-            });
+            const payload: Record<string, number> = {};
+            if (bioData.height_cm.trim()) payload.height_cm = parseFloat(bioData.height_cm);
+            if (bioData.weight_kg.trim()) payload.weight_kg = parseFloat(bioData.weight_kg);
+            if (bioData.body_fat_pct.trim()) payload.body_fat_pct = parseFloat(bioData.body_fat_pct);
+            if (bioData.muscle_mass_kg.trim()) payload.muscle_mass_kg = parseFloat(bioData.muscle_mass_kg);
+
+            await api.post('/fitness/biometrics', payload);
             setBioDataMsg({ type: 'success', text: txt.bioSaved });
         } catch (err: unknown) {
             const error = err as { response?: { data?: { detail?: string } } };

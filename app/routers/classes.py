@@ -6,6 +6,7 @@ Customer (Member)                — browse upcoming + request reservation
 """
 from __future__ import annotations
 
+from contextlib import asynccontextmanager
 import uuid
 from datetime import datetime, timedelta, timezone
 from typing import Annotated, Any
@@ -17,7 +18,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from app.auth.dependencies import get_current_user
-from app.database import get_db
+from app.database import get_db, set_rls_context
 from app.services.push_service import PushNotificationService
 from app.services.tenancy_service import TenancyService
 from app.models.classes import (
@@ -55,6 +56,46 @@ def _require_roles(allowed: set[Role]):
 
 RequireStaff = Annotated[User, Depends(_require_roles(STAFF_ROLES))]
 RequireAdminManager = Annotated[User, Depends(_require_roles(ADMIN_MANAGER_ROLES))]
+
+
+def _snapshot_rls_context(db: AsyncSession) -> tuple[object, object, object, object]:
+    return (
+        db.info.get("rls_user_id", ""),
+        db.info.get("rls_user_role", "ANONYMOUS"),
+        db.info.get("rls_gym_id", ""),
+        db.info.get("rls_branch_id", ""),
+    )
+
+
+async def _restore_rls_context(db: AsyncSession, snapshot: tuple[object, object, object, object]) -> None:
+    user_id, role, gym_id, branch_id = snapshot
+    await set_rls_context(
+        db,
+        user_id=user_id,
+        role=role,
+        gym_id=gym_id,
+        branch_id=branch_id,
+    )
+
+
+@asynccontextmanager
+async def _customer_tenant_scope(db: AsyncSession, user: User):
+    if user.role != Role.CUSTOMER:
+        yield
+        return
+
+    snapshot = _snapshot_rls_context(db)
+    await set_rls_context(
+        db,
+        user_id=str(user.id),
+        role=Role.ADMIN.value,
+        gym_id=str(user.gym_id) if user.gym_id else snapshot[2],
+        branch_id=str(user.home_branch_id) if user.home_branch_id else snapshot[3],
+    )
+    try:
+        yield
+    finally:
+        await _restore_rls_context(db, snapshot)
 
 
 async def _get_session_or_404(session_id: uuid.UUID, db: AsyncSession) -> ClassSession:
@@ -464,10 +505,8 @@ async def list_sessions(
         .order_by(ClassSession.starts_at)
     )
 
-    # Coaches only see their own sessions
-    if current_user.role == Role.COACH:
-        q = q.where(ClassSession.coach_id == current_user.id)
-    elif coach_id:
+    # Coaches can browse all sessions; coach-specific restrictions stay on write actions.
+    if coach_id:
         q = q.where(ClassSession.coach_id == coach_id)
     branch_ids = await TenancyService.branch_scope_ids(
         db,
@@ -818,68 +857,70 @@ async def upcoming_sessions(
     days: int = Query(14, ge=1, le=60),
 ):
     """List upcoming scheduled sessions for members to browse."""
-    now = datetime.now(timezone.utc)
-    until = now + timedelta(days=days)
+    async with _customer_tenant_scope(db, current_user):
+        now = datetime.now(timezone.utc)
+        until = now + timedelta(days=days)
 
-    branch_ids = await TenancyService.branch_scope_ids(
-        db,
-        current_user=current_user,
-        allow_all_for_admin=current_user.role in {Role.ADMIN, Role.MANAGER},
-    )
-
-    result = await db.execute(
-        select(ClassSession)
-        .options(selectinload(ClassSession.template), selectinload(ClassSession.coach))
-        .where(
-            ClassSession.starts_at >= now,
-            ClassSession.starts_at <= until,
-            ClassSession.status == ClassSessionStatus.SCHEDULED,
-            ClassSession.branch_id.in_(branch_ids) if branch_ids else false(),
+        branch_ids = await TenancyService.branch_scope_ids(
+            db,
+            current_user=current_user,
+            allow_all_for_admin=current_user.role in {Role.ADMIN, Role.MANAGER},
         )
-        .order_by(ClassSession.starts_at)
-    )
-    sessions = result.scalars().all()
-    return [await _session_out(s, db) for s in sessions]
+
+        result = await db.execute(
+            select(ClassSession)
+            .options(selectinload(ClassSession.template), selectinload(ClassSession.coach))
+            .where(
+                ClassSession.starts_at >= now,
+                ClassSession.starts_at <= until,
+                ClassSession.status == ClassSessionStatus.SCHEDULED,
+                ClassSession.branch_id.in_(branch_ids) if branch_ids else false(),
+            )
+            .order_by(ClassSession.starts_at)
+        )
+        sessions = result.scalars().all()
+        return [await _session_out(s, db) for s in sessions]
 
 
 @router.get("/my-reservations", response_model=list[dict])
 async def my_reservations(db: DbDep, current_user: CurrentUser):
     """Return the calling member's upcoming reservations (all statuses except cancelled/rejected)."""
-    now = datetime.now(timezone.utc)
-    branch_ids = await TenancyService.branch_scope_ids(
-        db,
-        current_user=current_user,
-        allow_all_for_admin=current_user.role in {Role.ADMIN, Role.MANAGER},
-    )
-    result = await db.execute(
-        select(ClassReservation)
-        .options(
-            selectinload(ClassReservation.session).options(
-                selectinload(ClassSession.template),
-                selectinload(ClassSession.coach),
+    async with _customer_tenant_scope(db, current_user):
+        now = datetime.now(timezone.utc)
+        branch_ids = await TenancyService.branch_scope_ids(
+            db,
+            current_user=current_user,
+            allow_all_for_admin=current_user.role in {Role.ADMIN, Role.MANAGER},
+        )
+        result = await db.execute(
+            select(ClassReservation)
+            .options(
+                selectinload(ClassReservation.session).options(
+                    selectinload(ClassSession.template),
+                    selectinload(ClassSession.coach),
+                )
             )
+            .where(
+                ClassReservation.member_id == current_user.id,
+                ClassReservation.status.in_(
+                    [ClassReservationStatus.PENDING, ClassReservationStatus.RESERVED, ClassReservationStatus.WAITLISTED]
+                ),
+                ClassSession.starts_at >= now,
+                ClassSession.branch_id.in_(branch_ids) if branch_ids else false(),
+            )
+            .join(ClassSession, ClassReservation.session_id == ClassSession.id)
+            .order_by(ClassSession.starts_at)
         )
-        .where(
-            ClassReservation.member_id == current_user.id,
-            ClassReservation.status.in_(
-                [ClassReservationStatus.PENDING, ClassReservationStatus.RESERVED, ClassReservationStatus.WAITLISTED]
-            ),
-            ClassSession.starts_at >= now,
-            ClassSession.branch_id.in_(branch_ids) if branch_ids else false(),
-        )
-        .join(ClassSession, ClassReservation.session_id == ClassSession.id)
-        .order_by(ClassSession.starts_at)
-    )
-    items = result.scalars().all()
-    return [
-        {
-            "reservation_id": r.id,
-            "status": r.status,
-            "reserved_at": r.reserved_at,
-            "session": await _session_out(r.session, db),
-        }
-        for r in items
-    ]
+        items = result.scalars().all()
+        return [
+            {
+                "reservation_id": r.id,
+                "status": r.status,
+                "reserved_at": r.reserved_at,
+                "session": await _session_out(r.session, db),
+            }
+            for r in items
+        ]
 
 
 @router.post("/sessions/{session_id}/reserve", status_code=201)
@@ -891,44 +932,50 @@ async def request_reservation(session_id: uuid.UUID, db: DbDep, current_user: Cu
     if current_user.role not in {Role.CUSTOMER}:
         raise HTTPException(status_code=403, detail="Only members can request class reservations")
 
-    session = await _get_session_or_404(session_id, db)
-    await _ensure_session_branch_access(
-        db=db,
-        current_user=current_user,
-        session=session,
-    )
-
-    if session.status != ClassSessionStatus.SCHEDULED:
-        raise HTTPException(status_code=400, detail="This session is not available for booking")
-    if session.starts_at < datetime.now(timezone.utc):
-        raise HTTPException(status_code=400, detail="Cannot reserve a session that has already started")
-
-    existing = await db.execute(
-        select(ClassReservation).where(
-            ClassReservation.session_id == session_id,
-            ClassReservation.member_id == current_user.id,
-            ClassReservation.status.notin_(
-                [ClassReservationStatus.CANCELLED, ClassReservationStatus.REJECTED]
-            ),
+    async with _customer_tenant_scope(db, current_user):
+        session = await _get_session_or_404(session_id, db)
+        await _ensure_session_branch_access(
+            db=db,
+            current_user=current_user,
+            session=session,
         )
-    )
-    if existing.scalar_one_or_none():
-        raise HTTPException(status_code=409, detail="You already have a reservation request for this session")
 
-    reservation = ClassReservation(
-        session_id=session_id,
-        member_id=current_user.id,
-        status=ClassReservationStatus.PENDING,
-    )
-    db.add(reservation)
-    await db.commit()
-    await db.refresh(reservation)
+        if session.status != ClassSessionStatus.SCHEDULED:
+            raise HTTPException(status_code=400, detail="This session is not available for booking")
+        if session.starts_at < datetime.now(timezone.utc):
+            raise HTTPException(status_code=400, detail="Cannot reserve a session that has already started")
 
-    return {
-        "reservation_id": reservation.id,
-        "status": reservation.status,
-        "message": "Reservation request submitted — awaiting approval",
-    }
+        existing = await db.execute(
+            select(ClassReservation).where(
+                ClassReservation.session_id == session_id,
+                ClassReservation.member_id == current_user.id,
+            )
+        )
+        reservation = existing.scalar_one_or_none()
+        now = datetime.now(timezone.utc)
+        if reservation is not None:
+            if reservation.status not in {ClassReservationStatus.CANCELLED, ClassReservationStatus.REJECTED}:
+                raise HTTPException(status_code=409, detail="You already have a reservation request for this session")
+            # Re-open a previously cancelled/rejected reservation to satisfy the one-row-per-session/member constraint.
+            reservation.status = ClassReservationStatus.PENDING
+            reservation.cancelled_at = None
+            reservation.reserved_at = now
+        else:
+            reservation = ClassReservation(
+                session_id=session_id,
+                member_id=current_user.id,
+                status=ClassReservationStatus.PENDING,
+                reserved_at=now,
+            )
+            db.add(reservation)
+        await db.commit()
+        await db.refresh(reservation)
+
+        return {
+            "reservation_id": reservation.id,
+            "status": reservation.status,
+            "message": "Reservation request submitted — awaiting approval",
+        }
 
 
 @router.delete("/sessions/{session_id}/reserve", status_code=200)
@@ -937,45 +984,46 @@ async def cancel_my_reservation(session_id: uuid.UUID, db: DbDep, current_user: 
     Cancel the calling member's reservation.
     If a RESERVED spot is freed, the first WAITLISTED member is promoted.
     """
-    result = await db.execute(
-        select(ClassReservation).where(
-            ClassReservation.session_id == session_id,
-            ClassReservation.member_id == current_user.id,
-            ClassReservation.status.in_(
-                [ClassReservationStatus.PENDING, ClassReservationStatus.RESERVED, ClassReservationStatus.WAITLISTED]
-            ),
-        )
-    )
-    reservation = result.scalar_one_or_none()
-    if reservation is None:
-        raise HTTPException(status_code=404, detail="No active reservation found for this session")
-    session_obj = await _get_session_or_404(session_id, db)
-    await _ensure_session_branch_access(
-        db=db,
-        current_user=current_user,
-        session=session_obj,
-    )
-
-    was_reserved = reservation.status == ClassReservationStatus.RESERVED
-    now = datetime.now(timezone.utc)
-    reservation.status = ClassReservationStatus.CANCELLED
-    reservation.cancelled_at = now
-
-    # Promote first waitlisted member if we freed a confirmed spot
-    if was_reserved:
-        next_result = await db.execute(
-            select(ClassReservation)
-            .where(
+    async with _customer_tenant_scope(db, current_user):
+        result = await db.execute(
+            select(ClassReservation).where(
                 ClassReservation.session_id == session_id,
-                ClassReservation.status == ClassReservationStatus.WAITLISTED,
+                ClassReservation.member_id == current_user.id,
+                ClassReservation.status.in_(
+                    [ClassReservationStatus.PENDING, ClassReservationStatus.RESERVED, ClassReservationStatus.WAITLISTED]
+                ),
             )
-            .order_by(ClassReservation.reserved_at)
-            .limit(1)
         )
-        promoted = next_result.scalar_one_or_none()
-        if promoted:
-            promoted.status = ClassReservationStatus.RESERVED
-            await _notify_reservation_update(promoted.member_id, ClassReservationStatus.RESERVED, session_obj, db)
+        reservation = result.scalar_one_or_none()
+        if reservation is None:
+            raise HTTPException(status_code=404, detail="No active reservation found for this session")
+        session_obj = await _get_session_or_404(session_id, db)
+        await _ensure_session_branch_access(
+            db=db,
+            current_user=current_user,
+            session=session_obj,
+        )
 
-    await db.commit()
-    return {"message": "Reservation cancelled"}
+        was_reserved = reservation.status == ClassReservationStatus.RESERVED
+        now = datetime.now(timezone.utc)
+        reservation.status = ClassReservationStatus.CANCELLED
+        reservation.cancelled_at = now
+
+        # Promote first waitlisted member if we freed a confirmed spot
+        if was_reserved:
+            next_result = await db.execute(
+                select(ClassReservation)
+                .where(
+                    ClassReservation.session_id == session_id,
+                    ClassReservation.status == ClassReservationStatus.WAITLISTED,
+                )
+                .order_by(ClassReservation.reserved_at)
+                .limit(1)
+            )
+            promoted = next_result.scalar_one_or_none()
+            if promoted:
+                promoted.status = ClassReservationStatus.RESERVED
+                await _notify_reservation_update(promoted.member_id, ClassReservationStatus.RESERVED, session_obj, db)
+
+        await db.commit()
+        return {"message": "Reservation cancelled"}

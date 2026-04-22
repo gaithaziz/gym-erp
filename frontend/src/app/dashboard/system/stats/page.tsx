@@ -2,6 +2,7 @@
 
 import { useAuth } from '@/context/AuthContext';
 import { api } from '@/lib/api';
+import { normalizeApiError, reportSystemTabError } from '@/lib/systemTelemetry';
 import { useEffect, useState, useCallback, useMemo } from 'react';
 import { Activity, LayoutDashboard, Users, Clock, ShieldAlert, TrendingUp } from 'lucide-react';
 import { useLocale } from '@/context/LocaleContext';
@@ -39,9 +40,11 @@ export default function SystemStatsPage() {
     const [healthData, setHealthData] = useState<GymHealthRow[]>([]);
     const [loading, setLoading] = useState(true);
     const [updatingMaint, setUpdatingMaint] = useState(false);
+    const [error, setError] = useState<string | null>(null);
 
     const fetchData = useCallback(async () => {
         try {
+            setError(null);
             const [statsResp, revResp, healthResp] = await Promise.all([
                 api.get('/system/stats'),
                 api.get('/system/analytics/revenue?days=30'),
@@ -51,7 +54,9 @@ export default function SystemStatsPage() {
             setRevenueData(revResp.data);
             setHealthData(healthResp.data);
         } catch (err) {
-            console.error("Failed to fetch system stats", err);
+            const message = normalizeApiError(err);
+            setError(message);
+            await reportSystemTabError('system_stats', 'fetch_stats', err);
         } finally {
             setLoading(false);
         }
@@ -66,12 +71,14 @@ export default function SystemStatsPage() {
     const toggleGlobalMaintenance = async () => {
         if (!stats) return;
         setUpdatingMaint(true);
+        const newStatus = !stats.global_maintenance;
         try {
-            const newStatus = !stats.global_maintenance;
             await api.post('/system/config/maintenance', { is_maintenance_mode: newStatus });
             setStats({ ...stats, global_maintenance: newStatus });
         } catch (err) {
-            console.error("Failed to toggle global maintenance", err);
+            const message = normalizeApiError(err);
+            setError(message);
+            await reportSystemTabError('system_stats', 'toggle_maintenance', err, { targetStatus: newStatus });
         } finally {
             setUpdatingMaint(false);
         }
@@ -155,6 +162,15 @@ export default function SystemStatsPage() {
                     </button>
                 </div>
             </div>
+
+            {error && (
+                <div className="rounded-md border border-destructive/30 bg-destructive/10 px-4 py-3 text-sm text-destructive flex items-center justify-between gap-3">
+                    <span>{error}</span>
+                    <button className="btn-ghost !px-2 !py-1 text-xs" onClick={() => fetchData()}>
+                        {locale === 'ar' ? 'إعادة المحاولة' : 'Retry'}
+                    </button>
+                </div>
+            )}
 
             <DashboardGrid layoutId="system_admin_stats">
                 {kpiCards.map((card, i) => (

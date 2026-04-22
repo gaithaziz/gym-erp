@@ -11,9 +11,9 @@ import {
 import { getPushRegistration, type PushRegistration } from "@/lib/push-notifications";
 import type { MobileBootstrap, TokenPair } from "@gym-erp/contracts";
 
-const TOKEN_STORAGE_KEY = "gym-erp.mobile.tokens";
-const PUSH_STORAGE_KEY = "gym-erp.mobile.push-registration";
-const BRANCH_STORAGE_KEY_PREFIX = "gym-erp.mobile.selected-branch";
+const TOKEN_STORAGE_KEY = "gymerpmobiletokens";
+const PUSH_STORAGE_KEY = "gymerpmobilepushregistration";
+const BRANCH_STORAGE_KEY_PREFIX = "gymerpmobileselectedbranch";
 
 type SessionStatus = "loading" | "signed_out" | "signed_in";
 
@@ -37,7 +37,15 @@ function supportsBranchSelection(bootstrap: MobileBootstrap | null) {
 }
 
 function branchStorageKey(userId: string) {
-  return `${BRANCH_STORAGE_KEY_PREFIX}:${userId}`;
+  let hash = 0;
+  for (let index = 0; index < userId.length; index += 1) {
+    hash = (hash * 31 + userId.charCodeAt(index)) >>> 0;
+  }
+  return `${BRANCH_STORAGE_KEY_PREFIX}${hash.toString(36)}`;
+}
+
+function describeConnectionIssue() {
+  return `Unable to reach ${API_BASE_URL}. If you're on a physical device, set EXPO_PUBLIC_API_BASE_URL to your computer's LAN IP.`;
 }
 
 function resolveBranchSelection(
@@ -284,42 +292,50 @@ export function SessionProvider({ children }: PropsWithChildren) {
   const signIn = useCallback(
     async (email: string, password: string) => {
       setError(null);
-      const response = await fetch(`${API_BASE_URL}/auth/login`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Accept: "application/json",
-        },
-        body: JSON.stringify({ email, password }),
-      });
-      const payload = parseLoginEnvelope(await readJsonResponse<TokenPair>(response));
-      if (!response.ok || !payload.success) {
-        throw new Error(payload.message || "Login failed");
+      try {
+        const response = await fetch(`${API_BASE_URL}/auth/login`, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Accept: "application/json",
+          },
+          body: JSON.stringify({ email, password }),
+        });
+        const payload = parseLoginEnvelope(await readJsonResponse<TokenPair>(response));
+        if (!response.ok || !payload.success) {
+          throw new Error(payload.message || "Login failed");
+        }
+
+        setTokenPair(payload.data);
+        tokenPairRef.current = payload.data;
+        await persistTokenPair(payload.data);
+
+        const bootstrapResponse = await fetch(`${API_BASE_URL}/mobile/bootstrap`, {
+          headers: {
+            Accept: "application/json",
+            Authorization: `Bearer ${payload.data.access_token}`,
+          },
+        });
+        const bootstrapPayload = parseBootstrapEnvelope(await readJsonResponse<MobileBootstrap>(bootstrapResponse));
+        if (!bootstrapResponse.ok || !bootstrapPayload.success) {
+          throw new Error(bootstrapPayload.message || "Bootstrap failed");
+        }
+
+        const resolvedBranch = resolveBranchSelection(bootstrapPayload.data, await loadSelectedBranch(bootstrapPayload.data.user.id));
+        setBootstrap(bootstrapPayload.data);
+        setSelectedBranchIdState(resolvedBranch);
+        await persistSelectedBranch(bootstrapPayload.data.user.id, resolvedBranch);
+        setStatus("signed_in");
+        void registerCurrentDevice(payload.data.access_token);
+      } catch (caught) {
+        await signOut();
+        if (caught instanceof TypeError || (caught instanceof Error && caught.message === "Network request failed")) {
+          throw new Error(describeConnectionIssue());
+        }
+        throw caught;
       }
-
-      setTokenPair(payload.data);
-      tokenPairRef.current = payload.data;
-      await persistTokenPair(payload.data);
-
-      const bootstrapResponse = await fetch(`${API_BASE_URL}/mobile/bootstrap`, {
-        headers: {
-          Accept: "application/json",
-          Authorization: `Bearer ${payload.data.access_token}`,
-        },
-      });
-      const bootstrapPayload = parseBootstrapEnvelope(await readJsonResponse<MobileBootstrap>(bootstrapResponse));
-      if (!bootstrapResponse.ok || !bootstrapPayload.success) {
-        throw new Error(bootstrapPayload.message || "Bootstrap failed");
-      }
-
-      const resolvedBranch = resolveBranchSelection(bootstrapPayload.data, await loadSelectedBranch(bootstrapPayload.data.user.id));
-      setBootstrap(bootstrapPayload.data);
-      setSelectedBranchIdState(resolvedBranch);
-      await persistSelectedBranch(bootstrapPayload.data.user.id, resolvedBranch);
-      setStatus("signed_in");
-      void registerCurrentDevice(payload.data.access_token);
     },
-    [registerCurrentDevice],
+    [registerCurrentDevice, signOut],
   );
 
   useEffect(() => {

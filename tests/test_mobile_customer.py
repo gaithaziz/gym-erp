@@ -115,6 +115,65 @@ async def test_mobile_staff_members_coach_full_customer_view_and_registration(cl
 
 
 @pytest.mark.asyncio
+async def test_mobile_staff_member_detail_includes_session_volume(client: AsyncClient, db_session: AsyncSession):
+    coach = User(
+        email="coach-volume@example.com",
+        hashed_password=security.get_password_hash("password123"),
+        role=Role.COACH,
+        full_name="Volume Coach",
+        is_active=True,
+    )
+    member = User(
+        email="member-volume@example.com",
+        hashed_password=security.get_password_hash("password123"),
+        role=Role.CUSTOMER,
+        full_name="Volume Member",
+        is_active=True,
+    )
+    db_session.add_all([coach, member])
+    await db_session.flush()
+    plan = WorkoutPlan(
+        name="Volume Plan",
+        creator_id=coach.id,
+        member_id=member.id,
+        status="PUBLISHED",
+        version=1,
+        expected_sessions_per_30d=12,
+    )
+    db_session.add(plan)
+    await db_session.flush()
+    session = WorkoutSession(
+        member_id=member.id,
+        plan_id=plan.id,
+        performed_at=datetime.utcnow() - timedelta(days=1),
+        duration_minutes=40,
+        notes="Strong session",
+    )
+    db_session.add(session)
+    await db_session.flush()
+    db_session.add(
+        WorkoutSessionEntry(
+            session_id=session.id,
+            exercise_name="Bench Press",
+            sets_completed=3,
+            reps_completed=8,
+            weight_kg=100,
+            pr_type="VOLUME",
+            pr_value="2400 kg",
+            is_pr=True,
+            order=0,
+        )
+    )
+    await db_session.commit()
+
+    headers = await _login(client, coach.email)
+    response = await client.get(f"{settings.API_V1_STR}/mobile/staff/members/{member.id}", headers=headers)
+    assert response.status_code == 200
+    detail = response.json()["data"]
+    assert detail["recent_workout_sessions"][0]["session_volume"] == 2400.0
+
+
+@pytest.mark.asyncio
 async def test_mobile_staff_home_coach_uses_real_activity_not_member_summaries(client: AsyncClient, db_session: AsyncSession):
     now = datetime.utcnow()
     coach = User(
@@ -511,9 +570,11 @@ async def test_mobile_customer_plans_and_progress(client: AsyncClient, db_sessio
     assert progress["biometrics"][0]["weight_kg"] == 79.4
     assert progress["attendance_history"][0]["status"] == "GRANTED"
     assert progress["recent_workout_sessions"][0]["duration_minutes"] == 55
+    assert progress["recent_workout_sessions"][0]["session_volume"] == 2100.0
     assert progress["workout_stats"][0]["workouts"] == 1
     assert progress["personal_records"][0]["exercise_name"] == "Deadlift"
     assert progress["personal_records"][0]["pr_value"] == "140kg x 5"
+    assert progress["personal_records"][0]["entry_volume"] == 2100.0
 
 
 @pytest.mark.asyncio

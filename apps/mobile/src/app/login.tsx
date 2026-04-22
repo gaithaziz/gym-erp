@@ -2,7 +2,7 @@ import { useRouter } from "expo-router";
 import { useState } from "react";
 import { StyleSheet, Text, View } from "react-native";
 
-import { Card, Input, MutedText, PrimaryButton, Screen } from "@/components/ui";
+import { Card, Input, MutedText, PrimaryButton, Screen, SecondaryButton } from "@/components/ui";
 import { usePreferences } from "@/lib/preferences";
 import { useSession } from "@/lib/session";
 
@@ -53,6 +53,9 @@ export default function LoginScreen() {
         <PrimaryButton onPress={handleLogin} disabled={busy}>
           {busy ? copy.login.signingIn : copy.login.signInButton}
         </PrimaryButton>
+        <SecondaryButton onPress={() => router.push("/diagnostics" as never)}>
+          Diagnostics
+        </SecondaryButton>
       </Card>
     </Screen>
   );

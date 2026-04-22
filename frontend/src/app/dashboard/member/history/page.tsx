@@ -28,6 +28,7 @@ export default function HistoryPage() {
     const [accessLogs, setAccessLogs] = useState<AccessLog[]>([]);
     const [transactions, setTransactions] = useState<Transaction[]>([]);
     const [loading, setLoading] = useState(true);
+    const [loadError, setLoadError] = useState<string | null>(null);
 
     const paymentMethodLabel = (method: string) => {
         const normalized = method.trim().toUpperCase();
@@ -48,23 +49,27 @@ export default function HistoryPage() {
     useEffect(() => {
         const fetchHistory = async () => {
             setLoading(true);
+            setLoadError(null);
             try {
                 const [accessRes, financeRes] = await Promise.all([
-                    api.get('/access/my-history').catch(() => ({ data: { data: [] } })),
-                    api.get('/finance/my-transactions').catch(() => ({ data: { data: [] } })),
+                    api.get('/access/my-history'),
+                    api.get('/finance/my-transactions'),
                 ]);
 
                 setAccessLogs(accessRes.data.data || []);
                 setTransactions(financeRes.data.data || []);
             } catch (err) {
                 console.error('Failed to fetch history', err);
+                setAccessLogs([]);
+                setTransactions([]);
+                setLoadError(locale === 'ar' ? 'فشل تحميل السجل' : 'Failed to load history');
             } finally {
                 setLoading(false);
             }
         };
 
         fetchHistory();
-    }, []);
+    }, [locale]);
 
     const LoadingSkeleton = () => (
         <div className="space-y-4 animate-pulse">
@@ -105,6 +110,11 @@ export default function HistoryPage() {
             </div>
 
             <div className="min-h-[400px]">
+                {loadError && (
+                    <div className="mb-4 rounded-sm border border-destructive/30 bg-destructive/10 px-3 py-2 text-sm text-destructive">
+                        {loadError}
+                    </div>
+                )}
                 {loading ? (
                     <LoadingSkeleton />
                 ) : activeTab === 'ACCESS' ? (

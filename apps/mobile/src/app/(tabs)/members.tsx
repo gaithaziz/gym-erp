@@ -33,6 +33,12 @@ type PlanSummary = {
 type Notice = { kind: "success" | "error"; message: string };
 const SECTION_PREVIEW_LIMIT = 3;
 const MEMBER_DROPDOWN_LIMIT = 8;
+const PROGRESS_RANGES = [
+  { id: "7d", days: 7, labelKey: "range7Days" as const },
+  { id: "30d", days: 30, labelKey: "range30Days" as const },
+  { id: "90d", days: 90, labelKey: "range90Days" as const },
+  { id: "all", days: null, labelKey: "rangeAll" as const },
+] as const;
 
 function visibleItems<T>(items: T[], expanded?: boolean, limit = SECTION_PREVIEW_LIMIT) {
   return expanded ? items : items.slice(0, limit);
@@ -717,12 +723,33 @@ function PlanAssignRow({ plan, disabled, onPress }: { plan: PlanSummary; disable
 }
 
 function ProgressSnapshotCard({ detail, locale }: { detail: MobileStaffMemberDetail; locale: string }) {
-  const { copy, isRTL } = usePreferences();
-  const biometrics = [...detail.biometrics].reverse().slice(-8);
-  const latest = detail.latest_biometric ?? biometrics.at(-1) ?? null;
+  const { copy, direction, fontSet, isRTL, theme } = usePreferences();
+  const [rangeId, setRangeId] = useState<(typeof PROGRESS_RANGES)[number]["id"]>("30d");
+  const selectedRange = PROGRESS_RANGES.find((item) => item.id === rangeId) ?? PROGRESS_RANGES[1];
+  const selectedRangeLabel = copy.progress[selectedRange.labelKey];
+  const allBiometrics = [...detail.biometrics].sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
+  const allSessions = [...detail.recent_workout_sessions].sort((a, b) => new Date(a.performed_at).getTime() - new Date(b.performed_at).getTime());
+  const rangeStart = useMemo(() => {
+    if (selectedRange.days == null) {
+      return null;
+    }
+    const start = new Date();
+    start.setHours(0, 0, 0, 0);
+    start.setDate(start.getDate() - selectedRange.days + 1);
+    return start;
+  }, [selectedRange.days]);
+  const filteredBiometrics = useMemo(
+    () => (rangeStart ? allBiometrics.filter((entry) => new Date(entry.date) >= rangeStart) : allBiometrics),
+    [allBiometrics, rangeStart],
+  );
+  const filteredSessions = useMemo(
+    () => (rangeStart ? allSessions.filter((session) => new Date(session.performed_at) >= rangeStart) : allSessions),
+    [allSessions, rangeStart],
+  );
+  const latest = detail.latest_biometric ?? filteredBiometrics.at(-1) ?? null;
   const age = calculateAge(detail.member.date_of_birth);
-  const workoutTrend = buildSessionCountTrend(detail.recent_workout_sessions, locale);
-  const sessionLoadTrend = buildSessionVolumeTrend(detail.recent_workout_sessions, locale);
+  const workoutTrend = buildSessionCountTrend(filteredSessions, locale);
+  const sessionLoadTrend = buildSessionVolumeTrend(filteredSessions, locale);
 
   return (
     <Card style={styles.progressCard}>
@@ -732,6 +759,36 @@ function ProgressSnapshotCard({ detail, locale }: { detail: MobileStaffMemberDet
       </View>
       <MutedText>{copy.progress.subtitle}</MutedText>
 
+      <View style={[styles.rangeCard, { backgroundColor: theme.cardAlt, borderColor: theme.border }]}>
+        <View style={[styles.sectionHeader, { flexDirection: isRTL ? "row-reverse" : "row" }]}>
+          <MutedText>{copy.progress.selectedRangeSummary}</MutedText>
+          <Text style={{ color: theme.primary, fontFamily: fontSet.mono, fontSize: 12, fontWeight: "800" }}>{selectedRangeLabel}</Text>
+        </View>
+        <View style={[styles.rangeRow, { flexDirection: isRTL ? "row-reverse" : "row" }]}>
+          {PROGRESS_RANGES.map((range) => {
+            const active = range.id === rangeId;
+            const label = copy.progress[range.labelKey];
+            return (
+              <Pressable
+                key={range.id}
+                onPress={() => setRangeId(range.id)}
+                style={[
+                  styles.rangeChip,
+                  {
+                    borderColor: active ? theme.primary : theme.border,
+                    backgroundColor: active ? theme.primarySoft : theme.background,
+                  },
+                ]}
+              >
+                <Text style={{ color: active ? theme.primary : theme.foreground, fontFamily: fontSet.mono, fontSize: 11, fontWeight: "900" }}>
+                  {label}
+                </Text>
+              </Pressable>
+            );
+          })}
+        </View>
+      </View>
+
       <View style={[styles.metricGrid, { flexDirection: isRTL ? "row-reverse" : "row" }]}>
         <MiniMetric label={copy.progress.age} value={age ?? "--"} />
         <MiniMetric label={copy.progress.lastHeight} value={latest?.height_cm != null ? `${latest.height_cm} cm` : "--"} />
@@ -739,25 +796,25 @@ function ProgressSnapshotCard({ detail, locale }: { detail: MobileStaffMemberDet
         <MiniMetric label={copy.progress.lastBodyFat} value={latest?.body_fat_pct != null ? `${latest.body_fat_pct}%` : "--"} />
       </View>
       <View style={[styles.metricGrid, { flexDirection: isRTL ? "row-reverse" : "row" }]}>
-        <MiniMetric label={copy.progress.recentSessions} value={detail.recent_workout_sessions.length} />
-        <MiniMetric label={copy.membersScreen.biometrics} value={detail.biometrics.length} />
+        <MiniMetric label={copy.progress.workoutsInRange} value={filteredSessions.length} />
+        <MiniMetric label={copy.membersScreen.biometrics} value={filteredBiometrics.length} />
       </View>
 
       <SparklineChart
         title={copy.progress.weightTrend}
-        points={biometrics.map((entry) => ({ label: new Date(entry.date).toLocaleDateString(locale, { month: "short", day: "numeric" }), value: entry.weight_kg }))}
+        points={filteredBiometrics.map((entry) => ({ label: new Date(entry.date).toLocaleDateString(locale, { month: "short", day: "numeric" }), value: entry.weight_kg }))}
         unit=" kg"
         emptyMessage={copy.progress.graphNoData}
       />
       <SparklineChart
         title={copy.progress.bodyFatTrend}
-        points={biometrics.map((entry) => ({ label: new Date(entry.date).toLocaleDateString(locale, { month: "short", day: "numeric" }), value: entry.body_fat_pct }))}
+        points={filteredBiometrics.map((entry) => ({ label: new Date(entry.date).toLocaleDateString(locale, { month: "short", day: "numeric" }), value: entry.body_fat_pct }))}
         unit="%"
         emptyMessage={copy.progress.graphNoData}
       />
       <SparklineChart
         title={copy.progress.muscleTrend}
-        points={biometrics.map((entry) => ({ label: new Date(entry.date).toLocaleDateString(locale, { month: "short", day: "numeric" }), value: entry.muscle_mass_kg }))}
+        points={filteredBiometrics.map((entry) => ({ label: new Date(entry.date).toLocaleDateString(locale, { month: "short", day: "numeric" }), value: entry.muscle_mass_kg }))}
         unit=" kg"
         emptyMessage={copy.progress.graphNoData}
       />
@@ -786,7 +843,8 @@ function ChartSummary({
 }) {
   const { copy, direction, fontSet, isRTL, theme } = usePreferences();
   const formattedLatest = `${formatChartNumber(latest)}${unit}`;
-  const formattedDelta = typeof delta === "number" ? `${delta > 0 ? "+" : ""}${formatChartNumber(delta)}${unit}` : "--";
+  const formattedDelta = typeof delta === "number" ? (delta === 0 ? copy.progress.noChange : `${delta > 0 ? "+" : ""}${formatChartNumber(delta)}${unit}`) : "--";
+  const isFlatSeries = min === max;
   return (
     <>
       <View style={[styles.chartHeader, { flexDirection: isRTL ? "row-reverse" : "row" }]}>
@@ -795,12 +853,8 @@ function ChartSummary({
       </View>
       {!singlePoint ? (
         <View style={[styles.chartMeta, { flexDirection: isRTL ? "row-reverse" : "row" }]}>
-          <MutedText>
-            {copy.progress.range}: {formatChartNumber(min)}
-            {unit} - {formatChartNumber(max)}
-            {unit}
-          </MutedText>
-          <Text style={[styles.chartDelta, { color: !delta ? theme.muted : theme.primary, fontFamily: fontSet.mono }]}>
+          <MutedText>{isFlatSeries ? `${copy.progress.steadyAt}: ${formattedLatest}` : `${copy.progress.range}: ${formatChartNumber(min)}${unit} - ${formatChartNumber(max)}${unit}`}</MutedText>
+          <Text style={[styles.chartDelta, { color: delta === 0 ? theme.muted : theme.primary, fontFamily: fontSet.mono }]}>
             {copy.progress.change}: {formattedDelta}
           </Text>
         </View>
@@ -1048,7 +1102,7 @@ function CountBarChart({
             {previousPoint ? (
               <>
                 <MutedText>{`${copy.progress.previousPoint}: ${previousPoint.label} · ${formatChartNumber(previousPoint.value)}${unit}`}</MutedText>
-                <MutedText>{`${copy.progress.change}: ${selectedDelta && selectedDelta > 0 ? "+" : ""}${formatChartNumber(selectedDelta ?? 0)}${unit}`}</MutedText>
+                <MutedText>{`${copy.progress.change}: ${selectedDelta === 0 ? copy.progress.noChange : `${selectedDelta && selectedDelta > 0 ? "+" : ""}${formatChartNumber(selectedDelta ?? 0)}${unit}`}`}</MutedText>
               </>
             ) : null}
           </>
@@ -1213,6 +1267,13 @@ const styles = StyleSheet.create({
     gap: 14,
     borderRadius: 28,
   },
+  rangeCard: {
+    borderWidth: 1,
+    borderRadius: 20,
+    gap: 10,
+    paddingHorizontal: 12,
+    paddingVertical: 12,
+  },
   heroHeader: {
     alignItems: "center",
     gap: 14,
@@ -1272,6 +1333,16 @@ const styles = StyleSheet.create({
   metricGrid: {
     gap: 8,
     flexWrap: "wrap",
+  },
+  rangeRow: {
+    flexWrap: "wrap",
+    gap: 8,
+  },
+  rangeChip: {
+    borderWidth: 1,
+    borderRadius: 999,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
   },
   miniMetric: {
     width: "48%",

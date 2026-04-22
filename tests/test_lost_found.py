@@ -8,6 +8,7 @@ from app.auth.security import get_password_hash
 from app.config import settings
 from app.models.enums import Role
 from app.models.user import User
+from app.services.tenancy_service import TenancyService
 
 
 async def _login(client: AsyncClient, email: str, password: str = "password123") -> dict[str, str]:
@@ -114,7 +115,52 @@ async def test_visibility_and_handler_filters(client: AsyncClient, db_session: A
         f"{settings.API_V1_STR}/lost-found/summary",
         headers=await _login(client, front_desk.email, password),
     )
-    assert summary_front_desk.status_code == 403
+    assert summary_front_desk.status_code == 200
+
+
+@pytest.mark.asyncio
+async def test_staff_can_view_branch_lost_found_items(client: AsyncClient, db_session: AsyncSession):
+    password = "password123"
+    hashed = get_password_hash(password)
+    coach = User(email="coach_lf_view@gym.com", hashed_password=hashed, role=Role.COACH, full_name="Coach View")
+    employee = User(email="employee_lf_view@gym.com", hashed_password=hashed, role=Role.EMPLOYEE, full_name="Employee View")
+    customer = User(email="customer_lf_view@gym.com", hashed_password=hashed, role=Role.CUSTOMER, full_name="Customer View")
+    db_session.add_all([coach, employee, customer])
+    await db_session.flush()
+
+    gym, branch = await TenancyService.ensure_default_gym_and_branch(db_session)
+    for user in (coach, employee, customer):
+        user.gym_id = gym.id
+        user.home_branch_id = branch.id
+    await db_session.flush()
+    await TenancyService.ensure_user_branch_access(db_session, user_id=coach.id, gym_id=gym.id, branch_id=branch.id)
+    await TenancyService.ensure_user_branch_access(db_session, user_id=employee.id, gym_id=gym.id, branch_id=branch.id)
+    await TenancyService.ensure_user_branch_access(db_session, user_id=customer.id, gym_id=gym.id, branch_id=branch.id)
+    await db_session.commit()
+
+    customer_headers = await _login(client, customer.email, password)
+    coach_headers = await _login(client, coach.email, password)
+    employee_headers = await _login(client, employee.email, password)
+
+    create = await client.post(
+        f"{settings.API_V1_STR}/lost-found/items",
+        headers=customer_headers,
+        json={"title": "Shared Bottle", "description": "Left near the treadmill", "category": "Accessories"},
+    )
+    assert create.status_code == 200
+    item_id = create.json()["data"]["id"]
+
+    coach_list = await client.get(f"{settings.API_V1_STR}/lost-found/items", headers=coach_headers)
+    assert coach_list.status_code == 200
+    assert any(item["id"] == item_id for item in coach_list.json()["data"])
+
+    employee_item = await client.get(f"{settings.API_V1_STR}/lost-found/items/{item_id}", headers=employee_headers)
+    assert employee_item.status_code == 200
+    assert employee_item.json()["data"]["title"] == "Shared Bottle"
+
+    customer_list = await client.get(f"{settings.API_V1_STR}/lost-found/items", headers=customer_headers)
+    assert customer_list.status_code == 200
+    assert len(customer_list.json()["data"]) == 1
 
 
 @pytest.mark.asyncio
@@ -155,7 +201,7 @@ async def test_status_assign_and_acl(client: AsyncClient, db_session: AsyncSessi
         headers=front_desk_headers,
         json={"status": "UNDER_REVIEW"},
     )
-    assert forbidden_status_fd.status_code == 403
+    assert forbidden_status_fd.status_code == 200
 
     assign = await client.post(
         f"{settings.API_V1_STR}/lost-found/items/{item_id}/assign",
@@ -170,14 +216,14 @@ async def test_status_assign_and_acl(client: AsyncClient, db_session: AsyncSessi
         headers=admin_headers,
         json={"assignee_id": str(front_desk.id)},
     )
-    assert invalid_assign.status_code == 400
+    assert invalid_assign.status_code == 200
 
     to_under_review = await client.post(
         f"{settings.API_V1_STR}/lost-found/items/{item_id}/status",
         headers=reception_headers,
         json={"status": "UNDER_REVIEW", "note": "Checking CCTV"},
     )
-    assert to_under_review.status_code == 200
+    assert to_under_review.status_code == 400
 
     invalid_transition = await client.post(
         f"{settings.API_V1_STR}/lost-found/items/{item_id}/status",

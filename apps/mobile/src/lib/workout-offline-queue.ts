@@ -1,6 +1,6 @@
 import * as SecureStore from "expo-secure-store";
 
-const WORKOUT_QUEUE_KEY = "gym-erp.mobile.workout-offline-queue";
+const WORKOUT_QUEUE_KEY = "gymerpmobileworkoutofflinequeue";
 
 export type WorkoutQueuedAction =
   | {

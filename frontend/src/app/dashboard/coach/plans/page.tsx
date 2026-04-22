@@ -120,7 +120,7 @@ async function loadWorkoutPlansData({
     setRefreshing(true);
     try {
         const [plansRes, summariesRes, adherenceRes] = await Promise.all([
-            api.get('/fitness/plans'),
+            api.get('/fitness/plans', { params: { include_all_creators: true } }),
             api.get('/fitness/plan-summaries').catch(() => ({ data: { data: [] } })),
             api.get('/fitness/plans/adherence', { params: { window_days: 30 } }).catch(() => ({ data: { data: [] } })),
         ]);

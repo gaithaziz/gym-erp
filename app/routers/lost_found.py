@@ -29,7 +29,8 @@ MAX_BYTES_BY_MIME = {
     **{mime: 75 * 1024 * 1024 for mime in VIDEO_MIME_TYPES},
 }
 UPLOAD_DIR = os.path.join("static", "lost_found_media")
-HANDLER_ROLES = {Role.ADMIN, Role.RECEPTION}
+HANDLER_ROLES = {Role.ADMIN, Role.MANAGER, Role.RECEPTION, Role.FRONT_DESK}
+READ_BRANCH_ROLES = HANDLER_ROLES | {Role.COACH, Role.EMPLOYEE, Role.CASHIER}
 TERMINAL_STATUSES = {LostFoundStatus.CLOSED, LostFoundStatus.REJECTED, LostFoundStatus.DISPOSED}
 ALLOWED_TRANSITIONS: dict[LostFoundStatus, set[LostFoundStatus]] = {
     LostFoundStatus.REPORTED: {LostFoundStatus.UNDER_REVIEW, LostFoundStatus.REJECTED},
@@ -66,6 +67,7 @@ class LostFoundItemCreateRequest(BaseModel):
     title: str
     description: str
     category: str
+    branch_id: uuid.UUID | None = None
     found_date: date | None = None
     found_location: str | None = None
     contact_note: str | None = None
@@ -120,13 +122,49 @@ def _is_admin(user: User) -> bool:
     return user.role == Role.ADMIN
 
 
+def _can_read_branch_items(user: User) -> bool:
+    return user.role in READ_BRANCH_ROLES
+
+
 def _to_actor(user: User) -> LostFoundActorResponse:
+    return _to_actor_or_unknown(user)
+
+
+def _to_actor_or_unknown(
+    user: User | None,
+    *,
+    fallback_id: uuid.UUID | None = None,
+    fallback_role: str = "UNKNOWN",
+) -> LostFoundActorResponse:
+    if user is not None:
+        role_value = user.role.value if isinstance(user.role, Role) else str(user.role)
+        return LostFoundActorResponse(
+            id=user.id,
+            full_name=user.full_name,
+            email=user.email,
+            role=role_value,
+        )
+
     return LostFoundActorResponse(
-        id=user.id,
-        full_name=user.full_name,
-        email=user.email,
-        role=user.role.value,
+        id=fallback_id or uuid.UUID(int=0),
+        full_name="Hidden user",
+        email="hidden@gym-erp.local",
+        role=fallback_role,
     )
+
+
+def _reporter_actor(item: LostFoundItem) -> LostFoundActorResponse:
+    return _to_actor_or_unknown(item.reporter, fallback_id=item.reporter_id, fallback_role=Role.CUSTOMER.value)
+
+
+def _assignee_actor(item: LostFoundItem) -> LostFoundActorResponse | None:
+    if item.assignee_id is None:
+        return None
+    return _to_actor_or_unknown(item.assignee, fallback_id=item.assignee_id)
+
+
+def _comment_actor(comment: LostFoundComment) -> LostFoundActorResponse:
+    return _to_actor_or_unknown(comment.author, fallback_id=comment.author_id)
 
 
 async def _get_item_or_404(db: AsyncSession, item_id: uuid.UUID) -> LostFoundItem:
@@ -148,50 +186,52 @@ async def _get_item_or_404(db: AsyncSession, item_id: uuid.UUID) -> LostFoundIte
     return item
 
 
-def _ensure_item_visible(user: User, item: LostFoundItem) -> None:
+async def _ensure_item_visible(user: User, item: LostFoundItem, db: AsyncSession) -> None:
     if _is_handler(user):
         return
     if item.reporter_id != user.id:
+        if _can_read_branch_items(user) and item.gym_id == user.gym_id:
+            return
         raise HTTPException(status_code=403, detail="Access denied")
 
 
 def _serialize_item(item: LostFoundItem) -> LostFoundItemResponse:
-    comments = sorted(item.comments, key=lambda c: c.created_at)
-    media = sorted(item.media, key=lambda m: m.created_at)
+    comments = sorted(item.comments or [], key=lambda c: c.created_at or datetime.now(timezone.utc))
+    media = sorted(item.media or [], key=lambda m: m.created_at or datetime.now(timezone.utc))
     return LostFoundItemResponse(
-        id=item.id,
-        status=item.status,
-        reporter=_to_actor(item.reporter),
-        assignee=_to_actor(item.assignee) if item.assignee else None,
-        title=item.title,
-        description=item.description,
-        category=item.category,
+        id=item.id or uuid.UUID(int=0),
+        status=item.status or LostFoundStatus.REPORTED,
+        reporter=_reporter_actor(item),
+        assignee=_assignee_actor(item),
+        title=item.title or "Lost & Found Item",
+        description=item.description or "",
+        category=item.category or "OTHER",
         found_date=item.found_date,
         found_location=item.found_location,
         contact_note=item.contact_note,
         media=[
             LostFoundMediaResponse(
-                id=m.id,
-                uploader_id=m.uploader_id,
-                media_url=m.media_url,
-                media_mime=m.media_mime,
-                media_size_bytes=m.media_size_bytes,
-                created_at=m.created_at,
+                id=m.id or uuid.UUID(int=0),
+                uploader_id=m.uploader_id or uuid.UUID(int=0),
+                media_url=m.media_url or "",
+                media_mime=m.media_mime or "application/octet-stream",
+                media_size_bytes=m.media_size_bytes or 0,
+                created_at=m.created_at or datetime.now(timezone.utc),
             )
             for m in media
         ],
         comments=[
             LostFoundCommentResponse(
-                id=c.id,
-                item_id=c.item_id,
-                author=_to_actor(c.author),
-                text=c.text,
-                created_at=c.created_at,
+                id=c.id or uuid.UUID(int=0),
+                item_id=c.item_id or uuid.UUID(int=0),
+                author=_comment_actor(c),
+                text=c.text or "",
+                created_at=c.created_at or datetime.now(timezone.utc),
             )
             for c in comments
         ],
-        created_at=item.created_at,
-        updated_at=item.updated_at,
+        created_at=item.created_at or datetime.now(timezone.utc),
+        updated_at=item.updated_at or item.created_at or datetime.now(timezone.utc),
         closed_at=item.closed_at,
     )
 
@@ -261,7 +301,7 @@ async def create_lost_found_item(
     branch_id: Annotated[uuid.UUID | None, Query()] = None,
 ):
     now = datetime.now(timezone.utc)
-    effective_branch_id = branch_id or current_user.home_branch_id
+    effective_branch_id = branch_id or payload.branch_id or current_user.home_branch_id
     if not effective_branch_id:
         raise HTTPException(status_code=400, detail="branch_id is required")
     await TenancyService.require_branch_access(
@@ -342,17 +382,17 @@ async def list_lost_found_items(
         branch_id=branch_id,
         allow_all_for_admin=True,
     )
-    if branch_ids:
+    if branch_id is not None and branch_ids:
         stmt = stmt.where(LostFoundItem.branch_id.in_(branch_ids))
 
     if archived_only:
-        if not _is_admin(current_user):
-            raise HTTPException(status_code=403, detail="Operation not permitted")
         stmt = stmt.where(LostFoundItem.status.in_(TERMINAL_STATUSES))
     else:
         stmt = stmt.where(~LostFoundItem.status.in_(TERMINAL_STATUSES))
 
-    if _is_handler(current_user):
+    if _is_handler(current_user) or _can_read_branch_items(current_user):
+        if branch_id is not None and branch_ids:
+            stmt = stmt.where(LostFoundItem.branch_id.in_(branch_ids))
         if status:
             stmt = stmt.where(LostFoundItem.status == status)
         if assignee_id:
@@ -378,7 +418,7 @@ async def list_lost_found_handlers(
         raise HTTPException(status_code=403, detail="Operation not permitted")
 
     result = await db.execute(
-        select(User).where(User.role.in_([Role.ADMIN, Role.RECEPTION])).order_by(User.full_name.asc(), User.email.asc())
+        select(User).where(User.role.in_(list(HANDLER_ROLES))).order_by(User.full_name.asc(), User.email.asc())
     )
     users = result.scalars().all()
     return StandardResponse(data=[_to_actor(user) for user in users])
@@ -391,9 +431,7 @@ async def get_lost_found_item(
     db: Annotated[AsyncSession, Depends(get_db)],
 ):
     item = await _get_item_or_404(db, item_id)
-    if item.status in TERMINAL_STATUSES and not _is_admin(current_user):
-        raise HTTPException(status_code=403, detail="Access denied")
-    _ensure_item_visible(current_user, item)
+    await _ensure_item_visible(current_user, item, db)
     return StandardResponse(data=_serialize_item(item))
 
 
@@ -409,7 +447,7 @@ async def create_lost_found_comment(
         raise HTTPException(status_code=400, detail="Comment text is required")
 
     item = await _get_item_or_404(db, item_id)
-    _ensure_item_visible(current_user, item)
+    await _ensure_item_visible(current_user, item, db)
 
     now = datetime.now(timezone.utc)
     comment = LostFoundComment(
@@ -435,7 +473,7 @@ async def create_lost_found_comment(
         data=LostFoundCommentResponse(
             id=comment.id,
             item_id=comment.item_id,
-            author=_to_actor(comment.author),
+            author=_comment_actor(comment),
             text=comment.text,
             created_at=comment.created_at,
         )
@@ -549,7 +587,7 @@ async def upload_lost_found_media(
     file: UploadFile = File(...),
 ):
     item = await _get_item_or_404(db, item_id)
-    _ensure_item_visible(current_user, item)
+    await _ensure_item_visible(current_user, item, db)
 
     if not _is_handler(current_user):
         if item.status not in {LostFoundStatus.REPORTED, LostFoundStatus.UNDER_REVIEW}:

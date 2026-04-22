@@ -10,7 +10,7 @@ interface Badge {
     badge_type: string;
     badge_name: string;
     badge_description: string;
-    earned_at: string;
+    earned_at: string | null;
 }
 
 interface GamificationStats {
@@ -161,7 +161,7 @@ export default function AchievementsPage() {
                                 </div>
                                 <p className="text-sm font-bold text-foreground font-mono">{badge.name}</p>
                                 <p className="text-xs text-muted-foreground mt-1">{badge.desc}</p>
-                                {earned && earnedBadge && (
+                                {earned && earnedBadge && earnedBadge.earned_at && (
                                     <p className="text-[0.6rem] text-primary font-mono mt-2 flex items-center justify-center gap-1">
                                         <Star size={10} />
                                         {formatDate(earnedBadge.earned_at, { year: 'numeric', month: 'short', day: 'numeric' })}

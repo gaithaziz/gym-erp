@@ -33,13 +33,17 @@ export type Role = z.infer<typeof roleSchema>;
 export type SubscriptionStatus = z.infer<typeof subscriptionStatusSchema>;
 export type SubscriptionBlockReason = z.infer<typeof subscriptionBlockReasonSchema>;
 
+const UUID_LIKE_PATTERN = /^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$/;
+
+export const uuidLikeSchema = z.string().regex(UUID_LIKE_PATTERN, "Invalid UUID");
+
 export const authUserSchema = z.object({
-  id: z.string().uuid(),
+  id: uuidLikeSchema,
   email: z.string().email(),
   full_name: z.string().nullable().optional().default(null),
   role: roleSchema,
-  gym_id: z.string().uuid(),
-  home_branch_id: z.string().uuid().nullable().optional(),
+  gym_id: uuidLikeSchema,
+  home_branch_id: uuidLikeSchema.nullable().optional(),
   profile_picture_url: z.string().nullable().optional(),
   phone_number: z.string().nullable().optional(),
   date_of_birth: z.string().nullable().optional(),

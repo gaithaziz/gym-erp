@@ -15,6 +15,23 @@ interface UseSupportTicketsArgs {
 
 type TicketRow = SupportTicket | SupportTicketWithCustomer;
 
+function toErrorMessage(detail: unknown): string {
+    if (typeof detail === 'string') return detail;
+    if (Array.isArray(detail)) {
+        const first = detail[0];
+        if (typeof first === 'string') return first;
+        if (first && typeof first === 'object' && 'msg' in first) {
+            const msg = (first as { msg?: unknown }).msg;
+            if (typeof msg === 'string') return msg;
+        }
+    }
+    if (detail && typeof detail === 'object' && 'msg' in detail) {
+        const msg = (detail as { msg?: unknown }).msg;
+        if (typeof msg === 'string') return msg;
+    }
+    return 'Failed to load tickets';
+}
+
 export function useSupportTickets<T extends TicketRow>() {
     const [tickets, setTickets] = useState<T[]>([]);
     const [total, setTotal] = useState(0);
@@ -31,15 +48,15 @@ export function useSupportTickets<T extends TicketRow>() {
             if (typeof args.isActive === 'boolean') params.is_active = args.isActive;
             if (args.category) params.category = args.category;
             if (args.statusFilter) params.status_filter = args.statusFilter;
-            if (args.branchId) params.branch_id = args.branchId;
+            if (args.branchId && args.branchId !== 'all') params.branch_id = args.branchId;
 
             const response = await api.get('/support/tickets', { params });
             setTickets((response.data?.data || []) as T[]);
             setTotal(Number(response.headers['x-total-count'] || 0));
             setError(null);
         } catch (err) {
-            const apiError = err as { response?: { data?: { detail?: string } } };
-            setError(apiError.response?.data?.detail || 'Failed to load tickets');
+            const apiError = err as { response?: { data?: { detail?: unknown } } };
+            setError(toErrorMessage(apiError.response?.data?.detail));
         } finally {
             setLoading(false);
         }
@@ -53,4 +70,3 @@ export function useSupportTickets<T extends TicketRow>() {
         fetchTickets,
     };
 }
-

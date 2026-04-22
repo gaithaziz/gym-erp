@@ -470,25 +470,53 @@ async def test_member_can_track_structured_diet_by_day_and_meal(client: AsyncCli
     assert tracker["has_structured_content"] is True
     assert tracker["days"][0]["meals"][0]["name"] == "Breakfast"
 
-    update_resp = await client.put(
+    start_resp = await client.post(
+        f"{settings.API_V1_STR}/fitness/diets/{diet_id}/tracking/start",
+        json={"tracked_for": tracked_for, "day_id": "day-1"},
+        headers=member_headers,
+    )
+    assert start_resp.status_code == 200
+    assert start_resp.json()["data"]["active_day_id"] == "day-1"
+
+    complete_resp = await client.put(
+        f"{settings.API_V1_STR}/fitness/diets/{diet_id}/tracking/days/day-1/meals/breakfast?tracked_for={tracked_for}",
+        json={"note": "Hit protein target"},
+        headers=member_headers,
+    )
+    assert complete_resp.status_code == 200
+    assert complete_resp.json()["data"]["current_meal_index"] == 1
+
+    skip_resp = await client.post(
+        f"{settings.API_V1_STR}/fitness/diets/{diet_id}/tracking/days/day-1/meals/dinner/skip?tracked_for={tracked_for}",
+        json={"note": "Late meal"},
+        headers=member_headers,
+    )
+    assert skip_resp.status_code == 200
+    assert skip_resp.json()["data"]["current_meal_index"] == 2
+
+    previous_resp = await client.post(
+        f"{settings.API_V1_STR}/fitness/diets/{diet_id}/tracking/days/day-1/previous?tracked_for={tracked_for}",
+        headers=member_headers,
+    )
+    assert previous_resp.status_code == 200
+    assert previous_resp.json()["data"]["current_meal_index"] == 1
+
+    save_resp = await client.put(
         f"{settings.API_V1_STR}/fitness/diets/{diet_id}/tracking",
         json={
             "tracked_for": tracked_for,
             "adherence_rating": 4,
             "notes": "Good food day",
-            "meals": [
-                {"meal_id": "breakfast", "completed": True, "note": "Hit protein target"},
-                {"meal_id": "dinner", "completed": False, "note": "Late meal"},
-            ],
+            "meals": [],
         },
         headers=member_headers,
     )
-    assert update_resp.status_code == 200
-    updated = update_resp.json()["data"]
+    assert save_resp.status_code == 200
+    updated = save_resp.json()["data"]
     assert updated["tracking_day"]["adherence_rating"] == 4
-    tracked_meals = {meal["id"]: meal for meal in updated["tracking_day"]["meals"]}
+    tracked_meals = {meal["id"]: meal for meal in updated["days"][0]["meals"]}
     assert tracked_meals["breakfast"]["completed"] is True
-    assert tracked_meals["breakfast"]["note"] == "Hit protein target"
+    assert tracked_meals["dinner"]["skipped"] is False
 
     history_resp = await client.get(
         f"{settings.API_V1_STR}/fitness/diets/{diet_id}/tracking/history",
@@ -496,6 +524,134 @@ async def test_member_can_track_structured_diet_by_day_and_meal(client: AsyncCli
     )
     assert history_resp.status_code == 200
     assert history_resp.json()["data"][0]["tracked_for"] == tracked_for
+    assert history_resp.json()["data"][0]["active_day_id"] == "day-1"
+
+
+@pytest.mark.asyncio
+async def test_diet_tracking_rejects_non_current_or_unknown_meal(client: AsyncClient, db_session: AsyncSession):
+    password = "password123"
+    hashed = get_password_hash(password)
+
+    coach = User(email="coach_diet_strict@gym.com", hashed_password=hashed, role=Role.COACH, full_name="Coach Diet Strict")
+    member = User(email="member_diet_strict@gym.com", hashed_password=hashed, role=Role.CUSTOMER, full_name="Member Diet Strict")
+    db_session.add_all([coach, member])
+    await db_session.flush()
+    db_session.add(_active_subscription(member.id))
+    await db_session.commit()
+
+    coach_login = await client.post(f"{settings.API_V1_STR}/auth/login", json={"email": coach.email, "password": password})
+    coach_headers = {"Authorization": f"Bearer {coach_login.json()['data']['access_token']}"}
+    member_login = await client.post(f"{settings.API_V1_STR}/auth/login", json={"email": member.email, "password": password})
+    member_headers = {"Authorization": f"Bearer {member_login.json()['data']['access_token']}"}
+
+    diet_resp = await client.post(
+        f"{settings.API_V1_STR}/fitness/diets",
+        json={
+            "name": "Strict Day",
+            "member_id": str(member.id),
+            "status": "PUBLISHED",
+            "content": "Legacy fallback",
+            "content_structured": {
+                "days": [
+                    {
+                        "id": "day-1",
+                        "name": "Day 1",
+                        "meals": [
+                            {"id": "breakfast", "name": "Breakfast", "items": [{"label": "Eggs"}]},
+                            {"id": "dinner", "name": "Dinner", "items": [{"label": "Chicken"}]},
+                        ],
+                    }
+                ]
+            },
+        },
+        headers=coach_headers,
+    )
+    assert diet_resp.status_code == 200
+    diet_id = diet_resp.json()["data"]["id"]
+    tracked_for = datetime.now(timezone.utc).date().isoformat()
+
+    start_resp = await client.post(
+        f"{settings.API_V1_STR}/fitness/diets/{diet_id}/tracking/start",
+        json={"tracked_for": tracked_for, "day_id": "day-1"},
+        headers=member_headers,
+    )
+    assert start_resp.status_code == 200
+
+    out_of_order = await client.put(
+        f"{settings.API_V1_STR}/fitness/diets/{diet_id}/tracking/days/day-1/meals/dinner?tracked_for={tracked_for}",
+        json={"note": "wrong order"},
+        headers=member_headers,
+    )
+    assert out_of_order.status_code == 400
+
+    unknown_meal = await client.put(
+        f"{settings.API_V1_STR}/fitness/diets/{diet_id}/tracking/days/day-1/meals/not-real?tracked_for={tracked_for}",
+        json={"note": "unknown"},
+        headers=member_headers,
+    )
+    assert unknown_meal.status_code == 400
+
+
+@pytest.mark.asyncio
+async def test_legacy_diet_tracking_put_rejects_out_of_sequence_updates(client: AsyncClient, db_session: AsyncSession):
+    password = "password123"
+    hashed = get_password_hash(password)
+
+    coach = User(email="coach_diet_legacy@gym.com", hashed_password=hashed, role=Role.COACH, full_name="Coach Diet Legacy")
+    member = User(email="member_diet_legacy@gym.com", hashed_password=hashed, role=Role.CUSTOMER, full_name="Member Diet Legacy")
+    db_session.add_all([coach, member])
+    await db_session.flush()
+    db_session.add(_active_subscription(member.id))
+    await db_session.commit()
+
+    coach_login = await client.post(f"{settings.API_V1_STR}/auth/login", json={"email": coach.email, "password": password})
+    coach_headers = {"Authorization": f"Bearer {coach_login.json()['data']['access_token']}"}
+    member_login = await client.post(f"{settings.API_V1_STR}/auth/login", json={"email": member.email, "password": password})
+    member_headers = {"Authorization": f"Bearer {member_login.json()['data']['access_token']}"}
+
+    diet_resp = await client.post(
+        f"{settings.API_V1_STR}/fitness/diets",
+        json={
+            "name": "Legacy Strict Day",
+            "member_id": str(member.id),
+            "status": "PUBLISHED",
+            "content": "Legacy fallback",
+            "content_structured": {
+                "days": [
+                    {
+                        "id": "day-1",
+                        "name": "Day 1",
+                        "meals": [
+                            {"id": "breakfast", "name": "Breakfast", "items": [{"label": "Eggs"}]},
+                            {"id": "dinner", "name": "Dinner", "items": [{"label": "Chicken"}]},
+                        ],
+                    }
+                ]
+            },
+        },
+        headers=coach_headers,
+    )
+    assert diet_resp.status_code == 200
+    diet_id = diet_resp.json()["data"]["id"]
+    tracked_for = datetime.now(timezone.utc).date().isoformat()
+
+    await client.post(
+        f"{settings.API_V1_STR}/fitness/diets/{diet_id}/tracking/start",
+        json={"tracked_for": tracked_for, "day_id": "day-1"},
+        headers=member_headers,
+    )
+
+    bad_update = await client.put(
+        f"{settings.API_V1_STR}/fitness/diets/{diet_id}/tracking",
+        json={
+            "tracked_for": tracked_for,
+            "adherence_rating": 3,
+            "notes": "legacy update",
+            "meals": [{"meal_id": "dinner", "completed": True, "note": "out of order"}],
+        },
+        headers=member_headers,
+    )
+    assert bad_update.status_code == 400
 
 
 @pytest.mark.asyncio

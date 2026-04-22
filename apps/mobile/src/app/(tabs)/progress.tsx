@@ -109,9 +109,10 @@ export default function ProgressTab() {
       <QueryState loading={progressQuery.isLoading} loadingVariant="detail" error={progressQuery.error instanceof Error ? progressQuery.error.message : null} />
       {progress ? (
         <>
-          <Card>
+          <Card style={styles.rangeCard}>
             <View style={[styles.sectionHeader, { flexDirection: isRTL ? "row-reverse" : "row" }]}>
               <SectionTitle>{copy.progress.selectedRangeSummary}</SectionTitle>
+              <MutedText>{selectedRangeLabel}</MutedText>
             </View>
             <View style={[styles.rangeRow, { flexDirection: isRTL ? "row-reverse" : "row" }]}>
               {PROGRESS_RANGES.map((range) => {
@@ -128,14 +129,13 @@ export default function ProgressTab() {
                       },
                     ]}
                   >
-                    <Text style={{ color: active ? theme.primary : theme.foreground, fontFamily: fontSet.mono, fontSize: 11, fontWeight: "900" }}>
+                    <Text style={{ color: active ? theme.primary : theme.foreground, fontFamily: fontSet.mono, fontSize: 12, fontWeight: "900" }}>
                       {copy.progress[range.labelKey]}
                     </Text>
                   </Pressable>
                 );
               })}
             </View>
-            <MutedText>{`${copy.progress.range}: ${selectedRangeLabel}`}</MutedText>
           </Card>
 
           <Card>
@@ -372,7 +372,8 @@ function ChartSummary({
 }) {
   const { copy, direction, fontSet, isRTL, theme } = usePreferences();
   const formattedLatest = `${formatChartNumber(latest)}${unit}`;
-  const formattedDelta = typeof delta === "number" ? `${delta > 0 ? "+" : ""}${formatChartNumber(delta)}${unit}` : "--";
+  const formattedDelta = typeof delta === "number" ? (delta === 0 ? copy.progress.noChange : `${delta > 0 ? "+" : ""}${formatChartNumber(delta)}${unit}`) : "--";
+  const isFlatSeries = min === max;
   return (
     <>
       <View style={[styles.chartHeader, { flexDirection: isRTL ? "row-reverse" : "row" }]}>
@@ -381,13 +382,8 @@ function ChartSummary({
       </View>
       {!singlePoint ? (
         <View style={[styles.chartMeta, { flexDirection: isRTL ? "row-reverse" : "row" }]}>
-          <MutedText>
-            {copy.progress.range}:{" "}
-            {formatChartNumber(min)}
-            {unit} - {formatChartNumber(max)}
-            {unit}
-          </MutedText>
-          <Text style={[styles.chartDelta, { color: !delta ? theme.muted : theme.primary, fontFamily: fontSet.mono }]}>
+          <MutedText>{isFlatSeries ? `${copy.progress.steadyAt}: ${formattedLatest}` : `${copy.progress.range}: ${formatChartNumber(min)}${unit} - ${formatChartNumber(max)}${unit}`}</MutedText>
+          <Text style={[styles.chartDelta, { color: delta === 0 ? theme.muted : theme.primary, fontFamily: fontSet.mono }]}>
             {copy.progress.change}: {formattedDelta}
           </Text>
         </View>
@@ -515,7 +511,7 @@ function SparklineChart({
             {previousPoint ? (
               <>
                 <MutedText>{`${copy.progress.previousPoint}: ${previousPoint.label} · ${formatChartNumber(previousPoint.value)}${unit}`}</MutedText>
-                <MutedText>{`${copy.progress.change}: ${selectedDelta && selectedDelta > 0 ? "+" : ""}${formatChartNumber(selectedDelta ?? 0)}${unit}`}</MutedText>
+                <MutedText>{`${copy.progress.change}: ${selectedDelta === 0 ? copy.progress.noChange : `${selectedDelta && selectedDelta > 0 ? "+" : ""}${formatChartNumber(selectedDelta ?? 0)}${unit}`}`}</MutedText>
               </>
             ) : null}
           </>
@@ -680,6 +676,9 @@ const styles = StyleSheet.create({
     gap: 8,
     marginTop: 12,
     paddingTop: 12,
+  },
+  rangeCard: {
+    gap: 10,
   },
   sectionHeader: {
     alignItems: "center",

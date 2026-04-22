@@ -212,7 +212,7 @@ function CustomerHomeTab() {
                   <View key={badge.id} style={[styles.achievementBadge, { backgroundColor: theme.primarySoft, borderColor: theme.border }]}>
                     <Ionicons name={badgeIcon(badge.badge_type)} size={24} color={theme.primary} />
                     <Text style={[styles.achievementText, { color: theme.foreground, fontFamily: fontSet.body, textAlign: "center" }]} numberOfLines={2}>
-                      {cleanBadgeName(badge.badge_name)}
+                      {localizeBadgeName(badge.badge_type, badge.badge_name, isRTL)}
                     </Text>
                   </View>
                 ))}
@@ -653,6 +653,69 @@ function badgeIcon(type: string) {
 
 function cleanBadgeName(name: string) {
   return name.replace(/[^\p{L}\p{N}\s-]/gu, "").trim() || name;
+}
+
+function localizeBadgeName(type: string, fallback: string, isRTL: boolean) {
+  const localized = isRTL ? badgeNameAr(type) : badgeNameEn(type);
+  return localized || cleanBadgeName(fallback);
+}
+
+function badgeNameEn(type: string) {
+  switch (type) {
+    case "STREAK_3":
+      return "3-Day Streak";
+    case "STREAK_7":
+      return "Weekly Warrior";
+    case "STREAK_14":
+      return "Fortnight Force";
+    case "STREAK_30":
+      return "Monthly Machine";
+    case "VISITS_10":
+      return "10 Club Visits";
+    case "VISITS_25":
+      return "25 Club Visits";
+    case "VISITS_50":
+      return "50 Club Visits";
+    case "VISITS_100":
+      return "100 Club";
+    case "VISITS_250":
+      return "250 Club Legend";
+    case "EARLY_BIRD":
+      return "Early Bird";
+    case "NIGHT_OWL":
+      return "Night Owl";
+    default:
+      return null;
+  }
+}
+
+function badgeNameAr(type: string) {
+  switch (type) {
+    case "STREAK_3":
+      return "سلسلة 3 أيام";
+    case "STREAK_7":
+      return "مقاتل الأسبوع";
+    case "STREAK_14":
+      return "قوة الأسبوعين";
+    case "STREAK_30":
+      return "آلة الشهر";
+    case "VISITS_10":
+      return "10 زيارات للنادي";
+    case "VISITS_25":
+      return "25 زيارة للنادي";
+    case "VISITS_50":
+      return "50 زيارة للنادي";
+    case "VISITS_100":
+      return "نادي الـ100";
+    case "VISITS_250":
+      return "أسطورة الـ250";
+    case "EARLY_BIRD":
+      return "الطائر المبكر";
+    case "NIGHT_OWL":
+      return "بومة الليل";
+    default:
+      return null;
+  }
 }
 
 function HomeAction({ label, onPress }: { label: string; onPress: () => void }) {

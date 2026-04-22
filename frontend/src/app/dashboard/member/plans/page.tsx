@@ -17,17 +17,39 @@ import {
     startWorkoutSession,
     updateWorkoutSession,
 } from '../_shared/customerData';
-import type { MemberPlan, WorkoutEffortFeedback, WorkoutSessionDraft, WorkoutSessionDraftEntry, WorkoutSessionLog } from '../_shared/types';
+import type { MemberPlan, WorkoutEffortFeedback, WorkoutSetDetail, WorkoutSessionDraft, WorkoutSessionDraftEntry, WorkoutSessionLog } from '../_shared/types';
 
-type ExerciseLogForm = {
-    sets_completed: string;
-    reps_completed: string;
-    weight_kg: string;
+type SetDetailRow = {
+    set: number;
+    reps: string;
+    weightKg: string;
+};
+
+type SetSummary = {
+    setsCompleted: number;
+    repsCompleted: number;
+    weightKg: number | null;
+    totalVolume: number;
+};
+
+type ExerciseForm = {
     notes: string;
     is_pr: boolean;
     pr_type: string;
     pr_value: string;
     pr_notes: string;
+};
+
+type CompleteWorkoutPayload = {
+    sets_completed: number;
+    reps_completed: number;
+    weight_kg: number | null;
+    notes: string | null;
+    is_pr: boolean;
+    pr_type: string | null;
+    pr_value: string | null;
+    pr_notes: string | null;
+    set_details: WorkoutSetDetail[];
 };
 
 type SessionEditForm = {
@@ -38,10 +60,7 @@ type SessionEditForm = {
     effort_feedback: WorkoutEffortFeedback | '';
 };
 
-const emptyForm: ExerciseLogForm = {
-    sets_completed: '',
-    reps_completed: '',
-    weight_kg: '',
+const emptyForm: ExerciseForm = {
     notes: '',
     is_pr: false,
     pr_type: 'WEIGHT',
@@ -57,9 +76,71 @@ const emptySessionEditForm: SessionEditForm = {
     effort_feedback: '',
 };
 
-function toNumber(value: string): number {
-    const parsed = Number(value);
-    return Number.isFinite(parsed) && parsed >= 0 ? parsed : 0;
+function buildDefaultSetRows(entry?: WorkoutSessionDraftEntry | null): SetDetailRow[] {
+    const count = Math.max(1, entry?.target_sets ?? entry?.sets_completed ?? 1);
+    return Array.from({ length: count }, (_, index) => ({
+        set: index + 1,
+        reps: entry?.set_details?.[index]?.reps != null
+            ? String(entry.set_details[index].reps)
+            : entry?.target_reps != null
+                ? String(entry.target_reps)
+                : '',
+        weightKg: entry?.set_details?.[index]?.weightKg != null
+            ? String(entry.set_details[index].weightKg)
+            : entry?.weight_kg != null
+                ? String(entry.weight_kg)
+                : '',
+    }));
+}
+
+function summarizeSetRows(rows: SetDetailRow[], fallback: { weightKg: string; repsCompleted: string }): SetSummary {
+    const completedRows = rows.filter((row) => row.reps.trim() || row.weightKg.trim());
+    const reps = completedRows.map((row) => Number(row.reps || 0)).filter(Number.isFinite);
+    const weights = completedRows.map((row) => Number(row.weightKg || 0)).filter(Number.isFinite);
+    const totalVolume = completedRows.reduce((sum, row) => {
+        const repsValue = Number(row.reps || 0);
+        const weightValue = Number(row.weightKg || 0);
+        if (!Number.isFinite(repsValue) || !Number.isFinite(weightValue)) return sum;
+        return sum + (repsValue * weightValue);
+    }, 0);
+    const fallbackWeight = fallback.weightKg ? Number(fallback.weightKg) : null;
+    const fallbackReps = Number(fallback.repsCompleted || 0);
+    return {
+        setsCompleted: completedRows.length || 0,
+        repsCompleted: reps.length ? Math.max(...reps) : fallbackReps,
+        weightKg: weights.length ? Math.max(...weights) : fallbackWeight,
+        totalVolume:
+            totalVolume > 0
+                ? totalVolume
+                : fallbackWeight != null && Number.isFinite(fallbackWeight) && fallbackReps > 0 && (completedRows.length || fallbackWeight > 0)
+                    ? Math.max(1, completedRows.length || 1) * fallbackReps * fallbackWeight
+                    : 0,
+    };
+}
+
+function formatVolumeValue(volume: number) {
+    return Number.isFinite(volume) ? volume.toFixed(volume % 1 === 0 ? 0 : 1) : '0';
+}
+
+function estimateSessionDurationMinutes(draft?: WorkoutSessionDraft | null) {
+    if (!draft?.started_at) return null;
+    const startedAt = new Date(draft.started_at).getTime();
+    if (!Number.isFinite(startedAt)) return null;
+    return Math.max(1, Math.round((Date.now() - startedAt) / 60000));
+}
+
+function resolveAutoPrType(summary: SetSummary, lastSummary: SetSummary | null) {
+    if (!lastSummary) return null;
+    if ((summary.weightKg || 0) > (lastSummary.weightKg || 0)) return 'WEIGHT';
+    if (summary.repsCompleted > lastSummary.repsCompleted && (summary.weightKg || 0) >= (lastSummary.weightKg || 0)) return 'REPS';
+    if (summary.totalVolume > lastSummary.totalVolume) return 'VOLUME';
+    return null;
+}
+
+function formatPrValue(type: string, summary: SetSummary, txt: { weightUnit: string }) {
+    if (type === 'REPS') return `${summary.repsCompleted} reps @ ${summary.weightKg ?? '--'}${txt.weightUnit}`;
+    if (type === 'VOLUME') return `${formatVolumeValue(summary.totalVolume)} ${txt.weightUnit} volume`;
+    return `${summary.weightKg ?? '--'}${txt.weightUnit} x ${summary.repsCompleted}`;
 }
 
 function resolveExerciseVideoUrl(entry: WorkoutSessionDraftEntry): string | null {
@@ -84,7 +165,8 @@ export default function MemberPlansPage() {
     const [busy, setBusy] = useState(false);
     const [sessionNotes, setSessionNotes] = useState('');
     const [sessionDuration, setSessionDuration] = useState('');
-    const [form, setForm] = useState<ExerciseLogForm>(emptyForm);
+    const [exerciseForm, setExerciseForm] = useState<ExerciseForm>(emptyForm);
+    const [setRows, setSetRows] = useState<SetDetailRow[]>([]);
     const [expandedSessionId, setExpandedSessionId] = useState<string | null>(null);
     const [editingSessionId, setEditingSessionId] = useState<string | null>(null);
     const [sessionEditForm, setSessionEditForm] = useState<SessionEditForm>(emptySessionEditForm);
@@ -98,8 +180,8 @@ export default function MemberPlansPage() {
         start: 'ابدأ الجلسة',
         resume: 'استئناف الجلسة',
         abandon: 'إلغاء الجلسة',
-        complete: 'إكمال التمرين',
-        skip: 'تخطي',
+        complete: 'إكمال المجموعة',
+        skip: 'تخطي المجموعة',
         finish: 'إنهاء الجلسة',
         sets: 'الجولات المنفذة',
         reps: 'التكرارات المنفذة',
@@ -143,6 +225,10 @@ export default function MemberPlansPage() {
         doneLabel: 'تم',
         nextLabel: 'التالي',
         autoPr: 'إنجاز شخصي',
+        autoPrWeight: 'إنجاز شخصي: زيادة الوزن عن الجلسة السابقة',
+        autoPrReps: 'إنجاز شخصي: زيادة التكرارات عن الجلسة السابقة',
+        autoPrVolume: 'إنجاز شخصي: زيادة الحجم الكلي عن الجلسة السابقة',
+        invalidSetDetails: 'تفاصيل المجموعات غير صالحة',
         sessionUpdated: 'تم تحديث الجلسة.',
         cancel: 'إلغاء',
         exercise: 'تمرين',
@@ -150,6 +236,12 @@ export default function MemberPlansPage() {
         minuteShort: 'د',
         weightUnit: 'كجم',
         prCount: 'إنجازات',
+        setDetails: 'تفاصيل المجموعات',
+        setLabel: 'مجموعة',
+        lastSession: 'آخر جلسة',
+        totalVolume: 'الحجم الكلي',
+        addSet: 'إضافة مجموعة',
+        removeSet: 'إزالة مجموعة',
         loadFailed: 'تعذر تحميل الخطط',
         updateFailed: 'تعذر تحديث الجلسة',
         startFailed: 'تعذر بدء جلسة التمرين',
@@ -166,8 +258,8 @@ export default function MemberPlansPage() {
         start: 'Start session',
         resume: 'Resume session',
         abandon: 'Abandon session',
-        complete: 'Complete exercise',
-        skip: 'Skip exercise',
+        complete: 'Complete set',
+        skip: 'Skip set',
         finish: 'Finish session',
         sets: 'Sets completed',
         reps: 'Reps completed',
@@ -211,6 +303,10 @@ export default function MemberPlansPage() {
         doneLabel: 'Done',
         nextLabel: 'Next',
         autoPr: 'Auto PR',
+        autoPrWeight: 'Auto PR: weight improved from last session',
+        autoPrReps: 'Auto PR: reps improved from last session',
+        autoPrVolume: 'Auto PR: total volume improved from last session',
+        invalidSetDetails: 'Invalid set details',
         sessionUpdated: 'Session updated.',
         cancel: 'Cancel',
         exercise: 'Exercise',
@@ -218,6 +314,12 @@ export default function MemberPlansPage() {
         minuteShort: 'min',
         weightUnit: 'kg',
         prCount: 'PRs',
+        setDetails: 'Set details',
+        setLabel: 'Set',
+        lastSession: 'Last session',
+        totalVolume: 'Total volume',
+        addSet: 'Add set',
+        removeSet: 'Remove set',
         loadFailed: 'Failed to load plans',
         updateFailed: 'Failed to update session',
         startFailed: 'Failed to start workout session',
@@ -288,6 +390,40 @@ export default function MemberPlansPage() {
 
     const currentEntry = activeDraft?.entries[activeDraft.current_exercise_index] ?? null;
     const completedCount = activeDraft?.entries.filter((entry) => entry.completed_at || entry.skipped).length ?? 0;
+    const canFinishSession = !!activeDraft && completedCount > 0;
+    const estimatedSessionDuration = useMemo(() => estimateSessionDurationMinutes(activeDraft), [activeDraft?.started_at]);
+    const lastPerformance = useMemo(() => {
+        if (!currentEntry?.exercise_name) return null;
+        const targetName = currentEntry.exercise_name.trim().toLowerCase();
+        for (const session of history) {
+            const match = session.entries.find((entry) => !entry.skipped && (entry.exercise_name || '').trim().toLowerCase() === targetName);
+            if (match) return match;
+        }
+        return null;
+    }, [currentEntry?.exercise_name, history]);
+    const currentSummary = useMemo(() => summarizeSetRows(setRows, { weightKg: '', repsCompleted: '' }), [setRows]);
+    const lastSummary = useMemo(() => {
+        if (!lastPerformance) return null;
+        return summarizeSetRows(
+            (lastPerformance.set_details || []).map((row) => ({
+                set: row.set,
+                reps: String(row.reps ?? ''),
+                weightKg: row.weightKg == null ? '' : String(row.weightKg),
+            })),
+            {
+                weightKg: lastPerformance.weight_kg == null ? '' : String(lastPerformance.weight_kg),
+                repsCompleted: String(lastPerformance.reps_completed || ''),
+            },
+        );
+    }, [lastPerformance]);
+    const autoPrPreview = useMemo(() => {
+        if (!lastSummary || exerciseForm.is_pr) return null;
+        const autoType = resolveAutoPrType(currentSummary, lastSummary);
+        if (autoType === 'WEIGHT') return txt.autoPrWeight;
+        if (autoType === 'REPS') return txt.autoPrReps;
+        if (autoType === 'VOLUME') return txt.autoPrVolume;
+        return null;
+    }, [currentSummary, exerciseForm.is_pr, lastSummary, txt.autoPrReps, txt.autoPrVolume, txt.autoPrWeight]);
     const effortOptions: Array<{ value: WorkoutEffortFeedback; label: string }> = [
         { value: 'TOO_EASY', label: txt.tooEasy },
         { value: 'JUST_RIGHT', label: txt.justRight },
@@ -344,19 +480,18 @@ export default function MemberPlansPage() {
 
     useEffect(() => {
         if (!currentEntry) {
-            setForm(emptyForm);
+            setExerciseForm(emptyForm);
+            setSetRows([]);
             return;
         }
-        setForm({
-            sets_completed: currentEntry.sets_completed ? String(currentEntry.sets_completed) : '',
-            reps_completed: currentEntry.reps_completed ? String(currentEntry.reps_completed) : '',
-            weight_kg: currentEntry.weight_kg != null ? String(currentEntry.weight_kg) : '',
+        setExerciseForm({
             notes: currentEntry.notes || '',
             is_pr: !!currentEntry.is_pr,
             pr_type: currentEntry.pr_type || 'WEIGHT',
             pr_value: currentEntry.pr_value || '',
             pr_notes: currentEntry.pr_notes || '',
         });
+        setSetRows(buildDefaultSetRows(currentEntry));
     }, [currentEntry]);
 
     const handleStart = async () => {
@@ -377,15 +512,32 @@ export default function MemberPlansPage() {
         if (!activeDraft || !currentEntry) return;
         setBusy(true);
         try {
+            const invalidSet = setRows.find((row) => {
+                const reps = row.reps.trim() ? Number(row.reps) : 0;
+                const weight = row.weightKg.trim() ? Number(row.weightKg) : 0;
+                return !Number.isFinite(reps) || !Number.isFinite(weight) || reps < 0 || weight < 0;
+            });
+            if (invalidSet || currentSummary.setsCompleted <= 0 || currentSummary.repsCompleted < 0) {
+                throw new Error(txt.invalidSetDetails);
+            }
+            const autoPrType = !exerciseForm.is_pr ? resolveAutoPrType(currentSummary, lastSummary) : null;
+            const isPr = exerciseForm.is_pr || !!autoPrType;
             const nextDraft = await completeWorkoutExercise(activeDraft.id, currentEntry.id, {
-                sets_completed: toNumber(form.sets_completed),
-                reps_completed: toNumber(form.reps_completed),
-                weight_kg: form.weight_kg ? Number(form.weight_kg) : null,
-                notes: form.notes || null,
-                is_pr: form.is_pr,
-                pr_type: form.is_pr ? form.pr_type : null,
-                pr_value: form.is_pr ? form.pr_value || null : null,
-                pr_notes: form.is_pr ? form.pr_notes || null : null,
+                sets_completed: currentSummary.setsCompleted,
+                reps_completed: currentSummary.repsCompleted,
+                weight_kg: currentSummary.weightKg,
+                notes: exerciseForm.notes || null,
+                is_pr: isPr,
+                pr_type: isPr ? (exerciseForm.is_pr ? exerciseForm.pr_type : autoPrType) : null,
+                pr_value: isPr ? exerciseForm.pr_value || (autoPrType ? formatPrValue(autoPrType, currentSummary, txt) : `${currentSummary.weightKg ?? '--'}${txt.weightUnit} x ${currentSummary.repsCompleted}`) : null,
+                pr_notes: isPr ? exerciseForm.pr_notes || (!exerciseForm.is_pr && autoPrType ? txt.autoPr : null) : null,
+                set_details: setRows
+                    .filter((row) => row.reps.trim() || row.weightKg.trim())
+                    .map((row, index) => ({
+                        set: index + 1,
+                        reps: Number(row.reps || 0),
+                        weightKg: row.weightKg ? Number(row.weightKg) : null,
+                    })),
             });
             setActiveDraft(nextDraft);
             showToast(txt.saved, 'success');
@@ -400,7 +552,7 @@ export default function MemberPlansPage() {
         if (!activeDraft || !currentEntry) return;
         setBusy(true);
         try {
-            const nextDraft = await skipWorkoutExercise(activeDraft.id, currentEntry.id, form.notes || null);
+            const nextDraft = await skipWorkoutExercise(activeDraft.id, currentEntry.id, exerciseForm.notes || null);
             setActiveDraft(nextDraft);
             showToast(txt.skipped, 'success');
         } catch (error) {
@@ -415,7 +567,7 @@ export default function MemberPlansPage() {
         setBusy(true);
         try {
             const session = await finishWorkoutSession(activeDraft.id, {
-                duration_minutes: sessionDuration ? Number(sessionDuration) : null,
+                duration_minutes: sessionDuration ? Number(sessionDuration) : estimatedSessionDuration,
                 notes: sessionNotes || null,
             });
             setHistory((current) => [session, ...current]);
@@ -438,7 +590,16 @@ export default function MemberPlansPage() {
             setActiveDraft(null);
             showToast(txt.abandoned, 'success');
         } catch (error) {
-            showToast(error instanceof Error ? error.message : txt.abandonFailed, 'error');
+            const status = typeof error === 'object' && error && 'response' in error
+                ? (error as { response?: { status?: number } }).response?.status
+                : null;
+            const message = error instanceof Error ? error.message : '';
+            if (status === 404 || message.includes('404') || message.toLowerCase().includes('not found')) {
+                setActiveDraft(null);
+                showToast(txt.abandoned, 'success');
+            } else {
+                showToast(error instanceof Error ? error.message : txt.abandonFailed, 'error');
+            }
         } finally {
             setBusy(false);
         }
@@ -499,7 +660,7 @@ export default function MemberPlansPage() {
                                             <button type="button" onClick={handleAbandon} disabled={busy} className="border border-border px-3 py-2 text-xs text-muted-foreground hover:border-primary">
                                                 {txt.abandon}
                                             </button>
-                                            <button type="button" onClick={handleFinish} disabled={busy} className="btn-primary px-4 py-2 text-sm">
+                                            <button type="button" onClick={handleFinish} disabled={busy || !canFinishSession} className="btn-primary px-4 py-2 text-sm">
                                                 {txt.finish}
                                             </button>
                                         </div>
@@ -575,31 +736,81 @@ export default function MemberPlansPage() {
                                                     );
                                                 })()}
 
-                                                <div className="grid gap-3 md:grid-cols-3">
-                                                    <label className="space-y-1">
-                                                        <span className="text-xs text-muted-foreground">{txt.sets}</span>
-                                                        <input value={form.sets_completed} onChange={(event) => setForm((current) => ({ ...current, sets_completed: event.target.value }))} className="w-full border border-border bg-background px-3 py-2 text-sm text-foreground" />
-                                                    </label>
-                                                    <label className="space-y-1">
-                                                        <span className="text-xs text-muted-foreground">{txt.reps}</span>
-                                                        <input value={form.reps_completed} onChange={(event) => setForm((current) => ({ ...current, reps_completed: event.target.value }))} className="w-full border border-border bg-background px-3 py-2 text-sm text-foreground" />
-                                                    </label>
-                                                    <label className="space-y-1">
-                                                        <span className="text-xs text-muted-foreground">{txt.weight}</span>
-                                                        <input value={form.weight_kg} onChange={(event) => setForm((current) => ({ ...current, weight_kg: event.target.value }))} className="w-full border border-border bg-background px-3 py-2 text-sm text-foreground" />
-                                                    </label>
+                                                <div className="space-y-3 rounded-sm border border-border bg-background/40 p-4">
+                                                    <p className="text-xs font-semibold uppercase tracking-[0.2em] text-muted-foreground">{txt.setDetails}</p>
+                                                    <div className="space-y-2">
+                                                        {setRows.map((row, index) => (
+                                                            <div key={row.set} className="grid gap-2 md:grid-cols-[56px_minmax(0,1fr)_minmax(0,1fr)]">
+                                                                <div className="flex items-center justify-center rounded-sm border border-border bg-muted/20 px-2 py-2 text-sm font-semibold text-primary">
+                                                                    {txt.setLabel} {row.set}
+                                                                </div>
+                                                                <label className="space-y-1">
+                                                                    <span className="text-xs text-muted-foreground">{txt.reps}</span>
+                                                                    <input
+                                                                        value={row.reps}
+                                                                        onChange={(event) => setSetRows((current) => current.map((item, itemIndex) => (
+                                                                            itemIndex === index ? { ...item, reps: event.target.value } : item
+                                                                        )))}
+                                                                        className="w-full border border-border bg-background px-3 py-2 text-sm text-foreground"
+                                                                        inputMode="numeric"
+                                                                    />
+                                                                </label>
+                                                                <label className="space-y-1">
+                                                                    <span className="text-xs text-muted-foreground">{txt.weight}</span>
+                                                                    <input
+                                                                        value={row.weightKg}
+                                                                        onChange={(event) => setSetRows((current) => current.map((item, itemIndex) => (
+                                                                            itemIndex === index ? { ...item, weightKg: event.target.value } : item
+                                                                        )))}
+                                                                        className="w-full border border-border bg-background px-3 py-2 text-sm text-foreground"
+                                                                        inputMode="decimal"
+                                                                    />
+                                                                </label>
+                                                            </div>
+                                                        ))}
+                                                    </div>
+                                                    <div className="flex flex-wrap gap-2">
+                                                            <button
+                                                                type="button"
+                                                                onClick={() => setSetRows((current) => [...current, { set: current.length + 1, reps: '', weightKg: '' }])}
+                                                                className="border border-border px-3 py-2 text-xs text-muted-foreground hover:border-primary"
+                                                            >
+                                                                {txt.addSet}
+                                                            </button>
+                                                        {setRows.length > 1 ? (
+                                                            <button
+                                                                type="button"
+                                                                onClick={() => setSetRows((current) => current.slice(0, -1))}
+                                                                className="border border-border px-3 py-2 text-xs text-muted-foreground hover:border-primary"
+                                                            >
+                                                                {txt.removeSet}
+                                                            </button>
+                                                        ) : null}
+                                                    </div>
                                                 </div>
 
+                                                {lastPerformance ? (
+                                                    <p className="text-xs text-muted-foreground">
+                                                        {txt.lastSession}: {lastPerformance.reps_completed} {txt.reps} @ {lastPerformance.weight_kg ?? 0}{txt.weightUnit}
+                                                    </p>
+                                                ) : null}
+                                                <p className="text-xs text-muted-foreground">
+                                                    {txt.totalVolume}: {formatVolumeValue(currentSummary.totalVolume)} {txt.weightUnit}
+                                                </p>
+                                                {autoPrPreview ? (
+                                                    <p className="text-xs text-primary">{autoPrPreview}</p>
+                                                ) : null}
+
                                                 <label className="flex items-center gap-2 text-sm text-foreground">
-                                                    <input type="checkbox" checked={form.is_pr} onChange={(event) => setForm((current) => ({ ...current, is_pr: event.target.checked }))} />
+                                                    <input type="checkbox" checked={exerciseForm.is_pr} onChange={(event) => setExerciseForm((current) => ({ ...current, is_pr: event.target.checked }))} />
                                                     {txt.pr}
                                                 </label>
 
-                                                {form.is_pr ? (
+                                                {exerciseForm.is_pr ? (
                                                     <div className="grid gap-3 md:grid-cols-3">
                                                         <label className="space-y-1">
                                                             <span className="text-xs text-muted-foreground">{txt.prType}</span>
-                                                            <select value={form.pr_type} onChange={(event) => setForm((current) => ({ ...current, pr_type: event.target.value }))} className="w-full border border-border bg-background px-3 py-2 text-sm text-foreground">
+                                                            <select value={exerciseForm.pr_type} onChange={(event) => setExerciseForm((current) => ({ ...current, pr_type: event.target.value }))} className="w-full border border-border bg-background px-3 py-2 text-sm text-foreground">
                                                                 <option value="WEIGHT">{txt.prWeight}</option>
                                                                 <option value="REPS">{txt.prReps}</option>
                                                                 <option value="TIME">{txt.prTime}</option>
@@ -609,18 +820,18 @@ export default function MemberPlansPage() {
                                                         </label>
                                                         <label className="space-y-1">
                                                             <span className="text-xs text-muted-foreground">{txt.prValue}</span>
-                                                            <input value={form.pr_value} onChange={(event) => setForm((current) => ({ ...current, pr_value: event.target.value }))} className="w-full border border-border bg-background px-3 py-2 text-sm text-foreground" />
+                                                            <input value={exerciseForm.pr_value} onChange={(event) => setExerciseForm((current) => ({ ...current, pr_value: event.target.value }))} className="w-full border border-border bg-background px-3 py-2 text-sm text-foreground" />
                                                         </label>
                                                         <label className="space-y-1">
                                                             <span className="text-xs text-muted-foreground">{txt.prNotes}</span>
-                                                            <input value={form.pr_notes} onChange={(event) => setForm((current) => ({ ...current, pr_notes: event.target.value }))} className="w-full border border-border bg-background px-3 py-2 text-sm text-foreground" />
+                                                            <input value={exerciseForm.pr_notes} onChange={(event) => setExerciseForm((current) => ({ ...current, pr_notes: event.target.value }))} className="w-full border border-border bg-background px-3 py-2 text-sm text-foreground" />
                                                         </label>
                                                     </div>
                                                 ) : null}
 
                                                 <label className="space-y-1">
                                                     <span className="text-xs text-muted-foreground">{txt.notes}</span>
-                                                    <textarea value={form.notes} onChange={(event) => setForm((current) => ({ ...current, notes: event.target.value }))} className="min-h-24 w-full border border-border bg-background px-3 py-2 text-sm text-foreground" />
+                                                    <textarea value={exerciseForm.notes} onChange={(event) => setExerciseForm((current) => ({ ...current, notes: event.target.value }))} className="min-h-24 w-full border border-border bg-background px-3 py-2 text-sm text-foreground" />
                                                 </label>
 
                                                 <div className="flex flex-wrap gap-3">
@@ -645,7 +856,16 @@ export default function MemberPlansPage() {
                                         <p className="section-chip">{txt.finish}</p>
                                         <label className="space-y-1">
                                             <span className="text-xs text-muted-foreground">{txt.duration}</span>
-                                            <input value={sessionDuration} onChange={(event) => setSessionDuration(event.target.value)} className="w-full border border-border bg-background px-3 py-2 text-sm text-foreground" />
+                                            <input
+                                                value={sessionDuration || (estimatedSessionDuration != null ? String(estimatedSessionDuration) : '')}
+                                                onChange={(event) => setSessionDuration(event.target.value)}
+                                                className="w-full border border-border bg-background px-3 py-2 text-sm text-foreground"
+                                            />
+                                            {estimatedSessionDuration != null ? (
+                                                <p className="text-xs text-muted-foreground">
+                                                    Auto: {estimatedSessionDuration} {txt.minuteShort}
+                                                </p>
+                                            ) : null}
                                         </label>
                                         <label className="space-y-1">
                                             <span className="text-xs text-muted-foreground">{txt.sessionNotes}</span>

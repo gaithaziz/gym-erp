@@ -55,7 +55,7 @@ export default function AuditLogsPage() {
         setLoading(true);
         try {
             const params: Record<string, string | number> = { limit: 100 };
-            if (selectedBranchId) params.branch_id = selectedBranchId;
+            if (selectedBranchId && selectedBranchId !== 'all') params.branch_id = selectedBranchId;
 
             const [logsRes, securityRes] = await Promise.all([
                 api.get('/audit/logs', { params }),
@@ -301,4 +301,3 @@ export default function AuditLogsPage() {
         </div>
     );
 }
-

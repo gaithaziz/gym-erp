@@ -245,6 +245,14 @@ export default function ClassesDashboardContent({ role }: { role: DashboardRole 
             attendeesEmpty: 'لا يوجد أعضاء مسجلون في هذه الحصة حالياً.',
             attendeesLoading: 'جارٍ تحميل قائمة الأعضاء...',
             attendeesFailed: 'تعذر تحميل قائمة الأعضاء.',
+            approveReservation: 'موافقة',
+            rejectReservation: 'رفض',
+            approvingReservation: 'جاري الموافقة...',
+            rejectingReservation: 'جاري الرفض...',
+            approveReservationSuccess: 'تمت الموافقة على الطلب.',
+            rejectReservationSuccess: 'تم رفض الطلب.',
+            pendingEnrollment: 'طلب بانتظار الموافقة',
+            attendeesActionsHint: 'يمكنك الموافقة على الطلبات أو رفضها لهذه الحصة.',
             memberFallback: 'عضو',
         }
         : {
@@ -335,6 +343,14 @@ export default function ClassesDashboardContent({ role }: { role: DashboardRole 
             attendeesEmpty: 'No active enrollments for this class yet.',
             attendeesLoading: 'Loading attendee list...',
             attendeesFailed: 'Unable to load attendee list.',
+            approveReservation: 'Approve',
+            rejectReservation: 'Reject',
+            approvingReservation: 'Approving...',
+            rejectingReservation: 'Rejecting...',
+            approveReservationSuccess: 'Reservation approved.',
+            rejectReservationSuccess: 'Reservation rejected.',
+            pendingEnrollment: 'Pending request',
+            attendeesActionsHint: 'Approve or reject waiting requests for this session.',
             memberFallback: 'Member',
         };
 
@@ -350,6 +366,10 @@ export default function ClassesDashboardContent({ role }: { role: DashboardRole 
     const [sessionReservations, setSessionReservations] = useState<SessionReservation[]>([]);
     const [sessionReservationsLoading, setSessionReservationsLoading] = useState(false);
     const [sessionReservationsError, setSessionReservationsError] = useState<string | null>(null);
+    const [sessionReservationsVersion, setSessionReservationsVersion] = useState(0);
+    const [actingReservationId, setActingReservationId] = useState<string | null>(null);
+    const canReviewReservations =
+        role !== 'CUSTOMER' && (role === 'ADMIN' || role === 'MANAGER' || (role === 'COACH' && selectedSession?.coach_id === user?.id));
     const [sessionForm, setSessionForm] = useState<SessionFormState>({
         session_name: '',
         coach_id: user?.id ?? '',
@@ -548,7 +568,29 @@ export default function ClassesDashboardContent({ role }: { role: DashboardRole 
         return () => {
             cancelled = true;
         };
-    }, [isStaffView, selectedSession, txt.attendeesFailed]);
+    }, [isStaffView, selectedSession, sessionReservationsVersion, txt.attendeesFailed]);
+
+    async function handleReservationAction(reservationId: string, action: 'approve' | 'reject') {
+        if (!selectedSession) return;
+
+        setActingReservationId(reservationId);
+        try {
+            await api.post(
+                action === 'approve'
+                    ? `/classes/sessions/${selectedSession.id}/reservations/approve`
+                    : `/classes/sessions/${selectedSession.id}/reservations/reject`,
+                { reservation_ids: [reservationId] },
+            );
+            showToast(action === 'approve' ? txt.approveReservationSuccess : txt.rejectReservationSuccess, 'success');
+            setSessionReservationsVersion((current) => current + 1);
+            await loadData();
+        } catch (error) {
+            console.error(`Failed to ${action} reservation`, error);
+            showToast(getErrorMessage(error, txt.actionFailed), 'error');
+        } finally {
+            setActingReservationId(null);
+        }
+    }
 
     async function handleCompleteSession(session: ClassSession) {
         const accepted = await confirm({
@@ -1187,6 +1229,7 @@ export default function ClassesDashboardContent({ role }: { role: DashboardRole 
                     </div>
                 ) : (
                     <div className="space-y-3">
+                        {canReviewReservations ? <p className="text-sm text-muted-foreground">{txt.attendeesActionsHint}</p> : null}
                         {sessionReservations.map((reservation) => (
                             <div
                                 key={reservation.id}
@@ -1203,6 +1246,28 @@ export default function ClassesDashboardContent({ role }: { role: DashboardRole 
                                         {formatDateTime(reservation.reserved_at, sessionLocale)}
                                     </p>
                                 </div>
+                                {canReviewReservations && reservation.status === 'PENDING' ? (
+                                    <div className="flex flex-wrap gap-2">
+                                        <button
+                                            type="button"
+                                            className="btn-primary"
+                                            onClick={() => void handleReservationAction(reservation.id, 'approve')}
+                                            disabled={actingReservationId === reservation.id}
+                                        >
+                                            {actingReservationId === reservation.id ? <Loader2 size={16} className="animate-spin" /> : <Check size={16} />}
+                                            {actingReservationId === reservation.id ? txt.approvingReservation : txt.approveReservation}
+                                        </button>
+                                        <button
+                                            type="button"
+                                            className="btn-ghost text-destructive"
+                                            onClick={() => void handleReservationAction(reservation.id, 'reject')}
+                                            disabled={actingReservationId === reservation.id}
+                                        >
+                                            {actingReservationId === reservation.id ? <Loader2 size={16} className="animate-spin" /> : <X size={16} />}
+                                            {actingReservationId === reservation.id ? txt.rejectingReservation : txt.rejectReservation}
+                                        </button>
+                                    </div>
+                                ) : null}
                             </div>
                         ))}
                     </div>

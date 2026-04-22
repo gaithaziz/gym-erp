@@ -36,6 +36,7 @@ export default function MoreTab() {
       {role === "ADMIN" ? <SecondaryLink href="/admin-audit">{copy.adminControl.auditSummary}</SecondaryLink> : null}
       {adminControl ? <SecondaryLink href="/inventory-summary">{copy.adminControl.inventorySummary}</SecondaryLink> : null}
       <SecondaryLink href="/notifications">{copy.more.notifications}</SecondaryLink>
+      <SecondaryLink href="/diagnostics">Diagnostics</SecondaryLink>
       {hasCapability(bootstrap, "view_support") ? <SecondaryLink href="/(tabs)/support">{copy.more.support}</SecondaryLink> : null}
       {hasCapability(bootstrap, "view_chat") ? <SecondaryLink href="/chat">{copy.more.chat}</SecondaryLink> : null}
       {(customer || role === "RECEPTION" || role === "FRONT_DESK" || role === "EMPLOYEE") ? <SecondaryLink href="/lost-found">{copy.more.lostFound}</SecondaryLink> : null}

@@ -31,6 +31,7 @@ import { LanguageToggle } from "@/components/LanguageToggle";
 import { BrandMark } from "@/components/BrandLogo";
 import { useEffect, useState } from 'react';
 import { resolveProfileImageUrl } from '@/lib/profileImage';
+import { setTokens } from '@/lib/tokenStorage';
 import ChatDrawer from '@/components/chat/ChatDrawer';
 import { api } from '@/lib/api';
 import { useChatThreads } from '@/hooks/useChatThreads';
@@ -63,6 +64,8 @@ export default function DashboardLayout({
     const isBlockedRouteAllowed = BLOCKED_ALLOWED_ROUTES.some((route) => pathname.startsWith(route));
     const isSupportPage = pathname.startsWith('/dashboard/admin/support') || pathname.startsWith('/dashboard/support');
     const isLostFoundPage = pathname.startsWith('/dashboard/lost-found');
+    const canAccessSupportFeed = ['CUSTOMER', 'ADMIN', 'MANAGER', 'RECEPTION', 'FRONT_DESK'].includes(user?.role || '');
+    const canAccessLostFoundFeed = ['ADMIN', 'MANAGER', 'FRONT_DESK', 'RECEPTION', 'COACH', 'EMPLOYEE', 'CASHIER', 'CUSTOMER'].includes(user?.role || '');
     const { threads: chatThreads, mutate: mutateChatThreads } = useChatThreads({ enabled: !!user && canUseChat, limit: 100 });
     const chatNewConversations = canUseChat
         ? chatThreads.filter((t) => (t.unread_count || 0) > 0).length
@@ -111,23 +114,27 @@ export default function DashboardLayout({
                 let supportLatest: string | null = null;
                 let lostFoundLatest: string | null = null;
 
-                tasks.push(
-                    api.get('/support/tickets', { params: { is_active: true, limit: 1 } }).then((resp) => {
-                        const rows = resp.data?.data || [];
-                        supportLatest = rows[0]?.updated_at || null;
-                    }).catch(() => {
-                        supportLatest = null;
-                    })
-                );
+                if (canAccessSupportFeed) {
+                    tasks.push(
+                        api.get('/support/tickets', { params: { is_active: true, limit: 1 } }).then((resp) => {
+                            const rows = resp.data?.data || [];
+                            supportLatest = rows[0]?.updated_at || null;
+                        }).catch(() => {
+                            supportLatest = null;
+                        })
+                    );
+                }
 
-                tasks.push(
-                    api.get('/lost-found/items', { params: { limit: 1 } }).then((resp) => {
-                        const rows = resp.data?.data || [];
-                        lostFoundLatest = rows[0]?.updated_at || null;
-                    }).catch(() => {
-                        lostFoundLatest = null;
-                    })
-                );
+                if (canAccessLostFoundFeed) {
+                    tasks.push(
+                        api.get('/lost-found/items', { params: { limit: 1 } }).then((resp) => {
+                            const rows = resp.data?.data || [];
+                            lostFoundLatest = rows[0]?.updated_at || null;
+                        }).catch(() => {
+                            lostFoundLatest = null;
+                        })
+                    );
+                }
 
                 await Promise.all(tasks);
 
@@ -156,7 +163,7 @@ export default function DashboardLayout({
             window.clearInterval(intervalId);
             window.removeEventListener('chat:sync-indicators', handleChatIndicatorSync);
         };
-    }, [user, mutateChatThreads]);
+    }, [user, mutateChatThreads, canAccessSupportFeed, canAccessLostFoundFeed]);
 
     useEffect(() => {
         if (!user) return;
@@ -244,7 +251,18 @@ export default function DashboardLayout({
         { key: 'systemAdmin', labelKey: 'dashboard.sections.systemAdmin' },
     ] as const;
 
-    const filteredNav = navItems.filter(item => user.role === 'SUPER_ADMIN' || item.roles.includes(user.role)).filter((item) => {
+    const superAdminAllowedRoutes = new Set([
+        '/dashboard',
+        '/dashboard/system/stats',
+        '/dashboard/system/gyms',
+        '/dashboard/system/users',
+        '/dashboard/system/audit',
+    ]);
+
+    const filteredNav = navItems.filter((item) => {
+        if (user.role === 'SUPER_ADMIN') return superAdminAllowedRoutes.has(item.href);
+        return item.roles.includes(user.role);
+    }).filter((item) => {
         if (!isBlockedCustomer) return true;
         return BLOCKED_ALLOWED_ROUTES.some((route) => item.href.startsWith(route));
     });
@@ -260,13 +278,12 @@ export default function DashboardLayout({
                     </div>
                     <button 
                         onClick={() => {
-                            const adminAccess = localStorage.getItem('admin_access_token');
-                            const adminRefresh = localStorage.getItem('admin_refresh_token');
+                            const adminAccess = sessionStorage.getItem('admin_access_token');
+                            const adminRefresh = sessionStorage.getItem('admin_refresh_token');
                             if (adminAccess && adminRefresh) {
-                                localStorage.setItem('access_token', adminAccess);
-                                localStorage.setItem('refresh_token', adminRefresh);
-                                localStorage.removeItem('admin_access_token');
-                                localStorage.removeItem('admin_refresh_token');
+                                setTokens(adminAccess, adminRefresh);
+                                sessionStorage.removeItem('admin_access_token');
+                                sessionStorage.removeItem('admin_refresh_token');
                                 window.location.href = '/dashboard/system/users';
                             } else {
                                 logout();

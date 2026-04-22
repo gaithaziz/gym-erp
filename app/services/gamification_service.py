@@ -194,6 +194,97 @@ async def get_user_stats(user_id: uuid.UUID, db: AsyncSession) -> dict:
     )
     weekly_visits = (await db.execute(weekly_stmt)).scalar() or 0
 
+    serialized_badges = [
+        {
+            "id": str(b.id),
+            "badge_type": b.badge_type,
+            "badge_name": b.badge_name,
+            "badge_description": b.badge_description,
+            "earned_at": b.earned_at.isoformat() if b.earned_at else None,
+        }
+        for b in badges
+    ]
+    existing_types = {item["badge_type"] for item in serialized_badges}
+    inferred_badges: list[dict] = []
+
+    best_streak = int(max(streak_info.get("current_streak", 0) or 0, streak_info.get("best_streak", 0) or 0))
+    for threshold, badge_type, name, desc in STREAK_BADGES:
+        if best_streak >= threshold and badge_type not in existing_types:
+            inferred_badges.append(
+                {
+                    "id": f"inferred-{user_id}-{badge_type}",
+                    "badge_type": badge_type,
+                    "badge_name": name,
+                    "badge_description": desc,
+                    "earned_at": None,
+                    "inferred": True,
+                }
+            )
+            existing_types.add(badge_type)
+
+    for threshold, badge_type, name, desc in VISIT_MILESTONES:
+        if total_visits >= threshold and badge_type not in existing_types:
+            inferred_badges.append(
+                {
+                    "id": f"inferred-{user_id}-{badge_type}",
+                    "badge_type": badge_type,
+                    "badge_name": name,
+                    "badge_description": desc,
+                    "earned_at": None,
+                    "inferred": True,
+                }
+            )
+            existing_types.add(badge_type)
+
+    early_bird_seen = (
+        await db.execute(
+            select(AccessLog.id)
+            .where(
+                AccessLog.user_id == user_id,
+                AccessLog.status == "GRANTED",
+                func.extract("hour", AccessLog.scan_time) < 7,
+            )
+            .limit(1)
+        )
+    ).scalar_one_or_none()
+    if early_bird_seen is not None and "EARLY_BIRD" not in existing_types:
+        name, desc = SPECIAL_BADGES["EARLY_BIRD"]
+        inferred_badges.append(
+            {
+                "id": f"inferred-{user_id}-EARLY_BIRD",
+                "badge_type": "EARLY_BIRD",
+                "badge_name": name,
+                "badge_description": desc,
+                "earned_at": None,
+                "inferred": True,
+            }
+        )
+        existing_types.add("EARLY_BIRD")
+
+    night_owl_seen = (
+        await db.execute(
+            select(AccessLog.id)
+            .where(
+                AccessLog.user_id == user_id,
+                AccessLog.status == "GRANTED",
+                func.extract("hour", AccessLog.scan_time) >= 21,
+            )
+            .limit(1)
+        )
+    ).scalar_one_or_none()
+    if night_owl_seen is not None and "NIGHT_OWL" not in existing_types:
+        name, desc = SPECIAL_BADGES["NIGHT_OWL"]
+        inferred_badges.append(
+            {
+                "id": f"inferred-{user_id}-NIGHT_OWL",
+                "badge_type": "NIGHT_OWL",
+                "badge_name": name,
+                "badge_description": desc,
+                "earned_at": None,
+                "inferred": True,
+            }
+        )
+
     return {
         "total_visits": total_visits,
         "streak": streak_info,
@@ -201,16 +292,7 @@ async def get_user_stats(user_id: uuid.UUID, db: AsyncSession) -> dict:
             "current": weekly_visits,
             "goal": 3
         },
-        "badges": [
-            {
-                "id": str(b.id),
-                "badge_type": b.badge_type,
-                "badge_name": b.badge_name,
-                "badge_description": b.badge_description,
-                "earned_at": b.earned_at.isoformat() if b.earned_at else None,
-            }
-            for b in badges
-        ],
+        "badges": [*serialized_badges, *inferred_badges],
     }
 
 
