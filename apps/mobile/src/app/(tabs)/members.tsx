@@ -407,7 +407,7 @@ export default function MembersTab() {
                 <SimpleRow
                   key={session.id}
                   title={session.plan_name || copy.common.noCurrentPlan}
-                  subtitle={`${new Date(session.performed_at).toLocaleString(locale)} • ${session.duration_minutes ?? 0} ${copy.common.minutesShort}`}
+                  subtitle={`${new Date(session.performed_at).toLocaleString(locale)} • ${session.duration_minutes ?? 0} ${copy.common.minutesShort} • ${copy.progress.sessionVolume}: ${session.session_volume ?? 0} kg`}
                   note={session.notes}
                 />
               ))
@@ -722,6 +722,7 @@ function ProgressSnapshotCard({ detail, locale }: { detail: MobileStaffMemberDet
   const latest = detail.latest_biometric ?? biometrics.at(-1) ?? null;
   const age = calculateAge(detail.member.date_of_birth);
   const workoutTrend = buildSessionCountTrend(detail.recent_workout_sessions, locale);
+  const sessionLoadTrend = buildSessionVolumeTrend(detail.recent_workout_sessions, locale);
 
   return (
     <Card style={styles.progressCard}>
@@ -761,6 +762,7 @@ function ProgressSnapshotCard({ detail, locale }: { detail: MobileStaffMemberDet
         emptyMessage={copy.progress.graphNoData}
       />
       <CountBarChart title={copy.progress.workoutTrend} points={workoutTrend} unit="" emptyMessage={copy.progress.noTrend} />
+      <CountBarChart title={copy.progress.sessionLoad} points={sessionLoadTrend} unit=" kg" emptyMessage={copy.progress.noSessionVolume} />
     </Card>
   );
 }
@@ -772,6 +774,7 @@ function ChartSummary({
   max,
   delta,
   unit,
+  singlePoint = false,
 }: {
   title: string;
   latest: number;
@@ -779,6 +782,7 @@ function ChartSummary({
   max: number;
   delta?: number | null;
   unit: string;
+  singlePoint?: boolean;
 }) {
   const { copy, direction, fontSet, isRTL, theme } = usePreferences();
   const formattedLatest = `${formatChartNumber(latest)}${unit}`;
@@ -789,16 +793,18 @@ function ChartSummary({
         <Text style={[styles.chartTitle, { color: theme.foreground, fontFamily: fontSet.body, textAlign: isRTL ? "right" : "left", writingDirection: direction }]}>{title}</Text>
         <Text style={[styles.chartLatest, { color: theme.primary, fontFamily: fontSet.mono }]}>{formattedLatest}</Text>
       </View>
-      <View style={[styles.chartMeta, { flexDirection: isRTL ? "row-reverse" : "row" }]}>
-        <MutedText>
-          {copy.progress.range}: {formatChartNumber(min)}
-          {unit} - {formatChartNumber(max)}
-          {unit}
-        </MutedText>
-        <Text style={[styles.chartDelta, { color: !delta ? theme.muted : theme.primary, fontFamily: fontSet.mono }]}>
-          {copy.progress.change}: {formattedDelta}
-        </Text>
-      </View>
+      {!singlePoint ? (
+        <View style={[styles.chartMeta, { flexDirection: isRTL ? "row-reverse" : "row" }]}>
+          <MutedText>
+            {copy.progress.range}: {formatChartNumber(min)}
+            {unit} - {formatChartNumber(max)}
+            {unit}
+          </MutedText>
+          <Text style={[styles.chartDelta, { color: !delta ? theme.muted : theme.primary, fontFamily: fontSet.mono }]}>
+            {copy.progress.change}: {formattedDelta}
+          </Text>
+        </View>
+      ) : null}
     </>
   );
 }
@@ -814,8 +820,9 @@ function SparklineChart({
   unit: string;
   emptyMessage: string;
 }) {
-  const { fontSet, isRTL, theme } = usePreferences();
+  const { copy, direction, fontSet, isRTL, theme } = usePreferences();
   const [chartWidth, setChartWidth] = useState(0);
+  const [selectedIndex, setSelectedIndex] = useState<number | null>(null);
   const visiblePoints = points.filter((point): point is { label: string; value: number } => typeof point.value === "number");
   if (visiblePoints.length === 0) {
     return <MutedText>{emptyMessage}</MutedText>;
@@ -825,14 +832,15 @@ function SparklineChart({
   const max = Math.max(...values);
   const rawRange = max - min;
   const range = rawRange || 1;
+  const singlePoint = visiblePoints.length === 1;
   const latest = visiblePoints[visiblePoints.length - 1];
-  const previous = visiblePoints[visiblePoints.length - 2];
-  const delta = previous ? latest.value - previous.value : null;
+  const delta = visiblePoints.length > 1 ? latest.value - visiblePoints[0].value : null;
   const chartHeight = 118;
   const paddingX = 12;
   const paddingY = 14;
   const usableWidth = Math.max(chartWidth - paddingX * 2, 1);
   const usableHeight = chartHeight - paddingY * 2;
+  const selectedPoint = selectedIndex == null ? null : visiblePoints[Math.min(selectedIndex, visiblePoints.length - 1)] ?? null;
   const coordinates = visiblePoints.map((point, index) => {
     const x = paddingX + (visiblePoints.length === 1 ? usableWidth / 2 : (index / (visiblePoints.length - 1)) * usableWidth);
     const y = paddingY + (1 - (rawRange === 0 ? 0.5 : (point.value - min) / range)) * usableHeight;
@@ -840,8 +848,8 @@ function SparklineChart({
   });
 
   return (
-    <View style={styles.chartBlock}>
-      <ChartSummary title={title} latest={latest.value} min={min} max={max} delta={delta} unit={unit} />
+    <View style={[styles.chartBlock, { borderTopColor: theme.border }]}>
+      <ChartSummary title={title} latest={latest.value} min={min} max={max} delta={delta} unit={unit} singlePoint={singlePoint} />
       <View onLayout={(event) => setChartWidth(event.nativeEvent.layout.width)} style={[styles.sparklineFrame, { backgroundColor: theme.primarySoft, borderColor: theme.border }]}>
         <View style={[styles.sparklineGuide, { top: chartHeight / 2, backgroundColor: theme.border }]} />
         {chartWidth > 0
@@ -853,7 +861,7 @@ function SparklineChart({
               const angle = `${Math.atan2(dy, dx)}rad`;
               return (
                 <View
-                  key={`${point.label}-${next.label}`}
+                  key={`segment-${index}`}
                   style={[
                     styles.sparklineSegment,
                     {
@@ -870,14 +878,16 @@ function SparklineChart({
           : null}
         {chartWidth > 0
           ? coordinates.map((point, index) => (
-              <View
-                key={`${point.label}-${point.value}`}
+              <Pressable
+                key={`dot-${index}`}
+                onPress={() => setSelectedIndex((current) => (current === index ? null : index))}
+                hitSlop={10}
                 style={[
                   styles.sparklineDot,
                   {
                     left: point.x - 4,
                     top: point.y - 4,
-                    backgroundColor: index === coordinates.length - 1 ? theme.primary : theme.background,
+                    backgroundColor: index === selectedIndex ? theme.primary : theme.background,
                     borderColor: theme.primary,
                   },
                 ]}
@@ -885,13 +895,35 @@ function SparklineChart({
             ))
           : null}
       </View>
-      <View style={[styles.chartEdgeLabels, { flexDirection: isRTL ? "row-reverse" : "row" }]}>
-        <Text style={[styles.chartLabel, { color: theme.muted, fontFamily: fontSet.body }]} numberOfLines={1}>
-          {visiblePoints[0].label}
-        </Text>
-        <Text style={[styles.chartLabel, { color: theme.muted, fontFamily: fontSet.body }]} numberOfLines={1}>
-          {latest.label}
-        </Text>
+      {!singlePoint ? (
+        <View style={[styles.chartEdgeLabels, { flexDirection: isRTL ? "row-reverse" : "row" }]}>
+          <Text style={[styles.chartLabel, { color: theme.muted, fontFamily: fontSet.body }]} numberOfLines={1}>
+            {visiblePoints[0].label}
+          </Text>
+          <Text style={[styles.chartLabel, { color: theme.muted, fontFamily: fontSet.body }]} numberOfLines={1}>
+            {latest.label}
+          </Text>
+        </View>
+      ) : null}
+      <View style={[styles.chartInspector, { backgroundColor: theme.cardAlt, borderColor: theme.border }]}>
+        {selectedPoint ? (
+          <>
+            <View style={[styles.inspectorHeader, { flexDirection: isRTL ? "row-reverse" : "row" }]}>
+              <MutedText>{copy.progress.selectedPoint}</MutedText>
+              <Pressable onPress={() => setSelectedIndex(null)} hitSlop={8}>
+                <Text style={[styles.inspectorClear, { color: theme.primary, fontFamily: fontSet.body }]}>{copy.progress.clearPoint}</Text>
+              </Pressable>
+            </View>
+            <Text style={[styles.inspectorLabel, { color: theme.foreground, fontFamily: fontSet.body, textAlign: isRTL ? "right" : "left", writingDirection: direction }]}>
+              {selectedPoint.label}
+            </Text>
+            <Text style={[styles.inspectorValue, { color: theme.primary, fontFamily: fontSet.mono, textAlign: isRTL ? "right" : "left", writingDirection: direction }]}>
+              {formatChartNumber(selectedPoint.value)}{unit}
+            </Text>
+          </>
+        ) : (
+          <MutedText>{copy.progress.tapPointToInspect}</MutedText>
+        )}
       </View>
     </View>
   );
@@ -908,7 +940,9 @@ function CountBarChart({
   unit: string;
   emptyMessage: string;
 }) {
-  const { fontSet, isRTL, theme } = usePreferences();
+  const { copy, direction, fontSet, isRTL, theme } = usePreferences();
+  const [chartWidth, setChartWidth] = useState(0);
+  const [selectedIndex, setSelectedIndex] = useState<number | null>(null);
   const visiblePoints = points.filter((point): point is { label: string; value: number } => typeof point.value === "number");
   if (visiblePoints.length === 0) {
     return <MutedText>{emptyMessage}</MutedText>;
@@ -918,28 +952,109 @@ function CountBarChart({
   const max = Math.max(...values);
   const rawRange = max - min;
   const range = rawRange || 1;
+  const singlePoint = visiblePoints.length === 1;
   const latest = visiblePoints[visiblePoints.length - 1];
-  const previous = visiblePoints[visiblePoints.length - 2];
-  const delta = previous ? latest.value - previous.value : null;
+  const delta = visiblePoints.length > 1 ? latest.value - visiblePoints[0].value : null;
+  const chartHeight = 118;
+  const paddingX = 12;
+  const paddingY = 14;
+  const usableWidth = Math.max(chartWidth - paddingX * 2, 1);
+  const usableHeight = chartHeight - paddingY * 2;
+  const selectedPoint = selectedIndex == null ? null : visiblePoints[Math.min(selectedIndex, visiblePoints.length - 1)] ?? null;
+  const previousPoint = selectedIndex != null && selectedIndex > 0 ? visiblePoints[selectedIndex - 1] : null;
+  const selectedDelta = selectedPoint && previousPoint ? selectedPoint.value - previousPoint.value : null;
+  const coordinates = visiblePoints.map((point, index) => {
+    const x = paddingX + (visiblePoints.length === 1 ? usableWidth / 2 : (index / (visiblePoints.length - 1)) * usableWidth);
+    const y = paddingY + (1 - (rawRange === 0 ? 0.5 : (point.value - min) / range)) * usableHeight;
+    return { ...point, x, y };
+  });
 
   return (
-    <View style={styles.chartBlock}>
-      <ChartSummary title={title} latest={latest.value} min={min} max={max} delta={delta} unit={unit} />
-      <View style={[styles.chartRow, { flexDirection: isRTL ? "row-reverse" : "row" }]}>
-        {visiblePoints.map((point) => {
-          const normalized = rawRange === 0 ? 0.5 : (point.value - min) / range;
-          const height = 24 + normalized * 66;
-          return (
-            <View key={`${point.label}-${point.value}`} style={styles.chartColumn}>
-              <View style={[styles.chartTrack, { backgroundColor: theme.primarySoft }]}>
-                <View style={[styles.chartBar, { height, backgroundColor: theme.primary }]} />
-              </View>
-              <Text style={[styles.chartLabel, { color: theme.muted, fontFamily: fontSet.body }]} numberOfLines={1}>
-                {point.label}
-              </Text>
+    <View style={[styles.chartBlock, { borderTopColor: theme.border }]}>
+      <ChartSummary title={title} latest={latest.value} min={min} max={max} delta={delta} unit={unit} singlePoint={singlePoint} />
+      <View
+        onLayout={(event) => setChartWidth(event.nativeEvent.layout.width)}
+        style={[styles.sparklineFrame, { backgroundColor: theme.primarySoft, borderColor: theme.border }]}
+      >
+        <View style={[styles.sparklineGuide, { top: chartHeight / 2, backgroundColor: theme.border }]} />
+        {chartWidth > 0
+          ? coordinates.slice(0, -1).map((point, index) => {
+              const next = coordinates[index + 1];
+              const dx = next.x - point.x;
+              const dy = next.y - point.y;
+              const length = Math.sqrt(dx * dx + dy * dy);
+              const angle = `${Math.atan2(dy, dx)}rad`;
+              return (
+                <View
+                  key={`segment-${index}`}
+                  style={[
+                    styles.sparklineSegment,
+                    {
+                      width: length,
+                      left: point.x,
+                      top: point.y,
+                      backgroundColor: theme.primary,
+                      transform: [{ rotate: angle }],
+                    },
+                  ]}
+                />
+              );
+            })
+          : null}
+        {chartWidth > 0
+          ? coordinates.map((point, index) => (
+              <Pressable
+                key={`dot-${index}`}
+                onPress={() => setSelectedIndex((current) => (current === index ? null : index))}
+                hitSlop={10}
+                style={[
+                  styles.sparklineDot,
+                  {
+                    left: point.x - 4,
+                    top: point.y - 4,
+                    backgroundColor: index === selectedIndex ? theme.primary : theme.background,
+                    borderColor: theme.primary,
+                  },
+                ]}
+              />
+            ))
+          : null}
+      </View>
+      {!singlePoint ? (
+        <View style={[styles.chartEdgeLabels, { flexDirection: isRTL ? "row-reverse" : "row" }]}>
+          <Text style={[styles.chartLabel, { color: theme.muted, fontFamily: fontSet.body }]} numberOfLines={1}>
+            {visiblePoints[0].label}
+          </Text>
+          <Text style={[styles.chartLabel, { color: theme.muted, fontFamily: fontSet.body }]} numberOfLines={1}>
+            {latest.label}
+          </Text>
+        </View>
+      ) : null}
+      <View style={[styles.chartInspector, { backgroundColor: theme.cardAlt, borderColor: theme.border }]}>
+        {selectedPoint ? (
+          <>
+            <View style={[styles.inspectorHeader, { flexDirection: isRTL ? "row-reverse" : "row" }]}>
+              <MutedText>{copy.progress.selectedPoint}</MutedText>
+              <Pressable onPress={() => setSelectedIndex(null)} hitSlop={8}>
+                <Text style={[styles.inspectorClear, { color: theme.primary, fontFamily: fontSet.body }]}>{copy.progress.clearPoint}</Text>
+              </Pressable>
             </View>
-          );
-        })}
+            <Text style={[styles.inspectorLabel, { color: theme.foreground, fontFamily: fontSet.body, textAlign: isRTL ? "right" : "left", writingDirection: direction }]}>
+              {selectedPoint.label}
+            </Text>
+            <Text style={[styles.inspectorValue, { color: theme.primary, fontFamily: fontSet.mono, textAlign: isRTL ? "right" : "left", writingDirection: direction }]}>
+              {formatChartNumber(selectedPoint.value)}{unit}
+            </Text>
+            {previousPoint ? (
+              <>
+                <MutedText>{`${copy.progress.previousPoint}: ${previousPoint.label} · ${formatChartNumber(previousPoint.value)}${unit}`}</MutedText>
+                <MutedText>{`${copy.progress.change}: ${selectedDelta && selectedDelta > 0 ? "+" : ""}${formatChartNumber(selectedDelta ?? 0)}${unit}`}</MutedText>
+              </>
+            ) : null}
+          </>
+        ) : (
+          <MutedText>{copy.progress.tapPointToInspect}</MutedText>
+        )}
       </View>
     </View>
   );
@@ -950,6 +1065,19 @@ function buildSessionCountTrend(sessions: MobileStaffMemberDetail["recent_workou
   for (const session of sessions) {
     const key = session.performed_at.slice(0, 10);
     byDate.set(key, (byDate.get(key) ?? 0) + 1);
+  }
+  return Array.from(byDate.entries())
+    .sort(([a], [b]) => a.localeCompare(b))
+    .slice(-8)
+    .map(([date, value]) => ({ label: new Date(date).toLocaleDateString(locale, { month: "short", day: "numeric" }), value }));
+}
+
+function buildSessionVolumeTrend(sessions: MobileStaffMemberDetail["recent_workout_sessions"], locale: string) {
+  const byDate = new Map<string, number>();
+  for (const session of sessions) {
+    const key = session.performed_at.slice(0, 10);
+    const value = typeof session.session_volume === "number" && Number.isFinite(session.session_volume) ? session.session_volume : 0;
+    byDate.set(key, (byDate.get(key) ?? 0) + value);
   }
   return Array.from(byDate.entries())
     .sort(([a], [b]) => a.localeCompare(b))
@@ -1201,7 +1329,10 @@ const styles = StyleSheet.create({
     paddingVertical: 10,
   },
   chartBlock: {
+    borderTopWidth: 1,
     gap: 8,
+    marginTop: 12,
+    paddingTop: 12,
   },
   chartHeader: {
     alignItems: "center",
@@ -1235,12 +1366,19 @@ const styles = StyleSheet.create({
     alignItems: "center",
     gap: 5,
   },
+  chartColumnSingle: {
+    flex: 0,
+    width: 72,
+  },
   chartTrack: {
     width: "100%",
     height: 90,
     borderRadius: 999,
     justifyContent: "flex-end",
     overflow: "hidden",
+  },
+  chartTrackSingle: {
+    width: 48,
   },
   chartBar: {
     width: "100%",
@@ -1279,6 +1417,30 @@ const styles = StyleSheet.create({
   chartEdgeLabels: {
     justifyContent: "space-between",
     gap: 12,
+  },
+  chartInspector: {
+    borderWidth: 1,
+    borderRadius: 14,
+    gap: 6,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+  },
+  inspectorHeader: {
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: 10,
+  },
+  inspectorClear: {
+    fontSize: 12,
+    fontWeight: "800",
+  },
+  inspectorLabel: {
+    fontSize: 13,
+    fontWeight: "800",
+  },
+  inspectorValue: {
+    fontSize: 16,
+    fontWeight: "900",
   },
   planAssignRow: {
     alignItems: "center",

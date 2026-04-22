@@ -2,7 +2,7 @@ import os
 import json
 from contextlib import asynccontextmanager
 from typing import Any, Annotated, List, Literal
-from datetime import date, datetime, timedelta
+from datetime import date, datetime, timedelta, time
 import uuid
 import re
 from urllib.parse import parse_qs, urlparse
@@ -407,6 +407,7 @@ def _serialize_tracking_day(
             id=meal.meal_key,
             name=meal.meal_name,
             completed=meal.completed,
+            skipped=meal.skipped,
             note=meal.note,
         )
         for meal in sorted(tracking_day.meals, key=lambda item: item.meal_name.lower())
@@ -414,10 +415,78 @@ def _serialize_tracking_day(
     return MemberDietTrackingDayResponse(
         id=tracking_day.id,
         tracked_for=tracking_day.tracked_for,
+        active_day_id=tracking_day.active_day_id,
+        current_meal_index=tracking_day.current_meal_index,
         adherence_rating=tracking_day.adherence_rating,
         notes=tracking_day.notes,
         meals=meals,
     )
+
+
+def _normalize_day_id(value: str) -> str:
+    normalized = value.strip()
+    if not normalized:
+        raise HTTPException(status_code=400, detail="Day id is required")
+    return normalized
+
+
+def _diet_days_by_id(plan: DietPlan) -> dict[str, dict[str, Any]]:
+    return {day["id"]: day for day in _normalize_diet_structure(plan)}
+
+
+def _diet_day_or_400(plan: DietPlan, day_id: str) -> dict[str, Any]:
+    day = _diet_days_by_id(plan).get(day_id)
+    if day is None:
+        raise HTTPException(status_code=400, detail="Selected diet day was not found in this plan")
+    return day
+
+
+def _diet_meal_index_or_400(day: dict[str, Any], meal_id: str) -> int:
+    for index, meal in enumerate(day["meals"]):
+        if meal["id"] == meal_id:
+            return index
+    raise HTTPException(status_code=400, detail="Selected meal was not found in this plan day")
+
+
+def _diet_expected_meal_or_400(day: dict[str, Any], tracking_day: MemberDietTrackingDay) -> dict[str, Any]:
+    if tracking_day.current_meal_index >= len(day["meals"]):
+        raise HTTPException(status_code=400, detail="This diet day is already complete")
+    return day["meals"][tracking_day.current_meal_index]
+
+
+def _diet_tracking_requires_active_day(day_id: str, tracking_day: MemberDietTrackingDay) -> None:
+    if tracking_day.active_day_id != day_id:
+        raise HTTPException(status_code=400, detail="Start this diet day before logging meals")
+
+
+def _upsert_tracking_meal_row(
+    tracking_day: MemberDietTrackingDay,
+    meal_id: str,
+    meal_name: str,
+) -> MemberDietTrackingMeal:
+    by_key = {meal.meal_key: meal for meal in tracking_day.meals}
+    row = by_key.get(meal_id)
+    if row is None:
+        row = MemberDietTrackingMeal(
+            tracking_day_id=tracking_day.id,
+            meal_key=meal_id,
+            meal_name=meal_name,
+            completed=False,
+            skipped=False,
+            note=None,
+            updated_at=datetime.utcnow(),
+        )
+        tracking_day.meals.append(row)
+    return row
+
+
+def _diet_first_pending_meal_index(day: dict[str, Any], tracking_day: MemberDietTrackingDay) -> int:
+    by_key = {meal.meal_key: meal for meal in tracking_day.meals}
+    for index, meal in enumerate(day["meals"]):
+        existing = by_key.get(meal["id"])
+        if existing is None or (not existing.completed and not existing.skipped):
+            return index
+    return len(day["meals"])
 
 
 def _build_tracker_payload(
@@ -432,6 +501,7 @@ def _build_tracker_payload(
                 id=meal["id"],
                 name=meal["name"],
                 completed=tracked_meals.get(meal["id"]).completed if meal["id"] in tracked_meals else False,
+                skipped=tracked_meals.get(meal["id"]).skipped if meal["id"] in tracked_meals else False,
                 note=tracked_meals.get(meal["id"]).note if meal["id"] in tracked_meals else None,
                 time_label=meal["time_label"],
                 instructions=meal["instructions"],
@@ -446,6 +516,8 @@ def _build_tracker_payload(
         description=plan.description,
         has_structured_content=bool(days),
         legacy_content=plan.content,
+        active_day_id=tracking_day.active_day_id if tracking_day else None,
+        current_meal_index=tracking_day.current_meal_index if tracking_day else 0,
         days=days,
         tracking_day=_serialize_tracking_day(tracking_day),
     )
@@ -506,6 +578,55 @@ async def _require_member_diet_plan(
     if current_user.role == Role.CUSTOMER and plan.member_id != current_user.id:
         raise HTTPException(status_code=403, detail="You can only access diet plans assigned to your account")
     return plan
+
+
+async def _get_member_diet_tracking_day(
+    db: AsyncSession,
+    *,
+    member_id: uuid.UUID,
+    diet_id: uuid.UUID,
+    tracked_for: date,
+) -> MemberDietTrackingDay | None:
+    stmt = (
+        select(MemberDietTrackingDay)
+        .where(
+            MemberDietTrackingDay.member_id == member_id,
+            MemberDietTrackingDay.diet_plan_id == diet_id,
+            MemberDietTrackingDay.tracked_for == tracked_for,
+        )
+        .options(selectinload(MemberDietTrackingDay.meals))
+    )
+    return (await db.execute(stmt)).scalar_one_or_none()
+
+
+async def _get_or_create_member_diet_tracking_day(
+    db: AsyncSession,
+    *,
+    member_id: uuid.UUID,
+    diet_id: uuid.UUID,
+    tracked_for: date,
+) -> MemberDietTrackingDay:
+    existing = await _get_member_diet_tracking_day(
+        db,
+        member_id=member_id,
+        diet_id=diet_id,
+        tracked_for=tracked_for,
+    )
+    if existing is not None:
+        return existing
+
+    tracking_day = MemberDietTrackingDay(
+        member_id=member_id,
+        diet_plan_id=diet_id,
+        tracked_for=tracked_for,
+        current_meal_index=0,
+        created_at=datetime.utcnow(),
+        updated_at=datetime.utcnow(),
+    )
+    db.add(tracking_day)
+    await db.flush()
+    await db.refresh(tracking_day, attribute_names=["meals"])
+    return tracking_day
 
 
 async def _get_active_draft_for_member(
@@ -915,20 +1036,28 @@ async def list_plans(
     current_user: Annotated[User, Depends(dependencies.require_active_customer_subscription)],
     db: Annotated[AsyncSession, Depends(get_db)],
     include_archived: bool = Query(False),
+    include_all_creators: bool = Query(False),
+    creator_id: uuid.UUID | None = Query(default=None),
 ):
     """List plans visible to the user (Created by them OR Assigned to them)."""
-    plan_exercises = selectinload(WorkoutPlan.exercises).selectinload(WorkoutExercise.exercise)
-    if _is_admin_or_coach(current_user):
-        stmt = select(WorkoutPlan).where(WorkoutPlan.creator_id == current_user.id).options(plan_exercises)
-    else:
-        stmt = select(WorkoutPlan).where(WorkoutPlan.member_id == current_user.id).options(plan_exercises)
-    if not include_archived:
-        stmt = stmt.where(WorkoutPlan.status != "ARCHIVED")
-        
-    result = await db.execute(stmt)
-    plans = result.scalars().all()
-    
-    return StandardResponse(data=[WorkoutPlanResponse.model_validate(p) for p in plans])
+    async with _customer_tenant_scope(db, current_user):
+        plan_exercises = selectinload(WorkoutPlan.exercises).selectinload(WorkoutExercise.exercise)
+        if _is_admin_or_coach(current_user):
+            if current_user.role == Role.ADMIN and include_all_creators:
+                stmt = select(WorkoutPlan).options(plan_exercises)
+                if creator_id:
+                    stmt = stmt.where(WorkoutPlan.creator_id == creator_id)
+            else:
+                stmt = select(WorkoutPlan).where(WorkoutPlan.creator_id == current_user.id).options(plan_exercises)
+        else:
+            stmt = select(WorkoutPlan).where(WorkoutPlan.member_id == current_user.id).options(plan_exercises)
+        if not include_archived:
+            stmt = stmt.where(WorkoutPlan.status != "ARCHIVED")
+
+        result = await db.execute(stmt)
+        plans = result.scalars().all()
+
+        return StandardResponse(data=[WorkoutPlanResponse.model_validate(p) for p in plans])
 
 
 @router.put("/plans/{plan_id}", response_model=StandardResponse)
@@ -1586,6 +1715,7 @@ class DietMealResponse(BaseModel):
     id: str
     name: str
     completed: bool = False
+    skipped: bool = False
     note: str | None = None
     time_label: str | None = None
     instructions: str | None = None
@@ -1608,6 +1738,7 @@ class MemberDietTrackingMealResponse(BaseModel):
     id: str
     name: str
     completed: bool
+    skipped: bool = False
     note: str | None = None
 
 
@@ -1621,9 +1752,20 @@ class MemberDietTrackingDayUpsert(BaseModel):
 class MemberDietTrackingDayResponse(BaseModel):
     id: uuid.UUID
     tracked_for: date
+    active_day_id: str | None = None
+    current_meal_index: int = 0
     adherence_rating: int | None = None
     notes: str | None = None
     meals: list[MemberDietTrackingMealResponse] = Field(default_factory=list)
+
+
+class MemberDietTrackingStartRequest(BaseModel):
+    tracked_for: date
+    day_id: str
+
+
+class MemberDietTrackingMealProgressRequest(BaseModel):
+    note: str | None = None
 
 
 class MemberDietTrackerResponse(BaseModel):
@@ -1632,6 +1774,8 @@ class MemberDietTrackerResponse(BaseModel):
     description: str | None = None
     has_structured_content: bool
     legacy_content: str | None = None
+    active_day_id: str | None = None
+    current_meal_index: int = 0
     days: list[DietDayResponse] = Field(default_factory=list)
     tracking_day: MemberDietTrackingDayResponse | None = None
 
@@ -1710,27 +1854,28 @@ async def list_diet_plans(
     templates_only: bool = Query(False),
 ):
     """List diet plans visible to the user."""
-    if _is_admin_or_coach(current_user):
-        if (
-            current_user.role == Role.ADMIN
-            and include_all_creators
-        ):
-            stmt = select(DietPlan)
-            if creator_id:
-                stmt = stmt.where(DietPlan.creator_id == creator_id)
+    async with _customer_tenant_scope(db, current_user):
+        if _is_admin_or_coach(current_user):
+            if (
+                current_user.role == Role.ADMIN
+                and include_all_creators
+            ):
+                stmt = select(DietPlan)
+                if creator_id:
+                    stmt = stmt.where(DietPlan.creator_id == creator_id)
+            else:
+                stmt = select(DietPlan).where(DietPlan.creator_id == current_user.id)
         else:
-            stmt = select(DietPlan).where(DietPlan.creator_id == current_user.id)
-    else:
-        stmt = select(DietPlan).where(DietPlan.member_id == current_user.id)
+            stmt = select(DietPlan).where(DietPlan.member_id == current_user.id)
 
-    if templates_only:
-        stmt = stmt.where(DietPlan.member_id.is_(None))
-    if not include_archived:
-        stmt = stmt.where(DietPlan.status != "ARCHIVED")
-    stmt = stmt.order_by(DietPlan.name)
-    result = await db.execute(stmt)
-    plans = result.scalars().all()
-    return StandardResponse(data=[DietPlanResponse.model_validate(p) for p in plans])
+        if templates_only:
+            stmt = stmt.where(DietPlan.member_id.is_(None))
+        if not include_archived:
+            stmt = stmt.where(DietPlan.status != "ARCHIVED")
+        stmt = stmt.order_by(DietPlan.name)
+        result = await db.execute(stmt)
+        plans = result.scalars().all()
+        return StandardResponse(data=[DietPlanResponse.model_validate(p) for p in plans])
 
 
 @router.get("/diets/{diet_id}", response_model=StandardResponse[DietPlanResponse])
@@ -2918,17 +3063,194 @@ async def get_member_diet_tracking(
     async with _customer_tenant_scope(db, current_user):
         plan = await _require_member_diet_plan(db, current_user, diet_id)
         tracked_date = tracked_for or date.today()
-        tracking_stmt = (
-            select(MemberDietTrackingDay)
-            .where(
-                MemberDietTrackingDay.member_id == current_user.id,
-                MemberDietTrackingDay.diet_plan_id == diet_id,
-                MemberDietTrackingDay.tracked_for == tracked_date,
-            )
-            .options(selectinload(MemberDietTrackingDay.meals))
+        tracking_day = await _get_member_diet_tracking_day(
+            db,
+            member_id=current_user.id,
+            diet_id=diet_id,
+            tracked_for=tracked_date,
         )
-        tracking_day = (await db.execute(tracking_stmt)).scalar_one_or_none()
         return StandardResponse(data=_build_tracker_payload(plan, tracking_day))
+
+
+@router.post("/diets/{diet_id}/tracking/start", response_model=StandardResponse[MemberDietTrackerResponse])
+async def start_member_diet_tracking_day(
+    diet_id: uuid.UUID,
+    data: MemberDietTrackingStartRequest,
+    current_user: Annotated[User, Depends(dependencies.RoleChecker([Role.ADMIN, Role.CUSTOMER]))],
+    _subscription_guard: Annotated[User, Depends(dependencies.require_active_customer_subscription)],
+    db: Annotated[AsyncSession, Depends(get_db)],
+):
+    async with _customer_tenant_scope(db, current_user):
+        plan = await _require_member_diet_plan(db, current_user, diet_id)
+        day_id = _normalize_day_id(data.day_id)
+        selected_day = _diet_day_or_400(plan, day_id)
+        tracking_day = await _get_or_create_member_diet_tracking_day(
+            db,
+            member_id=current_user.id,
+            diet_id=diet_id,
+            tracked_for=data.tracked_for,
+        )
+        tracking_day.active_day_id = day_id
+        tracking_day.current_meal_index = _diet_first_pending_meal_index(selected_day, tracking_day)
+        tracking_day.updated_at = datetime.utcnow()
+        await db.commit()
+        refreshed = await _get_member_diet_tracking_day(
+            db,
+            member_id=current_user.id,
+            diet_id=diet_id,
+            tracked_for=data.tracked_for,
+        )
+        return StandardResponse(data=_build_tracker_payload(plan, refreshed))
+
+
+@router.put("/diets/{diet_id}/tracking/days/{day_id}/meals/{meal_id}", response_model=StandardResponse[MemberDietTrackerResponse])
+async def complete_member_diet_tracking_meal(
+    diet_id: uuid.UUID,
+    day_id: str,
+    meal_id: str,
+    data: MemberDietTrackingMealProgressRequest,
+    current_user: Annotated[User, Depends(dependencies.RoleChecker([Role.ADMIN, Role.CUSTOMER]))],
+    _subscription_guard: Annotated[User, Depends(dependencies.require_active_customer_subscription)],
+    db: Annotated[AsyncSession, Depends(get_db)],
+    tracked_for: date | None = Query(None),
+):
+    async with _customer_tenant_scope(db, current_user):
+        plan = await _require_member_diet_plan(db, current_user, diet_id)
+        tracked_date = tracked_for or date.today()
+        day_id = _normalize_day_id(day_id)
+        meal_id = meal_id.strip()
+        if not meal_id:
+            raise HTTPException(status_code=400, detail="Meal id is required")
+
+        selected_day = _diet_day_or_400(plan, day_id)
+        _diet_meal_index_or_400(selected_day, meal_id)
+        tracking_day = await _get_member_diet_tracking_day(
+            db,
+            member_id=current_user.id,
+            diet_id=diet_id,
+            tracked_for=tracked_date,
+        )
+        if tracking_day is None:
+            raise HTTPException(status_code=400, detail="Start a diet day before logging meals")
+        _diet_tracking_requires_active_day(day_id, tracking_day)
+        expected = _diet_expected_meal_or_400(selected_day, tracking_day)
+        if expected["id"] != meal_id:
+            raise HTTPException(status_code=400, detail="Meals must be logged in order")
+
+        meal_row = _upsert_tracking_meal_row(tracking_day, meal_id, expected["name"])
+        meal_row.completed = True
+        meal_row.skipped = False
+        meal_row.note = data.note
+        meal_row.updated_at = datetime.utcnow()
+        tracking_day.current_meal_index = min(tracking_day.current_meal_index + 1, len(selected_day["meals"]))
+        tracking_day.updated_at = datetime.utcnow()
+
+        await db.commit()
+        refreshed = await _get_member_diet_tracking_day(
+            db,
+            member_id=current_user.id,
+            diet_id=diet_id,
+            tracked_for=tracked_date,
+        )
+        return StandardResponse(data=_build_tracker_payload(plan, refreshed))
+
+
+@router.post("/diets/{diet_id}/tracking/days/{day_id}/meals/{meal_id}/skip", response_model=StandardResponse[MemberDietTrackerResponse])
+async def skip_member_diet_tracking_meal(
+    diet_id: uuid.UUID,
+    day_id: str,
+    meal_id: str,
+    data: MemberDietTrackingMealProgressRequest,
+    current_user: Annotated[User, Depends(dependencies.RoleChecker([Role.ADMIN, Role.CUSTOMER]))],
+    _subscription_guard: Annotated[User, Depends(dependencies.require_active_customer_subscription)],
+    db: Annotated[AsyncSession, Depends(get_db)],
+    tracked_for: date | None = Query(None),
+):
+    async with _customer_tenant_scope(db, current_user):
+        plan = await _require_member_diet_plan(db, current_user, diet_id)
+        tracked_date = tracked_for or date.today()
+        day_id = _normalize_day_id(day_id)
+        meal_id = meal_id.strip()
+        if not meal_id:
+            raise HTTPException(status_code=400, detail="Meal id is required")
+
+        selected_day = _diet_day_or_400(plan, day_id)
+        _diet_meal_index_or_400(selected_day, meal_id)
+        tracking_day = await _get_member_diet_tracking_day(
+            db,
+            member_id=current_user.id,
+            diet_id=diet_id,
+            tracked_for=tracked_date,
+        )
+        if tracking_day is None:
+            raise HTTPException(status_code=400, detail="Start a diet day before logging meals")
+        _diet_tracking_requires_active_day(day_id, tracking_day)
+        expected = _diet_expected_meal_or_400(selected_day, tracking_day)
+        if expected["id"] != meal_id:
+            raise HTTPException(status_code=400, detail="Meals must be skipped in order")
+
+        meal_row = _upsert_tracking_meal_row(tracking_day, meal_id, expected["name"])
+        meal_row.completed = False
+        meal_row.skipped = True
+        meal_row.note = data.note
+        meal_row.updated_at = datetime.utcnow()
+        tracking_day.current_meal_index = min(tracking_day.current_meal_index + 1, len(selected_day["meals"]))
+        tracking_day.updated_at = datetime.utcnow()
+
+        await db.commit()
+        refreshed = await _get_member_diet_tracking_day(
+            db,
+            member_id=current_user.id,
+            diet_id=diet_id,
+            tracked_for=tracked_date,
+        )
+        return StandardResponse(data=_build_tracker_payload(plan, refreshed))
+
+
+@router.post("/diets/{diet_id}/tracking/days/{day_id}/previous", response_model=StandardResponse[MemberDietTrackerResponse])
+async def previous_member_diet_tracking_meal(
+    diet_id: uuid.UUID,
+    day_id: str,
+    current_user: Annotated[User, Depends(dependencies.RoleChecker([Role.ADMIN, Role.CUSTOMER]))],
+    _subscription_guard: Annotated[User, Depends(dependencies.require_active_customer_subscription)],
+    db: Annotated[AsyncSession, Depends(get_db)],
+    tracked_for: date | None = Query(None),
+):
+    async with _customer_tenant_scope(db, current_user):
+        plan = await _require_member_diet_plan(db, current_user, diet_id)
+        tracked_date = tracked_for or date.today()
+        day_id = _normalize_day_id(day_id)
+        selected_day = _diet_day_or_400(plan, day_id)
+        tracking_day = await _get_member_diet_tracking_day(
+            db,
+            member_id=current_user.id,
+            diet_id=diet_id,
+            tracked_for=tracked_date,
+        )
+        if tracking_day is None:
+            raise HTTPException(status_code=400, detail="Start a diet day before logging meals")
+        _diet_tracking_requires_active_day(day_id, tracking_day)
+        if tracking_day.current_meal_index <= 0:
+            raise HTTPException(status_code=400, detail="No previous meal to edit")
+
+        previous_index = tracking_day.current_meal_index - 1
+        previous_meal = selected_day["meals"][previous_index]
+        meal_row = _upsert_tracking_meal_row(tracking_day, previous_meal["id"], previous_meal["name"])
+        meal_row.completed = False
+        meal_row.skipped = False
+        meal_row.note = None
+        meal_row.updated_at = datetime.utcnow()
+        tracking_day.current_meal_index = previous_index
+        tracking_day.updated_at = datetime.utcnow()
+
+        await db.commit()
+        refreshed = await _get_member_diet_tracking_day(
+            db,
+            member_id=current_user.id,
+            diet_id=diet_id,
+            tracked_for=tracked_date,
+        )
+        return StandardResponse(data=_build_tracker_payload(plan, refreshed))
 
 
 @router.put("/diets/{diet_id}/tracking", response_model=StandardResponse[MemberDietTrackerResponse])
@@ -2941,58 +3263,39 @@ async def upsert_member_diet_tracking(
 ):
     async with _customer_tenant_scope(db, current_user):
         plan = await _require_member_diet_plan(db, current_user, diet_id)
-        structured_meal_names = {
-            meal["id"]: meal["name"]
-            for day in _normalize_diet_structure(plan)
-            for meal in day["meals"]
-        }
-        tracking_stmt = (
-            select(MemberDietTrackingDay)
-            .where(
-                MemberDietTrackingDay.member_id == current_user.id,
-                MemberDietTrackingDay.diet_plan_id == diet_id,
-                MemberDietTrackingDay.tracked_for == data.tracked_for,
-            )
-            .options(selectinload(MemberDietTrackingDay.meals))
+        tracking_day = await _get_or_create_member_diet_tracking_day(
+            db,
+            member_id=current_user.id,
+            diet_id=diet_id,
+            tracked_for=data.tracked_for,
         )
-        tracking_day = (await db.execute(tracking_stmt)).scalar_one_or_none()
-        created_new = tracking_day is None
-        if tracking_day is None:
-            tracking_day = MemberDietTrackingDay(
-                member_id=current_user.id,
-                diet_plan_id=diet_id,
-                tracked_for=data.tracked_for,
-                created_at=datetime.utcnow(),
-                updated_at=datetime.utcnow(),
-            )
-            db.add(tracking_day)
-            await db.flush()
         tracking_day.adherence_rating = data.adherence_rating
         tracking_day.notes = data.notes
         tracking_day.updated_at = datetime.utcnow()
 
-        by_key = {} if created_new else {meal.meal_key: meal for meal in tracking_day.meals}
         for meal_update in data.meals:
-            meal = by_key.get(meal_update.meal_id)
-            if meal is None:
-                meal = MemberDietTrackingMeal(
-                    tracking_day_id=tracking_day.id,
-                    meal_key=meal_update.meal_id,
-                    meal_name=structured_meal_names.get(meal_update.meal_id, meal_update.meal_id.replace("-", " ").title()),
-                )
-                db.add(meal)
-                by_key[meal_update.meal_id] = meal
+            if not tracking_day.active_day_id:
+                raise HTTPException(status_code=400, detail="Start a diet day before logging meals")
+            selected_day = _diet_day_or_400(plan, tracking_day.active_day_id)
+            _diet_meal_index_or_400(selected_day, meal_update.meal_id)
+            expected = _diet_expected_meal_or_400(selected_day, tracking_day)
+            if expected["id"] != meal_update.meal_id:
+                raise HTTPException(status_code=400, detail="Meals must be logged in order")
+
+            meal = _upsert_tracking_meal_row(tracking_day, meal_update.meal_id, expected["name"])
             meal.completed = meal_update.completed
+            meal.skipped = not meal_update.completed
             meal.note = meal_update.note
             meal.updated_at = datetime.utcnow()
+            tracking_day.current_meal_index = min(tracking_day.current_meal_index + 1, len(selected_day["meals"]))
 
         await db.commit()
-        refreshed_stmt = (
-            select(MemberDietTrackingDay)
-            .where(MemberDietTrackingDay.id == tracking_day.id)
-            .options(selectinload(MemberDietTrackingDay.meals))
+        refreshed_day = await _get_member_diet_tracking_day(
+            db,
+            member_id=current_user.id,
+            diet_id=diet_id,
+            tracked_for=data.tracked_for,
         )
-        refreshed_day = (await db.execute(refreshed_stmt)).scalar_one()
         return StandardResponse(data=_build_tracker_payload(plan, refreshed_day))
 
 
@@ -3130,8 +3433,8 @@ async def get_my_workout_session_logs(
     plan_id: uuid.UUID | None = Query(None),
     limit: int = Query(100, ge=1, le=500),
     offset: int = Query(0, ge=0),
-    from_date: datetime | None = Query(None),
-    to_date: datetime | None = Query(None),
+    from_date: date | None = Query(None),
+    to_date: date | None = Query(None),
 ):
     """Get current user's per-session workout logs."""
     stmt = (
@@ -3141,7 +3444,9 @@ async def get_my_workout_session_logs(
     )
     if plan_id:
         stmt = stmt.where(WorkoutSession.plan_id == plan_id)
-    stmt = _apply_date_filters(stmt, WorkoutSession.performed_at, from_date, to_date)
+    from_date_dt = datetime.combine(from_date, time.min) if from_date else None
+    to_date_dt = datetime.combine(to_date, time.max) if to_date else None
+    stmt = _apply_date_filters(stmt, WorkoutSession.performed_at, from_date_dt, to_date_dt)
     stmt = stmt.order_by(WorkoutSession.performed_at.desc()).offset(offset).limit(limit)
     result = await db.execute(stmt)
     sessions = result.scalars().all()
@@ -3156,8 +3461,8 @@ async def get_member_workout_session_logs(
     plan_id: uuid.UUID | None = Query(None),
     limit: int = Query(100, ge=1, le=500),
     offset: int = Query(0, ge=0),
-    from_date: datetime | None = Query(None),
-    to_date: datetime | None = Query(None),
+    from_date: date | None = Query(None),
+    to_date: date | None = Query(None),
 ):
     """Coach/Admin views member per-session workout logs."""
     stmt = (
@@ -3170,7 +3475,9 @@ async def get_member_workout_session_logs(
         stmt = stmt.where(WorkoutPlan.creator_id == current_user.id)
     if plan_id:
         stmt = stmt.where(WorkoutSession.plan_id == plan_id)
-    stmt = _apply_date_filters(stmt, WorkoutSession.performed_at, from_date, to_date)
+    from_date_dt = datetime.combine(from_date, time.min) if from_date else None
+    to_date_dt = datetime.combine(to_date, time.max) if to_date else None
+    stmt = _apply_date_filters(stmt, WorkoutSession.performed_at, from_date_dt, to_date_dt)
     stmt = stmt.order_by(WorkoutSession.performed_at.desc()).offset(offset).limit(limit)
     result = await db.execute(stmt)
     sessions = result.scalars().all()
@@ -3179,18 +3486,26 @@ async def get_member_workout_session_logs(
 @router.get("/stats", response_model=StandardResponse)
 async def get_workout_stats(
     current_user: Annotated[User, Depends(dependencies.require_active_customer_subscription)],
-    db: Annotated[AsyncSession, Depends(get_db)]
+    db: Annotated[AsyncSession, Depends(get_db)],
+    from_date: date | None = Query(None),
+    to_date: date | None = Query(None),
 ):
     """Get aggregated workout stats for the current user (e.g., workouts per day over last 30 days)."""
-    thirty_days_ago = datetime.now() - timedelta(days=30)
+    if from_date and to_date and from_date > to_date:
+        raise HTTPException(status_code=400, detail="from_date must be on or before to_date")
+
+    from_date_dt = datetime.combine(from_date, time.min) if from_date else datetime.now() - timedelta(days=30)
+    to_date_dt = datetime.combine(to_date, time.max) if to_date else None
 
     stmt = (
         select(func.date(WorkoutSession.performed_at).label('day'), func.count(WorkoutSession.id).label('count'))
         .where(WorkoutSession.member_id == current_user.id)
-        .where(WorkoutSession.performed_at >= thirty_days_ago)
+        .where(WorkoutSession.performed_at >= from_date_dt)
         .group_by('day')
         .order_by('day')
     )
+    if to_date_dt is not None:
+        stmt = stmt.where(WorkoutSession.performed_at <= to_date_dt)
     result = await db.execute(stmt)
     rows = result.all()
     
@@ -3207,9 +3522,37 @@ async def log_biometrics(
 ):
     """Log a new biometric entry for the current user."""
     async with _customer_tenant_scope(db, current_user):
+        latest_stmt = (
+            select(BiometricLog)
+            .where(BiometricLog.member_id == current_user.id)
+            .order_by(BiometricLog.date.desc())
+            .limit(1)
+        )
+        latest = (await db.execute(latest_stmt)).scalar_one_or_none()
+        payload = data.model_dump(exclude_unset=True)
+
+        def _merged(metric: str) -> float | None:
+            incoming = payload.get(metric, None)
+            if incoming is not None:
+                return incoming
+            if latest is not None:
+                return getattr(latest, metric)
+            return None
+
+        merged_height = _merged("height_cm")
+        merged_weight = _merged("weight_kg")
+        merged_body_fat = _merged("body_fat_pct")
+        merged_muscle = _merged("muscle_mass_kg")
+
+        if all(value is None for value in [merged_height, merged_weight, merged_body_fat, merged_muscle]):
+            raise HTTPException(status_code=400, detail="At least one biometric metric is required")
+
         log = BiometricLog(
             member_id=current_user.id,
-            **data.model_dump(exclude_unset=True)
+            height_cm=merged_height,
+            weight_kg=merged_weight,
+            body_fat_pct=merged_body_fat,
+            muscle_mass_kg=merged_muscle,
         )
         db.add(log)
         await db.commit()

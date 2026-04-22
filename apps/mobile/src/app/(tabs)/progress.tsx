@@ -1,6 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
-import { StyleSheet, Text, View } from "react-native";
+import { Pressable, StyleSheet, Text, View } from "react-native";
 
 import { Card, InlineStat, Input, MutedText, PrimaryButton, QueryState, Screen, SectionTitle } from "@/components/ui";
 import { parseEnvelope, parseProgressEnvelope, type MobileGamificationStats } from "@/lib/api";
@@ -17,18 +17,43 @@ function parseMetricValue(value: string) {
   return Number.isFinite(parsed) ? parsed : undefined;
 }
 
+function formatVolume(volume?: number | null) {
+  if (typeof volume !== "number" || !Number.isFinite(volume)) return "--";
+  return `${volume.toFixed(volume % 1 === 0 ? 0 : 1)} kg`;
+}
+
+const PROGRESS_RANGES = [
+  { id: "7d", days: 7, labelKey: "range7Days" as const },
+  { id: "30d", days: 30, labelKey: "range30Days" as const },
+  { id: "90d", days: 90, labelKey: "range90Days" as const },
+  { id: "all", days: null, labelKey: "rangeAll" as const },
+] as const;
+
 export default function ProgressTab() {
   const { authorizedRequest } = useSession();
   const { copy, direction, fontSet, isRTL, theme } = usePreferences();
   const queryClient = useQueryClient();
+  const [rangeId, setRangeId] = useState<(typeof PROGRESS_RANGES)[number]["id"]>("30d");
   const [weightKg, setWeightKg] = useState("");
   const [heightCm, setHeightCm] = useState("");
   const [bodyFatPct, setBodyFatPct] = useState("");
   const [muscleMassKg, setMuscleMassKg] = useState("");
   const [formMessage, setFormMessage] = useState<string | null>(null);
   const progressQuery = useQuery({
-    queryKey: ["mobile-progress"],
-    queryFn: async () => parseProgressEnvelope(await authorizedRequest("/mobile/customer/progress")).data,
+    queryKey: ["mobile-progress", rangeId],
+    queryFn: async () => {
+      const params = new URLSearchParams();
+      const selectedRange = PROGRESS_RANGES.find((item) => item.id === rangeId) ?? PROGRESS_RANGES[1];
+      if (selectedRange.days != null) {
+        const end = new Date();
+        const start = new Date();
+        start.setDate(end.getDate() - (selectedRange.days - 1));
+        params.set("date_from", start.toISOString().slice(0, 10));
+        params.set("date_to", end.toISOString().slice(0, 10));
+      }
+      const suffix = params.toString();
+      return parseProgressEnvelope(await authorizedRequest(`/mobile/customer/progress${suffix ? `?${suffix}` : ""}`)).data;
+    },
   });
   const gamificationQuery = useQuery({
     queryKey: ["mobile-gamification"],
@@ -37,12 +62,22 @@ export default function ProgressTab() {
   const progress = progressQuery.data;
   const gamification = gamificationQuery.data;
   const locale = localeTag(isRTL);
+  const selectedRange = PROGRESS_RANGES.find((item) => item.id === rangeId) ?? PROGRESS_RANGES[1];
+  const selectedRangeLabel = copy.progress[selectedRange.labelKey];
 
   const latestBiometric = progress?.biometrics.at(-1) ?? null;
   const recentAttendance = progress?.attendance_history.slice(0, 5) ?? [];
   const recentSessions = progress?.recent_workout_sessions.slice(0, 5) ?? [];
-  const workoutCount30d = progress?.workout_stats.reduce((sum, row) => sum + row.workouts, 0) ?? 0;
-  const grantedAttendanceCount = progress?.attendance_history.filter((entry) => entry.status === "GRANTED").length ?? 0;
+  const workoutCountInRange = progress?.range_summary.workouts ?? progress?.workout_stats.reduce((sum, row) => sum + row.workouts, 0) ?? 0;
+  const grantedAttendanceCount = progress?.range_summary.attendance ?? progress?.attendance_history.filter((entry) => entry.status === "GRANTED").length ?? 0;
+  const sessionVolumeSeries = progress?.recent_workout_sessions
+    .slice()
+    .sort((a, b) => new Date(a.performed_at).getTime() - new Date(b.performed_at).getTime())
+    .map((session) => ({
+      label: new Date(session.performed_at).toLocaleDateString(locale, { month: "short", day: "numeric" }),
+      value: session.session_volume ?? 0,
+    }))
+    .filter((point) => typeof point.value === "number") ?? [];
   const metricPayload = {
     weight_kg: parseMetricValue(weightKg),
     height_cm: parseMetricValue(heightCm),
@@ -75,10 +110,39 @@ export default function ProgressTab() {
       {progress ? (
         <>
           <Card>
-            <SectionTitle>{copy.progress.thisMonth}</SectionTitle>
+            <View style={[styles.sectionHeader, { flexDirection: isRTL ? "row-reverse" : "row" }]}>
+              <SectionTitle>{copy.progress.selectedRangeSummary}</SectionTitle>
+            </View>
+            <View style={[styles.rangeRow, { flexDirection: isRTL ? "row-reverse" : "row" }]}>
+              {PROGRESS_RANGES.map((range) => {
+                const active = range.id === rangeId;
+                return (
+                  <Pressable
+                    key={range.id}
+                    onPress={() => setRangeId(range.id)}
+                    style={[
+                      styles.rangeChip,
+                      {
+                        borderColor: active ? theme.primary : theme.border,
+                        backgroundColor: active ? theme.primarySoft : theme.cardAlt,
+                      },
+                    ]}
+                  >
+                    <Text style={{ color: active ? theme.primary : theme.foreground, fontFamily: fontSet.mono, fontSize: 11, fontWeight: "900" }}>
+                      {copy.progress[range.labelKey]}
+                    </Text>
+                  </Pressable>
+                );
+              })}
+            </View>
+            <MutedText>{`${copy.progress.range}: ${selectedRangeLabel}`}</MutedText>
+          </Card>
+
+          <Card>
+            <SectionTitle>{selectedRangeLabel}</SectionTitle>
             <View style={[styles.statGrid, { flexDirection: isRTL ? "row-reverse" : "row" }]}>
-              <InlineStat label={copy.progress.workouts30d} value={workoutCount30d} />
-              <InlineStat label={copy.progress.attendance} value={grantedAttendanceCount} />
+              <InlineStat label={copy.progress.workoutsInRange} value={workoutCountInRange} />
+              <InlineStat label={copy.progress.attendanceInRange} value={grantedAttendanceCount} />
             </View>
             <View style={[styles.statGrid, { flexDirection: isRTL ? "row-reverse" : "row" }]}>
               <InlineStat label={copy.progress.lastWeight} value={latestBiometric?.weight_kg != null ? `${latestBiometric.weight_kg} kg` : "--"} />
@@ -159,6 +223,30 @@ export default function ProgressTab() {
           </Card>
 
           <Card>
+            <SectionTitle>{copy.progress.sessionLoad}</SectionTitle>
+            {sessionVolumeSeries.length === 0 ? (
+              <MutedText>{copy.progress.noTrend}</MutedText>
+            ) : (
+              <>
+                <CountBarChart
+                  title={copy.progress.sessionLoad}
+                  points={sessionVolumeSeries}
+                  unit="kg"
+                  emptyMessage={copy.progress.noSessionVolume}
+                />
+                {recentSessions.map((session) => (
+                  <View key={session.id} style={[styles.row, { borderTopColor: theme.border, flexDirection: isRTL ? "row-reverse" : "row" }]}>
+                    <Text style={[styles.rowTitle, { color: theme.foreground, fontFamily: fontSet.body, textAlign: isRTL ? "right" : "left", writingDirection: direction }]}>
+                      {new Date(session.performed_at).toLocaleDateString(locale)}
+                    </Text>
+                    <Text style={[styles.metricValue, { color: theme.primary, fontFamily: fontSet.mono }]}>{copy.progress.sessionVolume}: {formatVolume(session.session_volume)}</Text>
+                  </View>
+                ))}
+              </>
+            )}
+          </Card>
+
+          <Card>
             <SectionTitle>{copy.progress.attendanceStats}</SectionTitle>
             <View style={[styles.statGrid, { flexDirection: isRTL ? "row-reverse" : "row" }]}>
               <InlineStat label={copy.home.currentStreak} value={gamification?.streak.current_streak ?? "--"} />
@@ -193,6 +281,7 @@ export default function ProgressTab() {
                   <Text style={[styles.prValue, { color: theme.foreground, fontFamily: fontSet.display, textAlign: isRTL ? "right" : "left", writingDirection: direction }]}>
                     {record.pr_value || `${record.weight_kg ?? "--"} kg / ${record.reps_completed} reps`}
                   </Text>
+                  {record.entry_volume != null ? <MutedText>{`${copy.progress.bestVolume}: ${formatVolume(record.entry_volume)}`}</MutedText> : null}
                   {record.pr_notes ? <MutedText>{record.pr_notes}</MutedText> : null}
                   <MutedText>{new Date(record.performed_at).toLocaleDateString(locale)}</MutedText>
                 </View>
@@ -271,6 +360,7 @@ function ChartSummary({
   max,
   delta,
   unit,
+  singlePoint = false,
 }: {
   title: string;
   latest: number;
@@ -278,6 +368,7 @@ function ChartSummary({
   max: number;
   delta?: number | null;
   unit: string;
+  singlePoint?: boolean;
 }) {
   const { copy, direction, fontSet, isRTL, theme } = usePreferences();
   const formattedLatest = `${formatChartNumber(latest)}${unit}`;
@@ -288,17 +379,19 @@ function ChartSummary({
         <Text style={[styles.chartTitle, { color: theme.foreground, fontFamily: fontSet.body, textAlign: isRTL ? "right" : "left", writingDirection: direction }]}>{title}</Text>
         <Text style={[styles.chartLatest, { color: theme.primary, fontFamily: fontSet.mono }]}>{formattedLatest}</Text>
       </View>
-      <View style={[styles.chartMeta, { flexDirection: isRTL ? "row-reverse" : "row" }]}>
-        <MutedText>
-          {copy.progress.range}:{" "}
-          {formatChartNumber(min)}
-          {unit} - {formatChartNumber(max)}
-          {unit}
-        </MutedText>
-        <Text style={[styles.chartDelta, { color: !delta ? theme.muted : theme.primary, fontFamily: fontSet.mono }]}>
-          {copy.progress.change}: {formattedDelta}
-        </Text>
-      </View>
+      {!singlePoint ? (
+        <View style={[styles.chartMeta, { flexDirection: isRTL ? "row-reverse" : "row" }]}>
+          <MutedText>
+            {copy.progress.range}:{" "}
+            {formatChartNumber(min)}
+            {unit} - {formatChartNumber(max)}
+            {unit}
+          </MutedText>
+          <Text style={[styles.chartDelta, { color: !delta ? theme.muted : theme.primary, fontFamily: fontSet.mono }]}>
+            {copy.progress.change}: {formattedDelta}
+          </Text>
+        </View>
+      ) : null}
     </>
   );
 }
@@ -314,8 +407,9 @@ function SparklineChart({
   unit: string;
   emptyMessage: string;
 }) {
-  const { fontSet, isRTL, theme } = usePreferences();
+  const { copy, direction, fontSet, isRTL, theme } = usePreferences();
   const [chartWidth, setChartWidth] = useState(0);
+  const [selectedIndex, setSelectedIndex] = useState<number | null>(null);
   const visiblePoints = points.filter((point): point is { label: string; value: number } => typeof point.value === "number");
   if (visiblePoints.length === 0) {
     return <MutedText>{emptyMessage}</MutedText>;
@@ -325,14 +419,17 @@ function SparklineChart({
   const max = Math.max(...values);
   const rawRange = max - min;
   const range = rawRange || 1;
+  const singlePoint = visiblePoints.length === 1;
   const latest = visiblePoints[visiblePoints.length - 1];
-  const previous = visiblePoints[visiblePoints.length - 2];
-  const delta = previous ? latest.value - previous.value : null;
+  const delta = visiblePoints.length > 1 ? latest.value - visiblePoints[0].value : null;
   const chartHeight = 118;
   const paddingX = 12;
   const paddingY = 14;
   const usableWidth = Math.max(chartWidth - paddingX * 2, 1);
   const usableHeight = chartHeight - paddingY * 2;
+  const selectedPoint = selectedIndex == null ? null : visiblePoints[Math.min(selectedIndex, visiblePoints.length - 1)] ?? null;
+  const previousPoint = selectedIndex != null && selectedIndex > 0 ? visiblePoints[selectedIndex - 1] : null;
+  const selectedDelta = selectedPoint && previousPoint ? selectedPoint.value - previousPoint.value : null;
   const coordinates = visiblePoints.map((point, index) => {
     const x = paddingX + (visiblePoints.length === 1 ? usableWidth / 2 : (index / (visiblePoints.length - 1)) * usableWidth);
     const y = paddingY + (1 - (rawRange === 0 ? 0.5 : (point.value - min) / range)) * usableHeight;
@@ -340,8 +437,8 @@ function SparklineChart({
   });
 
   return (
-    <View style={styles.chartBlock}>
-      <ChartSummary title={title} latest={latest.value} min={min} max={max} delta={delta} unit={unit} />
+    <View style={[styles.chartBlock, { borderTopColor: theme.border }]}>
+      <ChartSummary title={title} latest={latest.value} min={min} max={max} delta={delta} unit={unit} singlePoint={singlePoint} />
       <View
         onLayout={(event) => setChartWidth(event.nativeEvent.layout.width)}
         style={[styles.sparklineFrame, { backgroundColor: theme.primarySoft, borderColor: theme.border }]}
@@ -356,7 +453,7 @@ function SparklineChart({
               const angle = `${Math.atan2(dy, dx)}rad`;
               return (
                 <View
-                  key={`${point.label}-${next.label}`}
+                  key={`segment-${index}`}
                   style={[
                     styles.sparklineSegment,
                     {
@@ -373,14 +470,16 @@ function SparklineChart({
           : null}
         {chartWidth > 0
           ? coordinates.map((point, index) => (
-              <View
-                key={`${point.label}-${point.value}`}
+              <Pressable
+                key={`dot-${index}`}
+                onPress={() => setSelectedIndex((current) => (current === index ? null : index))}
+                hitSlop={10}
                 style={[
                   styles.sparklineDot,
                   {
                     left: point.x - 4,
                     top: point.y - 4,
-                    backgroundColor: index === coordinates.length - 1 ? theme.primary : theme.background,
+                    backgroundColor: index === selectedIndex ? theme.primary : theme.background,
                     borderColor: theme.primary,
                   },
                 ]}
@@ -388,13 +487,41 @@ function SparklineChart({
             ))
           : null}
       </View>
-      <View style={[styles.chartEdgeLabels, { flexDirection: isRTL ? "row-reverse" : "row" }]}>
-        <Text style={[styles.chartLabel, { color: theme.muted, fontFamily: fontSet.body }]} numberOfLines={1}>
-          {visiblePoints[0].label}
-        </Text>
-        <Text style={[styles.chartLabel, { color: theme.muted, fontFamily: fontSet.body }]} numberOfLines={1}>
-          {latest.label}
-        </Text>
+      {!singlePoint ? (
+        <View style={[styles.chartEdgeLabels, { flexDirection: isRTL ? "row-reverse" : "row" }]}>
+          <Text style={[styles.chartLabel, { color: theme.muted, fontFamily: fontSet.body }]} numberOfLines={1}>
+            {visiblePoints[0].label}
+          </Text>
+          <Text style={[styles.chartLabel, { color: theme.muted, fontFamily: fontSet.body }]} numberOfLines={1}>
+            {latest.label}
+          </Text>
+        </View>
+      ) : null}
+      <View style={[styles.chartInspector, { backgroundColor: theme.cardAlt, borderColor: theme.border }]}>
+        {selectedPoint ? (
+          <>
+            <View style={[styles.inspectorHeader, { flexDirection: isRTL ? "row-reverse" : "row" }]}>
+              <MutedText>{copy.progress.selectedPoint}</MutedText>
+              <Pressable onPress={() => setSelectedIndex(null)} hitSlop={8}>
+                <Text style={[styles.inspectorClear, { color: theme.primary, fontFamily: fontSet.body }]}>{copy.progress.clearPoint}</Text>
+              </Pressable>
+            </View>
+            <Text style={[styles.inspectorLabel, { color: theme.foreground, fontFamily: fontSet.body, textAlign: isRTL ? "right" : "left", writingDirection: direction }]}>
+              {selectedPoint.label}
+            </Text>
+            <Text style={[styles.inspectorValue, { color: theme.primary, fontFamily: fontSet.mono, textAlign: isRTL ? "right" : "left", writingDirection: direction }]}>
+              {formatChartNumber(selectedPoint.value)}{unit}
+            </Text>
+            {previousPoint ? (
+              <>
+                <MutedText>{`${copy.progress.previousPoint}: ${previousPoint.label} · ${formatChartNumber(previousPoint.value)}${unit}`}</MutedText>
+                <MutedText>{`${copy.progress.change}: ${selectedDelta && selectedDelta > 0 ? "+" : ""}${formatChartNumber(selectedDelta ?? 0)}${unit}`}</MutedText>
+              </>
+            ) : null}
+          </>
+        ) : (
+          <MutedText>{copy.progress.tapPointToInspect}</MutedText>
+        )}
       </View>
     </View>
   );
@@ -411,7 +538,9 @@ function CountBarChart({
   unit: string;
   emptyMessage: string;
 }) {
-  const { fontSet, isRTL, theme } = usePreferences();
+  const { copy, direction, fontSet, isRTL, theme } = usePreferences();
+  const [chartWidth, setChartWidth] = useState(0);
+  const [selectedIndex, setSelectedIndex] = useState<number | null>(null);
   const visiblePoints = points.filter((point): point is { label: string; value: number } => typeof point.value === "number");
   if (visiblePoints.length === 0) {
     return <MutedText>{emptyMessage}</MutedText>;
@@ -421,28 +550,109 @@ function CountBarChart({
   const max = Math.max(...values);
   const rawRange = max - min;
   const range = rawRange || 1;
+  const singlePoint = visiblePoints.length === 1;
   const latest = visiblePoints[visiblePoints.length - 1];
-  const previous = visiblePoints[visiblePoints.length - 2];
-  const delta = previous ? latest.value - previous.value : null;
+  const delta = visiblePoints.length > 1 ? latest.value - visiblePoints[0].value : null;
+  const chartHeight = 118;
+  const paddingX = 12;
+  const paddingY = 14;
+  const usableWidth = Math.max(chartWidth - paddingX * 2, 1);
+  const usableHeight = chartHeight - paddingY * 2;
+  const selectedPoint = selectedIndex == null ? null : visiblePoints[Math.min(selectedIndex, visiblePoints.length - 1)] ?? null;
+  const previousPoint = selectedIndex != null && selectedIndex > 0 ? visiblePoints[selectedIndex - 1] : null;
+  const selectedDelta = selectedPoint && previousPoint ? selectedPoint.value - previousPoint.value : null;
+  const coordinates = visiblePoints.map((point, index) => {
+    const x = paddingX + (visiblePoints.length === 1 ? usableWidth / 2 : (index / (visiblePoints.length - 1)) * usableWidth);
+    const y = paddingY + (1 - (rawRange === 0 ? 0.5 : (point.value - min) / range)) * usableHeight;
+    return { ...point, x, y };
+  });
 
   return (
-    <View style={styles.chartBlock}>
-      <ChartSummary title={title} latest={latest.value} min={min} max={max} delta={delta} unit={unit} />
-      <View style={[styles.chartRow, { flexDirection: isRTL ? "row-reverse" : "row" }]}>
-        {visiblePoints.map((point) => {
-          const normalized = rawRange === 0 ? 0.5 : (point.value - min) / range;
-          const height = 24 + normalized * 66;
-          return (
-            <View key={`${point.label}-${point.value}`} style={styles.chartColumn}>
-              <View style={[styles.chartTrack, { backgroundColor: theme.primarySoft }]}>
-                <View style={[styles.chartBar, { height, backgroundColor: theme.primary }]} />
-              </View>
-              <Text style={[styles.chartLabel, { color: theme.muted, fontFamily: fontSet.body }]} numberOfLines={1}>
-                {point.label}
-              </Text>
+    <View style={[styles.chartBlock, { borderTopColor: theme.border }]}>
+      <ChartSummary title={title} latest={latest.value} min={min} max={max} delta={delta} unit={unit} singlePoint={singlePoint} />
+      <View
+        onLayout={(event) => setChartWidth(event.nativeEvent.layout.width)}
+        style={[styles.sparklineFrame, { backgroundColor: theme.primarySoft, borderColor: theme.border }]}
+      >
+        <View style={[styles.sparklineGuide, { top: chartHeight / 2, backgroundColor: theme.border }]} />
+        {chartWidth > 0
+          ? coordinates.slice(0, -1).map((point, index) => {
+              const next = coordinates[index + 1];
+              const dx = next.x - point.x;
+              const dy = next.y - point.y;
+              const length = Math.sqrt(dx * dx + dy * dy);
+              const angle = `${Math.atan2(dy, dx)}rad`;
+              return (
+                <View
+                  key={`segment-${index}`}
+                  style={[
+                    styles.sparklineSegment,
+                    {
+                      width: length,
+                      left: point.x,
+                      top: point.y,
+                      backgroundColor: theme.primary,
+                      transform: [{ rotate: angle }],
+                    },
+                  ]}
+                />
+              );
+            })
+          : null}
+        {chartWidth > 0
+          ? coordinates.map((point, index) => (
+              <Pressable
+                key={`dot-${index}`}
+                onPress={() => setSelectedIndex((current) => (current === index ? null : index))}
+                hitSlop={10}
+                style={[
+                  styles.sparklineDot,
+                  {
+                    left: point.x - 4,
+                    top: point.y - 4,
+                    backgroundColor: index === selectedIndex ? theme.primary : theme.background,
+                    borderColor: theme.primary,
+                  },
+                ]}
+              />
+            ))
+          : null}
+      </View>
+      {!singlePoint ? (
+        <View style={[styles.chartEdgeLabels, { flexDirection: isRTL ? "row-reverse" : "row" }]}>
+          <Text style={[styles.chartLabel, { color: theme.muted, fontFamily: fontSet.body }]} numberOfLines={1}>
+            {visiblePoints[0].label}
+          </Text>
+          <Text style={[styles.chartLabel, { color: theme.muted, fontFamily: fontSet.body }]} numberOfLines={1}>
+            {latest.label}
+          </Text>
+        </View>
+      ) : null}
+      <View style={[styles.chartInspector, { backgroundColor: theme.cardAlt, borderColor: theme.border }]}>
+        {selectedPoint ? (
+          <>
+            <View style={[styles.inspectorHeader, { flexDirection: isRTL ? "row-reverse" : "row" }]}>
+              <MutedText>{copy.progress.selectedPoint}</MutedText>
+              <Pressable onPress={() => setSelectedIndex(null)} hitSlop={8}>
+                <Text style={[styles.inspectorClear, { color: theme.primary, fontFamily: fontSet.body }]}>{copy.progress.clearPoint}</Text>
+              </Pressable>
             </View>
-          );
-        })}
+            <Text style={[styles.inspectorLabel, { color: theme.foreground, fontFamily: fontSet.body, textAlign: isRTL ? "right" : "left", writingDirection: direction }]}>
+              {selectedPoint.label}
+            </Text>
+            <Text style={[styles.inspectorValue, { color: theme.primary, fontFamily: fontSet.mono, textAlign: isRTL ? "right" : "left", writingDirection: direction }]}>
+              {formatChartNumber(selectedPoint.value)}{unit}
+            </Text>
+            {previousPoint ? (
+              <>
+                <MutedText>{`${copy.progress.previousPoint}: ${previousPoint.label} · ${formatChartNumber(previousPoint.value)}${unit}`}</MutedText>
+                <MutedText>{`${copy.progress.change}: ${selectedDelta && selectedDelta > 0 ? "+" : ""}${formatChartNumber(selectedDelta ?? 0)}${unit}`}</MutedText>
+              </>
+            ) : null}
+          </>
+        ) : (
+          <MutedText>{copy.progress.tapPointToInspect}</MutedText>
+        )}
       </View>
     </View>
   );
@@ -466,7 +676,26 @@ const styles = StyleSheet.create({
     minWidth: 132,
   },
   chartBlock: {
+    borderTopWidth: 1,
     gap: 8,
+    marginTop: 12,
+    paddingTop: 12,
+  },
+  sectionHeader: {
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: 10,
+  },
+  rangeRow: {
+    flexWrap: "wrap",
+    gap: 8,
+    marginTop: 4,
+  },
+  rangeChip: {
+    borderWidth: 1,
+    borderRadius: 999,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
   },
   chartHeader: {
     alignItems: "center",
@@ -500,12 +729,19 @@ const styles = StyleSheet.create({
     alignItems: "center",
     gap: 5,
   },
+  chartColumnSingle: {
+    flex: 0,
+    width: 72,
+  },
   chartTrack: {
     width: "100%",
     height: 90,
     borderRadius: 999,
     justifyContent: "flex-end",
     overflow: "hidden",
+  },
+  chartTrackSingle: {
+    width: 48,
   },
   chartBar: {
     width: "100%",
@@ -544,6 +780,30 @@ const styles = StyleSheet.create({
   chartEdgeLabels: {
     justifyContent: "space-between",
     gap: 12,
+  },
+  chartInspector: {
+    borderWidth: 1,
+    borderRadius: 14,
+    gap: 6,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+  },
+  inspectorHeader: {
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: 10,
+  },
+  inspectorClear: {
+    fontSize: 12,
+    fontWeight: "800",
+  },
+  inspectorLabel: {
+    fontSize: 13,
+    fontWeight: "800",
+  },
+  inspectorValue: {
+    fontSize: 16,
+    fontWeight: "900",
   },
   prCard: {
     borderWidth: 1,

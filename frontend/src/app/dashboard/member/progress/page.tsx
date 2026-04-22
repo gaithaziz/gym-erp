@@ -24,6 +24,35 @@ import type { BiometricLogResponse, WorkoutSessionLog } from '../_shared/types';
 
 type MetricKey = keyof Pick<BiometricLogResponse, 'weight_kg' | 'body_fat_pct' | 'muscle_mass_kg'>;
 const PR_TABLE_PAGE_SIZE = 10;
+const RANGE_OPTIONS = [
+    { key: '7d', days: 7 },
+    { key: '30d', days: 30 },
+    { key: '90d', days: 90 },
+    { key: 'all', days: null as null },
+] as const;
+
+function parseSetDetailsVolume(setDetails?: WorkoutSessionLog["entries"][number]["set_details"] | null): number {
+    if (!setDetails?.length) return 0;
+    return setDetails.reduce((sum, row) => {
+        const reps = Number(row.reps || 0);
+        const weight = Number(row.weightKg || 0);
+        if (!Number.isFinite(reps) || !Number.isFinite(weight)) return sum;
+        return sum + Math.max(0, reps) * Math.max(0, weight);
+    }, 0);
+}
+
+function getEntryVolume(entry: WorkoutSessionLog["entries"][number]): number {
+    if (typeof entry.entry_volume === 'number' && Number.isFinite(entry.entry_volume)) return entry.entry_volume;
+    const setVolume = parseSetDetailsVolume(entry.set_details);
+    if (setVolume > 0) return setVolume;
+    if (entry.skipped) return 0;
+    return Math.max(0, Number(entry.sets_completed || 0) * Number(entry.reps_completed || 0) * Number(entry.weight_kg || 0));
+}
+
+function getSessionVolume(session: WorkoutSessionLog): number {
+    if (typeof session.session_volume === 'number' && Number.isFinite(session.session_volume)) return session.session_volume;
+    return (session.entries || []).reduce((sum, entry) => sum + getEntryVolume(entry), 0);
+}
 
 export default function MemberProgressPage() {
     const { locale, formatDate } = useLocale();
@@ -56,6 +85,7 @@ export default function MemberProgressPage() {
         exercise: 'التمرين',
         bestWeight: 'أفضل وزن',
         bestReps: 'أفضل تكرارات',
+        bestVolume: 'أفضل حجم',
         repsAt: 'تكرار عند',
         weightUnit: 'كجم',
         noPrData: 'لا توجد بيانات أرقام شخصية في النطاق المحدد بعد.',
@@ -66,6 +96,14 @@ export default function MemberProgressPage() {
         weight: 'الوزن',
         bodyFat: 'دهون الجسم',
         muscleMass: 'الكتلة العضلية',
+        statsRange: 'نطاق الإحصاءات',
+        range7Days: '7 أيام',
+        range30Days: '30 يوم',
+        range90Days: '90 يوم',
+        rangeAll: 'الكل',
+        selectedRange: 'النطاق المحدد',
+        workoutsInRange: 'التمارين',
+        attendanceInRange: 'عمليات الدخول',
     } : {
         metricsLogged: 'Body metrics logged.',
         metricsFailed: 'Failed to log biometrics.',
@@ -94,6 +132,7 @@ export default function MemberProgressPage() {
         exercise: 'Exercise',
         bestWeight: 'Best Weight',
         bestReps: 'Best Reps',
+        bestVolume: 'Best Volume',
         repsAt: 'reps @',
         weightUnit: 'kg',
         noPrData: 'No PR data in selected range yet.',
@@ -104,6 +143,14 @@ export default function MemberProgressPage() {
         weight: 'Weight',
         bodyFat: 'Body Fat',
         muscleMass: 'Muscle Mass',
+        statsRange: 'Stats range',
+        range7Days: '7D',
+        range30Days: '30D',
+        range90Days: '90D',
+        rangeAll: 'All',
+        selectedRange: 'Selected range',
+        workoutsInRange: 'Workouts',
+        attendanceInRange: 'Check-ins',
     };
     const [workoutStats, setWorkoutStats] = useState<{ date: string; workouts: number }[]>([]);
     const [sessionLogs, setSessionLogs] = useState<WorkoutSessionLog[]>([]);
@@ -113,28 +160,47 @@ export default function MemberProgressPage() {
     const [height, setHeight] = useState('');
     const [bodyFat, setBodyFat] = useState('');
     const [muscleMass, setMuscleMass] = useState('');
-    const [trendRangeDays, setTrendRangeDays] = useState<7 | 30 | 90>(30);
+    const [trendRangeDays, setTrendRangeDays] = useState<7 | 30 | 90 | null>(30);
     const [loggingBiometrics, setLoggingBiometrics] = useState(false);
     const [loading, setLoading] = useState(true);
 
-    const rangeStart = useMemo(() => {
+    const selectedRangeLabel = useMemo(() => {
+        if (trendRangeDays === null) return txt.rangeAll;
+        if (trendRangeDays === 7) return txt.range7Days;
+        if (trendRangeDays === 90) return txt.range90Days;
+        return txt.range30Days;
+    }, [trendRangeDays, txt.range30Days, txt.range7Days, txt.range90Days, txt.rangeAll]);
+
+    const rangeWindow = useMemo(() => {
+        if (trendRangeDays === null) {
+            return null;
+        }
+        const end = new Date();
+        end.setHours(23, 59, 59, 999);
         const start = new Date();
         start.setHours(0, 0, 0, 0);
         start.setDate(start.getDate() - trendRangeDays + 1);
-        return start;
+        return { fromDate: start, toDate: end };
     }, [trendRangeDays]);
 
     const loadData = useCallback(async () => {
-        const data = await fetchMemberProgressData();
-        setWorkoutStats(data.workoutStats);
-        setSessionLogs(data.sessionLogs);
-        setBiometrics(data.biometrics);
+        try {
+            const data = await fetchMemberProgressData(rangeWindow ?? undefined);
+            setWorkoutStats(data.workoutStats);
+            setSessionLogs(data.sessionLogs);
+            setBiometrics(data.biometrics);
 
-        if (data.biometrics.length > 0) {
-            const latest = data.biometrics[data.biometrics.length - 1];
-            setHeight(latest.height_cm?.toString() ?? '');
+            if (data.biometrics.length > 0) {
+                const latest = data.biometrics[data.biometrics.length - 1];
+                setHeight(latest.height_cm?.toString() ?? '');
+            }
+        } catch (error) {
+            setWorkoutStats([]);
+            setSessionLogs([]);
+            setBiometrics([]);
+            showToast(error instanceof Error ? error.message : txt.metricsFailed, 'error');
         }
-    }, []);
+    }, [rangeWindow, showToast, txt.metricsFailed]);
 
     useEffect(() => {
         const load = async () => {
@@ -168,12 +234,13 @@ export default function MemberProgressPage() {
         e.preventDefault();
         setLoggingBiometrics(true);
         try {
-            await api.post('/fitness/biometrics', {
-                weight_kg: weight ? parseFloat(weight) : null,
-                height_cm: height ? parseFloat(height) : null,
-                body_fat_pct: bodyFat ? parseFloat(bodyFat) : null,
-                muscle_mass_kg: muscleMass ? parseFloat(muscleMass) : null,
-            });
+            const payload: Record<string, number> = {};
+            if (weight.trim()) payload.weight_kg = parseFloat(weight);
+            if (height.trim()) payload.height_cm = parseFloat(height);
+            if (bodyFat.trim()) payload.body_fat_pct = parseFloat(bodyFat);
+            if (muscleMass.trim()) payload.muscle_mass_kg = parseFloat(muscleMass);
+
+            await api.post('/fitness/biometrics', payload);
             await loadData();
             setWeight('');
             setBodyFat('');
@@ -186,14 +253,8 @@ export default function MemberProgressPage() {
         }
     };
 
-    const filteredBiometrics = useMemo(
-        () => biometrics.filter((item) => new Date(item.date) >= rangeStart),
-        [biometrics, rangeStart]
-    );
-    const filteredSessionLogs = useMemo(
-        () => sessionLogs.filter((session) => new Date(session.performed_at) >= rangeStart),
-        [sessionLogs, rangeStart]
-    );
+    const filteredBiometrics = useMemo(() => biometrics, [biometrics]);
+    const filteredSessionLogs = useMemo(() => sessionLogs, [sessionLogs]);
 
     const buildMetricSeries = useCallback((metric: MetricKey) => {
         const sorted = [...filteredBiometrics].sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
@@ -218,11 +279,7 @@ export default function MemberProgressPage() {
         const map = new Map<string, { date: string; volume: number; sessions: number }>();
         filteredSessionLogs.forEach((session) => {
             const key = new Date(session.performed_at).toISOString().split('T')[0];
-            const volume = (session.entries || []).reduce((sum, entry) => {
-                if (entry.skipped) return sum;
-                const value = entry.weight_kg || 0;
-                return sum + (entry.sets_completed * entry.reps_completed * value);
-            }, 0);
+            const volume = getSessionVolume(session);
             const existing = map.get(key);
             if (existing) {
                 existing.volume += volume;
@@ -235,13 +292,14 @@ export default function MemberProgressPage() {
     }, [filteredSessionLogs]);
 
     const exercisePrTable = useMemo(() => {
-        const byExercise = new Map<string, { bestWeight: number; bestWeightReps: number; bestReps: number; bestRepsWeight: number }>();
+        const byExercise = new Map<string, { bestWeight: number; bestWeightReps: number; bestReps: number; bestRepsWeight: number; bestVolume: number }>();
         filteredSessionLogs.forEach((session) => {
             session.entries.forEach((entry) => {
                 if (entry.skipped) return;
                 const name = (entry.exercise_name || txt.fallbackExercise).trim();
                 const weightValue = Number(entry.weight_kg || 0);
                 const repsValue = Number(entry.reps_completed || 0);
+                const volumeValue = getEntryVolume(entry);
                 const existing = byExercise.get(name);
                 if (!existing) {
                     byExercise.set(name, {
@@ -249,6 +307,7 @@ export default function MemberProgressPage() {
                         bestWeightReps: repsValue,
                         bestReps: repsValue,
                         bestRepsWeight: weightValue,
+                        bestVolume: volumeValue,
                     });
                     return;
                 }
@@ -259,6 +318,9 @@ export default function MemberProgressPage() {
                 if (repsValue > existing.bestReps || (repsValue === existing.bestReps && weightValue > existing.bestRepsWeight)) {
                     existing.bestReps = repsValue;
                     existing.bestRepsWeight = weightValue;
+                }
+                if (volumeValue > existing.bestVolume) {
+                    existing.bestVolume = volumeValue;
                 }
             });
         });
@@ -319,10 +381,58 @@ export default function MemberProgressPage() {
                 <p className="text-sm text-muted-foreground mt-1">{txt.subtitle}</p>
             </div>
 
+            <div className="kpi-card p-5 space-y-4">
+                <div className="flex items-center justify-between gap-3 flex-wrap">
+                    <div>
+                        <p className="section-chip mb-1">{txt.statsRange}</p>
+                        <p className="text-sm text-muted-foreground">{txt.selectedRange}: {selectedRangeLabel}</p>
+                    </div>
+                    <div className="flex items-center gap-2 flex-wrap">
+                        {RANGE_OPTIONS.map((option) => {
+                            const active = option.days === trendRangeDays;
+                            const label = option.days === 7
+                                ? txt.range7Days
+                                : option.days === 30
+                                    ? txt.range30Days
+                                    : option.days === 90
+                                        ? txt.range90Days
+                                        : txt.rangeAll;
+                            return (
+                                <button
+                                    key={option.key}
+                                    type="button"
+                                    onClick={() => setTrendRangeDays(option.days)}
+                                    className={`px-3 py-1.5 text-xs font-bold border rounded-sm transition-colors ${active ? 'border-primary text-primary bg-primary/10' : 'border-border text-muted-foreground hover:text-foreground'}`}
+                                >
+                                    {label}
+                                </button>
+                            );
+                        })}
+                    </div>
+                </div>
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                    <div className="rounded-sm border border-border bg-muted/10 p-3">
+                        <p className="text-[10px] uppercase font-bold text-muted-foreground">{txt.workoutsInRange}</p>
+                        <p className="text-lg font-mono text-foreground mt-1">{workoutStats.reduce((sum, row) => sum + row.workouts, 0)}</p>
+                    </div>
+                    <div className="rounded-sm border border-border bg-muted/10 p-3">
+                        <p className="text-[10px] uppercase font-bold text-muted-foreground">{txt.sessionsLogged}</p>
+                        <p className="text-lg font-mono text-foreground mt-1">{sessionLogs.length}</p>
+                    </div>
+                    <div className="rounded-sm border border-border bg-muted/10 p-3">
+                        <p className="text-[10px] uppercase font-bold text-muted-foreground">{txt.bodyTracking}</p>
+                        <p className="text-lg font-mono text-foreground mt-1">{filteredBiometrics.length}</p>
+                    </div>
+                </div>
+            </div>
+
             <div className="grid grid-cols-1 xl:grid-cols-3 gap-6 items-start">
                 <div className="space-y-6 xl:col-span-2">
                     <div className="kpi-card p-5">
-                        <p className="section-chip mb-3">{txt.consistencyTitle}</p>
+                        <div className="flex items-center justify-between gap-3 flex-wrap mb-3">
+                            <p className="section-chip">{txt.consistencyTitle}</p>
+                            <p className="text-xs text-muted-foreground font-mono">{selectedRangeLabel}</p>
+                        </div>
                         <div className="h-44">
                             {workoutStats.length > 0 ? (
                                 <SafeResponsiveChart>
@@ -362,21 +472,10 @@ export default function MemberProgressPage() {
                     </div>
 
                     <div className="kpi-card p-5">
-                        <div className="flex items-center justify-between mb-4">
-                            <p className="section-chip">{txt.bodyTracking}</p>
-                            <div className="flex items-center gap-1">
-                                {[7, 30, 90].map((days) => (
-                                    <button
-                                        key={days}
-                                        type="button"
-                                        onClick={() => setTrendRangeDays(days as 7 | 30 | 90)}
-                                        className={`px-2 py-1 text-[10px] font-bold border rounded-sm ${trendRangeDays === days ? 'border-primary text-primary bg-primary/10' : 'border-border text-muted-foreground hover:text-foreground'}`}
-                                    >
-                                        {days}d
-                                    </button>
-                                ))}
+                            <div className="flex items-center justify-between mb-4">
+                                <p className="section-chip">{txt.bodyTracking}</p>
+                                <p className="text-xs text-muted-foreground font-mono">{selectedRangeLabel}</p>
                             </div>
-                        </div>
 
                         <div className="space-y-3">
                             {[
@@ -463,6 +562,7 @@ export default function MemberProgressPage() {
                                                 <th>{txt.exercise}</th>
                                                 <th>{txt.bestWeight}</th>
                                                 <th>{txt.bestReps}</th>
+                                                <th>{txt.bestVolume}</th>
                                             </tr>
                                         </thead>
                                         <tbody>
@@ -474,6 +574,9 @@ export default function MemberProgressPage() {
                                                     </td>
                                                     <td className="text-muted-foreground font-mono">
                                                         {`${row.bestReps} ${txt.repsAt} ${row.bestRepsWeight.toFixed(1)} ${txt.weightUnit}`}
+                                                    </td>
+                                                    <td className="text-muted-foreground font-mono">
+                                                        {row.bestVolume > 0 ? `${row.bestVolume.toFixed(1)} ${txt.weightUnit}` : '-'}
                                                     </td>
                                                 </tr>
                                             ))}
@@ -496,9 +599,9 @@ export default function MemberProgressPage() {
                 </div>
             </div>
 
-            <div className="kpi-card p-6 space-y-4">
+                    <div className="kpi-card p-6 space-y-4">
                 <div className="flex items-center justify-between">
-                    <p className="section-chip">{`${txt.sessionLoad} (${trendRangeDays}d)`}</p>
+                    <p className="section-chip">{`${txt.sessionLoad} (${selectedRangeLabel})`}</p>
                     <p className="text-xs text-muted-foreground font-mono">{filteredSessionLogs.length} {txt.sessionsLogged}</p>
                 </div>
                 <div className="h-40">

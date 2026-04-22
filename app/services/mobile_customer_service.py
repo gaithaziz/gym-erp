@@ -1,12 +1,14 @@
 from __future__ import annotations
 
 from contextlib import asynccontextmanager
+import json
 import uuid
-from datetime import datetime, timedelta, timezone
+from datetime import date, datetime, time, timedelta, timezone
 from decimal import Decimal
 
 from sqlalchemy import and_, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import selectinload
 
 from app.config import settings
 from app.database import set_rls_context
@@ -23,6 +25,51 @@ from app.models.workout_log import WorkoutSession, WorkoutSessionEntry
 from app.models.classes import ClassReservation, ClassReservationStatus, ClassSession, ClassTemplate
 from app.models.workout_log import DietFeedback, GymFeedback, WorkoutLog
 from app.services.mobile_bootstrap_service import MobileBootstrapService
+
+
+def _parse_set_details(value: str | None) -> list[dict]:
+    if not value:
+        return []
+    try:
+        parsed = json.loads(value)
+    except (TypeError, json.JSONDecodeError):
+        return []
+    return parsed if isinstance(parsed, list) else []
+
+
+def _entry_volume(entry: WorkoutSessionEntry) -> float:
+    set_details = _parse_set_details(entry.set_details)
+    if set_details:
+        total = 0.0
+        for row in set_details:
+            if not isinstance(row, dict):
+                continue
+            try:
+                reps = float(row.get("reps", 0) or 0)
+                weight = float(row.get("weightKg", 0) or 0)
+            except (TypeError, ValueError):
+                continue
+            total += max(reps, 0.0) * max(weight, 0.0)
+        if total > 0:
+            return total
+    if entry.skipped:
+        return 0.0
+    sets_completed = max(float(entry.sets_completed or 0), 1.0)
+    reps_completed = max(float(entry.reps_completed or 0), 0.0)
+    weight_kg = max(float(entry.weight_kg or 0), 0.0)
+    return sets_completed * reps_completed * weight_kg
+
+
+def _session_volume(session: WorkoutSession) -> float:
+    return sum(_entry_volume(entry) for entry in sorted(session.entries or [], key=lambda item: item.order))
+
+
+def _parse_progress_date_range(date_from: str | None, date_to: str | None) -> tuple[datetime | None, datetime | None]:
+    start = datetime.combine(date.fromisoformat(date_from), time.min) if date_from else None
+    end = None
+    if date_to:
+        end = datetime.combine(date.fromisoformat(date_to), time.min) + timedelta(days=1)
+    return start, end
 
 
 class MobileCustomerService:
@@ -474,57 +521,80 @@ class MobileCustomerService:
             }
 
     @staticmethod
-    async def get_progress(*, current_user: User, db: AsyncSession) -> dict:
+    async def get_progress(*, current_user: User, db: AsyncSession, date_from: str | None = None, date_to: str | None = None) -> dict:
         async with MobileCustomerService._customer_tenant_scope(current_user=current_user, db=db):
-            biometric_logs = (
-                await db.execute(
-                    select(BiometricLog)
-                    .where(BiometricLog.member_id == current_user.id)
-                    .order_by(BiometricLog.date.asc())
-                    .limit(100)
-                )
-            ).scalars().all()
-            access_logs = (
-                await db.execute(
-                    select(AccessLog)
-                    .where(AccessLog.user_id == current_user.id)
-                    .order_by(AccessLog.scan_time.desc())
-                    .limit(20)
-                )
-            ).scalars().all()
-            workout_sessions = (
-                await db.execute(
-                    select(WorkoutSession)
-                    .where(WorkoutSession.member_id == current_user.id)
-                    .order_by(WorkoutSession.performed_at.desc())
-                    .limit(10)
-                )
-            ).scalars().all()
+            start_date, end_date = _parse_progress_date_range(date_from, date_to)
+            biometric_stmt = select(BiometricLog).where(BiometricLog.member_id == current_user.id)
+            if start_date is not None:
+                biometric_stmt = biometric_stmt.where(BiometricLog.date >= start_date)
+            if end_date is not None:
+                biometric_stmt = biometric_stmt.where(BiometricLog.date < end_date)
+            biometric_logs = (await db.execute(biometric_stmt.order_by(BiometricLog.date.asc()).limit(100))).scalars().all()
+            biometric_count_stmt = select(func.count(BiometricLog.id)).where(BiometricLog.member_id == current_user.id)
+            if start_date is not None:
+                biometric_count_stmt = biometric_count_stmt.where(BiometricLog.date >= start_date)
+            if end_date is not None:
+                biometric_count_stmt = biometric_count_stmt.where(BiometricLog.date < end_date)
+            biometric_count = int((await db.execute(biometric_count_stmt)).scalar() or 0)
 
-            thirty_days_ago = datetime.utcnow() - timedelta(days=30)
-            workout_stats_rows = (
-                await db.execute(
-                    select(func.date(WorkoutSession.performed_at).label("day"), func.count(WorkoutSession.id).label("count"))
-                    .where(
-                        WorkoutSession.member_id == current_user.id,
-                        WorkoutSession.performed_at >= thirty_days_ago,
-                    )
-                    .group_by("day")
-                    .order_by("day")
-                )
-            ).all()
-            pr_entries = (
-                await db.execute(
-                    select(WorkoutSessionEntry, WorkoutSession, WorkoutPlan.name)
-                    .join(WorkoutSession, WorkoutSessionEntry.session_id == WorkoutSession.id)
-                    .join(WorkoutPlan, WorkoutSession.plan_id == WorkoutPlan.id)
-                    .where(WorkoutSession.member_id == current_user.id, WorkoutSessionEntry.is_pr.is_(True))
-                    .order_by(WorkoutSession.performed_at.desc(), WorkoutSessionEntry.order.asc())
-                    .limit(20)
-                )
-            ).all()
+            access_stmt = select(AccessLog).where(AccessLog.user_id == current_user.id)
+            if start_date is not None:
+                access_stmt = access_stmt.where(AccessLog.scan_time >= start_date)
+            if end_date is not None:
+                access_stmt = access_stmt.where(AccessLog.scan_time < end_date)
+            access_logs = (await db.execute(access_stmt.order_by(AccessLog.scan_time.desc()).limit(20))).scalars().all()
+            attendance_count_stmt = select(func.count(AccessLog.id)).where(
+                AccessLog.user_id == current_user.id,
+                AccessLog.status == "GRANTED",
+            )
+            if start_date is not None:
+                attendance_count_stmt = attendance_count_stmt.where(AccessLog.scan_time >= start_date)
+            if end_date is not None:
+                attendance_count_stmt = attendance_count_stmt.where(AccessLog.scan_time < end_date)
+            attendance_count = int((await db.execute(attendance_count_stmt)).scalar() or 0)
+
+            sessions_stmt = select(WorkoutSession).options(selectinload(WorkoutSession.entries)).where(WorkoutSession.member_id == current_user.id)
+            if start_date is not None:
+                sessions_stmt = sessions_stmt.where(WorkoutSession.performed_at >= start_date)
+            if end_date is not None:
+                sessions_stmt = sessions_stmt.where(WorkoutSession.performed_at < end_date)
+            workout_sessions = (await db.execute(sessions_stmt.order_by(WorkoutSession.performed_at.desc()).limit(10))).scalars().all()
+            workout_count_stmt = select(func.count(WorkoutSession.id)).where(WorkoutSession.member_id == current_user.id)
+            if start_date is not None:
+                workout_count_stmt = workout_count_stmt.where(WorkoutSession.performed_at >= start_date)
+            if end_date is not None:
+                workout_count_stmt = workout_count_stmt.where(WorkoutSession.performed_at < end_date)
+            workout_count = int((await db.execute(workout_count_stmt)).scalar() or 0)
+
+            workout_stats_start = start_date or (datetime.utcnow() - timedelta(days=30))
+            workout_stats_end = end_date
+            workout_stats_stmt = (
+                select(func.date(WorkoutSession.performed_at).label("day"), func.count(WorkoutSession.id).label("count"))
+                .where(WorkoutSession.member_id == current_user.id)
+                .where(WorkoutSession.performed_at >= workout_stats_start)
+            )
+            if workout_stats_end is not None:
+                workout_stats_stmt = workout_stats_stmt.where(WorkoutSession.performed_at < workout_stats_end)
+            workout_stats_rows = (await db.execute(workout_stats_stmt.group_by("day").order_by("day"))).all()
+
+            pr_stmt = (
+                select(WorkoutSessionEntry, WorkoutSession, WorkoutPlan.name)
+                .join(WorkoutSession, WorkoutSessionEntry.session_id == WorkoutSession.id)
+                .join(WorkoutPlan, WorkoutSession.plan_id == WorkoutPlan.id)
+                .where(WorkoutSession.member_id == current_user.id, WorkoutSessionEntry.is_pr.is_(True))
+            )
+            if start_date is not None:
+                pr_stmt = pr_stmt.where(WorkoutSession.performed_at >= start_date)
+            if end_date is not None:
+                pr_stmt = pr_stmt.where(WorkoutSession.performed_at < end_date)
+            pr_entries = (await db.execute(pr_stmt.order_by(WorkoutSession.performed_at.desc(), WorkoutSessionEntry.order.asc()).limit(20))).all()
 
             return {
+                "range_summary": {
+                    "biometrics": biometric_count,
+                    "attendance": attendance_count,
+                    "workouts": workout_count,
+                },
                 "biometrics": [MobileCustomerService._serialize_biometric(log) for log in biometric_logs],
                 "attendance_history": [
                     {
@@ -543,6 +613,7 @@ class MobileCustomerService:
                         "performed_at": session.performed_at.isoformat(),
                         "duration_minutes": session.duration_minutes,
                         "notes": session.notes,
+                        "session_volume": round(_session_volume(session), 2),
                     }
                     for session in workout_sessions
                 ],
@@ -563,6 +634,8 @@ class MobileCustomerService:
                         "weight_kg": entry.weight_kg,
                         "sets_completed": entry.sets_completed,
                         "reps_completed": entry.reps_completed,
+                        "session_volume": round(_session_volume(session), 2),
+                        "entry_volume": round(_entry_volume(entry), 2),
                         "performed_at": session.performed_at.isoformat(),
                     }
                     for entry, session, plan_name in pr_entries

@@ -95,6 +95,7 @@ class MobileCustomerPlansResponse(BaseModel):
 
 
 class MobileCustomerProgressResponse(BaseModel):
+    range_summary: dict[str, int]
     biometrics: list[dict[str, Any]]
     attendance_history: list[dict[str, Any]]
     recent_workout_sessions: list[dict[str, Any]]
@@ -466,8 +467,10 @@ async def read_customer_plans(
 async def read_customer_progress(
     current_user: Annotated[User, Depends(dependencies.RoleChecker([schemas.Role.CUSTOMER]))],
     db: Annotated[AsyncSession, Depends(get_db)],
+    date_from: Annotated[str | None, Query()] = None,
+    date_to: Annotated[str | None, Query()] = None,
 ):
-    payload = await MobileCustomerService.get_progress(current_user=current_user, db=db)
+    payload = await MobileCustomerService.get_progress(current_user=current_user, db=db, date_from=date_from, date_to=date_to)
     return StandardResponse(data=MobileCustomerProgressResponse(**payload))
 
 

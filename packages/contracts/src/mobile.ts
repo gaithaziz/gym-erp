@@ -5,6 +5,7 @@ import {
   roleSchema,
   subscriptionBlockReasonSchema,
   subscriptionStatusSchema,
+  uuidLikeSchema,
 } from "./auth";
 
 export const CAPABILITY_VALUES = [
@@ -72,8 +73,8 @@ export const notificationPreferenceSchema = z.object({
 });
 
 export const branchSummarySchema = z.object({
-  id: z.string().uuid(),
-  gym_id: z.string().uuid(),
+  id: uuidLikeSchema,
+  gym_id: uuidLikeSchema,
   name: z.string().min(1),
   display_name: z.string().nullable().optional(),
   code: z.string().min(1),
@@ -112,7 +113,7 @@ export const mobileBootstrapSchema = rawMobileBootstrapSchema.transform((payload
 });
 
 export const mobileReceiptSummarySchema = z.object({
-  id: z.string().uuid(),
+  id: uuidLikeSchema,
   receipt_no: z.string(),
   date: z.string(),
   amount: z.number(),
@@ -134,7 +135,7 @@ export const mobileCustomerHomeSchema = z.object({
   }),
   latest_biometric: z
     .object({
-      id: z.string().uuid(),
+      id: uuidLikeSchema,
       date: z.string(),
       weight_kg: z.number().nullable().optional(),
       height_cm: z.number().nullable().optional(),
@@ -160,7 +161,7 @@ export const mobileCustomerBillingSchema = z.object({
   ),
   renewal_requests: z.array(
     z.object({
-      id: z.string().uuid(),
+      id: uuidLikeSchema,
       offer_code: z.string(),
       plan_name: z.string(),
       duration_days: z.number().int(),
@@ -193,7 +194,7 @@ export const mobileCustomerBillingSchema = z.object({
 export const mobileCustomerPlansSchema = z.object({
   workout_plans: z.array(
     z.object({
-      id: z.string().uuid(),
+      id: uuidLikeSchema,
       name: z.string(),
       description: z.string().nullable().optional(),
       status: z.string(),
@@ -204,7 +205,7 @@ export const mobileCustomerPlansSchema = z.object({
   ),
   diet_plans: z.array(
     z.object({
-      id: z.string().uuid(),
+      id: uuidLikeSchema,
       name: z.string(),
       description: z.string().nullable().optional(),
       status: z.string(),
@@ -215,9 +216,14 @@ export const mobileCustomerPlansSchema = z.object({
 });
 
 export const mobileCustomerProgressSchema = z.object({
+  range_summary: z.object({
+    biometrics: z.number().int(),
+    attendance: z.number().int(),
+    workouts: z.number().int(),
+  }),
   biometrics: z.array(
     z.object({
-      id: z.string().uuid(),
+      id: uuidLikeSchema,
       date: z.string(),
       weight_kg: z.number().nullable().optional(),
       height_cm: z.number().nullable().optional(),
@@ -227,7 +233,7 @@ export const mobileCustomerProgressSchema = z.object({
   ),
   attendance_history: z.array(
     z.object({
-      id: z.string().uuid(),
+      id: uuidLikeSchema,
       scan_time: z.string(),
       status: z.string(),
       reason: z.string().nullable().optional(),
@@ -236,11 +242,12 @@ export const mobileCustomerProgressSchema = z.object({
   ),
   recent_workout_sessions: z.array(
     z.object({
-      id: z.string().uuid(),
-      plan_id: z.string().uuid(),
+      id: uuidLikeSchema,
+      plan_id: uuidLikeSchema,
       performed_at: z.string(),
       duration_minutes: z.number().int().nullable().optional(),
       notes: z.string().nullable().optional(),
+      session_volume: z.number().nullable().optional(),
     }),
   ),
   workout_stats: z.array(
@@ -251,9 +258,9 @@ export const mobileCustomerProgressSchema = z.object({
   ),
   personal_records: z.array(
     z.object({
-      id: z.string().uuid(),
-      session_id: z.string().uuid(),
-      plan_id: z.string().uuid(),
+      id: uuidLikeSchema,
+      session_id: uuidLikeSchema,
+      plan_id: uuidLikeSchema,
       plan_name: z.string().nullable().optional(),
       exercise_name: z.string().nullable().optional(),
       pr_type: z.string().nullable().optional(),
@@ -262,6 +269,8 @@ export const mobileCustomerProgressSchema = z.object({
       weight_kg: z.number().nullable().optional(),
       sets_completed: z.number().int(),
       reps_completed: z.number().int(),
+      session_volume: z.number().nullable().optional(),
+      entry_volume: z.number().nullable().optional(),
       performed_at: z.string(),
     }),
   ).default([]),
@@ -270,7 +279,7 @@ export const mobileCustomerProgressSchema = z.object({
 export const mobileCustomerNotificationsSchema = z.object({
   items: z.array(
     z.object({
-      id: z.string().uuid(),
+      id: uuidLikeSchema,
       title: z.string(),
       body: z.string(),
       event_type: z.string(),
@@ -281,7 +290,7 @@ export const mobileCustomerNotificationsSchema = z.object({
 });
 
 export const mobileStaffMemberSummarySchema = z.object({
-  id: z.string().uuid(),
+  id: uuidLikeSchema,
   full_name: z.string().nullable().optional(),
   email: z.string().email(),
   phone_number: z.string().nullable().optional(),
@@ -314,25 +323,25 @@ export const mobileStaffMemberDetailSchema = z.object({
   }),
   active_workout_plans: z.array(
     z.object({
-      id: z.string().uuid(),
+      id: uuidLikeSchema,
       name: z.string(),
       status: z.string(),
-      creator_id: z.string().uuid(),
+      creator_id: uuidLikeSchema,
       published_at: z.string().nullable().optional(),
     }),
   ),
   active_diet_plans: z.array(
     z.object({
-      id: z.string().uuid(),
+      id: uuidLikeSchema,
       name: z.string(),
       status: z.string(),
-      creator_id: z.string().uuid(),
+      creator_id: uuidLikeSchema,
       published_at: z.string().nullable().optional(),
     }),
   ),
   latest_biometric: z
     .object({
-      id: z.string().uuid(),
+      id: uuidLikeSchema,
       date: z.string(),
       weight_kg: z.number().nullable().optional(),
       height_cm: z.number().nullable().optional(),
@@ -343,7 +352,7 @@ export const mobileStaffMemberDetailSchema = z.object({
     .optional(),
   recent_attendance: z.array(
     z.object({
-      id: z.string().uuid(),
+      id: uuidLikeSchema,
       scan_time: z.string(),
       status: z.string(),
       reason: z.string().nullable().optional(),
@@ -352,7 +361,7 @@ export const mobileStaffMemberDetailSchema = z.object({
   ),
   biometrics: z.array(
     z.object({
-      id: z.string().uuid(),
+      id: uuidLikeSchema,
       date: z.string(),
       weight_kg: z.number().nullable().optional(),
       height_cm: z.number().nullable().optional(),
@@ -362,18 +371,19 @@ export const mobileStaffMemberDetailSchema = z.object({
   ).default([]),
   recent_workout_sessions: z.array(
     z.object({
-      id: z.string().uuid(),
-      plan_id: z.string().uuid(),
+      id: uuidLikeSchema,
+      plan_id: uuidLikeSchema,
       plan_name: z.string().nullable().optional(),
       performed_at: z.string(),
       duration_minutes: z.number().int().nullable().optional(),
       notes: z.string().nullable().optional(),
+      session_volume: z.number().nullable().optional(),
     }),
   ).default([]),
   workout_feedback: z.array(
     z.object({
-      id: z.string().uuid(),
-      plan_id: z.string().uuid(),
+      id: uuidLikeSchema,
+      plan_id: uuidLikeSchema,
       plan_name: z.string().nullable().optional(),
       date: z.string(),
       completed: z.boolean(),
@@ -383,10 +393,10 @@ export const mobileStaffMemberDetailSchema = z.object({
   ).default([]),
   diet_feedback: z.array(
     z.object({
-      id: z.string().uuid(),
-      member_id: z.string().uuid().optional(),
+      id: uuidLikeSchema,
+      member_id: uuidLikeSchema.optional(),
       member_name: z.string().nullable().optional(),
-      diet_plan_id: z.string().uuid(),
+      diet_plan_id: uuidLikeSchema,
       diet_plan_name: z.string().nullable().optional(),
       rating: z.number().int(),
       comment: z.string().nullable().optional(),
@@ -395,8 +405,8 @@ export const mobileStaffMemberDetailSchema = z.object({
   ).default([]),
   gym_feedback: z.array(
     z.object({
-      id: z.string().uuid(),
-      member_id: z.string().uuid().optional(),
+      id: uuidLikeSchema,
+      member_id: uuidLikeSchema.optional(),
       member_name: z.string().nullable().optional(),
       category: z.string(),
       rating: z.number().int(),
@@ -412,7 +422,7 @@ export const mobileCheckInLookupResultSchema = z.object({
 });
 
 export const mobileCheckInResultSchema = z.object({
-  member_id: z.string().uuid(),
+  member_id: uuidLikeSchema,
   member_name: z.string().nullable().optional(),
   status: z.string().nullable().optional(),
   reason: z.string().nullable().optional(),
@@ -421,7 +431,7 @@ export const mobileCheckInResultSchema = z.object({
 });
 
 export const mobileStaffTransactionSummarySchema = z.object({
-  id: z.string().uuid(),
+  id: uuidLikeSchema,
   date: z.string(),
   amount: z.number(),
   category: z.string(),
@@ -435,14 +445,14 @@ export const mobileStaffTransactionSummarySchema = z.object({
 });
 
 export const mobilePosCheckoutSchema = z.object({
-  transaction_id: z.string().uuid(),
+  transaction_id: uuidLikeSchema,
   date: z.string(),
   total: z.number(),
   payment_method: z.string(),
   member_name: z.string().nullable().optional(),
   line_items: z.array(
     z.object({
-      product_id: z.string().uuid().nullable().optional(),
+      product_id: uuidLikeSchema.nullable().optional(),
       product_name: z.string(),
       unit_price: z.number(),
       quantity: z.number().int(),
@@ -451,7 +461,7 @@ export const mobilePosCheckoutSchema = z.object({
   ),
   remaining_stock: z.array(
     z.object({
-      product_id: z.string().uuid(),
+      product_id: uuidLikeSchema,
       product_name: z.string(),
       remaining_stock: z.number().int(),
     }),
@@ -470,10 +480,10 @@ export const mobilePosSummarySchema = z.object({
 });
 
 const mobileWorkoutSessionSummarySchema = z.object({
-  id: z.string().uuid(),
-  member_id: z.string().uuid().optional(),
+  id: uuidLikeSchema,
+  member_id: uuidLikeSchema.optional(),
   member_name: z.string().nullable().optional(),
-  plan_id: z.string().uuid(),
+  plan_id: uuidLikeSchema,
   plan_name: z.string().nullable().optional(),
   performed_at: z.string(),
   duration_minutes: z.number().int().nullable().optional(),
@@ -486,13 +496,13 @@ const mobileWorkoutSessionSummarySchema = z.object({
   attachment_size_bytes: z.number().int().nullable().optional(),
   review_status: z.string().default("UNREVIEWED"),
   reviewed_at: z.string().nullable().optional(),
-  reviewed_by_user_id: z.string().uuid().nullable().optional(),
+  reviewed_by_user_id: uuidLikeSchema.nullable().optional(),
   reviewer_note: z.string().nullable().optional(),
   skipped_count: z.number().int().default(0),
   pr_count: z.number().int().default(0),
   entries: z.array(
     z.object({
-      id: z.string().uuid().optional(),
+      id: uuidLikeSchema.optional(),
       exercise_name: z.string().nullable().optional(),
       sets_completed: z.number().int(),
       reps_completed: z.number().int(),
@@ -511,10 +521,10 @@ export const mobileCoachFeedbackSchema = z.object({
   flagged_sessions: z.array(mobileWorkoutSessionSummarySchema).default([]),
   workout_feedback: z.array(
     z.object({
-      id: z.string().uuid(),
-      member_id: z.string().uuid().optional(),
+      id: uuidLikeSchema,
+      member_id: uuidLikeSchema.optional(),
       member_name: z.string().nullable().optional(),
-      plan_id: z.string().uuid(),
+      plan_id: uuidLikeSchema,
       plan_name: z.string().nullable().optional(),
       date: z.string(),
       completed: z.boolean(),
@@ -529,11 +539,11 @@ export const mobileCoachFeedbackSchema = z.object({
 export const mobileCoachPlansSchema = z.object({
   workouts: z.array(
     z.object({
-      id: z.string().uuid(),
+      id: uuidLikeSchema,
       name: z.string(),
       description: z.string().nullable().optional(),
       status: z.string(),
-      member_id: z.string().uuid().nullable().optional(),
+      member_id: uuidLikeSchema.nullable().optional(),
       member_name: z.string().nullable().optional(),
       is_template: z.boolean(),
       expected_sessions_per_30d: z.number().int().nullable().optional(),
@@ -541,7 +551,7 @@ export const mobileCoachPlansSchema = z.object({
       archived_at: z.string().nullable().optional(),
       exercises: z.array(
         z.object({
-          id: z.string().uuid(),
+          id: uuidLikeSchema,
           section_name: z.string().nullable().optional(),
           exercise_name: z.string().nullable().optional(),
           sets: z.number().int(),
@@ -553,12 +563,12 @@ export const mobileCoachPlansSchema = z.object({
   ),
   diets: z.array(
     z.object({
-      id: z.string().uuid(),
+      id: uuidLikeSchema,
       name: z.string(),
       description: z.string().nullable().optional(),
       content: z.string().nullable().optional(),
       status: z.string(),
-      member_id: z.string().uuid().nullable().optional(),
+      member_id: uuidLikeSchema.nullable().optional(),
       member_name: z.string().nullable().optional(),
       is_template: z.boolean(),
       published_at: z.string().nullable().optional(),
@@ -631,7 +641,7 @@ export const mobileCountMetricSchema = z.object({
 });
 
 export const mobileAdminRecentMemberSchema = z.object({
-  id: z.string().uuid(),
+  id: uuidLikeSchema,
   full_name: z.string().nullable().optional(),
   email: z.string().email(),
   phone_number: z.string().nullable().optional(),
@@ -656,7 +666,7 @@ export const mobileAdminPeopleSummarySchema = z.object({
 });
 
 export const mobileAdminSupportTicketSchema = z.object({
-  id: z.string().uuid(),
+  id: uuidLikeSchema,
   subject: z.string(),
   status: z.string(),
   category: z.string(),
@@ -695,7 +705,7 @@ export const mobileAdminOperationsSummarySchema = z.object({
 });
 
 export const mobileAdminTransactionSchema = z.object({
-  id: z.string().uuid(),
+  id: uuidLikeSchema,
   date: z.string(),
   amount: z.number(),
   type: z.string(),
@@ -721,7 +731,7 @@ export const mobileAdminFinanceSummarySchema = z.object({
 });
 
 export const mobileAuditEventSchema = z.object({
-  id: z.string().uuid(),
+  id: uuidLikeSchema,
   action: z.string(),
   actor_name: z.string().nullable().optional(),
   target_id: z.string().nullable().optional(),
@@ -740,7 +750,7 @@ export const mobileAdminAuditSummarySchema = z.object({
 });
 
 export const mobileInventoryRiskItemSchema = z.object({
-  id: z.string().uuid(),
+  id: uuidLikeSchema,
   name: z.string(),
   sku: z.string().nullable().optional(),
   category: z.string(),
@@ -756,8 +766,8 @@ export const mobileAdminInventorySummarySchema = z.object({
 });
 
 export const mobileRenewalApprovalItemSchema = z.object({
-  id: z.string().uuid(),
-  member_id: z.string().uuid(),
+  id: uuidLikeSchema,
+  member_id: uuidLikeSchema,
   member_name: z.string().nullable().optional(),
   member_email: z.string(),
   offer_code: z.string(),
@@ -769,8 +779,8 @@ export const mobileRenewalApprovalItemSchema = z.object({
 });
 
 export const mobileLeaveApprovalItemSchema = z.object({
-  id: z.string().uuid(),
-  staff_id: z.string().uuid(),
+  id: uuidLikeSchema,
+  staff_id: uuidLikeSchema,
   staff_name: z.string().nullable().optional(),
   staff_email: z.string(),
   start_date: z.string(),
@@ -781,9 +791,9 @@ export const mobileLeaveApprovalItemSchema = z.object({
 });
 
 export const mobileAdminClassApprovalItemSchema = z.object({
-  id: z.string().uuid(),
-  session_id: z.string().uuid(),
-  member_id: z.string().uuid(),
+  id: uuidLikeSchema,
+  session_id: uuidLikeSchema,
+  member_id: uuidLikeSchema,
   member_name: z.string().nullable().optional(),
   class_name: z.string(),
   starts_at: z.string(),
@@ -799,13 +809,13 @@ export const mobileAdminApprovalsSchema = z.object({
 
 export const mobileApprovalActionResultSchema = z.object({
   status: z.string(),
-  request_id: z.string().uuid(),
-  subscription_id: z.string().uuid().nullable().optional(),
-  transaction_id: z.string().uuid().nullable().optional(),
+  request_id: uuidLikeSchema,
+  subscription_id: uuidLikeSchema.nullable().optional(),
+  transaction_id: uuidLikeSchema.nullable().optional(),
 });
 
 export const mobileInventoryProductSchema = z.object({
-  id: z.string().uuid(),
+  id: uuidLikeSchema,
   name: z.string(),
   sku: z.string().nullable().optional(),
   category: z.string(),
@@ -857,7 +867,7 @@ export const mobileAdminStaffContractSchema = z
 
 export const mobileAdminStaffPayrollItemSchema = z
   .object({
-    id: z.string().uuid(),
+    id: uuidLikeSchema,
     month: z.number().int(),
     year: z.number().int(),
     base_pay: z.number(),
@@ -870,14 +880,14 @@ export const mobileAdminStaffPayrollItemSchema = z
   .nullable();
 
 export const mobileAdminStaffAttendanceItemSchema = z.object({
-  id: z.string().uuid(),
+  id: uuidLikeSchema,
   check_in_time: z.string().nullable().optional(),
   check_out_time: z.string().nullable().optional(),
   hours_worked: z.number(),
 });
 
 export const mobileAdminStaffLeaveItemSchema = z.object({
-  id: z.string().uuid(),
+  id: uuidLikeSchema,
   start_date: z.string(),
   end_date: z.string(),
   leave_type: z.string(),
@@ -886,7 +896,7 @@ export const mobileAdminStaffLeaveItemSchema = z.object({
 });
 
 export const mobileAdminStaffListItemSchema = z.object({
-  id: z.string().uuid(),
+  id: uuidLikeSchema,
   full_name: z.string().nullable().optional(),
   email: z.string().email(),
   phone_number: z.string().nullable().optional(),
@@ -908,7 +918,7 @@ export const mobileAdminStaffListSchema = z.object({
 
 export const mobileAdminStaffDetailSchema = z.object({
   staff: z.object({
-    id: z.string().uuid(),
+    id: uuidLikeSchema,
     full_name: z.string().nullable().optional(),
     email: z.string().email(),
     phone_number: z.string().nullable().optional(),
@@ -943,7 +953,7 @@ export const mobileDeviceRegistrationSchema = z.object({
 });
 
 export const mobileRenewalRequestSchema = z.object({
-  id: z.string().uuid(),
+  id: uuidLikeSchema,
   offer_code: z.string(),
   plan_name: z.string(),
   duration_days: z.number().int(),
