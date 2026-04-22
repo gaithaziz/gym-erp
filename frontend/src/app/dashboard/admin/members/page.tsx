@@ -77,6 +77,7 @@ interface WorkoutSessionEntry {
     is_pr?: boolean;
     skipped?: boolean;
     set_details?: Array<{ set: number; reps: number; weightKg?: number | null }>;
+    entry_volume?: number | null;
 }
 
 interface WorkoutSession {
@@ -91,6 +92,21 @@ interface WorkoutSession {
     attachment_url?: string | null;
     attachment_mime?: string | null;
     entries: WorkoutSessionEntry[];
+    session_volume?: number | null;
+}
+
+interface StaffMemberDetail {
+    member: Member;
+    subscription: Member['subscription'];
+    active_workout_plans: Array<{ id: string; name: string; status?: string | null }>;
+    active_diet_plans: Array<{ id: string; name: string; status?: string | null }>;
+    latest_biometric: BiometricLog | null;
+    recent_attendance: Array<{ id: string; scan_time: string; status: string; reason: string | null; kiosk_id: string | null }>;
+    biometrics: BiometricLog[];
+    recent_workout_sessions: WorkoutSession[];
+    workout_feedback: Array<{ id: string; plan_id: string; plan_name: string | null; date: string; completed: boolean; difficulty_rating: number | null; comment: string | null }>;
+    diet_feedback: Array<{ id: string; diet_plan_id: string; diet_plan_name: string | null; rating: number | null; comment: string | null; created_at: string }>;
+    gym_feedback: Array<{ id: string; category: string; rating: number | null; comment: string | null; created_at: string }>;
 }
 
 const FIXED_SUBSCRIPTION_PLANS = [
@@ -105,7 +121,48 @@ type AssignableType = 'WORKOUT' | 'DIET';
 type MemberStatusFilter = 'ALL' | 'ACTIVE' | 'FROZEN' | 'EXPIRED' | 'NONE';
 type WorkoutPlanStatusFilter = 'ALL' | 'PUBLISHED' | 'DRAFT' | 'ARCHIVED';
 type DietPlanStatusFilter = 'ALL' | 'PUBLISHED' | 'DRAFT' | 'ARCHIVED';
+type ChartRange = '7d' | '30d' | '90d' | 'all';
 const MEMBERS_PAGE_SIZE = 10;
+
+const parseSetDetailsVolume = (setDetails?: WorkoutSessionEntry["set_details"] | null) => {
+    if (!setDetails?.length) return 0;
+    return setDetails.reduce((sum, row) => {
+        const reps = Number(row.reps || 0);
+        const weight = Number(row.weightKg || 0);
+        if (!Number.isFinite(reps) || !Number.isFinite(weight)) return sum;
+        return sum + Math.max(0, reps) * Math.max(0, weight);
+    }, 0);
+};
+
+const getEntryVolume = (entry: WorkoutSessionEntry) => {
+    if (typeof entry.entry_volume === 'number' && Number.isFinite(entry.entry_volume)) return entry.entry_volume;
+    const setVolume = parseSetDetailsVolume(entry.set_details);
+    if (setVolume > 0) return setVolume;
+    if (entry.skipped) return 0;
+    return Math.max(0, Number(entry.sets_completed || 0) * Number(entry.reps_completed || 0) * Number(entry.weight_kg || 0));
+};
+
+const getSessionVolume = (session: WorkoutSession) => {
+    if (typeof session.session_volume === 'number' && Number.isFinite(session.session_volume)) return session.session_volume;
+    return (session.entries || []).reduce((sum, entry) => sum + getEntryVolume(entry), 0);
+};
+
+const mergeUniqueById = <T extends { id: string }>(...groups: Array<T[] | undefined | null>): T[] => {
+    const map = new Map<string, T>();
+    groups.flat().forEach((item) => {
+        if (item) {
+            map.set(item.id, item);
+        }
+    });
+    return Array.from(map.values());
+};
+
+const CHART_RANGE_OPTIONS: Array<{ value: ChartRange; days: number | null }> = [
+    { value: '7d', days: 7 },
+    { value: '30d', days: 30 },
+    { value: '90d', days: 90 },
+    { value: 'all', days: null },
+];
 
 export default function MembersPage() {
     const { t, formatDate, locale } = useLocale();
@@ -146,8 +203,12 @@ export default function MembersPage() {
     // View Profile Modal
     const [isViewOpen, setIsViewOpen] = useState(false);
     const [viewMember, setViewMember] = useState<Member | null>(null);
+    const [viewMemberDetail, setViewMemberDetail] = useState<StaffMemberDetail | null>(null);
     const [viewBiometrics, setViewBiometrics] = useState<BiometricLog[]>([]);
     const [viewSessions, setViewSessions] = useState<WorkoutSession[]>([]);
+    const [viewLoading, setViewLoading] = useState(false);
+    const [chartsReady, setChartsReady] = useState(false);
+    const [chartRange, setChartRange] = useState<ChartRange>('30d');
     // Assign Plan Modal
     const [isAssignPlanOpen, setIsAssignPlanOpen] = useState(false);
     const [assignMember, setAssignMember] = useState<Member | null>(null);
@@ -240,10 +301,25 @@ export default function MembersPage() {
             noBio: 'لا توجد نبذة.',
             progressVisualization: 'عرض التقدم',
             noBiometricData: 'لا توجد بيانات قياسات حيوية بعد.',
+            workoutCharts: 'مخططات التمرين',
+            workoutTrend: 'اتجاه التمرين',
+            sessionLoad: 'حمل الجلسات',
+            noWorkoutChartData: 'لا توجد بيانات تمرين كافية للرسم بعد.',
+            sessionsCount: 'جلسات',
             workoutSessionLogs: 'سجل جلسات التمرين',
             exercises: 'تمارين',
             moreExercises: 'تمارين إضافية',
             noWorkoutSessions: 'لا توجد جلسات تمرين بعد.',
+            activeWorkoutPlans: 'خطط التمرين النشطة',
+            activeDietPlans: 'خطط التغذية النشطة',
+            recentAttendance: 'سجل الحضور',
+            workoutFeedback: 'ملاحظات التمرين',
+            dietFeedback: 'ملاحظات التغذية',
+            gymFeedback: 'ملاحظات النادي',
+            noActivePlans: 'لا توجد خطط نشطة حالياً.',
+            noAttendance: 'لا توجد سجلات حضور بعد.',
+            noFeedback: 'لا توجد ملاحظات بعد.',
+            loadingMemberData: 'جارٍ تحميل تفاصيل العضو...',
             deactivateDescriptionPrefix: 'هل أنت متأكد من تعطيل',
             deactivateDescriptionSuffix: '؟ هذا الإجراء قد لا يمكن التراجع عنه بسهولة.',
             monthly30d: 'شهري (30 يوماً)',
@@ -349,10 +425,25 @@ export default function MembersPage() {
             noBio: 'No bio provided.',
             progressVisualization: 'Progress Visualization',
             noBiometricData: 'No biometric progress data logged yet.',
+            workoutCharts: 'Workout Charts',
+            workoutTrend: 'Workout Trend',
+            sessionLoad: 'Session Load',
+            noWorkoutChartData: 'No workout data available for charts yet.',
+            sessionsCount: 'sessions',
             workoutSessionLogs: 'Workout Session Logs',
             exercises: 'exercises',
             moreExercises: 'more exercises',
             noWorkoutSessions: 'No workout session logs yet.',
+            activeWorkoutPlans: 'Active Workout Plans',
+            activeDietPlans: 'Active Diet Plans',
+            recentAttendance: 'Recent Attendance',
+            workoutFeedback: 'Workout Feedback',
+            dietFeedback: 'Diet Feedback',
+            gymFeedback: 'Gym Feedback',
+            noActivePlans: 'No active plans right now.',
+            noAttendance: 'No attendance records yet.',
+            noFeedback: 'No feedback yet.',
+            loadingMemberData: 'Loading member details...',
             deactivateDescriptionPrefix: 'Are you sure you want to deactivate',
             deactivateDescriptionSuffix: '? This action cannot be easily undone.',
             monthly30d: 'Monthly (30d)',
@@ -421,27 +512,127 @@ export default function MembersPage() {
         }
     };
 
-    const openView = (member: Member) => {
+    const openView = async (member: Member) => {
         setViewMember(member);
-        Promise.all([
-            api.get(`/fitness/biometrics/member/${member.id}`).catch(() => ({ data: { data: [] } })),
-            api.get(`/fitness/session-logs/member/${member.id}`).catch(() => ({ data: { data: [] } })),
-        ])
-            .then(([bioRes, sessionsRes]) => {
-                setViewBiometrics(bioRes.data?.data ?? []);
-                setViewSessions(sessionsRes.data?.data ?? []);
-            })
-            .catch(() => {
-                setViewBiometrics([]);
-                setViewSessions([]);
-            });
+        setViewMemberDetail(null);
+        setViewBiometrics([]);
+        setViewSessions([]);
+        setViewLoading(true);
+        setChartsReady(false);
+        setChartRange('30d');
         setIsViewOpen(true);
+        try {
+            const branchParams = getBranchParams(selectedBranchId);
+            const [detailRes, biometricsRes, sessionsRes] = await Promise.all([
+                api.get(`/mobile/staff/members/${member.id}`, { params: branchParams }),
+                api.get(`/fitness/biometrics/member/${member.id}`, { params: { limit: 500 } }).catch(() => ({ data: { data: [] } })),
+                api.get(`/fitness/session-logs/member/${member.id}`, { params: { limit: 500 } }).catch(() => ({ data: { data: [] } })),
+            ]);
+            const detail = detailRes.data?.data as StaffMemberDetail | undefined;
+            if (detail) {
+                setViewMemberDetail(detail);
+            }
+            const biometricsData = (biometricsRes as { data?: { data?: BiometricLog[] } }).data?.data ?? [];
+            const sessionsData = (sessionsRes as { data?: { data?: WorkoutSession[] } }).data?.data ?? [];
+            setViewBiometrics(mergeUniqueById(detail?.biometrics, biometricsData).sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime()));
+            setViewSessions(mergeUniqueById(detail?.recent_workout_sessions, sessionsData).sort((a, b) => new Date(a.performed_at).getTime() - new Date(b.performed_at).getTime()));
+        } catch (err) {
+            console.error(err);
+        } finally {
+            setViewLoading(false);
+        }
     };
+
+    useEffect(() => {
+        if (!isViewOpen || viewLoading || !viewMemberDetail) {
+            setChartsReady(false);
+            return;
+        }
+        const frame = window.requestAnimationFrame(() => setChartsReady(true));
+        return () => window.cancelAnimationFrame(frame);
+    }, [isViewOpen, viewLoading, viewMemberDetail, viewBiometrics.length, viewSessions.length, chartRange]);
 
     const markImageFailed = (url?: string) => {
         if (!url) return;
         setFailedImageUrls(prev => ({ ...prev, [url]: true }));
     };
+
+    const workoutChartData = useMemo(() => {
+        const selectedDays = CHART_RANGE_OPTIONS.find((option) => option.value === chartRange)?.days ?? null;
+        const cutoff = selectedDays == null ? null : new Date(Date.now() - (selectedDays - 1) * 24 * 60 * 60 * 1000);
+        const filteredSessions = [...viewSessions].filter((session) => {
+            if (!cutoff) return true;
+            return new Date(session.performed_at) >= cutoff;
+        });
+        const sorted = filteredSessions.sort((a, b) => new Date(a.performed_at).getTime() - new Date(b.performed_at).getTime());
+        const map = new Map<string, { date: string; sessions: number; volume: number }>();
+
+        sorted.forEach((session) => {
+            const key = session.performed_at.slice(0, 10);
+            const existing = map.get(key) || { date: key, sessions: 0, volume: 0 };
+            existing.sessions += 1;
+            existing.volume += typeof session.session_volume === 'number' && Number.isFinite(session.session_volume)
+                ? session.session_volume
+                : getSessionVolume(session);
+            map.set(key, existing);
+        });
+
+        return Array.from(map.values());
+    }, [chartRange, viewSessions]);
+
+    const workoutChartVolumeData = useMemo(
+        () => workoutChartData.map((row) => ({ date: row.date, value: row.volume })),
+        [workoutChartData]
+    );
+    const workoutChartSessionsData = useMemo(
+        () => workoutChartData.map((row) => ({ date: row.date, value: row.sessions })),
+        [workoutChartData]
+    );
+
+    const filteredBiometricsForCharts = useMemo(() => {
+        const selectedDays = CHART_RANGE_OPTIONS.find((option) => option.value === chartRange)?.days ?? null;
+        const cutoff = selectedDays == null ? null : new Date(Date.now() - (selectedDays - 1) * 24 * 60 * 60 * 1000);
+        return [...viewBiometrics]
+            .filter((entry) => {
+                if (!cutoff) return true;
+                return new Date(entry.date) >= cutoff;
+            })
+            .sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
+    }, [chartRange, viewBiometrics]);
+
+    const chartRangeLabel = useMemo(() => {
+        switch (chartRange) {
+            case '7d':
+                return locale === 'ar' ? '7 أيام' : '7D';
+            case '90d':
+                return locale === 'ar' ? '90 يومًا' : '90D';
+            case 'all':
+                return locale === 'ar' ? 'الكل' : 'All';
+            default:
+                return locale === 'ar' ? '30 يومًا' : '30D';
+        }
+    }, [chartRange, locale]);
+
+    const biometricWeightData = useMemo(() => {
+        return filteredBiometricsForCharts.map((entry) => ({
+            date: entry.date,
+            value: entry.weight_kg,
+        })).filter((row) => typeof row.value === 'number');
+    }, [filteredBiometricsForCharts]);
+
+    const biometricBodyFatData = useMemo(() => {
+        return filteredBiometricsForCharts.map((entry) => ({
+            date: entry.date,
+            value: entry.body_fat_pct,
+        })).filter((row) => typeof row.value === 'number');
+    }, [filteredBiometricsForCharts]);
+
+    const biometricMuscleData = useMemo(() => {
+        return filteredBiometricsForCharts.map((entry) => ({
+            date: entry.date,
+            value: entry.muscle_mass_kg,
+        })).filter((row) => typeof row.value === 'number');
+    }, [filteredBiometricsForCharts]);
 
     const canRenderImage = (url?: string) => !!url && !failedImageUrls[url];
     const getAgeFromDob = (dob?: string) => {
@@ -1346,156 +1537,465 @@ export default function MembersPage() {
             </Modal>
 
             {/* VIEW PROFILE MODAL */}
-            <Modal isOpen={isViewOpen} onClose={() => setIsViewOpen(false)} title={text.memberProfile}>
+            <Modal isOpen={isViewOpen} onClose={() => setIsViewOpen(false)} title={text.memberProfile} maxWidthClassName="max-w-3xl">
                 {viewMember && (
-                    <div className="space-y-6">
-                        <div className="flex items-center gap-4 border-b border-border pb-6">
-                            {(() => {
-                                const imageUrl = resolveProfileImageUrl(viewMember.profile_picture_url);
-                                return (
-                            <div className="h-16 w-16 bg-primary/20 rounded-full flex items-center justify-center text-primary text-xl font-bold overflow-hidden relative flex-shrink-0">
-                                {canRenderImage(imageUrl) ? (
-                                    <Image src={imageUrl as string} alt={viewMember.full_name} fill className="object-cover" unoptimized onError={() => markImageFailed(imageUrl)} />
-                                ) : (
-                                    viewMember.full_name.charAt(0)
-                                )}
-                            </div>
-                                );
-                            })()}
-                            <div>
-                                <h3 className="text-xl font-bold text-foreground">{viewMember.full_name}</h3>
-                                <p className="text-sm text-muted-foreground">{viewMember.email}</p>
-                                <span className="inline-block px-2 py-0.5 mt-1 rounded text-[10px] font-bold tracking-wider bg-zinc-800 text-zinc-300">
-                                    {roleLabel(viewMember.role)}
-                                </span>
+                    <div className="space-y-5">
+                        <div className="kpi-card p-5 sm:p-6">
+                            <div className="flex flex-col sm:flex-row sm:items-center gap-4">
+                                {(() => {
+                                    const imageUrl = resolveProfileImageUrl(viewMember.profile_picture_url);
+                                    return (
+                                        <div className="h-20 w-20 bg-primary/15 rounded-full flex items-center justify-center text-primary text-2xl font-bold overflow-hidden relative flex-shrink-0 border border-border/60">
+                                            {canRenderImage(imageUrl) ? (
+                                                <Image src={imageUrl as string} alt={viewMember.full_name} fill className="object-cover" unoptimized onError={() => markImageFailed(imageUrl)} />
+                                            ) : (
+                                                viewMember.full_name.charAt(0)
+                                            )}
+                                        </div>
+                                    );
+                                })()}
+                                <div className="min-w-0 flex-1">
+                                    <p className="text-2xl font-bold text-foreground font-serif tracking-tight truncate">{viewMember.full_name}</p>
+                                    <p className="text-sm text-muted-foreground truncate">{viewMember.email}</p>
+                                    <div className="mt-2 flex flex-wrap items-center gap-2">
+                                        <span className="inline-flex items-center rounded-full border border-border bg-muted/30 px-3 py-1 text-[11px] font-bold uppercase tracking-[0.16em] text-muted-foreground">
+                                            {roleLabel(viewMember.role)}
+                                        </span>
+                                        {viewMember.date_of_birth ? (
+                                            <span className="inline-flex items-center rounded-full border border-border bg-muted/20 px-3 py-1 text-[11px] font-mono text-muted-foreground">
+                                                {getAgeFromDob(viewMember.date_of_birth) ?? text.na} {text.age}
+                                            </span>
+                                        ) : null}
+                                    </div>
+                                </div>
                             </div>
                         </div>
-                        <div className="grid grid-cols-2 gap-4 text-sm">
-                            <div>
-                                <p className="text-xs text-muted-foreground uppercase tracking-wider mb-1 font-semibold">{text.phone}</p>
-                                <p className="font-medium text-foreground">{viewMember.phone_number || text.na}</p>
-                            </div>
-                            <div>
-                                <p className="text-xs text-muted-foreground uppercase tracking-wider mb-1 font-semibold">{text.dateOfBirth}</p>
-                                <p className="font-medium text-foreground">{viewMember.date_of_birth ? formatDate(viewMember.date_of_birth, { year: 'numeric', month: '2-digit', day: '2-digit' }) : text.na}</p>
-                            </div>
-                            <div>
-                                <p className="text-xs text-muted-foreground uppercase tracking-wider mb-1 font-semibold">{text.age}</p>
-                                <p className="font-medium text-foreground">{getAgeFromDob(viewMember.date_of_birth) ?? text.na}</p>
-                            </div>
-                            <div className="col-span-2">
-                                <p className="text-xs text-muted-foreground uppercase tracking-wider mb-1 font-semibold">{text.emergencyContact}</p>
-                                <p className="font-medium text-foreground">{viewMember.emergency_contact || text.na}</p>
-                            </div>
-                            <div className="col-span-2">
-                                <p className="text-xs text-muted-foreground uppercase tracking-wider mb-1 font-semibold">{text.bioNotes}</p>
-                                <p className="font-medium text-foreground whitespace-pre-wrap">{viewMember.bio || text.noBio}</p>
-                            </div>
-                            <div>
-                                <p className="text-xs text-muted-foreground uppercase tracking-wider mb-1 font-semibold">{text.latestHeight}</p>
-                                <p className="font-medium text-foreground">
+
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                            <div className="kpi-card p-4">
+                                <p className="text-xs text-muted-foreground uppercase tracking-[0.18em] font-semibold">{text.latestHeight}</p>
+                                <p className="mt-2 text-lg font-bold text-foreground">
                                     {viewBiometrics.length > 0 && viewBiometrics[viewBiometrics.length - 1].height_cm
                                         ? `${viewBiometrics[viewBiometrics.length - 1].height_cm} cm`
                                         : text.na}
                                 </p>
                             </div>
-                            <div>
-                                <p className="text-xs text-muted-foreground uppercase tracking-wider mb-1 font-semibold">{text.latestWeight}</p>
-                                <p className="font-medium text-foreground">
+                            <div className="kpi-card p-4">
+                                <p className="text-xs text-muted-foreground uppercase tracking-[0.18em] font-semibold">{text.latestWeight}</p>
+                                <p className="mt-2 text-lg font-bold text-foreground">
                                     {viewBiometrics.length > 0 && viewBiometrics[viewBiometrics.length - 1].weight_kg
                                         ? `${viewBiometrics[viewBiometrics.length - 1].weight_kg} kg`
                                         : text.na}
                                 </p>
                             </div>
-                            <div className="col-span-2">
-                                <p className="text-xs text-muted-foreground uppercase tracking-wider mb-2 font-semibold">{text.progressVisualization}</p>
-                                <div className="h-52 border border-border bg-muted/10 p-2 rounded-sm">
-                                    {viewBiometrics.length > 0 ? (
-                                        <SafeResponsiveChart>
-                                            <LineChart data={viewBiometrics}>
-                                                <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" vertical={false} />
+                            <div className="kpi-card p-4 sm:col-span-2">
+                                <p className="text-xs text-muted-foreground uppercase tracking-[0.18em] font-semibold mb-1">{text.phone}</p>
+                                <p className="font-medium text-foreground">{viewMember.phone_number || text.na}</p>
+                            </div>
+                            <div className="kpi-card p-4">
+                                <p className="text-xs text-muted-foreground uppercase tracking-[0.18em] font-semibold mb-1">{text.dateOfBirth}</p>
+                                <p className="font-medium text-foreground">{viewMember.date_of_birth ? formatDate(viewMember.date_of_birth, { year: 'numeric', month: '2-digit', day: '2-digit' }) : text.na}</p>
+                            </div>
+                            <div className="kpi-card p-4">
+                                <p className="text-xs text-muted-foreground uppercase tracking-[0.18em] font-semibold mb-1">{text.age}</p>
+                                <p className="font-medium text-foreground">{getAgeFromDob(viewMember.date_of_birth) ?? text.na}</p>
+                            </div>
+                            <div className="kpi-card p-4 sm:col-span-2">
+                                <p className="text-xs text-muted-foreground uppercase tracking-[0.18em] font-semibold mb-1">{text.emergencyContact}</p>
+                                <p className="font-medium text-foreground">{viewMember.emergency_contact || text.na}</p>
+                            </div>
+                            <div className="kpi-card p-4 sm:col-span-2">
+                                <p className="text-xs text-muted-foreground uppercase tracking-[0.18em] font-semibold mb-2">{text.bioNotes}</p>
+                                <p className="font-medium text-foreground whitespace-pre-wrap leading-6">{viewMember.bio || text.noBio}</p>
+                            </div>
+                        </div>
+
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                            <div className="kpi-card p-4">
+                                <p className="text-xs text-muted-foreground uppercase tracking-[0.18em] font-semibold mb-2">{text.activeWorkoutPlans}</p>
+                                {viewMemberDetail?.active_workout_plans?.length ? (
+                                    <div className="flex flex-wrap gap-2">
+                                        {viewMemberDetail.active_workout_plans.map((plan) => (
+                                            <span key={plan.id} className="rounded-full border border-border bg-card/50 px-3 py-1 text-xs text-foreground">
+                                                {plan.name}
+                                            </span>
+                                        ))}
+                                    </div>
+                                ) : (
+                                    <p className="text-sm text-muted-foreground">{text.noActivePlans}</p>
+                                )}
+                            </div>
+                            <div className="kpi-card p-4">
+                                <p className="text-xs text-muted-foreground uppercase tracking-[0.18em] font-semibold mb-2">{text.activeDietPlans}</p>
+                                {viewMemberDetail?.active_diet_plans?.length ? (
+                                    <div className="flex flex-wrap gap-2">
+                                        {viewMemberDetail.active_diet_plans.map((plan) => (
+                                            <span key={plan.id} className="rounded-full border border-border bg-card/50 px-3 py-1 text-xs text-foreground">
+                                                {plan.name}
+                                            </span>
+                                        ))}
+                                    </div>
+                                ) : (
+                                    <p className="text-sm text-muted-foreground">{text.noActivePlans}</p>
+                                )}
+                            </div>
+                        </div>
+
+                        <div className="kpi-card p-4">
+                            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                                <div>
+                                    <p className="text-xs text-muted-foreground uppercase tracking-[0.18em] font-semibold">{text.workoutCharts}</p>
+                                    <p className="text-sm text-muted-foreground mt-1">{chartRangeLabel}</p>
+                                </div>
+                                <div className="flex flex-wrap gap-2">
+                                    {CHART_RANGE_OPTIONS.map((option) => {
+                                        const active = chartRange === option.value;
+                                        const label = option.value === '7d'
+                                            ? (locale === 'ar' ? '7 أيام' : '7D')
+                                            : option.value === '90d'
+                                                ? (locale === 'ar' ? '90 يومًا' : '90D')
+                                                : option.value === 'all'
+                                                    ? (locale === 'ar' ? 'الكل' : 'All')
+                                                    : (locale === 'ar' ? '30 يومًا' : '30D');
+                                        return (
+                                            <button
+                                                key={option.value}
+                                                type="button"
+                                                onClick={() => {
+                                                    setChartRange(option.value);
+                                                    setChartsReady(false);
+                                                }}
+                                                className={`rounded-full border px-3 py-1 text-xs font-semibold transition-colors ${active
+                                                    ? 'border-primary bg-primary/10 text-primary'
+                                                    : 'border-border bg-card/50 text-muted-foreground hover:text-foreground'
+                                                    }`}
+                                            >
+                                                {label}
+                                            </button>
+                                        );
+                                    })}
+                                </div>
+                            </div>
+                        </div>
+
+                        <div className="kpi-card p-5 sm:p-6">
+                            <div className="flex items-center justify-between gap-3 mb-4">
+                                <div>
+                                    <p className="text-xs text-muted-foreground uppercase tracking-[0.18em] font-semibold">{text.progressVisualization}</p>
+                                    <p className="text-sm text-muted-foreground mt-1">{biometricWeightData.length > 0 ? `${biometricWeightData.length} ${locale === 'ar' ? 'سجل وزن' : 'weight logs'}` : text.noBiometricData}</p>
+                                </div>
+                            </div>
+                            <div className="grid grid-cols-1 xl:grid-cols-3 gap-4">
+                                <div className="h-72 border border-border bg-muted/10 p-3 rounded-2xl">
+                                    {viewLoading ? (
+                                        <div className="h-full flex items-center justify-center text-sm text-muted-foreground">{text.loadingMemberData}</div>
+                                    ) : biometricWeightData.length > 0 ? (
+                                        <SafeResponsiveChart key={`bio-weight-${chartRange}`}>
+                                            <LineChart data={biometricWeightData} margin={{ top: 10, right: 14, left: 0, bottom: 0 }}>
+                                                <CartesianGrid strokeDasharray="4 4" stroke="var(--border)" vertical={false} />
                                                 <XAxis
                                                     dataKey="date"
                                                     tickFormatter={(val) => formatDate(String(val), { year: 'numeric', month: '2-digit', day: '2-digit' })}
                                                     tick={{ fontSize: 10, fill: 'var(--muted-foreground)' }}
+                                                    minTickGap={24}
                                                     axisLine={false}
                                                     tickLine={false}
                                                 />
-                                                <YAxis tick={{ fontSize: 10, fill: 'var(--muted-foreground)' }} axisLine={false} tickLine={false} />
-                                                <Tooltip labelFormatter={(label) => formatDate(String(label), { year: 'numeric', month: '2-digit', day: '2-digit' })} />
-                                                <Line type="monotone" dataKey="weight_kg" stroke="var(--primary)" strokeWidth={2} name={text.lineWeightKg} dot={{ r: 2 }} />
-                                                <Line type="monotone" dataKey="body_fat_pct" stroke="#f97316" strokeWidth={2} name={text.lineBodyFat} dot={{ r: 2 }} />
-                                                <Line type="monotone" dataKey="muscle_mass_kg" stroke="#22c55e" strokeWidth={2} name={text.lineMuscleKg} dot={{ r: 2 }} />
+                                                <YAxis tick={{ fontSize: 10, fill: 'var(--muted-foreground)' }} axisLine={false} tickLine={false} width={36} />
+                                                <Tooltip
+                                                    labelFormatter={(label) => formatDate(String(label), { year: 'numeric', month: '2-digit', day: '2-digit' })}
+                                                    formatter={(value: string | number | undefined) => `${Number(value ?? 0).toFixed(1)} kg`}
+                                                    contentStyle={{ backgroundColor: 'var(--card)', border: '1px solid var(--border)', borderRadius: 12 }}
+                                                    labelStyle={{ color: 'var(--foreground)' }}
+                                                />
+                                                <Line type="monotone" dataKey="value" stroke="var(--primary)" strokeWidth={3} strokeLinecap="round" strokeLinejoin="round" name={text.lineWeightKg} dot={false} activeDot={{ r: 4, strokeWidth: 0 }} />
                                             </LineChart>
                                         </SafeResponsiveChart>
                                     ) : (
-                                        <div className="h-full flex items-center justify-center text-xs text-muted-foreground">{text.noBiometricData}</div>
+                                        <div className="h-full flex items-center justify-center text-sm text-muted-foreground">{text.noBiometricData}</div>
                                     )}
                                 </div>
-                            </div>
-                            <div className="col-span-2">
-                                <p className="text-xs text-muted-foreground uppercase tracking-wider mb-2 font-semibold">{text.workoutSessionLogs}</p>
-                                <div className="border border-border bg-muted/10 rounded-sm p-3 space-y-3 max-h-72 overflow-y-auto">
-                                    {viewSessions.length > 0 ? (
-                                        viewSessions.slice(0, 10).map((session) => {
-                                            const sessionVolume = (session.entries || []).reduce((sum, entry) => {
-                                                if (entry.skipped) return sum;
-                                                const weight = entry.weight_kg || 0;
-                                                return sum + (entry.sets_completed * entry.reps_completed * weight);
-                                            }, 0);
-                                            return (
-                                                <div key={session.id} className="rounded-sm border border-border bg-card/60 p-3">
-                                                    <div className="flex items-center justify-between gap-2 mb-2">
-                                                        <p className="text-sm font-semibold text-foreground">
-                                                            {formatDate(session.performed_at, { year: 'numeric', month: '2-digit', day: '2-digit' })}
-                                                        </p>
-                                                        <p className="text-[11px] text-muted-foreground font-mono">
-                                                            {session.entries.filter((entry) => !entry.skipped).length} {text.exercises} | {Math.round(sessionVolume)} {text.volumeKg}
-                                                        </p>
-                                                    </div>
-                                                    <div className="mb-2 flex flex-wrap gap-2 text-[11px] text-muted-foreground">
-                                                        {session.duration_minutes != null && <span>{session.duration_minutes} min</span>}
-                                                        {session.rpe != null && <span>RPE {session.rpe}</span>}
-                                                        {session.pain_level != null && <span>Pain {session.pain_level}</span>}
-                                                        {session.effort_feedback && <span>{session.effort_feedback.replace('_', ' ')}</span>}
-                                                        {session.attachment_url && <span>Attachment</span>}
-                                                    </div>
-                                                    {session.notes && <p className="mb-2 text-xs text-muted-foreground">{session.notes}</p>}
-                                                    <div className="space-y-1">
-                                                        {session.entries.slice(0, 3).map((entry) => (
-                                                            <div key={entry.id} className="text-xs">
-                                                                <div className="flex justify-between gap-3">
-                                                                    <span className="text-muted-foreground">{entry.exercise_name || text.workout}{entry.is_pr ? ' PR' : ''}</span>
-                                                                    <span className="text-muted-foreground font-mono">{entry.skipped ? 'Skipped' : `${entry.sets_completed}x${entry.reps_completed} @ ${entry.weight_kg ?? 0}kg`}</span>
-                                                                </div>
-                                                                {entry.set_details?.length ? (
-                                                                    <p className="text-[10px] text-muted-foreground font-mono">
-                                                                        {entry.set_details.map((row) => `${row.set}: ${row.reps} @ ${row.weightKg ?? 0}kg`).join(' | ')}
-                                                                    </p>
-                                                                ) : null}
-                                                                {entry.notes ? <p className="text-[10px] text-muted-foreground">{entry.notes}</p> : null}
-                                                            </div>
-                                                        ))}
-                                                        {session.entries.length > 3 && (
-                                                            <p className="text-[10px] text-primary font-mono">+{session.entries.length - 3} {text.moreExercises}</p>
-                                                        )}
-                                                    </div>
-                                                </div>
-                                            );
-                                        })
+                                <div className="h-72 border border-border bg-muted/10 p-3 rounded-2xl">
+                                    {viewLoading ? (
+                                        <div className="h-full flex items-center justify-center text-sm text-muted-foreground">{text.loadingMemberData}</div>
+                                    ) : biometricBodyFatData.length > 0 ? (
+                                        <SafeResponsiveChart key={`bio-bodyfat-${chartRange}`}>
+                                            <LineChart data={biometricBodyFatData} margin={{ top: 10, right: 14, left: 0, bottom: 0 }}>
+                                                <CartesianGrid strokeDasharray="4 4" stroke="var(--border)" vertical={false} />
+                                                <XAxis dataKey="date" tickFormatter={(val) => formatDate(String(val), { month: '2-digit', day: '2-digit' })} tick={{ fontSize: 10, fill: 'var(--muted-foreground)' }} minTickGap={24} axisLine={false} tickLine={false} />
+                                                <YAxis tick={{ fontSize: 10, fill: 'var(--muted-foreground)' }} axisLine={false} tickLine={false} width={36} />
+                                                <Tooltip
+                                                    labelFormatter={(label) => formatDate(String(label), { year: 'numeric', month: '2-digit', day: '2-digit' })}
+                                                    formatter={(value: string | number | undefined) => `${Number(value ?? 0).toFixed(1)}%`}
+                                                    contentStyle={{ backgroundColor: 'var(--card)', border: '1px solid var(--border)', borderRadius: 12 }}
+                                                    labelStyle={{ color: 'var(--foreground)' }}
+                                                />
+                                                <Line type="monotone" dataKey="value" stroke="#f97316" strokeWidth={3} strokeLinecap="round" strokeLinejoin="round" name={text.lineBodyFat} dot={false} activeDot={{ r: 4, strokeWidth: 0 }} />
+                                            </LineChart>
+                                        </SafeResponsiveChart>
                                     ) : (
-                                        <div className="h-24 flex items-center justify-center text-xs text-muted-foreground">
-                                            {text.noWorkoutSessions}
-                                        </div>
+                                        <div className="h-full flex items-center justify-center text-sm text-muted-foreground">{text.noBiometricData}</div>
+                                    )}
+                                </div>
+                                <div className="h-72 border border-border bg-muted/10 p-3 rounded-2xl">
+                                    {viewLoading ? (
+                                        <div className="h-full flex items-center justify-center text-sm text-muted-foreground">{text.loadingMemberData}</div>
+                                    ) : biometricMuscleData.length > 0 ? (
+                                        <SafeResponsiveChart key={`bio-muscle-${chartRange}`}>
+                                            <LineChart data={biometricMuscleData} margin={{ top: 10, right: 14, left: 0, bottom: 0 }}>
+                                                <CartesianGrid strokeDasharray="4 4" stroke="var(--border)" vertical={false} />
+                                                <XAxis dataKey="date" tickFormatter={(val) => formatDate(String(val), { month: '2-digit', day: '2-digit' })} tick={{ fontSize: 10, fill: 'var(--muted-foreground)' }} minTickGap={24} axisLine={false} tickLine={false} />
+                                                <YAxis tick={{ fontSize: 10, fill: 'var(--muted-foreground)' }} axisLine={false} tickLine={false} width={36} />
+                                                <Tooltip
+                                                    labelFormatter={(label) => formatDate(String(label), { year: 'numeric', month: '2-digit', day: '2-digit' })}
+                                                    formatter={(value: string | number | undefined) => `${Number(value ?? 0).toFixed(1)} kg`}
+                                                    contentStyle={{ backgroundColor: 'var(--card)', border: '1px solid var(--border)', borderRadius: 12 }}
+                                                    labelStyle={{ color: 'var(--foreground)' }}
+                                                />
+                                                <Line type="monotone" dataKey="value" stroke="#22c55e" strokeWidth={3} strokeLinecap="round" strokeLinejoin="round" name={text.lineMuscleKg} dot={false} activeDot={{ r: 4, strokeWidth: 0 }} />
+                                            </LineChart>
+                                        </SafeResponsiveChart>
+                                    ) : (
+                                        <div className="h-full flex items-center justify-center text-sm text-muted-foreground">{text.noBiometricData}</div>
                                     )}
                                 </div>
                             </div>
                         </div>
+
+                        <div className="kpi-card p-5 sm:p-6">
+                            <div className="flex items-center justify-between gap-3 mb-4">
+                                <div>
+                                    <p className="text-xs text-muted-foreground uppercase tracking-[0.18em] font-semibold">{text.workoutCharts}</p>
+                                    <p className="text-sm text-muted-foreground mt-1">{workoutChartData.length > 0 ? `${workoutChartData.length} ${locale === 'ar' ? 'أيام' : 'days'}` : text.noWorkoutChartData}</p>
+                                </div>
+                            </div>
+                            <div className="grid grid-cols-1 xl:grid-cols-2 gap-4">
+                                <div className="h-64 border border-border bg-muted/10 p-3 rounded-2xl">
+                                    {chartsReady && workoutChartVolumeData.length > 0 ? (
+                                        <SafeResponsiveChart key={`workout-volume-${chartRange}`}>
+                                            <LineChart data={workoutChartVolumeData} margin={{ top: 10, right: 14, left: 0, bottom: 0 }}>
+                                                <CartesianGrid strokeDasharray="4 4" stroke="var(--border)" vertical={false} />
+                                                <XAxis
+                                                    dataKey="date"
+                                                    tickFormatter={(val) => formatDate(String(val), { month: '2-digit', day: '2-digit' })}
+                                                    tick={{ fontSize: 10, fill: 'var(--muted-foreground)' }}
+                                                    minTickGap={24}
+                                                    axisLine={false}
+                                                    tickLine={false}
+                                                />
+                                                <YAxis tick={{ fontSize: 10, fill: 'var(--muted-foreground)' }} axisLine={false} tickLine={false} width={36} />
+                                                <Tooltip
+                                                    labelFormatter={(label) => formatDate(String(label), { year: 'numeric', month: '2-digit', day: '2-digit' })}
+                                                    formatter={(value: string | number | undefined) => `${Math.round(Number(value ?? 0))} kg`}
+                                                    contentStyle={{ backgroundColor: 'var(--card)', border: '1px solid var(--border)', borderRadius: 12 }}
+                                                    labelStyle={{ color: 'var(--foreground)' }}
+                                                />
+                                                <Line
+                                                    type="monotone"
+                                                    dataKey="value"
+                                                    stroke="var(--primary)"
+                                                    strokeWidth={3}
+                                                    strokeLinecap="round"
+                                                    strokeLinejoin="round"
+                                                    name={text.sessionLoad}
+                                                    dot={false}
+                                                    activeDot={{ r: 4, strokeWidth: 0 }}
+                                                />
+                                            </LineChart>
+                                        </SafeResponsiveChart>
+                                    ) : (
+                                        <div className="h-full flex items-center justify-center text-sm text-muted-foreground">{viewLoading ? text.loadingMemberData : text.noWorkoutChartData}</div>
+                                    )}
+                                </div>
+                                <div className="h-64 border border-border bg-muted/10 p-3 rounded-2xl">
+                                    {chartsReady && workoutChartSessionsData.length > 0 ? (
+                                        <SafeResponsiveChart key={`workout-count-${chartRange}`}>
+                                            <LineChart data={workoutChartSessionsData} margin={{ top: 10, right: 14, left: 0, bottom: 0 }}>
+                                                <CartesianGrid strokeDasharray="4 4" stroke="var(--border)" vertical={false} />
+                                                <XAxis
+                                                    dataKey="date"
+                                                    tickFormatter={(val) => formatDate(String(val), { month: '2-digit', day: '2-digit' })}
+                                                    tick={{ fontSize: 10, fill: 'var(--muted-foreground)' }}
+                                                    minTickGap={24}
+                                                    axisLine={false}
+                                                    tickLine={false}
+                                                />
+                                                <YAxis tick={{ fontSize: 10, fill: 'var(--muted-foreground)' }} axisLine={false} tickLine={false} allowDecimals={false} width={36} />
+                                                <Tooltip
+                                                    labelFormatter={(label) => formatDate(String(label), { year: 'numeric', month: '2-digit', day: '2-digit' })}
+                                                    formatter={(value: string | number | undefined) => `${Math.round(Number(value ?? 0))}`}
+                                                    contentStyle={{ backgroundColor: 'var(--card)', border: '1px solid var(--border)', borderRadius: 12 }}
+                                                    labelStyle={{ color: 'var(--foreground)' }}
+                                                />
+                                                <Line
+                                                    type="monotone"
+                                                    dataKey="value"
+                                                    stroke="#22c55e"
+                                                    strokeWidth={3}
+                                                    strokeLinecap="round"
+                                                    strokeLinejoin="round"
+                                                    name={text.workoutTrend}
+                                                    dot={false}
+                                                    activeDot={{ r: 4, strokeWidth: 0 }}
+                                                />
+                                            </LineChart>
+                                        </SafeResponsiveChart>
+                                    ) : (
+                                        <div className="h-full flex items-center justify-center text-sm text-muted-foreground">{viewLoading ? text.loadingMemberData : text.noWorkoutChartData}</div>
+                                    )}
+                                </div>
+                            </div>
+                        </div>
+
+                        <div className="kpi-card p-5 sm:p-6">
+                            <div className="flex items-center justify-between gap-3 mb-4">
+                                <div>
+                                    <p className="text-xs text-muted-foreground uppercase tracking-[0.18em] font-semibold">{text.recentAttendance}</p>
+                                    <p className="text-sm text-muted-foreground mt-1">{viewMemberDetail?.recent_attendance?.length ? `${viewMemberDetail.recent_attendance.length} ${locale === 'ar' ? 'عملية' : 'check-ins'}` : text.noAttendance}</p>
+                                </div>
+                            </div>
+                            <div className="space-y-3">
+                                {viewMemberDetail?.recent_attendance?.length ? (
+                                    viewMemberDetail.recent_attendance.map((entry) => (
+                                        <div key={entry.id} className="rounded-xl border border-border bg-muted/10 p-4">
+                                            <div className="flex items-start justify-between gap-3">
+                                                <div>
+                                                    <p className="text-sm font-semibold text-foreground">{formatDate(entry.scan_time, { year: 'numeric', month: '2-digit', day: '2-digit' })}</p>
+                                                    <p className="text-xs text-muted-foreground mt-1">{entry.kiosk_id || text.na}</p>
+                                                </div>
+                                                <span className="text-xs font-mono text-muted-foreground">{entry.status}</span>
+                                            </div>
+                                            {entry.reason ? <p className="mt-2 text-xs text-muted-foreground">{entry.reason}</p> : null}
+                                        </div>
+                                    ))
+                                ) : (
+                                    <div className="rounded-2xl border border-dashed border-border bg-muted/5 px-4 py-8 text-center text-sm text-muted-foreground">
+                                        {text.noAttendance}
+                                    </div>
+                                )}
+                            </div>
+                        </div>
+
+                        <div className="kpi-card p-5 sm:p-6">
+                            <div className="flex items-center justify-between gap-3 mb-4">
+                                <div>
+                                    <p className="text-xs text-muted-foreground uppercase tracking-[0.18em] font-semibold">{text.workoutSessionLogs}</p>
+                                    <p className="text-sm text-muted-foreground mt-1">{viewSessions.length > 0 ? `${viewSessions.length} ${locale === 'ar' ? 'جلسة' : 'sessions'}` : text.noWorkoutSessions}</p>
+                                </div>
+                            </div>
+                            <div className="space-y-3">
+                                {viewSessions.length > 0 ? (
+                                    viewSessions.slice(0, 10).map((session) => {
+                                        const sessionVolume = getSessionVolume(session);
+                                        return (
+                                            <div key={session.id} className="rounded-2xl border border-border bg-muted/10 p-4 space-y-3">
+                                                <div className="flex items-start justify-between gap-3">
+                                                    <div>
+                                                        <p className="text-sm font-semibold text-foreground">
+                                                            {formatDate(session.performed_at, { year: 'numeric', month: '2-digit', day: '2-digit' })}
+                                                        </p>
+                                                        <p className="text-xs text-muted-foreground mt-1 font-mono">
+                                                            {session.entries.filter((entry) => !entry.skipped).length} {text.exercises}
+                                                        </p>
+                                                    </div>
+                                                    <p className="text-xs text-muted-foreground font-mono text-right">
+                                                        {Math.round(sessionVolume)} {text.volumeKg}
+                                                    </p>
+                                                </div>
+                                                <div className="flex flex-wrap gap-2 text-[11px] text-muted-foreground">
+                                                    {session.duration_minutes != null && <span className="rounded-full border border-border bg-card/50 px-2 py-1">{session.duration_minutes} min</span>}
+                                                    {session.rpe != null && <span className="rounded-full border border-border bg-card/50 px-2 py-1">RPE {session.rpe}</span>}
+                                                    {session.pain_level != null && <span className="rounded-full border border-border bg-card/50 px-2 py-1">Pain {session.pain_level}</span>}
+                                                    {session.effort_feedback && <span className="rounded-full border border-border bg-card/50 px-2 py-1">{session.effort_feedback.replace('_', ' ')}</span>}
+                                                    {session.attachment_url && <span className="rounded-full border border-border bg-card/50 px-2 py-1">Attachment</span>}
+                                                </div>
+                                                {session.notes && <p className="text-xs text-muted-foreground leading-6">{session.notes}</p>}
+                                                <div className="space-y-2">
+                                                    {session.entries.slice(0, 3).map((entry) => (
+                                                        <div key={entry.id} className="rounded-xl border border-border/70 bg-card/60 p-3 text-xs">
+                                                            <div className="flex justify-between gap-3">
+                                                                <span className="text-muted-foreground">
+                                                                    {entry.exercise_name || text.workout}{entry.is_pr ? ' PR' : ''}
+                                                                </span>
+                                                                <span className="text-muted-foreground font-mono text-right">
+                                                                    {entry.skipped
+                                                                        ? 'Skipped'
+                                                                        : `${entry.sets_completed}x${entry.reps_completed} @ ${entry.weight_kg ?? 0}kg • ${Math.round(getEntryVolume(entry))} ${text.volumeKg}`}
+                                                                </span>
+                                                            </div>
+                                                            {entry.set_details?.length ? (
+                                                                <p className="mt-2 text-[10px] text-muted-foreground font-mono leading-5">
+                                                                    {entry.set_details.map((row) => `${row.set}: ${row.reps} @ ${row.weightKg ?? 0}kg`).join(' | ')}
+                                                                </p>
+                                                            ) : null}
+                                                            {entry.notes ? <p className="mt-2 text-[10px] text-muted-foreground leading-5">{entry.notes}</p> : null}
+                                                        </div>
+                                                    ))}
+                                                    {session.entries.length > 3 && (
+                                                        <p className="text-[10px] text-primary font-mono">+{session.entries.length - 3} {text.moreExercises}</p>
+                                                    )}
+                                                </div>
+                                            </div>
+                                        );
+                                    })
+                                ) : (
+                                    <div className="rounded-2xl border border-dashed border-border bg-muted/5 px-4 py-10 text-center text-sm text-muted-foreground">
+                                        {text.noWorkoutSessions}
+                                    </div>
+                                )}
+                            </div>
+                        </div>
+
+                        <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+                            <div className="kpi-card p-5 space-y-3">
+                                <p className="text-xs text-muted-foreground uppercase tracking-[0.18em] font-semibold">{text.workoutFeedback}</p>
+                                {viewMemberDetail?.workout_feedback?.length ? (
+                                    viewMemberDetail.workout_feedback.slice(0, 3).map((item) => (
+                                        <div key={item.id} className="rounded-xl border border-border bg-muted/10 p-3">
+                                            <p className="text-sm font-semibold text-foreground">{item.plan_name || text.na}</p>
+                                            <p className="text-xs text-muted-foreground mt-1">{formatDate(item.date, { year: 'numeric', month: '2-digit', day: '2-digit' })}</p>
+                                            <p className="text-xs text-muted-foreground mt-2">{item.comment || text.noFeedback}</p>
+                                        </div>
+                                    ))
+                                ) : (
+                                    <p className="text-sm text-muted-foreground">{text.noFeedback}</p>
+                                )}
+                            </div>
+                            <div className="kpi-card p-5 space-y-3">
+                                <p className="text-xs text-muted-foreground uppercase tracking-[0.18em] font-semibold">{text.dietFeedback}</p>
+                                {viewMemberDetail?.diet_feedback?.length ? (
+                                    viewMemberDetail.diet_feedback.slice(0, 3).map((item) => (
+                                        <div key={item.id} className="rounded-xl border border-border bg-muted/10 p-3">
+                                            <p className="text-sm font-semibold text-foreground">{item.diet_plan_name || text.na}</p>
+                                            <p className="text-xs text-muted-foreground mt-1">{formatDate(item.created_at, { year: 'numeric', month: '2-digit', day: '2-digit' })}</p>
+                                            <p className="text-xs text-muted-foreground mt-2">{item.comment || text.noFeedback}</p>
+                                        </div>
+                                    ))
+                                ) : (
+                                    <p className="text-sm text-muted-foreground">{text.noFeedback}</p>
+                                )}
+                            </div>
+                            <div className="kpi-card p-5 space-y-3">
+                                <p className="text-xs text-muted-foreground uppercase tracking-[0.18em] font-semibold">{text.gymFeedback}</p>
+                                {viewMemberDetail?.gym_feedback?.length ? (
+                                    viewMemberDetail.gym_feedback.slice(0, 3).map((item) => (
+                                        <div key={item.id} className="rounded-xl border border-border bg-muted/10 p-3">
+                                            <p className="text-sm font-semibold text-foreground">{item.category}</p>
+                                            <p className="text-xs text-muted-foreground mt-1">{formatDate(item.created_at, { year: 'numeric', month: '2-digit', day: '2-digit' })}</p>
+                                            <p className="text-xs text-muted-foreground mt-2">{item.comment || text.noFeedback}</p>
+                                        </div>
+                                    ))
+                                ) : (
+                                    <p className="text-sm text-muted-foreground">{text.noFeedback}</p>
+                                )}
+                            </div>
+                        </div>
+
                         {canMessageClient && (
-                            <div className="border-t border-border pt-4">
+                            <div className="pt-1">
                                 <button
                                     type="button"
-                                    className="btn-primary w-full justify-center"
+                                    className="btn-primary w-full justify-center py-4 text-base"
                                     onClick={() => handleMessageClient(viewMember.id)}
                                 >
                                     <MessageCircle size={16} /> {text.messageClient}

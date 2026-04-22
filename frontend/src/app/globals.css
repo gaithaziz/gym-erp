@@ -133,6 +133,10 @@ body {
   -webkit-font-smoothing: antialiased;
 }
 
+html {
+  scrollbar-gutter: stable;
+}
+
 html[lang="ar"] body {
   --font-sans: var(--font-arabic);
   --font-serif: var(--font-arabic);
