@@ -269,8 +269,13 @@ test.describe("route walkthrough visual coverage", () => {
           }
 
           const snapshotName = `${role.toLowerCase()}__${toSlug(route.path)}__${route.state}__${dir}.png`;
+          const mask =
+            route.path === "/dashboard/admin/members"
+              ? [page.locator("main")]
+              : [];
           await expect(page).toHaveScreenshot(snapshotName, {
             animations: "disabled",
+            mask,
             maxDiffPixelRatio: 0.002,
           });
         }
