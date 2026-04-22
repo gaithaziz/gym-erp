@@ -416,141 +416,153 @@ export default function MemberProgressPage() {
                         <p className="text-lg font-mono text-foreground mt-1">{workoutStats.reduce((sum, row) => sum + row.workouts, 0)}</p>
                     </div>
                     <div className="rounded-sm border border-border bg-muted/10 p-3">
-                        <p className="text-[10px] uppercase font-bold text-muted-foreground">{txt.sessionsLogged}</p>
-                        <p className="text-lg font-mono text-foreground mt-1">{sessionLogs.length}</p>
+                        <p className="text-[10px] uppercase font-bold text-muted-foreground">{txt.bodyTracking}</p>
+                        <p className="text-lg font-mono text-foreground mt-1">{biometrics.length}</p>
                     </div>
                     <div className="rounded-sm border border-border bg-muted/10 p-3">
-                        <p className="text-[10px] uppercase font-bold text-muted-foreground">{txt.bodyTracking}</p>
-                        <p className="text-lg font-mono text-foreground mt-1">{filteredBiometrics.length}</p>
+                        <p className="text-[10px] uppercase font-bold text-muted-foreground">{txt.sessionsLogged}</p>
+                        <p className="text-lg font-mono text-foreground mt-1">{sessionLogs.length}</p>
                     </div>
                 </div>
             </div>
 
-            <div className="grid grid-cols-1 xl:grid-cols-3 gap-6 items-start">
-                <div className="space-y-6 xl:col-span-2">
-                    <div className="kpi-card p-5">
-                        <div className="flex items-center justify-between gap-3 flex-wrap mb-3">
-                            <p className="section-chip">{txt.consistencyTitle}</p>
-                            <p className="text-xs text-muted-foreground font-mono">{selectedRangeLabel}</p>
-                        </div>
-                        <div className="h-44">
-                            {workoutStats.length > 0 ? (
-                                <SafeResponsiveChart>
-                                    <BarChart data={workoutStats}>
-                                        <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" vertical={false} />
-                                        <XAxis
-                                            dataKey="date"
-                                            tick={{ fontSize: 11, fill: 'var(--muted-foreground)', fontFamily: 'var(--font-mono)' }}
-                                            axisLine={false}
-                                            tickLine={false}
-                                            tickFormatter={(value) => {
-                                                const date = new Date(value);
-                                                return `${date.getMonth() + 1}/${date.getDate()}`;
-                                            }}
-                                        />
-                                        <YAxis
-                                            tick={{ fontSize: 11, fill: 'var(--muted-foreground)', fontFamily: 'var(--font-mono)' }}
-                                            axisLine={false}
-                                            tickLine={false}
-                                            allowDecimals={false}
-                                        />
-                                        <Tooltip
-                                            cursor={{ fill: 'var(--muted)' }}
-                                            contentStyle={{ background: 'var(--card)', border: '1px solid var(--border)', borderRadius: '0px', fontSize: '0.8rem', color: 'var(--foreground)' }}
-                                            labelFormatter={(label) => formatDate(String(label), { year: 'numeric', month: 'short', day: 'numeric' })}
-                                        />
-                                        <Bar dataKey="workouts" fill="var(--primary)" barSize={16} name={txt.workoutsLogged} radius={[2, 2, 0, 0]} />
-                                    </BarChart>
-                                </SafeResponsiveChart>
-                            ) : (
-                                <div className="flex items-center justify-center h-full text-muted-foreground text-sm font-mono border border-dashed border-border flex-col">
-                                    <Activity size={24} className="mb-2 opacity-50" />
-                                    <span>{txt.noWorkoutData}</span>
-                                </div>
-                            )}
-                        </div>
+            <div className="grid grid-cols-1 gap-6">
+                <div className="kpi-card p-5">
+                    <div className="flex items-center justify-between gap-3 flex-wrap mb-3">
+                        <p className="section-chip">{txt.consistencyTitle}</p>
+                        <p className="text-xs text-muted-foreground font-mono">{selectedRangeLabel}</p>
                     </div>
-
-                    <div className="kpi-card p-5">
-                            <div className="flex items-center justify-between mb-4">
-                                <p className="section-chip">{txt.bodyTracking}</p>
-                                <p className="text-xs text-muted-foreground font-mono">{selectedRangeLabel}</p>
+                    <div className="h-44">
+                        {workoutStats.length > 0 ? (
+                            <SafeResponsiveChart>
+                                <LineChart data={workoutStats}>
+                                    <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" vertical={false} />
+                                    <XAxis
+                                        dataKey="date"
+                                        tick={{ fontSize: 11, fill: 'var(--muted-foreground)', fontFamily: 'var(--font-mono)' }}
+                                        axisLine={false}
+                                        tickLine={false}
+                                        tickFormatter={(value) => {
+                                            const date = new Date(value);
+                                            return `${date.getMonth() + 1}/${date.getDate()}`;
+                                        }}
+                                    />
+                                    <YAxis
+                                        tick={{ fontSize: 11, fill: 'var(--muted-foreground)', fontFamily: 'var(--font-mono)' }}
+                                        axisLine={false}
+                                        tickLine={false}
+                                        allowDecimals={false}
+                                    />
+                                    <Tooltip
+                                        cursor={{ fill: 'var(--muted)' }}
+                                        contentStyle={{ background: 'var(--card)', border: '1px solid var(--border)', borderRadius: '0px', fontSize: '0.8rem', color: 'var(--foreground)' }}
+                                        labelFormatter={(label) => formatDate(String(label), { year: 'numeric', month: 'short', day: 'numeric' })}
+                                    />
+                                    <Line type="monotone" dataKey="workouts" stroke="var(--primary)" strokeWidth={2} dot={{ r: 2, fill: 'var(--primary)' }} />
+                                </LineChart>
+                            </SafeResponsiveChart>
+                        ) : (
+                            <div className="flex items-center justify-center h-full text-muted-foreground text-sm font-mono border border-dashed border-border flex-col">
+                                <Activity size={24} className="mb-2 opacity-50" />
+                                <span>{txt.noWorkoutData}</span>
                             </div>
-
-                        <div className="space-y-3">
-                            {[
-                                { title: txt.weight, unit: 'kg', series: weightSeries, color: 'var(--primary)' },
-                                { title: txt.bodyFat, unit: '%', series: bodyFatSeries, color: '#f97316' },
-                                { title: txt.muscleMass, unit: 'kg', series: muscleSeries, color: '#22c55e' },
-                            ].map((metric) => (
-                                <div key={metric.title} className="rounded-sm border border-border bg-muted/10 p-2">
-                                    <div className="flex items-center justify-between mb-1">
-                                        <p className="text-[10px] uppercase font-bold text-muted-foreground">{metric.title}</p>
-                                        <p className="text-xs font-mono text-foreground">
-                                            {metric.series.length > 0 ? `${metric.series[metric.series.length - 1].value.toFixed(1)} ${metric.unit}` : txt.noData}
-                                        </p>
-                                    </div>
-                                    <div className="h-24">
-                                        {metric.series.length > 0 ? (
-                                            <SafeResponsiveChart>
-                                                <LineChart data={metric.series}>
-                                                    <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" vertical={false} />
-                                                    <XAxis
-                                                        dataKey="date"
-                                                        tickFormatter={(value) => {
-                                                            const date = new Date(value);
-                                                            return `${date.getMonth() + 1}/${date.getDate()}`;
-                                                        }}
-                                                        tick={{ fontSize: 10, fill: 'var(--muted-foreground)', fontFamily: 'var(--font-mono)' }}
-                                                        axisLine={false}
-                                                        tickLine={false}
-                                                    />
-                                                    <YAxis tick={{ fontSize: 10, fill: 'var(--muted-foreground)', fontFamily: 'var(--font-mono)' }} axisLine={false} tickLine={false} />
-                                                    <Tooltip content={<MetricTooltipContent unit={metric.unit} metricLabel={metric.title} />} />
-                                                    <Line type="monotone" dataKey="value" stroke={metric.color} strokeWidth={2} dot={{ r: 2, fill: metric.color }} />
-                                                </LineChart>
-                                            </SafeResponsiveChart>
-                                        ) : (
-                                            <div className="h-full flex items-center justify-center text-[10px] text-muted-foreground font-mono">
-                                                {txt.noDataInRange}
-                                            </div>
-                                        )}
-                                    </div>
-                                </div>
-                            ))}
-                        </div>
+                        )}
                     </div>
                 </div>
 
-                <div className="space-y-4">
-                    <div className="kpi-card p-4">
-                        <p className="section-chip mb-3">{txt.quickLog}</p>
-                        <form onSubmit={handleLogBiometrics} className="grid grid-cols-2 gap-2 items-end">
-                            <div>
-                                <label className="block text-[10px] uppercase font-bold text-muted-foreground mb-1">{txt.heightCm}</label>
-                                <input type="number" step="0.1" className="input-dark py-1.5 text-sm" value={height} onChange={(e) => setHeight(e.target.value)} placeholder={txt.eg175} />
-                            </div>
-                            <div>
-                                <label className="block text-[10px] uppercase font-bold text-muted-foreground mb-1">{txt.weightKg}</label>
-                                <input type="number" step="0.1" className="input-dark py-1.5 text-sm" value={weight} onChange={(e) => setWeight(e.target.value)} placeholder={txt.eg75} />
-                            </div>
-                            <div>
-                                <label className="block text-[10px] uppercase font-bold text-muted-foreground mb-1">{txt.bodyFatPct}</label>
-                                <input type="number" step="0.1" className="input-dark py-1.5 text-sm" value={bodyFat} onChange={(e) => setBodyFat(e.target.value)} placeholder={txt.eg15} />
-                            </div>
-                            <div>
-                                <label className="block text-[10px] uppercase font-bold text-muted-foreground mb-1">{txt.muscleKg}</label>
-                                <input type="number" step="0.1" className="input-dark py-1.5 text-sm" value={muscleMass} onChange={(e) => setMuscleMass(e.target.value)} placeholder={txt.eg32} />
-                            </div>
-                            <button type="submit" disabled={loggingBiometrics || (!height && !weight && !bodyFat && !muscleMass)} className="btn-primary py-1.5 px-4 text-sm whitespace-nowrap col-span-2">
-                                {loggingBiometrics ? txt.saving : txt.log}
-                            </button>
-                        </form>
+                <div className="kpi-card p-5">
+                    <div className="flex items-center justify-between gap-3 flex-wrap mb-3">
+                        <p className="section-chip">{txt.bodyTracking}</p>
+                        <p className="text-xs text-muted-foreground font-mono">{selectedRangeLabel}</p>
                     </div>
+                    <div className="space-y-3">
+                        {[
+                            { title: txt.weight, unit: 'kg', series: weightSeries, color: 'var(--primary)' },
+                            { title: txt.bodyFat, unit: '%', series: bodyFatSeries, color: '#f97316' },
+                            { title: txt.muscleMass, unit: 'kg', series: muscleSeries, color: '#22c55e' },
+                        ].map((metric) => (
+                            <div key={metric.title} className="rounded-sm border border-border bg-muted/10 p-3">
+                                <div className="flex items-center justify-between mb-1">
+                                    <p className="text-[10px] uppercase font-bold text-muted-foreground">{metric.title}</p>
+                                    <p className="text-xs font-mono text-foreground">
+                                        {metric.series.length > 0 ? `${metric.series[metric.series.length - 1].value.toFixed(1)} ${metric.unit}` : txt.noData}
+                                    </p>
+                                </div>
+                                <div className="h-28">
+                                    {metric.series.length > 0 ? (
+                                        <SafeResponsiveChart>
+                                            <LineChart data={metric.series}>
+                                                <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" vertical={false} />
+                                                <XAxis
+                                                    dataKey="date"
+                                                    tickFormatter={(value) => {
+                                                        const date = new Date(value);
+                                                        return `${date.getMonth() + 1}/${date.getDate()}`;
+                                                    }}
+                                                    tick={{ fontSize: 10, fill: 'var(--muted-foreground)', fontFamily: 'var(--font-mono)' }}
+                                                    axisLine={false}
+                                                    tickLine={false}
+                                                />
+                                                <YAxis tick={{ fontSize: 10, fill: 'var(--muted-foreground)', fontFamily: 'var(--font-mono)' }} axisLine={false} tickLine={false} />
+                                                <Tooltip content={<MetricTooltipContent unit={metric.unit} metricLabel={metric.title} />} />
+                                                <Line type="monotone" dataKey="value" stroke={metric.color} strokeWidth={2} dot={{ r: 2, fill: metric.color }} />
+                                            </LineChart>
+                                        </SafeResponsiveChart>
+                                    ) : (
+                                        <div className="h-full flex items-center justify-center text-[10px] text-muted-foreground font-mono">
+                                            {txt.noDataInRange}
+                                        </div>
+                                    )}
+                                </div>
+                            </div>
+                        ))}
+                    </div>
+                </div>
 
+                <div className="kpi-card p-5 space-y-4">
+                    <div className="flex items-center justify-between gap-3 flex-wrap">
+                        <p className="section-chip">{txt.sessionLoad}</p>
+                        <p className="text-xs text-muted-foreground font-mono">{selectedRangeLabel}</p>
+                    </div>
+                    <div className="h-40">
+                        {sessionVolumeSeries.length > 0 ? (
+                            <SafeResponsiveChart>
+                                <LineChart data={sessionVolumeSeries}>
+                                    <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" vertical={false} />
+                                    <XAxis
+                                        dataKey="date"
+                                        tickFormatter={(value) => {
+                                            const date = new Date(value);
+                                            return `${date.getMonth() + 1}/${date.getDate()}`;
+                                        }}
+                                        tick={{ fontSize: 11, fill: 'var(--muted-foreground)', fontFamily: 'var(--font-mono)' }}
+                                        axisLine={false}
+                                        tickLine={false}
+                                    />
+                                    <YAxis
+                                        tick={{ fontSize: 11, fill: 'var(--muted-foreground)', fontFamily: 'var(--font-mono)' }}
+                                        axisLine={false}
+                                        tickLine={false}
+                                    />
+                                    <Tooltip
+                                        contentStyle={{ background: 'var(--card)', border: '1px solid var(--border)', borderRadius: '0px', fontSize: '0.8rem', color: 'var(--foreground)' }}
+                                        labelFormatter={(label) => formatDate(String(label), { year: 'numeric', month: 'short', day: 'numeric' })}
+                                    />
+                                    <Line type="monotone" dataKey="volume" stroke="var(--primary)" strokeWidth={2} name="Volume (kg)" dot={{ r: 2, fill: 'var(--primary)' }} />
+                                </LineChart>
+                            </SafeResponsiveChart>
+                        ) : (
+                            <div className="h-full flex items-center justify-center text-muted-foreground text-sm font-mono border border-dashed border-border">
+                                {txt.noSessionVolume}
+                            </div>
+                        )}
+                    </div>
+                </div>
+
+                <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">
                     <div className="kpi-card p-4">
                         <div className="flex items-center justify-between mb-3">
-                            <p className="section-chip">{`${txt.prTable} (${trendRangeDays}d)`}</p>
+                            <p className="section-chip">{`${txt.prTable} (${selectedRangeLabel})`}</p>
                             <p className="text-xs text-muted-foreground font-mono">{exercisePrTable.length}</p>
                         </div>
                         {exercisePrTable.length > 0 ? (
@@ -596,49 +608,33 @@ export default function MemberProgressPage() {
                             </div>
                         )}
                     </div>
+
+                    <div className="kpi-card p-4">
+                        <p className="section-chip mb-3">{txt.quickLog}</p>
+                        <form onSubmit={handleLogBiometrics} className="grid grid-cols-2 gap-2 items-end">
+                            <div>
+                                <label className="block text-[10px] uppercase font-bold text-muted-foreground mb-1">{txt.heightCm}</label>
+                                <input type="number" step="0.1" className="input-dark py-1.5 text-sm" value={height} onChange={(e) => setHeight(e.target.value)} placeholder={txt.eg175} />
+                            </div>
+                            <div>
+                                <label className="block text-[10px] uppercase font-bold text-muted-foreground mb-1">{txt.weightKg}</label>
+                                <input type="number" step="0.1" className="input-dark py-1.5 text-sm" value={weight} onChange={(e) => setWeight(e.target.value)} placeholder={txt.eg75} />
+                            </div>
+                            <div>
+                                <label className="block text-[10px] uppercase font-bold text-muted-foreground mb-1">{txt.bodyFatPct}</label>
+                                <input type="number" step="0.1" className="input-dark py-1.5 text-sm" value={bodyFat} onChange={(e) => setBodyFat(e.target.value)} placeholder={txt.eg15} />
+                            </div>
+                            <div>
+                                <label className="block text-[10px] uppercase font-bold text-muted-foreground mb-1">{txt.muscleKg}</label>
+                                <input type="number" step="0.1" className="input-dark py-1.5 text-sm" value={muscleMass} onChange={(e) => setMuscleMass(e.target.value)} placeholder={txt.eg32} />
+                            </div>
+                            <button type="submit" disabled={loggingBiometrics || (!height && !weight && !bodyFat && !muscleMass)} className="btn-primary py-1.5 px-4 text-sm whitespace-nowrap col-span-2">
+                                {loggingBiometrics ? txt.saving : txt.log}
+                            </button>
+                        </form>
+                    </div>
                 </div>
             </div>
-
-                    <div className="kpi-card p-6 space-y-4">
-                <div className="flex items-center justify-between">
-                    <p className="section-chip">{`${txt.sessionLoad} (${selectedRangeLabel})`}</p>
-                    <p className="text-xs text-muted-foreground font-mono">{filteredSessionLogs.length} {txt.sessionsLogged}</p>
-                </div>
-                <div className="h-40">
-                    {sessionVolumeSeries.length > 0 ? (
-                        <SafeResponsiveChart>
-                            <LineChart data={sessionVolumeSeries}>
-                                <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" vertical={false} />
-                                <XAxis
-                                    dataKey="date"
-                                    tickFormatter={(value) => {
-                                        const date = new Date(value);
-                                        return `${date.getMonth() + 1}/${date.getDate()}`;
-                                    }}
-                                    tick={{ fontSize: 11, fill: 'var(--muted-foreground)', fontFamily: 'var(--font-mono)' }}
-                                    axisLine={false}
-                                    tickLine={false}
-                                />
-                                <YAxis
-                                    tick={{ fontSize: 11, fill: 'var(--muted-foreground)', fontFamily: 'var(--font-mono)' }}
-                                    axisLine={false}
-                                    tickLine={false}
-                                />
-                                <Tooltip
-                                    contentStyle={{ background: 'var(--card)', border: '1px solid var(--border)', borderRadius: '0px', fontSize: '0.8rem', color: 'var(--foreground)' }}
-                                    labelFormatter={(label) => formatDate(String(label), { year: 'numeric', month: 'short', day: 'numeric' })}
-                                />
-                                <Line type="monotone" dataKey="volume" stroke="var(--primary)" strokeWidth={2} name="Volume (kg)" dot={{ r: 2, fill: 'var(--primary)' }} />
-                            </LineChart>
-                        </SafeResponsiveChart>
-                    ) : (
-                        <div className="h-full flex items-center justify-center text-muted-foreground text-sm font-mono border border-dashed border-border">
-                            {txt.noSessionVolume}
-                        </div>
-                    )}
-                </div>
-            </div>
-
         </div>
     );
 }
