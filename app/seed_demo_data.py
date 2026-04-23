@@ -31,7 +31,7 @@ from app.models.hr import (
     PayrollStatus,
 )
 from app.models.inventory import Product, ProductCategory
-from app.models.lost_found import LostFoundComment, LostFoundItem, LostFoundMedia, LostFoundStatus
+from app.models.lost_found import LostFoundCategory, LostFoundComment, LostFoundItem, LostFoundMedia, LostFoundStatus
 from app.models.notification import WhatsAppAutomationRule, WhatsAppDeliveryLog
 from app.models.support import SupportMessage, SupportTicket, TicketCategory, TicketStatus
 from app.models.subscription_enums import SubscriptionStatus
@@ -1268,7 +1268,7 @@ Pre-workout: Espresso + dates""",
                 LostFoundStatus.UNDER_REVIEW,
                 "Black lifting gloves",
                 "Pair of black lifting gloves left near free weights.",
-                "ACCESSORY",
+                LostFoundCategory.LOST.value,
                 date.today() - timedelta(days=2),
                 "Free weights area",
             ),
@@ -1278,7 +1278,7 @@ Pre-workout: Espresso + dates""",
                 LostFoundStatus.READY_FOR_PICKUP,
                 "Silver water bottle",
                 "Metal bottle with blue sticker near treadmill.",
-                "BOTTLE",
+                LostFoundCategory.FOUND.value,
                 date.today() - timedelta(days=4),
                 "Cardio zone",
             ),
@@ -1288,7 +1288,7 @@ Pre-workout: Espresso + dates""",
                 LostFoundStatus.CLOSED,
                 "Wireless earbuds case",
                 "Small black earbuds charging case.",
-                "ELECTRONICS",
+                LostFoundCategory.LOST.value,
                 date.today() - timedelta(days=10),
                 "Locker room",
             ),

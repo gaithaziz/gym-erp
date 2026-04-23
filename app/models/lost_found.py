@@ -18,6 +18,11 @@ class LostFoundStatus(str, Enum):
     DISPOSED = "DISPOSED"
 
 
+class LostFoundCategory(str, Enum):
+    LOST = "LOST"
+    FOUND = "FOUND"
+
+
 class LostFoundItem(BranchScopedMixin, Base):
     __tablename__ = "lost_found_items"
 

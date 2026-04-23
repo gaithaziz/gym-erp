@@ -13,7 +13,7 @@ from app.auth import dependencies
 from app.core.responses import StandardResponse
 from app.database import get_db
 from app.models.enums import Role
-from app.models.lost_found import LostFoundComment, LostFoundItem, LostFoundMedia, LostFoundStatus
+from app.models.lost_found import LostFoundCategory, LostFoundComment, LostFoundItem, LostFoundMedia, LostFoundStatus
 from app.models.user import User
 from app.services.audit_service import AuditService
 from app.services.push_service import PushNotificationService
@@ -66,7 +66,7 @@ class LostFoundCommentResponse(BaseModel):
 class LostFoundItemCreateRequest(BaseModel):
     title: str
     description: str
-    category: str
+    category: LostFoundCategory
     branch_id: uuid.UUID | None = None
     found_date: date | None = None
     found_location: str | None = None
@@ -205,7 +205,7 @@ def _serialize_item(item: LostFoundItem) -> LostFoundItemResponse:
         assignee=_assignee_actor(item),
         title=item.title or "Lost & Found Item",
         description=item.description or "",
-        category=item.category or "OTHER",
+        category=item.category or LostFoundCategory.LOST.value,
         found_date=item.found_date,
         found_location=item.found_location,
         contact_note=item.contact_note,
@@ -317,7 +317,7 @@ async def create_lost_found_item(
         status=LostFoundStatus.REPORTED,
         title=payload.title.strip(),
         description=payload.description.strip(),
-        category=payload.category.strip(),
+        category=payload.category.value,
         found_date=payload.found_date,
         found_location=(payload.found_location or "").strip() or None,
         contact_note=(payload.contact_note or "").strip() or None,

@@ -287,7 +287,7 @@ async def test_mobile_staff_home_employee_includes_real_operational_reminders(cl
                 status=LostFoundStatus.UNDER_REVIEW,
                 title="Locker keys",
                 description="Found near reception",
-                category="Keys",
+                category="FOUND",
                 found_date=now.date(),
                 found_location="Reception",
             ),
@@ -870,7 +870,7 @@ async def test_mobile_customer_write_flows(client: AsyncClient, db_session: Asyn
         json={
             "title": "Water Bottle",
             "description": "Black bottle left near treadmill",
-            "category": "Bottle",
+            "category": "LOST",
             "found_location": "Cardio area",
             "contact_note": "Please hold at reception",
         },

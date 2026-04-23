@@ -7,7 +7,7 @@ It supports two modes:
 - build locally on the target machine
 - pull prebuilt images by setting `BACKEND_IMAGE` and `FRONTEND_IMAGE`
 
-The backend container runs `alembic upgrade head` automatically before starting Uvicorn, so the stack can boot with a single compose command.
+The backend container runs `alembic upgrade heads` automatically before starting Uvicorn, so the stack can boot with a single compose command even if the repo temporarily contains multiple migration branches.
 
 ## Required Files
 On the target host, keep these files together in one app directory:

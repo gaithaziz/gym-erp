@@ -7,6 +7,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.auth.security import get_password_hash
 from app.config import settings
 from app.models.enums import Role
+from app.models.lost_found import LostFoundCategory
 from app.models.user import User
 from app.services.tenancy_service import TenancyService
 
@@ -58,7 +59,7 @@ async def test_all_roles_can_create_report(client: AsyncClient, db_session: Asyn
             json={
                 "title": "Blue bottle",
                 "description": "Found near cardio section",
-                "category": "Accessories",
+                "category": LostFoundCategory.FOUND.value,
             },
         )
         assert response.status_code == 200
@@ -84,12 +85,12 @@ async def test_visibility_and_handler_filters(client: AsyncClient, db_session: A
     create_a = await client.post(
         f"{settings.API_V1_STR}/lost-found/items",
         headers=headers_customer_a,
-        json={"title": "Headphones", "description": "Black case", "category": "Electronics"},
+        json={"title": "Headphones", "description": "Black case", "category": LostFoundCategory.LOST.value},
     )
     create_b = await client.post(
         f"{settings.API_V1_STR}/lost-found/items",
         headers=headers_customer_b,
-        json={"title": "Water bottle", "description": "Green", "category": "Accessories"},
+        json={"title": "Water bottle", "description": "Green", "category": LostFoundCategory.FOUND.value},
     )
     assert create_a.status_code == 200
     assert create_b.status_code == 200
@@ -145,7 +146,7 @@ async def test_staff_can_view_branch_lost_found_items(client: AsyncClient, db_se
     create = await client.post(
         f"{settings.API_V1_STR}/lost-found/items",
         headers=customer_headers,
-        json={"title": "Shared Bottle", "description": "Left near the treadmill", "category": "Accessories"},
+        json={"title": "Shared Bottle", "description": "Left near the treadmill", "category": LostFoundCategory.FOUND.value},
     )
     assert create.status_code == 200
     item_id = create.json()["data"]["id"]
@@ -184,7 +185,7 @@ async def test_status_assign_and_acl(client: AsyncClient, db_session: AsyncSessi
     create = await client.post(
         f"{settings.API_V1_STR}/lost-found/items",
         headers=reporter_headers,
-        json={"title": "Locker key", "description": "Key with red ring", "category": "Keys"},
+        json={"title": "Locker key", "description": "Key with red ring", "category": LostFoundCategory.LOST.value},
     )
     assert create.status_code == 200
     item_id = create.json()["data"]["id"]
@@ -271,7 +272,7 @@ async def test_comments_and_media_validation(client: AsyncClient, db_session: As
     create = await client.post(
         f"{settings.API_V1_STR}/lost-found/items",
         headers=reporter_headers,
-        json={"title": "Gym bag", "description": "Blue, small", "category": "Bags"},
+        json={"title": "Gym bag", "description": "Blue, small", "category": LostFoundCategory.LOST.value},
     )
     assert create.status_code == 200
     item_id = create.json()["data"]["id"]

@@ -310,7 +310,7 @@ function CustomerClassesScreen() {
 }
 
 function StaffClassesScreen() {
-  const { authorizedRequest, bootstrap } = useSession();
+  const { authorizedRequest, bootstrap, selectedBranchId } = useSession();
   const { copy, fontSet, isRTL, theme } = usePreferences();
   const queryClient = useQueryClient();
   const role = getCurrentRole(bootstrap);
@@ -324,8 +324,11 @@ function StaffClassesScreen() {
   const [selectedSession, setSelectedSession] = useState<ClassSession | null>(null);
 
   const sessionsQuery = useQuery({
-    queryKey: ["staff-class-sessions", role],
-    queryFn: async () => parseClassSessionsEnvelope(await authorizedRequest("/classes/sessions")).data,
+    queryKey: ["staff-class-sessions", role, selectedBranchId ?? "all"],
+    queryFn: async () => {
+      const suffix = selectedBranchId ? `?branch_id=${encodeURIComponent(selectedBranchId)}` : "";
+      return parseClassSessionsEnvelope(await authorizedRequest(`/classes/sessions${suffix}`)).data;
+    },
   });
 
   const pendingReservationsQuery = useQuery({
@@ -383,6 +386,16 @@ function StaffClassesScreen() {
   };
 
   useEffect(() => {
+    if (!selectedSession) {
+      return;
+    }
+    const currentSessions = sessionsQuery.data ?? [];
+    if (!currentSessions.some((session) => session.id === selectedSession.id)) {
+      setSelectedSession(null);
+    }
+  }, [selectedSession, sessionsQuery.data]);
+
+  useEffect(() => {
     let cancelled = false;
 
     const loadCoaches = async () => {
@@ -394,7 +407,8 @@ function StaffClassesScreen() {
       }
 
       try {
-        const response = await authorizedRequest("/hr/staff");
+        const suffix = selectedBranchId ? `?branch_id=${encodeURIComponent(selectedBranchId)}` : "";
+        const response = await authorizedRequest(`/hr/staff${suffix}`);
         const payload = response.data as { data?: StaffUser[] } | StaffUser[] | undefined;
         const staff = Array.isArray(payload) ? payload : payload?.data ?? [];
         if (!cancelled) {
@@ -413,7 +427,7 @@ function StaffClassesScreen() {
     return () => {
       cancelled = true;
     };
-  }, [authorizedRequest, bootstrap?.user.id, canAssignCoach]);
+  }, [authorizedRequest, bootstrap?.user.id, canAssignCoach, selectedBranchId]);
 
   const createSessionMutation = useMutation({
     mutationFn: async () => {
@@ -445,6 +459,7 @@ function StaffClassesScreen() {
           coach_id: sessionForm.coach_id || bootstrap?.user.id || "",
           starts_at: sessionStart.toISOString(),
           recur_weekly_count: Number(sessionForm.recur_weekly_count || 0) > 0 ? Number(sessionForm.recur_weekly_count) : null,
+          ...(selectedBranchId ? { branch_id: selectedBranchId } : {}),
         }),
       });
     },

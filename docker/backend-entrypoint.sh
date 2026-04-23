@@ -3,7 +3,9 @@ set -eu
 
 echo "Waiting for database migrations to succeed..."
 attempt=0
-until python -m alembic upgrade head; do
+# Use `heads` so the container can start even when the repo temporarily has
+# multiple migration branches that have not been merged into a single head yet.
+until python -m alembic upgrade heads; do
   attempt=$((attempt + 1))
   if [ "$attempt" -ge 30 ]; then
     echo "Database migration failed after $attempt attempts."
