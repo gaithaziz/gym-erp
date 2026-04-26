@@ -4,7 +4,7 @@ import * as SecureStore from "expo-secure-store";
 import { useVideoPlayer, VideoView } from "expo-video";
 import * as WebBrowser from "expo-web-browser";
 import { useEffect, useMemo, useState } from "react";
-import { Pressable, Text, View } from "react-native";
+import { Modal, Pressable, Text, View } from "react-native";
 
 import { Card, Input, MediaPreview, MutedText, PrimaryButton, QueryState, Screen, SectionTitle, SecondaryButton, TextArea } from "@/components/ui";
 import { API_BASE_URL, parseClassSessionsEnvelope, parseCoachPlansEnvelope } from "@/lib/api";
@@ -13,6 +13,8 @@ import { localizePlanStatus } from "@/lib/mobile-format";
 import { getCurrentRole } from "@/lib/mobile-role";
 import { usePreferences } from "@/lib/preferences";
 import { useSession } from "@/lib/session";
+import { getPlanSectionNames, resolveSelectedSection } from "@/lib/workout-plan-selection";
+import { buildBestPerformanceIndex, getExerciseKey } from "@gym-erp/workout";
 import {
   createWorkoutQueueId,
   enqueueWorkoutAction,
@@ -35,7 +37,10 @@ type WorkoutPlan = {
     reps: number;
     duration_minutes?: number | null;
     order?: number;
+    video_provider?: string | null;
+    video_id?: string | null;
     embed_url?: string | null;
+    playback_type?: string | null;
     uploaded_video_url?: string | null;
     video_url?: string | null;
     video_type?: string | null;
@@ -146,11 +151,19 @@ type ExerciseForm = {
 
 type CoachWorkoutExercise = {
   id: string;
+  exercise_id?: string | null;
   section_name?: string | null;
   exercise_name?: string | null;
   sets: number;
   reps: number;
   order?: number | null;
+  video_type?: "EMBED" | "UPLOAD" | null;
+  video_url?: string | null;
+  uploaded_video_url?: string | null;
+  video_provider?: string | null;
+  video_id?: string | null;
+  embed_url?: string | null;
+  playback_type?: string | null;
 };
 
 type CoachDietMeal = {
@@ -208,6 +221,17 @@ function resolveExerciseVideo(entry: WorkoutDraft["entries"][number]) {
   };
 }
 
+function resolveCoachExerciseVideo(exercise: CoachWorkoutExercise) {
+  const uploadedUrl = exercise.video_type === "UPLOAD" && exercise.uploaded_video_url ? exercise.uploaded_video_url : null;
+  const url = uploadedUrl || exercise.embed_url || exercise.video_url || null;
+  if (!url) return null;
+  const normalizedUrl = normalizeMediaUrl(url);
+  return {
+    url: normalizedUrl,
+    direct: !!uploadedUrl || isDirectVideoUrl(normalizedUrl),
+  };
+}
+
 function estimateSessionDurationMinutes(draft?: WorkoutDraft | null) {
   if (!draft?.started_at) return null;
   const startedAt = new Date(draft.started_at).getTime();
@@ -237,10 +261,16 @@ function summarizeSetRows(rows: SetDetail[], fallback: ExerciseForm) {
   const completedRows = rows.filter((row) => row.reps.trim() || row.weightKg.trim());
   const reps = completedRows.map((row) => Number(row.reps || 0)).filter(Number.isFinite);
   const weights = completedRows.map((row) => Number(row.weightKg || 0)).filter(Number.isFinite);
+  const normalizedWeight = weights.length ? Math.max(...weights) : (fallback.weightKg ? Number(fallback.weightKg) : null);
+  const normalizedReps = reps.length ? Math.max(...reps) : Number(fallback.repsCompleted || 0);
   return {
     setsCompleted: completedRows.length || Number(fallback.setsCompleted || 0),
-    repsCompleted: reps.length ? Math.max(...reps) : Number(fallback.repsCompleted || 0),
-    weightKg: weights.length ? Math.max(...weights) : fallback.weightKg ? Number(fallback.weightKg) : null,
+    repsCompleted: normalizedReps,
+    weightKg: normalizedWeight,
+    totalVolume:
+      normalizedWeight != null && Number.isFinite(normalizedWeight) && normalizedReps > 0
+        ? Math.max(1, completedRows.length || 1) * normalizedReps * normalizedWeight
+        : 0,
   };
 }
 
@@ -317,6 +347,7 @@ function CustomerPlansTab() {
   const queryClient = useQueryClient();
   const { authorizedRequest } = useSession();
   const { copy, direction, fontSet, isRTL, theme } = usePreferences();
+  const [planFilter, setPlanFilter] = useState<"workout" | "diet">("workout");
   const [selectedWorkoutPlanId, setSelectedWorkoutPlanId] = useState<string | null>(null);
   const [selectedDietId, setSelectedDietId] = useState<string | null>(null);
   const [selectedSection, setSelectedSection] = useState<string | null>(null);
@@ -366,11 +397,7 @@ function CustomerPlansTab() {
   );
 
   const workoutSections = useMemo(() => {
-    const values = new Set<string>();
-    for (const exercise of selectedWorkoutPlan?.exercises || []) {
-      if (exercise.section_name?.trim()) values.add(exercise.section_name.trim());
-    }
-    return Array.from(values);
+    return getPlanSectionNames(selectedWorkoutPlan);
   }, [selectedWorkoutPlan]);
 
   useEffect(() => {
@@ -378,8 +405,13 @@ function CustomerPlansTab() {
       setSelectedSection(null);
       return;
     }
-    setSelectedSection((current) => (current && workoutSections.includes(current) ? current : workoutSections[0]));
-  }, [workoutSections]);
+    setSelectedSection((current) => resolveSelectedSection(selectedWorkoutPlan, current));
+  }, [selectedWorkoutPlan, workoutSections]);
+
+  const selectWorkoutPlan = (plan: WorkoutPlan) => {
+    setSelectedWorkoutPlanId(plan.id);
+    setSelectedSection(resolveSelectedSection(plan));
+  };
 
   const activeDraftQuery = useQuery({
     queryKey: ["member-active-workout-draft", selectedWorkoutPlanId],
@@ -518,24 +550,18 @@ function CustomerPlansTab() {
   const currentEntry = activeDraftQuery.data?.entries[activeDraftQuery.data.current_exercise_index] ?? null;
   const completedCount = activeDraftQuery.data?.entries.filter((entry) => entry.completed_at || entry.skipped).length ?? 0;
   const canFinishSession = !!activeDraftQuery.data && completedCount > 0;
-  const lastPerformance = useMemo(() => {
-    if (!currentEntry?.exercise_name || !historyQuery.data) return null;
-    const targetName = currentEntry.exercise_name.trim().toLowerCase();
-    for (const session of historyQuery.data) {
-      const match = session.entries.find((entry) => !entry.skipped && (entry.exercise_name || "").trim().toLowerCase() === targetName);
-      if (match) return match;
-    }
-    return null;
-  }, [currentEntry?.exercise_name, historyQuery.data]);
+  const bestPerformanceIndex = useMemo(() => buildBestPerformanceIndex(historyQuery.data), [historyQuery.data]);
+  const bestPerformance = useMemo(() => {
+    if (!currentEntry?.exercise_name) return null;
+    return bestPerformanceIndex.get(getExerciseKey(currentEntry.exercise_name)) ?? null;
+  }, [bestPerformanceIndex, currentEntry?.exercise_name]);
   const autoPrPreview = useMemo(() => {
-    if (!lastPerformance || exerciseForm.isPr) return null;
+    if (!bestPerformance) return null;
     const summary = summarizeSetRows(setRows, exerciseForm);
-    const bestWeight = Number(lastPerformance.weight_kg || 0);
-    const bestReps = Number(lastPerformance.reps_completed || 0);
+    const bestWeight = Number(bestPerformance.weight_kg || 0);
     if ((summary.weightKg || 0) > bestWeight) return copy.plans.autoPrWeight;
-    if (summary.repsCompleted > bestReps && (summary.weightKg || 0) >= bestWeight) return copy.plans.autoPrReps;
     return null;
-  }, [copy.plans.autoPrReps, copy.plans.autoPrWeight, exerciseForm, lastPerformance, setRows]);
+  }, [copy.plans.autoPrWeight, exerciseForm, bestPerformance, setRows]);
   const safetyGuidance = useMemo(() => {
     const pain = painLevel ? Number(painLevel) : 0;
     if (Number.isFinite(pain) && pain >= 4) return copy.plans.painSafetyHint;
@@ -643,19 +669,18 @@ function CustomerPlansTab() {
     if (invalidSet || summary.setsCompleted <= 0 || summary.repsCompleted < 0) {
       throw new Error(copy.plans.invalidSetDetails);
     }
-    const bestWeight = Number(lastPerformance?.weight_kg || 0);
-    const bestReps = Number(lastPerformance?.reps_completed || 0);
-    const autoPr = !exerciseForm.isPr && ((summary.weightKg || 0) > bestWeight || (summary.repsCompleted > bestReps && (summary.weightKg || 0) >= bestWeight));
-    const isPr = exerciseForm.isPr || autoPr;
+    const bestWeight = Number(bestPerformance?.weight_kg || 0);
+    const autoPr = (summary.weightKg || 0) > bestWeight;
+    const isPr = autoPr;
     return {
       sets_completed: summary.setsCompleted,
       reps_completed: summary.repsCompleted,
       weight_kg: summary.weightKg,
       notes: exerciseForm.notes || null,
       is_pr: isPr,
-      pr_type: isPr ? exerciseForm.prType : null,
-      pr_value: isPr ? exerciseForm.prValue || `${summary.weightKg ?? "--"}${copy.plans.weightUnit} x ${summary.repsCompleted}` : null,
-      pr_notes: isPr ? exerciseForm.prNotes || (autoPr ? copy.plans.autoPr : null) : null,
+      pr_type: isPr ? "WEIGHT" : null,
+      pr_value: isPr ? `${summary.weightKg ?? "--"}${copy.plans.weightUnit} x ${summary.repsCompleted}` : null,
+      pr_notes: isPr ? copy.plans.autoPr : null,
       set_details: setRows
         .filter((row) => row.reps.trim() || row.weightKg.trim())
         .map((row, index) => ({ set: index + 1, reps: Number(row.reps || 0), weightKg: row.weightKg ? Number(row.weightKg) : null })),
@@ -1093,23 +1118,72 @@ function CustomerPlansTab() {
       <QueryState loading={plansQuery.isLoading} loadingVariant="list" error={plansQuery.error instanceof Error ? plansQuery.error.message : null} />
       {plansQuery.data ? (
         <>
+          <View style={{ flexDirection: isRTL ? "row-reverse" : "row", flexWrap: "wrap", gap: 8 }}>
+            <Pressable
+              onPress={() => setPlanFilter("workout")}
+              style={({ pressed }) => ({
+                flexDirection: isRTL ? "row-reverse" : "row",
+                alignItems: "center",
+                justifyContent: "center",
+                gap: 6,
+                paddingHorizontal: 14,
+                paddingVertical: 10,
+                borderRadius: 10,
+                borderWidth: planFilter === "workout" ? 2 : 1,
+                borderColor: planFilter === "workout" ? theme.primary : theme.border,
+                backgroundColor: planFilter === "workout" ? theme.primary : theme.cardAlt,
+                opacity: pressed ? 0.92 : 1,
+              })}
+            >
+              <Ionicons name="barbell-outline" size={14} color={planFilter === "workout" ? theme.inverseForeground : theme.muted} />
+              <Text style={{ color: planFilter === "workout" ? theme.inverseForeground : theme.foreground, fontFamily: fontSet.body }}>
+                {copy.plans.workoutPlans}
+              </Text>
+            </Pressable>
+            <Pressable
+              onPress={() => setPlanFilter("diet")}
+              style={({ pressed }) => ({
+                flexDirection: isRTL ? "row-reverse" : "row",
+                alignItems: "center",
+                justifyContent: "center",
+                gap: 6,
+                paddingHorizontal: 14,
+                paddingVertical: 10,
+                borderRadius: 10,
+                borderWidth: planFilter === "diet" ? 2 : 1,
+                borderColor: planFilter === "diet" ? theme.primary : theme.border,
+                backgroundColor: planFilter === "diet" ? theme.primary : theme.cardAlt,
+                opacity: pressed ? 0.92 : 1,
+              })}
+            >
+              <Ionicons name="restaurant-outline" size={14} color={planFilter === "diet" ? theme.inverseForeground : theme.muted} />
+              <Text style={{ color: planFilter === "diet" ? theme.inverseForeground : theme.foreground, fontFamily: fontSet.body }}>
+                {copy.plans.dietPlans}
+              </Text>
+            </Pressable>
+          </View>
+
+          {planFilter === "workout" ? (
           <Card>
             <SectionTitle>{copy.plans.workoutPlans}</SectionTitle>
             {plansQuery.data.workouts.length === 0 ? (
               <MutedText>{copy.plans.noWorkoutPlans}</MutedText>
             ) : (
               plansQuery.data.workouts.map((plan) => (
-                <Pressable key={plan.id} onPress={() => setSelectedWorkoutPlanId(plan.id)} style={{ paddingVertical: 10 }}>
+                <Pressable key={plan.id} onPress={() => selectWorkoutPlan(plan)} style={{ paddingVertical: 10 }}>
                   <Text style={{ color: selectedWorkoutPlanId === plan.id ? theme.primary : theme.foreground, fontFamily: fontSet.body, textAlign: isRTL ? "right" : "left", writingDirection: direction }}>
                     {plan.name}
                   </Text>
-                  <MutedText>{plan.exercises?.length || 0} {copy.plans.exercisesCount}</MutedText>
+                  <MutedText>
+                    {plan.exercises?.length || 0} {copy.plans.exercisesCount}
+                  </MutedText>
                 </Pressable>
               ))
             )}
           </Card>
+          ) : null}
 
-          {selectedWorkoutPlan ? (
+          {planFilter === "workout" && selectedWorkoutPlan ? (
             <Card>
               <SectionTitle>{selectedWorkoutPlan.name}</SectionTitle>
               {workoutNotice ? (
@@ -1164,13 +1238,13 @@ function CustomerPlansTab() {
                           </Text>
                         ) : null}
                       </View>
-                      {lastPerformance ? (
+                      {bestPerformance ? (
                         <View style={{ flexDirection: isRTL ? "row-reverse" : "row", flexWrap: "wrap", gap: 4, alignItems: "center" }}>
                           <Text style={{ color: theme.muted, fontFamily: fontSet.body, fontSize: 13, textAlign: isRTL ? "right" : "left", writingDirection: direction }}>
-                            {copy.plans.lastSession}:
+                            {copy.plans.bestSession}:
                           </Text>
                           <Text style={{ color: theme.muted, fontFamily: fontSet.body, fontSize: 13, textAlign: "left", writingDirection: "ltr" }}>
-                            {lastPerformance.reps_completed} {copy.plans.repsCompleted} @ {lastPerformance.weight_kg ?? 0}{copy.plans.weightUnit}
+                            {bestPerformance.reps_completed} {copy.plans.repsCompleted} @ {bestPerformance.weight_kg ?? 0}{copy.plans.weightUnit}
                           </Text>
                         </View>
                       ) : null}
@@ -1195,22 +1269,7 @@ function CustomerPlansTab() {
                         {exerciseForm.notes ? <MutedText>{copy.plans.exerciseNotes}</MutedText> : null}
                         <TextArea value={exerciseForm.notes} onChangeText={(value) => setExerciseForm((current) => ({ ...current, notes: value }))} placeholder={copy.plans.exerciseNotes} />
                       </View>
-                      <Pressable onPress={() => setExerciseForm((current) => ({ ...current, isPr: !current.isPr }))} style={{ paddingVertical: 6 }}>
-                        <Text style={{ color: theme.foreground, fontFamily: fontSet.body, textAlign: isRTL ? "right" : "left", writingDirection: direction }}>
-                          {exerciseForm.isPr ? "✓ " : ""}{copy.plans.prToggle}
-                        </Text>
-                      </Pressable>
-                      {autoPrPreview ? <MutedText>{autoPrPreview}</MutedText> : null}
-                      {exerciseForm.isPr ? (
-                        <>
-                          {exerciseForm.prType ? <MutedText>{copy.plans.prType}</MutedText> : null}
-                          <Input value={exerciseForm.prType} onChangeText={(value) => setExerciseForm((current) => ({ ...current, prType: value }))} placeholder={copy.plans.prType} />
-                          {exerciseForm.prValue ? <MutedText>{copy.plans.prValue}</MutedText> : null}
-                          <Input value={exerciseForm.prValue} onChangeText={(value) => setExerciseForm((current) => ({ ...current, prValue: value }))} placeholder={copy.plans.prValue} />
-                          {exerciseForm.prNotes ? <MutedText>{copy.plans.prNotes}</MutedText> : null}
-                          <TextArea value={exerciseForm.prNotes} onChangeText={(value) => setExerciseForm((current) => ({ ...current, prNotes: value }))} placeholder={copy.plans.prNotes} />
-                        </>
-                      ) : null}
+                      {autoPrPreview ? <MutedText>{autoPrPreview}</MutedText> : <MutedText>{copy.plans.autoPr}</MutedText>}
                       <PrimaryButton disabled={workoutActionPending} onPress={() => completeMutation.mutate(undefined)}>
                         {completeMutation.isPending ? copy.common.loading : copy.plans.completeExercise}
                       </PrimaryButton>
@@ -1224,36 +1283,40 @@ function CustomerPlansTab() {
                   ) : (
                     <MutedText>{copy.plans.finishSession}</MutedText>
                   )}
-                  {sessionDuration || estimatedDuration ? <MutedText>{copy.plans.sessionDuration}</MutedText> : null}
-                  <Input
-                    value={sessionDuration}
-                    onChangeText={setSessionDuration}
-                    placeholder={estimatedDuration ? `${copy.plans.sessionDuration}: ${estimatedDuration}` : copy.plans.sessionDuration}
-                    keyboardType="number-pad"
-                  />
-                  {sessionNotes ? <MutedText>{copy.plans.sessionNotes}</MutedText> : null}
-                  <TextArea value={sessionNotes} onChangeText={setSessionNotes} placeholder={copy.plans.sessionNotes} />
-                  {sessionRpe ? <MutedText>{copy.plans.sessionRpe}</MutedText> : null}
-                  <Input value={sessionRpe} onChangeText={setSessionRpe} placeholder={copy.plans.sessionRpe} keyboardType="number-pad" />
-                  {painLevel ? <MutedText>{copy.plans.painLevel}</MutedText> : null}
-                  <Input value={painLevel} onChangeText={setPainLevel} placeholder={copy.plans.painLevel} keyboardType="number-pad" />
-                  <View style={{ flexDirection: isRTL ? "row-reverse" : "row", flexWrap: "wrap", gap: 8 }}>
-                    {(["TOO_EASY", "JUST_RIGHT", "TOO_HARD"] as const).map((value) => (
-                      <SecondaryButton key={value} onPress={() => setEffortFeedback(value)} disabled={workoutActionPending}>
-                        {effortFeedback === value ? "✓ " : ""}{copy.plans.effortOptions[value]}
-                      </SecondaryButton>
-                    ))}
-                  </View>
-                  {safetyGuidance ? <MutedText>{safetyGuidance}</MutedText> : null}
-                  {sessionAttachment ? (
+                  {!currentEntry ? (
                     <>
-                      <MediaPreview uri={sessionAttachment.media_url} mime={sessionAttachment.media_mime} label={sessionAttachment.name || copy.plans.sessionAttachment} />
-                      <SecondaryButton disabled={workoutActionPending} onPress={() => setSessionAttachment(null)}>{copy.plans.removeAttachment}</SecondaryButton>
+                      {sessionDuration || estimatedDuration ? <MutedText>{copy.plans.sessionDuration}</MutedText> : null}
+                      <Input
+                        value={sessionDuration}
+                        onChangeText={setSessionDuration}
+                        placeholder={estimatedDuration ? `${copy.plans.sessionDuration}: ${estimatedDuration}` : copy.plans.sessionDuration}
+                        keyboardType="number-pad"
+                      />
+                      {sessionNotes ? <MutedText>{copy.plans.sessionNotes}</MutedText> : null}
+                      <TextArea value={sessionNotes} onChangeText={setSessionNotes} placeholder={copy.plans.sessionNotes} />
+                      {sessionRpe ? <MutedText>{copy.plans.sessionRpe}</MutedText> : null}
+                      <Input value={sessionRpe} onChangeText={setSessionRpe} placeholder={copy.plans.sessionRpe} keyboardType="number-pad" />
+                      {painLevel ? <MutedText>{copy.plans.painLevel}</MutedText> : null}
+                      <Input value={painLevel} onChangeText={setPainLevel} placeholder={copy.plans.painLevel} keyboardType="number-pad" />
+                      <View style={{ flexDirection: isRTL ? "row-reverse" : "row", flexWrap: "wrap", gap: 8 }}>
+                        {(["TOO_EASY", "JUST_RIGHT", "TOO_HARD"] as const).map((value) => (
+                          <SecondaryButton key={value} onPress={() => setEffortFeedback(value)} disabled={workoutActionPending}>
+                            {effortFeedback === value ? "✓ " : ""}{copy.plans.effortOptions[value]}
+                          </SecondaryButton>
+                        ))}
+                      </View>
+                      {safetyGuidance ? <MutedText>{safetyGuidance}</MutedText> : null}
+                      {sessionAttachment ? (
+                        <>
+                          <MediaPreview uri={sessionAttachment.media_url} mime={sessionAttachment.media_mime} label={sessionAttachment.name || copy.plans.sessionAttachment} />
+                          <SecondaryButton disabled={workoutActionPending} onPress={() => setSessionAttachment(null)}>{copy.plans.removeAttachment}</SecondaryButton>
+                        </>
+                      ) : null}
+                      <SecondaryButton disabled={attachMediaMutation.isPending || workoutActionPending} onPress={() => attachMediaMutation.mutate()}>
+                        {attachMediaMutation.isPending ? copy.common.uploading : sessionAttachment ? copy.plans.replaceAttachment : copy.plans.attachSessionMedia}
+                      </SecondaryButton>
                     </>
                   ) : null}
-                  <SecondaryButton disabled={attachMediaMutation.isPending || workoutActionPending} onPress={() => attachMediaMutation.mutate()}>
-                    {attachMediaMutation.isPending ? copy.common.uploading : sessionAttachment ? copy.plans.replaceAttachment : copy.plans.attachSessionMedia}
-                  </SecondaryButton>
                   <PrimaryButton disabled={workoutActionPending || !canFinishSession} onPress={() => finishMutation.mutate(undefined)}>
                     {finishMutation.isPending ? copy.common.loading : copy.plans.finishSession}
                   </PrimaryButton>
@@ -1265,6 +1328,7 @@ function CustomerPlansTab() {
             </Card>
           ) : null}
 
+          {planFilter === "workout" ? (
           <Card>
             <SectionTitle>{copy.plans.recentSessions}</SectionTitle>
             <QueryState loading={historyQuery.isLoading} loadingVariant="list" error={historyQuery.error instanceof Error ? historyQuery.error.message : null} empty={!historyQuery.data?.length} emptyMessage={copy.plans.noSessionHistory} />
@@ -1341,7 +1405,9 @@ function CustomerPlansTab() {
               );
             })}
           </Card>
+          ) : null}
 
+          {planFilter === "diet" ? (
           <Card>
             <SectionTitle>{copy.plans.dietPlans}</SectionTitle>
             {plansQuery.data.diets.length === 0 ? (
@@ -1356,8 +1422,9 @@ function CustomerPlansTab() {
               ))
             )}
           </Card>
+          ) : null}
 
-          {dietTrackerQuery.data ? (
+          {planFilter === "diet" && dietTrackerQuery.data ? (
             <Card>
               <SectionTitle>{copy.plans.dietTracker}</SectionTitle>
               {dietTrackerQuery.data.has_structured_content ? (
@@ -1370,34 +1437,34 @@ function CustomerPlansTab() {
                     ))}
                   </View>
                   <PrimaryButton disabled={startDietDayMutation.isPending || !selectedDietDayId} onPress={() => startDietDayMutation.mutate()}>
-                    {startDietDayMutation.isPending ? copy.common.loading : copy.plans.startSession}
+                    {startDietDayMutation.isPending ? copy.common.loading : copy.plans.startDietDay}
                   </PrimaryButton>
                   {selectedDietDay ? (
                     <>
                       <MutedText>
-                        {copy.plans.progress}: {selectedDietDay.meals.filter((meal) => meal.completed || meal.skipped).length}/{selectedDietDay.meals.length}
+                        {copy.plans.dayProgress}: {selectedDietDay.meals.filter((meal) => meal.completed || meal.skipped).length}/{selectedDietDay.meals.length}
                       </MutedText>
                       {currentDietMeal ? (
                         <View style={{ paddingVertical: 10, gap: 8 }}>
                           <Text style={{ color: theme.foreground, fontFamily: fontSet.display, textAlign: isRTL ? "right" : "left", writingDirection: direction }}>
-                            {copy.plans.currentExercise}: {currentDietMeal.name}
+                            {copy.plans.currentMeal}: {currentDietMeal.name}
                           </Text>
                           <MutedText>{currentDietMeal.time_label || ""}</MutedText>
                           {currentDietMeal.items.map((item) => (
                             <MutedText key={item.id}>{item.label}{item.quantity ? ` • ${item.quantity}` : ""}</MutedText>
                           ))}
                           <PrimaryButton disabled={completeDietMealMutation.isPending} onPress={() => completeDietMealMutation.mutate()}>
-                            {completeDietMealMutation.isPending ? copy.common.loading : copy.plans.completeExercise}
+                            {completeDietMealMutation.isPending ? copy.common.loading : copy.plans.completeMeal}
                           </PrimaryButton>
                           <SecondaryButton disabled={skipDietMealMutation.isPending} onPress={() => skipDietMealMutation.mutate()}>
-                            {skipDietMealMutation.isPending ? copy.common.loading : copy.plans.skipExercise}
+                            {skipDietMealMutation.isPending ? copy.common.loading : copy.plans.skipMeal}
                           </SecondaryButton>
                           <SecondaryButton disabled={previousDietMealMutation.isPending} onPress={() => previousDietMealMutation.mutate()}>
-                            {previousDietMealMutation.isPending ? copy.common.loading : copy.plans.previousExercise}
+                            {previousDietMealMutation.isPending ? copy.common.loading : copy.plans.previousMeal}
                           </SecondaryButton>
                         </View>
                       ) : (
-                        <MutedText>{copy.plans.finishSession}</MutedText>
+                        <MutedText>{copy.plans.finishDietDay}</MutedText>
                       )}
                       {selectedDietDay.meals.map((meal) => (
                         <View key={meal.id} style={{ paddingVertical: 8, borderTopWidth: 1, borderTopColor: theme.border }}>
@@ -1421,9 +1488,9 @@ function CustomerPlansTab() {
                   <Text style={{ color: theme.foreground, fontFamily: fontSet.body, textAlign: isRTL ? "right" : "left", writingDirection: direction }}>
                     {dietTrackerQuery.data.legacy_content || ""}
                   </Text>
-                </>
-              )}
-            </Card>
+              </>
+            )}
+          </Card>
           ) : null}
         </>
       ) : null}
@@ -1454,7 +1521,13 @@ function ExerciseVideoBlock({ entry }: { entry: WorkoutDraft["entries"][number] 
   }
 
   return (
-    <SecondaryButton onPress={() => void WebBrowser.openBrowserAsync(video.url)}>
+    <SecondaryButton
+      onPress={() => void WebBrowser.openBrowserAsync(video.url)}
+      style={{
+        backgroundColor: "#ecfeff",
+        borderColor: "#67e8f9",
+      }}
+    >
       {copy.plans.exerciseVideo}
     </SecondaryButton>
   );
@@ -1503,7 +1576,7 @@ function SetDetailsEditor({ rows, onChange }: { rows: SetDetail[]; onChange: (ro
 
 function CoachPlansTab() {
   const { authorizedRequest } = useSession();
-  const { copy, fontSet, isRTL, theme } = usePreferences();
+  const { copy, direction, fontSet, isRTL, theme } = usePreferences();
   const coachClassesCopy = copy.coachClasses;
   const queryClient = useQueryClient();
   const [editorMode, setEditorMode] = useState<"workout" | "diet" | "classes">("workout");
@@ -1521,6 +1594,7 @@ function CoachPlansTab() {
   const [exerciseRows, setExerciseRows] = useState<CoachWorkoutExercise[]>([
     { id: createRowId(), section_name: "Warm-up", exercise_name: "", sets: 3, reps: 10, order: 0 },
   ]);
+  const [exerciseVideoPreview, setExerciseVideoPreview] = useState<{ title: string; url: string } | null>(null);
   const [dietName, setDietName] = useState("");
   const [dietDescription, setDietDescription] = useState("");
   const [dietContent, setDietContent] = useState("");
@@ -1569,18 +1643,27 @@ function CoachPlansTab() {
   useEffect(() => {
     if (!selectedWorkout) return;
     setCreatingWorkout(false);
+    setExerciseVideoPreview(null);
     setWorkoutName(selectedWorkout.name);
     setWorkoutDescription(selectedWorkout.description || "");
     setWorkoutExpectedSessions(String(selectedWorkout.expected_sessions_per_30d ?? 12));
     setExerciseRows(
       selectedWorkout.exercises.length
-        ? selectedWorkout.exercises.map((exercise) => ({
+        ? selectedWorkout.exercises.map((exercise: CoachWorkoutExercise) => ({
             id: exercise.id,
+            exercise_id: exercise.exercise_id ?? null,
             section_name: exercise.section_name || "General",
             exercise_name: exercise.exercise_name || "",
             sets: exercise.sets,
             reps: exercise.reps,
             order: exercise.order ?? 0,
+            video_type: exercise.video_type ?? null,
+            video_url: exercise.video_url ?? null,
+            uploaded_video_url: exercise.uploaded_video_url ?? null,
+            video_provider: exercise.video_provider ?? null,
+            video_id: exercise.video_id ?? null,
+            embed_url: exercise.embed_url ?? null,
+            playback_type: exercise.playback_type ?? null,
           }))
         : [{ id: createRowId(), section_name: "General", exercise_name: "", sets: 3, reps: 10, order: 0 }],
     );
@@ -1599,11 +1682,19 @@ function CoachPlansTab() {
     return exerciseRows
       .filter((row) => row.exercise_name?.trim())
       .map((row, index) => ({
+        exercise_id: row.exercise_id || undefined,
         section_name: row.section_name?.trim() || "General",
         exercise_name: row.exercise_name?.trim(),
         sets: Number(row.sets || 3),
         reps: Number(row.reps || 10),
         order: index,
+        video_type: row.video_type || undefined,
+        video_url: row.video_url || undefined,
+        uploaded_video_url: row.uploaded_video_url || undefined,
+        video_provider: row.video_provider || undefined,
+        video_id: row.video_id || undefined,
+        embed_url: row.embed_url || undefined,
+        playback_type: row.playback_type || undefined,
       }));
   }
 
@@ -1887,39 +1978,65 @@ function CoachPlansTab() {
           <Input value={workoutName} onChangeText={setWorkoutName} placeholder={copy.coachPlans.workoutName} />
           <TextArea value={workoutDescription} onChangeText={setWorkoutDescription} placeholder={copy.coachPlans.description} style={{ minHeight: 88 }} />
           <Input value={workoutExpectedSessions} onChangeText={setWorkoutExpectedSessions} placeholder={copy.coachPlans.expectedSessions} />
-          {exerciseRows.map((row, index) => (
-            <EditorCard key={row.id} title={`${copy.coachPlans.exerciseName} ${index + 1}`}>
-              <Input
-                value={row.section_name || ""}
-                onChangeText={(value) => setExerciseRows((current) => current.map((item) => (item.id === row.id ? { ...item, section_name: value } : item)))}
-                placeholder={copy.coachPlans.sectionName}
-              />
-              <Input
-                value={row.exercise_name || ""}
-                onChangeText={(value) => setExerciseRows((current) => current.map((item) => (item.id === row.id ? { ...item, exercise_name: value } : item)))}
-                placeholder={copy.coachPlans.exerciseName}
-              />
-              <View style={{ flexDirection: isRTL ? "row-reverse" : "row", gap: 8 }}>
+          {exerciseRows.map((row, index) => {
+            const videoTarget = resolveCoachExerciseVideo(row);
+
+            return (
+              <EditorCard key={row.id} title={`${copy.coachPlans.exerciseName} ${index + 1}`}>
                 <Input
-                  value={String(row.sets)}
-                  onChangeText={(value) => setExerciseRows((current) => current.map((item) => (item.id === row.id ? { ...item, sets: Number(value || 0) } : item)))}
-                  placeholder={copy.coachPlans.sets}
-                  style={{ flex: 1 }}
+                  value={row.section_name || ""}
+                  onChangeText={(value) => setExerciseRows((current) => current.map((item) => (item.id === row.id ? { ...item, section_name: value } : item)))}
+                  placeholder={copy.coachPlans.sectionName}
                 />
                 <Input
-                  value={String(row.reps)}
-                  onChangeText={(value) => setExerciseRows((current) => current.map((item) => (item.id === row.id ? { ...item, reps: Number(value || 0) } : item)))}
-                  placeholder={copy.coachPlans.reps}
-                  style={{ flex: 1 }}
+                  value={row.exercise_name || ""}
+                  onChangeText={(value) => setExerciseRows((current) => current.map((item) => (item.id === row.id ? { ...item, exercise_name: value } : item)))}
+                  placeholder={copy.coachPlans.exerciseName}
                 />
-              </View>
-              {exerciseRows.length > 1 ? (
-                <SecondaryButton onPress={() => setExerciseRows((current) => current.filter((item) => item.id !== row.id))}>
-                  {copy.common.cancel}
-                </SecondaryButton>
-              ) : null}
-            </EditorCard>
-          ))}
+                <View style={{ flexDirection: isRTL ? "row-reverse" : "row", gap: 8 }}>
+                  <Input
+                    value={String(row.sets)}
+                    onChangeText={(value) => setExerciseRows((current) => current.map((item) => (item.id === row.id ? { ...item, sets: Number(value || 0) } : item)))}
+                    placeholder={copy.coachPlans.sets}
+                    style={{ flex: 1 }}
+                  />
+                  <Input
+                    value={String(row.reps)}
+                    onChangeText={(value) => setExerciseRows((current) => current.map((item) => (item.id === row.id ? { ...item, reps: Number(value || 0) } : item)))}
+                    placeholder={copy.coachPlans.reps}
+                    style={{ flex: 1 }}
+                  />
+                </View>
+                <View style={{ flexDirection: isRTL ? "row-reverse" : "row", gap: 8, flexWrap: "wrap" }}>
+                  {videoTarget ? (
+                    <SecondaryButton
+                      onPress={() => {
+                        if (videoTarget.direct) {
+                          setExerciseVideoPreview({
+                            title: row.exercise_name?.trim() || `${copy.coachPlans.exerciseName} ${index + 1}`,
+                            url: videoTarget.url,
+                          });
+                          return;
+                        }
+                        void WebBrowser.openBrowserAsync(videoTarget.url);
+                      }}
+                      style={{
+                        backgroundColor: "#ecfeff",
+                        borderColor: "#67e8f9",
+                      }}
+                    >
+                      {copy.plans.exerciseVideo}
+                    </SecondaryButton>
+                  ) : null}
+                  {exerciseRows.length > 1 ? (
+                    <SecondaryButton onPress={() => setExerciseRows((current) => current.filter((item) => item.id !== row.id))}>
+                      {copy.common.cancel}
+                    </SecondaryButton>
+                  ) : null}
+                </View>
+              </EditorCard>
+            );
+          })}
           <SecondaryButton onPress={() => setExerciseRows((current) => [...current, { id: createRowId(), section_name: "General", exercise_name: "", sets: 3, reps: 10, order: current.length }])}>
             {copy.coachPlans.addExercise}
           </SecondaryButton>
@@ -2066,6 +2183,75 @@ function CoachPlansTab() {
           )}
         </Card>
       )}
+      <Modal visible={Boolean(exerciseVideoPreview)} transparent animationType="fade" onRequestClose={() => setExerciseVideoPreview(null)}>
+        <View
+          style={{
+            flex: 1,
+            backgroundColor: "rgba(0, 0, 0, 0.72)",
+            justifyContent: "center",
+            padding: 16,
+          }}
+        >
+          <View
+            style={{
+              borderWidth: 1,
+              borderColor: theme.border,
+              borderRadius: 18,
+              backgroundColor: theme.card,
+              overflow: "hidden",
+              maxWidth: 720,
+              width: "100%",
+              alignSelf: "center",
+            }}
+          >
+            <View
+              style={{
+                flexDirection: isRTL ? "row-reverse" : "row",
+                justifyContent: "space-between",
+                alignItems: "center",
+                gap: 12,
+                paddingHorizontal: 16,
+                paddingVertical: 12,
+                borderBottomWidth: 1,
+                borderBottomColor: theme.border,
+              }}
+            >
+              <Text
+                style={{
+                  color: theme.foreground,
+                  fontFamily: fontSet.body,
+                  fontSize: 16,
+                  fontWeight: "700",
+                  textAlign: isRTL ? "right" : "left",
+                  writingDirection: direction,
+                  flex: 1,
+                }}
+                numberOfLines={1}
+              >
+                {exerciseVideoPreview?.title}
+              </Text>
+              <Pressable
+                accessibilityRole="button"
+                accessibilityLabel={copy.common.cancel}
+                onPress={() => setExerciseVideoPreview(null)}
+                style={{
+                  width: 36,
+                  height: 36,
+                  borderRadius: 18,
+                  alignItems: "center",
+                  justifyContent: "center",
+                  backgroundColor: theme.cardAlt,
+                }}
+              >
+                <Ionicons name="close" size={18} color={theme.foreground} />
+              </Pressable>
+            </View>
+            <View style={{ padding: 16 }}>
+              {exerciseVideoPreview ? <DirectVideoPlayer url={exerciseVideoPreview.url} /> : null}
+            </View>
+          </View>
+        </View>
+      </Modal>
     </Screen>
   );
 }

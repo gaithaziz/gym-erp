@@ -8,7 +8,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.database import set_rls_context
 from app.models.audit import AuditLog
 from app.models.enums import Role
-from app.models.lost_found import LostFoundItem, LostFoundStatus
+from app.models.lost_found import LostFoundCategory, LostFoundItem, LostFoundStatus
 from app.models.support import SupportTicket, TicketCategory, TicketStatus
 from app.models.user import User
 
@@ -130,7 +130,7 @@ async def test_lost_found_rls_filters_rows_by_reporter(db_session: AsyncSession)
             status=LostFoundStatus.REPORTED,
             title="Wallet A",
             description="A item",
-            category="personal",
+            category=LostFoundCategory.LOST.value,
             created_at=datetime.now(timezone.utc),
             updated_at=datetime.now(timezone.utc),
         ),
@@ -145,7 +145,7 @@ async def test_lost_found_rls_filters_rows_by_reporter(db_session: AsyncSession)
             status=LostFoundStatus.REPORTED,
             title="Wallet B",
             description="B item",
-            category="personal",
+            category=LostFoundCategory.LOST.value,
             created_at=datetime.now(timezone.utc),
             updated_at=datetime.now(timezone.utc),
         ),

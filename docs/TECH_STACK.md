@@ -28,6 +28,7 @@ This document is the canonical technical stack reference for the current `gym-er
 - Primary database: PostgreSQL
 - Local dev database: Docker Compose Postgres service
 - Migrations managed with Alembic
+- If Alembic ever reports multiple heads, add a merge revision instead of renaming history; `4d1f2a3b5c6d` is the merge revision for the lost-and-found head split.
 
 ### Web Frontend
 

@@ -1,10 +1,12 @@
 from __future__ import annotations
 
 from contextlib import asynccontextmanager
+import logging
 import json
 import uuid
 from datetime import date, datetime, time, timedelta, timezone
 from decimal import Decimal
+from typing import Any
 
 from sqlalchemy import and_, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -26,6 +28,8 @@ from app.models.classes import ClassReservation, ClassReservationStatus, ClassSe
 from app.models.workout_log import DietFeedback, GymFeedback, WorkoutLog
 from app.services.mobile_bootstrap_service import MobileBootstrapService
 
+logger = logging.getLogger(__name__)
+
 
 def _parse_set_details(value: str | None) -> list[dict]:
     if not value:
@@ -38,20 +42,6 @@ def _parse_set_details(value: str | None) -> list[dict]:
 
 
 def _entry_volume(entry: WorkoutSessionEntry) -> float:
-    set_details = _parse_set_details(entry.set_details)
-    if set_details:
-        total = 0.0
-        for row in set_details:
-            if not isinstance(row, dict):
-                continue
-            try:
-                reps = float(row.get("reps", 0) or 0)
-                weight = float(row.get("weightKg", 0) or 0)
-            except (TypeError, ValueError):
-                continue
-            total += max(reps, 0.0) * max(weight, 0.0)
-        if total > 0:
-            return total
     if entry.skipped:
         return 0.0
     sets_completed = max(float(entry.sets_completed or 0), 1.0)
@@ -64,6 +54,76 @@ def _session_volume(session: WorkoutSession) -> float:
     return sum(_entry_volume(entry) for entry in sorted(session.entries or [], key=lambda item: item.order))
 
 
+def _series_from_biometrics(logs: list[BiometricLog]) -> dict[str, list[dict[str, float | str]]]:
+    weight_series: list[dict[str, float | str]] = []
+    body_fat_series: list[dict[str, float | str]] = []
+    muscle_series: list[dict[str, float | str]] = []
+    for log in logs:
+        day = log.date.date().isoformat() if isinstance(log.date, datetime) else log.date.isoformat()
+        if log.weight_kg is not None:
+            weight_series.append({"date": day, "value": float(log.weight_kg)})
+        if log.body_fat_pct is not None:
+            body_fat_series.append({"date": day, "value": float(log.body_fat_pct)})
+        if log.muscle_mass_kg is not None:
+            muscle_series.append({"date": day, "value": float(log.muscle_mass_kg)})
+    return {
+        "weight": weight_series,
+        "body_fat": body_fat_series,
+        "muscle": muscle_series,
+    }
+
+
+def _session_load_series(sessions: list[WorkoutSession]) -> list[dict[str, float | int | str]]:
+    by_day: dict[str, dict[str, float | int | str]] = {}
+    for session in sessions:
+        day = session.performed_at.date().isoformat()
+        entry = by_day.get(day)
+        if entry is None:
+            entry = {"date": day, "volume": 0.0, "sessions": 0}
+            by_day[day] = entry
+        entry["volume"] = float(entry["volume"]) + round(_session_volume(session), 2)
+        entry["sessions"] = int(entry["sessions"]) + 1
+    return sorted(by_day.values(), key=lambda item: str(item["date"]))
+
+
+def _exercise_pr_table(sessions: list[WorkoutSession]) -> list[dict[str, float | int | str]]:
+    by_exercise: dict[str, dict[str, float | int | str]] = {}
+    for session in sessions:
+        for entry in sorted(session.entries or [], key=lambda item: item.order):
+            if entry.skipped:
+                continue
+            name = (entry.exercise_name or "Exercise").strip()
+            if not name:
+                continue
+            weight_value = float(entry.weight_kg or 0)
+            reps_value = int(entry.reps_completed or 0)
+            volume_value = round(_entry_volume(entry), 2)
+            current = by_exercise.get(name)
+            if current is None:
+                by_exercise[name] = {
+                    "exercise": name,
+                    "best_weight": weight_value,
+                    "best_weight_reps": reps_value,
+                    "best_reps": reps_value,
+                    "best_reps_weight": weight_value,
+                    "best_volume": volume_value,
+                }
+                continue
+            if weight_value > float(current["best_weight"]) or (
+                weight_value == float(current["best_weight"]) and reps_value > int(current["best_weight_reps"])
+            ):
+                current["best_weight"] = weight_value
+                current["best_weight_reps"] = reps_value
+            if reps_value > int(current["best_reps"]) or (
+                reps_value == int(current["best_reps"]) and weight_value > float(current["best_reps_weight"])
+            ):
+                current["best_reps"] = reps_value
+                current["best_reps_weight"] = weight_value
+            if volume_value > float(current["best_volume"]):
+                current["best_volume"] = volume_value
+    return sorted(by_exercise.values(), key=lambda item: (-float(item["best_weight"]), str(item["exercise"])))
+
+
 def _parse_progress_date_range(date_from: str | None, date_to: str | None) -> tuple[datetime | None, datetime | None]:
     start = datetime.combine(date.fromisoformat(date_from), time.min) if date_from else None
     end = None
@@ -73,6 +133,9 @@ def _parse_progress_date_range(date_from: str | None, date_to: str | None) -> tu
 
 
 class MobileCustomerService:
+    _progress_cache: dict[str, tuple[datetime, dict[str, Any]]] = {}
+    _progress_cache_ttl_seconds = 60
+
     @staticmethod
     def _snapshot_rls_context(db: AsyncSession) -> tuple[object, object, object, object]:
         return (
@@ -111,6 +174,73 @@ class MobileCustomerService:
             yield
         finally:
             await MobileCustomerService._restore_rls_context(db, snapshot)
+
+    @staticmethod
+    def _progress_cache_key(*, user_id: uuid.UUID, date_from: str | None, date_to: str | None) -> str:
+        return f"{user_id}:{date_from or 'none'}:{date_to or 'none'}"
+
+    @staticmethod
+    def _default_progress_date_range() -> tuple[str, str]:
+        today = datetime.now(timezone.utc).date()
+        start = today - timedelta(days=29)
+        return start.isoformat(), today.isoformat()
+
+    @classmethod
+    def invalidate_progress_cache(cls, *, user_id: uuid.UUID) -> None:
+        prefix = f"{user_id}:"
+        for key in list(cls._progress_cache.keys()):
+            if key.startswith(prefix):
+                del cls._progress_cache[key]
+
+    @classmethod
+    def _set_progress_cache(cls, *, user_id: uuid.UUID, date_from: str | None, date_to: str | None, payload: dict[str, Any]) -> None:
+        cls._progress_cache[cls._progress_cache_key(user_id=user_id, date_from=date_from, date_to=date_to)] = (
+            datetime.now(timezone.utc) + timedelta(seconds=cls._progress_cache_ttl_seconds),
+            payload,
+        )
+
+    @classmethod
+    def _get_progress_cache(cls, *, user_id: uuid.UUID, date_from: str | None, date_to: str | None) -> dict[str, Any] | None:
+        cache_key = cls._progress_cache_key(user_id=user_id, date_from=date_from, date_to=date_to)
+        entry = cls._progress_cache.get(cache_key)
+        if not entry:
+            return None
+        expires_at, payload = entry
+        if expires_at <= datetime.now(timezone.utc):
+            del cls._progress_cache[cache_key]
+            return None
+        return payload
+
+    @classmethod
+    async def warm_progress_cache(
+        cls,
+        *,
+        current_user: User,
+        db: AsyncSession,
+        date_from: str | None = None,
+        date_to: str | None = None,
+    ) -> dict[str, Any]:
+        if date_from is None and date_to is None:
+            date_from, date_to = cls._default_progress_date_range()
+        return await cls.get_progress(current_user=current_user, db=db, date_from=date_from, date_to=date_to)
+
+    @classmethod
+    async def refresh_progress_cache(
+        cls,
+        *,
+        current_user: User,
+        db: AsyncSession,
+        date_from: str | None = None,
+        date_to: str | None = None,
+    ) -> dict[str, Any] | None:
+        cls.invalidate_progress_cache(user_id=current_user.id)
+        if date_from is None and date_to is None:
+            date_from, date_to = cls._default_progress_date_range()
+        try:
+            return await cls.warm_progress_cache(current_user=current_user, db=db, date_from=date_from, date_to=date_to)
+        except Exception:
+            logger.exception("Failed to refresh progress cache for user %s", current_user.id)
+            return None
 
     @staticmethod
     async def list_relevant_chat_coaches(*, current_user: User, db: AsyncSession) -> list[dict]:
@@ -522,6 +652,9 @@ class MobileCustomerService:
 
     @staticmethod
     async def get_progress(*, current_user: User, db: AsyncSession, date_from: str | None = None, date_to: str | None = None) -> dict:
+        cached = MobileCustomerService._get_progress_cache(user_id=current_user.id, date_from=date_from, date_to=date_to)
+        if cached is not None:
+            return cached
         async with MobileCustomerService._customer_tenant_scope(current_user=current_user, db=db):
             start_date, end_date = _parse_progress_date_range(date_from, date_to)
             biometric_stmt = select(BiometricLog).where(BiometricLog.member_id == current_user.id)
@@ -558,7 +691,7 @@ class MobileCustomerService:
                 sessions_stmt = sessions_stmt.where(WorkoutSession.performed_at >= start_date)
             if end_date is not None:
                 sessions_stmt = sessions_stmt.where(WorkoutSession.performed_at < end_date)
-            workout_sessions = (await db.execute(sessions_stmt.order_by(WorkoutSession.performed_at.desc()).limit(10))).scalars().all()
+            workout_sessions = (await db.execute(sessions_stmt.order_by(WorkoutSession.performed_at.desc()))).scalars().all()
             workout_count_stmt = select(func.count(WorkoutSession.id)).where(WorkoutSession.member_id == current_user.id)
             if start_date is not None:
                 workout_count_stmt = workout_count_stmt.where(WorkoutSession.performed_at >= start_date)
@@ -566,30 +699,22 @@ class MobileCustomerService:
                 workout_count_stmt = workout_count_stmt.where(WorkoutSession.performed_at < end_date)
             workout_count = int((await db.execute(workout_count_stmt)).scalar() or 0)
 
-            workout_stats_start = start_date or (datetime.utcnow() - timedelta(days=30))
             workout_stats_end = end_date
-            workout_stats_stmt = (
-                select(func.date(WorkoutSession.performed_at).label("day"), func.count(WorkoutSession.id).label("count"))
-                .where(WorkoutSession.member_id == current_user.id)
-                .where(WorkoutSession.performed_at >= workout_stats_start)
-            )
+            workout_stats_stmt = select(
+                func.date(WorkoutSession.performed_at).label("day"),
+                func.count(WorkoutSession.id).label("count"),
+            ).where(WorkoutSession.member_id == current_user.id)
+            if start_date is not None:
+                workout_stats_stmt = workout_stats_stmt.where(WorkoutSession.performed_at >= start_date)
             if workout_stats_end is not None:
                 workout_stats_stmt = workout_stats_stmt.where(WorkoutSession.performed_at < workout_stats_end)
             workout_stats_rows = (await db.execute(workout_stats_stmt.group_by("day").order_by("day"))).all()
+            recent_workout_sessions = workout_sessions[:10]
+            biometric_series = _series_from_biometrics(biometric_logs)
+            session_load_series = _session_load_series(workout_sessions)
+            exercise_pr_table = _exercise_pr_table(workout_sessions)
 
-            pr_stmt = (
-                select(WorkoutSessionEntry, WorkoutSession, WorkoutPlan.name)
-                .join(WorkoutSession, WorkoutSessionEntry.session_id == WorkoutSession.id)
-                .join(WorkoutPlan, WorkoutSession.plan_id == WorkoutPlan.id)
-                .where(WorkoutSession.member_id == current_user.id, WorkoutSessionEntry.is_pr.is_(True))
-            )
-            if start_date is not None:
-                pr_stmt = pr_stmt.where(WorkoutSession.performed_at >= start_date)
-            if end_date is not None:
-                pr_stmt = pr_stmt.where(WorkoutSession.performed_at < end_date)
-            pr_entries = (await db.execute(pr_stmt.order_by(WorkoutSession.performed_at.desc(), WorkoutSessionEntry.order.asc()).limit(20))).all()
-
-            return {
+            payload = {
                 "range_summary": {
                     "biometrics": biometric_count,
                     "attendance": attendance_count,
@@ -615,32 +740,23 @@ class MobileCustomerService:
                         "notes": session.notes,
                         "session_volume": round(_session_volume(session), 2),
                     }
-                    for session in workout_sessions
+                    for session in recent_workout_sessions
                 ],
                 "workout_stats": [
                     {"date": str(row.day), "workouts": int(row.count or 0)}
                     for row in workout_stats_rows
                 ],
-                "personal_records": [
-                    {
-                        "id": str(entry.id),
-                        "session_id": str(session.id),
-                        "plan_id": str(session.plan_id),
-                        "plan_name": plan_name,
-                        "exercise_name": entry.exercise_name,
-                        "pr_type": entry.pr_type,
-                        "pr_value": entry.pr_value,
-                        "pr_notes": entry.pr_notes,
-                        "weight_kg": entry.weight_kg,
-                        "sets_completed": entry.sets_completed,
-                        "reps_completed": entry.reps_completed,
-                        "session_volume": round(_session_volume(session), 2),
-                        "entry_volume": round(_entry_volume(entry), 2),
-                        "performed_at": session.performed_at.isoformat(),
-                    }
-                    for entry, session, plan_name in pr_entries
-                ],
+                "biometric_series": biometric_series,
+                "session_load_series": session_load_series,
+                "exercise_pr_table": exercise_pr_table,
             }
+            MobileCustomerService._set_progress_cache(
+                user_id=current_user.id,
+                date_from=date_from,
+                date_to=date_to,
+                payload=payload,
+            )
+            return payload
 
     @staticmethod
     async def get_feedback_history(*, current_user: User, db: AsyncSession, limit: int = 20) -> dict:

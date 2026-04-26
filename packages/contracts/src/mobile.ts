@@ -256,22 +256,30 @@ export const mobileCustomerProgressSchema = z.object({
       workouts: z.number().int(),
     }),
   ),
-  personal_records: z.array(
+  biometric_series: z.object({
+    weight: z.array(z.object({ date: z.string(), value: z.number() })),
+    body_fat: z.array(z.object({ date: z.string(), value: z.number() })),
+    muscle: z.array(z.object({ date: z.string(), value: z.number() })),
+  }).default({
+    weight: [],
+    body_fat: [],
+    muscle: [],
+  }),
+  session_load_series: z.array(
     z.object({
-      id: uuidLikeSchema,
-      session_id: uuidLikeSchema,
-      plan_id: uuidLikeSchema,
-      plan_name: z.string().nullable().optional(),
-      exercise_name: z.string().nullable().optional(),
-      pr_type: z.string().nullable().optional(),
-      pr_value: z.string().nullable().optional(),
-      pr_notes: z.string().nullable().optional(),
-      weight_kg: z.number().nullable().optional(),
-      sets_completed: z.number().int(),
-      reps_completed: z.number().int(),
-      session_volume: z.number().nullable().optional(),
-      entry_volume: z.number().nullable().optional(),
-      performed_at: z.string(),
+      date: z.string(),
+      volume: z.number(),
+      sessions: z.number().int(),
+    }),
+  ).default([]),
+  exercise_pr_table: z.array(
+    z.object({
+      exercise: z.string(),
+      best_weight: z.number(),
+      best_weight_reps: z.number().int(),
+      best_reps: z.number().int(),
+      best_reps_weight: z.number(),
+      best_volume: z.number(),
     }),
   ).default([]),
 });

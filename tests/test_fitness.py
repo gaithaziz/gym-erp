@@ -9,6 +9,7 @@ from app.models.user import User
 from app.models.enums import Role
 from app.auth.security import get_password_hash
 from app.models.fitness import DietPlan, WorkoutPlan
+from app.models.workout_log import WorkoutSessionDraft, WorkoutSessionDraftEntry
 from sqlalchemy import select
 
 
@@ -416,6 +417,151 @@ async def test_member_cannot_start_second_workout_plan_with_active_draft(client:
         headers=member_headers,
     )
     assert second_start.status_code == 409
+
+
+@pytest.mark.asyncio
+async def test_member_can_skip_exercise_and_abandon_workout_session(client: AsyncClient, db_session: AsyncSession):
+    password = "password123"
+    hashed = get_password_hash(password)
+
+    coach = User(email="coach_skip_abandon@gym.com", hashed_password=hashed, role=Role.COACH, full_name="Coach Skip Abandon")
+    member = User(email="member_skip_abandon@gym.com", hashed_password=hashed, role=Role.CUSTOMER, full_name="Member Skip Abandon")
+    db_session.add_all([coach, member])
+    await db_session.flush()
+    db_session.add(_active_subscription(member.id))
+    await db_session.commit()
+
+    coach_login = await client.post(f"{settings.API_V1_STR}/auth/login", json={"email": coach.email, "password": password})
+    member_login = await client.post(f"{settings.API_V1_STR}/auth/login", json={"email": member.email, "password": password})
+    coach_headers = {"Authorization": f"Bearer {coach_login.json()['data']['access_token']}"}
+    member_headers = {"Authorization": f"Bearer {member_login.json()['data']['access_token']}"}
+
+    exercise = await client.post(f"{settings.API_V1_STR}/fitness/exercises", json={"name": "Bench Press", "category": "Upper"}, headers=coach_headers)
+    assert exercise.status_code == 200
+
+    plan_resp = await client.post(
+        f"{settings.API_V1_STR}/fitness/plans",
+        json={
+            "name": "Upper Skip Abandon",
+            "member_id": str(member.id),
+            "status": "PUBLISHED",
+            "exercises": [
+                {"exercise_id": exercise.json()["data"]["id"], "sets": 3, "reps": 8, "order": 1},
+                {"exercise_id": exercise.json()["data"]["id"], "sets": 3, "reps": 10, "order": 2},
+            ],
+        },
+        headers=coach_headers,
+    )
+    assert plan_resp.status_code == 200
+    plan_id = plan_resp.json()["data"]["id"]
+
+    start_resp = await client.post(
+        f"{settings.API_V1_STR}/fitness/workout-sessions/start",
+        json={"plan_id": plan_id},
+        headers=member_headers,
+    )
+    assert start_resp.status_code == 200
+    draft = start_resp.json()["data"]
+
+    first_entry = draft["entries"][0]
+    skip_resp = await client.post(
+        f"{settings.API_V1_STR}/fitness/workout-sessions/{draft['id']}/entries/{first_entry['id']}/skip",
+        json={"notes": "Skipped on purpose"},
+        headers=member_headers,
+    )
+    assert skip_resp.status_code == 200
+    skipped = skip_resp.json()["data"]
+    assert skipped["current_exercise_index"] == 1
+    assert skipped["entries"][0]["skipped"] is True
+
+    abandon_resp = await client.delete(
+        f"{settings.API_V1_STR}/fitness/workout-sessions/{draft['id']}",
+        headers=member_headers,
+    )
+    assert abandon_resp.status_code == 200
+
+    active_resp = await client.get(
+        f"{settings.API_V1_STR}/fitness/workout-sessions/active?plan_id={plan_id}",
+        headers=member_headers,
+    )
+    assert active_resp.status_code == 200
+    assert active_resp.json()["data"] is None
+
+
+@pytest.mark.asyncio
+async def test_stale_workout_session_draft_is_purged_before_starting_new_plan(client: AsyncClient, db_session: AsyncSession):
+    password = "password123"
+    hashed = get_password_hash(password)
+
+    coach = User(email="coach_stale_draft@gym.com", hashed_password=hashed, role=Role.COACH, full_name="Coach Stale Draft")
+    member = User(email="member_stale_draft@gym.com", hashed_password=hashed, role=Role.CUSTOMER, full_name="Member Stale Draft")
+    db_session.add_all([coach, member])
+    await db_session.flush()
+    db_session.add(_active_subscription(member.id))
+    await db_session.commit()
+
+    coach_login = await client.post(f"{settings.API_V1_STR}/auth/login", json={"email": coach.email, "password": password})
+    member_login = await client.post(f"{settings.API_V1_STR}/auth/login", json={"email": member.email, "password": password})
+    coach_headers = {"Authorization": f"Bearer {coach_login.json()['data']['access_token']}"}
+    member_headers = {"Authorization": f"Bearer {member_login.json()['data']['access_token']}"}
+
+    exercise = await client.post(f"{settings.API_V1_STR}/fitness/exercises", json={"name": "Bench Press", "category": "Upper"}, headers=coach_headers)
+    assert exercise.status_code == 200
+
+    plan_ids: list[str] = []
+    for name in ["Upper A", "Upper B"]:
+        plan_resp = await client.post(
+            f"{settings.API_V1_STR}/fitness/plans",
+            json={
+                "name": name,
+                "member_id": str(member.id),
+                "status": "PUBLISHED",
+                "exercises": [{"exercise_id": exercise.json()["data"]["id"], "sets": 3, "reps": 8, "order": 1}],
+            },
+            headers=coach_headers,
+        )
+        assert plan_resp.status_code == 200
+        plan_ids.append(plan_resp.json()["data"]["id"])
+
+    stale_started_at = datetime.utcnow() - timedelta(days=2)
+    stale_draft = WorkoutSessionDraft(
+        member_id=member.id,
+        plan_id=uuid.UUID(plan_ids[0]),
+        current_exercise_index=0,
+        started_at=stale_started_at,
+        updated_at=stale_started_at,
+    )
+    db_session.add(stale_draft)
+    await db_session.flush()
+    db_session.add(
+        WorkoutSessionDraftEntry(
+            draft_id=stale_draft.id,
+            workout_exercise_id=None,
+            exercise_id=None,
+            exercise_name="Bench Press",
+            target_sets=3,
+            target_reps=8,
+            order=0,
+        )
+    )
+    await db_session.commit()
+
+    start_resp = await client.post(
+        f"{settings.API_V1_STR}/fitness/workout-sessions/start",
+        json={"plan_id": plan_ids[1]},
+        headers=member_headers,
+    )
+    assert start_resp.status_code == 200
+
+    active_resp = await client.get(
+        f"{settings.API_V1_STR}/fitness/workout-sessions/active?plan_id={plan_ids[0]}",
+        headers=member_headers,
+    )
+    assert active_resp.status_code == 200
+    assert active_resp.json()["data"] is None
+
+    stale_check = await db_session.execute(select(WorkoutSessionDraft).where(WorkoutSessionDraft.id == stale_draft.id))
+    assert stale_check.scalar_one_or_none() is None
 
 
 @pytest.mark.asyncio

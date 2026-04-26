@@ -100,7 +100,9 @@ class MobileCustomerProgressResponse(BaseModel):
     attendance_history: list[dict[str, Any]]
     recent_workout_sessions: list[dict[str, Any]]
     workout_stats: list[dict[str, Any]]
-    personal_records: list[dict[str, Any]] = Field(default_factory=list)
+    biometric_series: dict[str, list[dict[str, Any]]] = Field(default_factory=dict)
+    session_load_series: list[dict[str, Any]] = Field(default_factory=list)
+    exercise_pr_table: list[dict[str, Any]] = Field(default_factory=list)
 
 
 class MobileCustomerNotificationsResponse(BaseModel):

@@ -2,9 +2,8 @@ import { Ionicons } from "@expo/vector-icons";
 import { useQuery } from "@tanstack/react-query";
 import { Image } from "expo-image";
 import { usePathname, useRouter } from "expo-router";
-import { useContext, useEffect, useRef, type PropsWithChildren, type ReactNode, type RefObject } from "react";
+import { useContext, useEffect, type PropsWithChildren, type ReactNode, type RefObject } from "react";
 import {
-  Animated,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -18,6 +17,7 @@ import {
   type ViewStyle,
 } from "react-native";
 import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
+import Animated, { useAnimatedStyle, useSharedValue, withRepeat, withSequence, withTiming } from "react-native-reanimated";
 
 import { API_BASE_URL, parseHomeEnvelope } from "@/lib/api";
 import { hasCapability, isCustomerRole } from "@/lib/mobile-role";
@@ -504,28 +504,19 @@ export type QuerySkeletonVariant =
   | "grid";
 
 function useSkeletonAnimation() {
-  const opacity = useRef(new Animated.Value(0.45)).current;
+  const opacity = useSharedValue(0.45);
 
   useEffect(() => {
-    const animation = Animated.loop(
-      Animated.sequence([
-        Animated.timing(opacity, {
-          toValue: 0.9,
-          duration: 850,
-          useNativeDriver: true,
-        }),
-        Animated.timing(opacity, {
-          toValue: 0.45,
-          duration: 850,
-          useNativeDriver: true,
-        }),
-      ]),
+    opacity.value = withRepeat(
+      withSequence(
+        withTiming(0.9, { duration: 850 }),
+        withTiming(0.45, { duration: 850 }),
+      ),
+      -1,
     );
-    animation.start();
-    return () => animation.stop();
   }, [opacity]);
 
-  return opacity;
+  return useAnimatedStyle(() => ({ opacity: opacity.value }));
 }
 
 export function SkeletonBlock({
@@ -538,17 +529,17 @@ export function SkeletonBlock({
   style?: ViewStyle;
 }) {
   const { theme } = usePreferences();
-  const opacity = useSkeletonAnimation();
+  const animatedStyle = useSkeletonAnimation();
   return (
     <Animated.View
       style={[
         styles.skeletonBlock,
+        animatedStyle,
         {
           height,
           width,
           backgroundColor: theme.cardAlt,
           borderColor: theme.border,
-          opacity,
         },
         style,
       ]}

@@ -29,6 +29,7 @@ from app.models.fitness import (
 )
 from app.models.user import User
 from app.models import workout_log as workout_log_models
+from app.services.mobile_customer_service import MobileCustomerService
 from app.services.tenancy_service import TenancyService
 
 DietFeedback = workout_log_models.DietFeedback
@@ -52,6 +53,7 @@ ALLOWED_VIDEO_HOSTS = {
 }
 ALLOWED_DIRECT_VIDEO_EXTENSIONS = (".mp4", ".webm", ".mov", ".avi", ".m4v", ".ogg")
 PLAN_STATUSES = {"DRAFT", "PUBLISHED", "ARCHIVED"}
+WORKOUT_DRAFT_STALE_HOURS = 24
 
 
 def _is_admin_or_coach(user: User) -> bool:
@@ -634,7 +636,7 @@ async def _get_active_draft_for_member(
     *,
     member_id: uuid.UUID,
     plan_id: uuid.UUID | None = None,
-) -> WorkoutSessionDraft | None:
+) -> tuple[WorkoutSessionDraft | None, bool]:
     stmt = (
         select(WorkoutSessionDraft)
         .where(WorkoutSessionDraft.member_id == member_id)
@@ -644,11 +646,24 @@ async def _get_active_draft_for_member(
     if plan_id is not None:
         stmt = stmt.where(WorkoutSessionDraft.plan_id == plan_id)
     result = await db.execute(stmt)
-    draft = result.scalars().first()
-    if draft:
+    drafts = result.scalars().all()
+    now = datetime.utcnow()
+    stale_cutoff = now - timedelta(hours=WORKOUT_DRAFT_STALE_HOURS)
+    purged_stale = False
+
+    for draft in drafts:
+        last_activity = draft.updated_at or draft.started_at
+        if last_activity < stale_cutoff:
+            await db.delete(draft)
+            purged_stale = True
+            continue
         draft.entries.sort(key=lambda entry: entry.order)
         draft.current_exercise_index = _active_entry_index(draft.entries)
-    return draft
+        return draft, purged_stale
+
+    if purged_stale:
+        await db.flush()
+    return None, purged_stale
 
 
 def _add_workout_exercises(db: AsyncSession, plan_id: uuid.UUID, exercises: List["WorkoutExerciseData"]) -> None:
@@ -2635,6 +2650,7 @@ async def create_workout_session_log(
         )
 
     await db.commit()
+    await MobileCustomerService.refresh_progress_cache(current_user=current_user, db=db)
     return StandardResponse(message="Workout session logged", data={"id": str(session.id)})
 
 
@@ -2647,7 +2663,7 @@ async def start_workout_session(
 ):
     async with _customer_tenant_scope(db, current_user):
         plan = await _require_member_workout_plan(db, current_user, data.plan_id)
-        existing = await _get_active_draft_for_member(db, member_id=current_user.id)
+        existing, _ = await _get_active_draft_for_member(db, member_id=current_user.id)
         if existing:
             if existing.plan_id != plan.id:
                 raise HTTPException(status_code=409, detail="Finish or abandon your active workout session before starting another plan")
@@ -2699,7 +2715,7 @@ async def start_workout_session(
             )
 
         await db.commit()
-        created = await _get_active_draft_for_member(db, member_id=current_user.id, plan_id=plan.id)
+        created, _ = await _get_active_draft_for_member(db, member_id=current_user.id, plan_id=plan.id)
         assert created is not None
         return StandardResponse(data=WorkoutSessionDraftResponse.model_validate(created))
 
@@ -2713,7 +2729,9 @@ async def get_active_workout_session(
 ):
     async with _customer_tenant_scope(db, current_user):
         await _require_member_workout_plan(db, current_user, plan_id)
-        draft = await _get_active_draft_for_member(db, member_id=current_user.id, plan_id=plan_id)
+        draft, purged_stale = await _get_active_draft_for_member(db, member_id=current_user.id, plan_id=plan_id)
+        if purged_stale:
+            await db.commit()
         return StandardResponse(data=WorkoutSessionDraftResponse.model_validate(draft) if draft else None)
 
 
@@ -2776,42 +2794,43 @@ async def skip_workout_session_entry(
     _subscription_guard: Annotated[User, Depends(dependencies.require_active_customer_subscription)],
     db: Annotated[AsyncSession, Depends(get_db)],
 ):
-    stmt = (
-        select(WorkoutSessionDraft)
-        .where(WorkoutSessionDraft.id == draft_id)
-        .options(selectinload(WorkoutSessionDraft.entries))
-    )
-    draft = (await db.execute(stmt)).scalar_one_or_none()
-    if not draft:
-        raise HTTPException(status_code=404, detail="Workout session draft not found")
-    if current_user.role == Role.CUSTOMER and draft.member_id != current_user.id:
-        raise HTTPException(status_code=403, detail="Access denied")
-    _validate_workout_attachment_owner(data, current_user)
+    async with _customer_tenant_scope(db, current_user):
+        stmt = (
+            select(WorkoutSessionDraft)
+            .where(WorkoutSessionDraft.id == draft_id)
+            .options(selectinload(WorkoutSessionDraft.entries))
+        )
+        draft = (await db.execute(stmt)).scalar_one_or_none()
+        if not draft:
+            raise HTTPException(status_code=404, detail="Workout session draft not found")
+        if current_user.role == Role.CUSTOMER and draft.member_id != current_user.id:
+            raise HTTPException(status_code=403, detail="Access denied")
+        _validate_workout_attachment_owner(data, current_user)
 
-    draft.entries.sort(key=lambda entry: entry.order)
-    current_index = _active_entry_index(draft.entries)
-    if current_index >= len(draft.entries):
-        raise HTTPException(status_code=400, detail="This workout session is already complete")
+        draft.entries.sort(key=lambda entry: entry.order)
+        current_index = _active_entry_index(draft.entries)
+        if current_index >= len(draft.entries):
+            raise HTTPException(status_code=400, detail="This workout session is already complete")
 
-    current_entry = draft.entries[current_index]
-    if current_entry.id != entry_id:
-        raise HTTPException(status_code=400, detail="Exercises must be skipped in order")
+        current_entry = draft.entries[current_index]
+        if current_entry.id != entry_id:
+            raise HTTPException(status_code=400, detail="Exercises must be skipped in order")
 
-    current_entry.skipped = True
-    current_entry.notes = data.notes
-    current_entry.completed_at = datetime.utcnow()
-    current_entry.is_pr = False
-    current_entry.pr_type = None
-    current_entry.pr_value = None
-    current_entry.pr_notes = None
-    current_entry.set_details = None
-    draft.updated_at = datetime.utcnow()
-    draft.current_exercise_index = _active_entry_index(draft.entries)
-    await db.commit()
-    await db.refresh(draft, attribute_names=["entries"])
-    draft.entries.sort(key=lambda entry: entry.order)
-    draft.current_exercise_index = _active_entry_index(draft.entries)
-    return StandardResponse(data=WorkoutSessionDraftResponse.model_validate(draft))
+        current_entry.skipped = True
+        current_entry.notes = data.notes
+        current_entry.completed_at = datetime.utcnow()
+        current_entry.is_pr = False
+        current_entry.pr_type = None
+        current_entry.pr_value = None
+        current_entry.pr_notes = None
+        current_entry.set_details = None
+        draft.updated_at = datetime.utcnow()
+        draft.current_exercise_index = _active_entry_index(draft.entries)
+        await db.commit()
+        await db.refresh(draft, attribute_names=["entries"])
+        draft.entries.sort(key=lambda entry: entry.order)
+        draft.current_exercise_index = _active_entry_index(draft.entries)
+        return StandardResponse(data=WorkoutSessionDraftResponse.model_validate(draft))
 
 
 @router.post("/workout-sessions/{draft_id}/previous", response_model=StandardResponse[WorkoutSessionDraftResponse])
@@ -2923,6 +2942,7 @@ async def finish_workout_session(
         await db.commit()
         session_stmt = select(WorkoutSession).where(WorkoutSession.id == session.id).options(selectinload(WorkoutSession.entries))
         saved = (await db.execute(session_stmt)).scalar_one()
+        await MobileCustomerService.refresh_progress_cache(current_user=current_user, db=db)
         return StandardResponse(data=WorkoutSessionResponse.model_validate(saved))
 
 
@@ -2933,21 +2953,22 @@ async def abandon_workout_session(
     _subscription_guard: Annotated[User, Depends(dependencies.require_active_customer_subscription)],
     db: Annotated[AsyncSession, Depends(get_db)],
 ):
-    draft = (
-        await db.execute(
-            select(WorkoutSessionDraft).where(
-                WorkoutSessionDraft.id == draft_id,
-                WorkoutSessionDraft.gym_id == current_user.gym_id,
+    async with _customer_tenant_scope(db, current_user):
+        draft = (
+            await db.execute(
+                select(WorkoutSessionDraft).where(
+                    WorkoutSessionDraft.id == draft_id,
+                    WorkoutSessionDraft.gym_id == current_user.gym_id,
+                )
             )
-        )
-    ).scalar_one_or_none()
-    if not draft:
-        raise HTTPException(status_code=404, detail="Workout session draft not found")
-    if current_user.role == Role.CUSTOMER and draft.member_id != current_user.id:
-        raise HTTPException(status_code=403, detail="Access denied")
-    await db.delete(draft)
-    await db.commit()
-    return StandardResponse(message="Workout session discarded")
+        ).scalar_one_or_none()
+        if not draft:
+            raise HTTPException(status_code=404, detail="Workout session draft not found")
+        if current_user.role == Role.CUSTOMER and draft.member_id != current_user.id:
+            raise HTTPException(status_code=403, detail="Access denied")
+        await db.delete(draft)
+        await db.commit()
+        return StandardResponse(message="Workout session discarded")
 
 
 @router.put("/session-logs/{session_id}", response_model=StandardResponse[WorkoutSessionResponse])
@@ -3010,6 +3031,7 @@ async def update_completed_workout_session(
                 )
 
         await db.commit()
+        await MobileCustomerService.refresh_progress_cache(current_user=current_user, db=db)
         saved = (await db.execute(stmt)).scalar_one()
         saved.entries.sort(key=lambda entry: entry.order)
         return StandardResponse(data=WorkoutSessionResponse.model_validate(saved))
@@ -3556,6 +3578,7 @@ async def log_biometrics(
         )
         db.add(log)
         await db.commit()
+        await MobileCustomerService.refresh_progress_cache(current_user=current_user, db=db)
         return StandardResponse(message="Biometrics logged", data={"id": str(log.id)})
 
 @router.get("/biometrics", response_model=StandardResponse[List[BiometricLogResponse]])

@@ -67,28 +67,47 @@ function formatDateParam(date: Date): string {
 }
 
 export async function fetchMemberProgressData(range?: { fromDate?: Date; toDate?: Date }): Promise<{
-    workoutStats: { date: string; workouts: number }[];
+    range_summary: { biometrics: number; attendance: number; workouts: number };
     biometrics: BiometricLogResponse[];
-    sessionLogs: WorkoutSessionLog[];
+    attendance_history: { id: string; scan_time: string; status: string; reason?: string | null; kiosk_id?: string | null }[];
+    recent_workout_sessions: {
+        id: string;
+        plan_id: string;
+        performed_at: string;
+        duration_minutes?: number | null;
+        notes?: string | null;
+        session_volume?: number | null;
+    }[];
+    workout_stats: { date: string; workouts: number }[];
+    biometric_series: { weight: { date: string; value: number }[]; body_fat: { date: string; value: number }[]; muscle: { date: string; value: number }[] };
+    session_load_series: { date: string; volume: number; sessions: number }[];
+    exercise_pr_table: {
+        exercise: string;
+        best_weight: number;
+        best_weight_reps: number;
+        best_reps: number;
+        best_reps_weight: number;
+        best_volume: number;
+    }[];
 }> {
     try {
         const params = range
             ? {
-                  from_date: range.fromDate ? formatDateParam(range.fromDate) : undefined,
-                  to_date: range.toDate ? formatDateParam(range.toDate) : undefined,
+                  date_from: range.fromDate ? formatDateParam(range.fromDate) : undefined,
+                  date_to: range.toDate ? formatDateParam(range.toDate) : undefined,
               }
             : undefined;
-        const [workoutStatsRes, biometricsRes, sessionRes] = await Promise.all([
-            api.get('/fitness/stats', params ? { params } : undefined),
-            api.get('/fitness/biometrics', params ? { params } : undefined),
-            api.get('/fitness/session-logs/me', params ? { params } : undefined),
-        ]);
-
-        return {
-            workoutStats: safeData<{ date: string; workouts: number }[]>(workoutStatsRes.data?.data, []),
-            biometrics: safeData<BiometricLogResponse[]>(biometricsRes.data?.data, []),
-            sessionLogs: safeData<WorkoutSessionLog[]>(sessionRes.data?.data, []),
-        };
+        const response = await api.get('/mobile/customer/progress', params ? { params } : undefined);
+        return safeData(response.data?.data, {
+            range_summary: { biometrics: 0, attendance: 0, workouts: 0 },
+            biometrics: [],
+            attendance_history: [],
+            recent_workout_sessions: [],
+            workout_stats: [],
+            biometric_series: { weight: [], body_fat: [], muscle: [] },
+            session_load_series: [],
+            exercise_pr_table: [],
+        });
     } catch (error) {
         throw new Error(readDetail(error) || 'Failed to load progress data');
     }

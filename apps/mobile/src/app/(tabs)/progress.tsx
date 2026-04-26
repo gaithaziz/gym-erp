@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { Pressable, StyleSheet, Text, View } from "react-native";
 
 import { Card, InlineStat, Input, MutedText, PrimaryButton, QueryState, Screen, SectionTitle } from "@/components/ui";
@@ -67,17 +67,13 @@ export default function ProgressTab() {
 
   const latestBiometric = progress?.biometrics.at(-1) ?? null;
   const recentAttendance = progress?.attendance_history.slice(0, 5) ?? [];
-  const recentSessions = progress?.recent_workout_sessions.slice(0, 5) ?? [];
   const workoutCountInRange = progress?.range_summary.workouts ?? progress?.workout_stats.reduce((sum, row) => sum + row.workouts, 0) ?? 0;
   const grantedAttendanceCount = progress?.range_summary.attendance ?? progress?.attendance_history.filter((entry) => entry.status === "GRANTED").length ?? 0;
-  const sessionVolumeSeries = progress?.recent_workout_sessions
-    .slice()
-    .sort((a, b) => new Date(a.performed_at).getTime() - new Date(b.performed_at).getTime())
-    .map((session) => ({
-      label: new Date(session.performed_at).toLocaleDateString(locale, { month: "short", day: "numeric" }),
-      value: session.session_volume ?? 0,
-    }))
-    .filter((point) => typeof point.value === "number") ?? [];
+  const exercisePrTable = progress?.exercise_pr_table ?? [];
+  const sessionVolumeSeries = progress?.session_load_series.map((row) => ({
+    label: new Date(row.date).toLocaleDateString(locale, { month: "short", day: "numeric" }),
+    value: row.volume,
+  })) ?? [];
   const metricPayload = {
     weight_kg: parseMetricValue(weightKg),
     height_cm: parseMetricValue(heightCm),
@@ -106,7 +102,11 @@ export default function ProgressTab() {
 
   return (
     <Screen title={copy.progress.title} subtitle={copy.progress.subtitle}>
-      <QueryState loading={progressQuery.isLoading} loadingVariant="detail" error={progressQuery.error instanceof Error ? progressQuery.error.message : null} />
+      <QueryState
+        loading={progressQuery.isLoading}
+        loadingVariant="detail"
+        error={progressQuery.error instanceof Error ? progressQuery.error.message : null}
+      />
       {progress ? (
         <>
           <Card style={styles.rangeCard}>
@@ -180,19 +180,19 @@ export default function ProgressTab() {
             <SectionTitle>{copy.progress.bodyMetricsTrend}</SectionTitle>
             <SparklineChart
               title={copy.progress.weightTrend}
-              points={progress.biometrics.slice(-8).map((entry) => ({ label: new Date(entry.date).toLocaleDateString(locale, { month: "short", day: "numeric" }), value: entry.weight_kg }))}
+              points={progress.biometric_series.weight.slice(-8).map((entry) => ({ label: new Date(entry.date).toLocaleDateString(locale, { month: "short", day: "numeric" }), value: entry.value }))}
               unit="kg"
               emptyMessage={copy.progress.graphNoData}
             />
             <SparklineChart
               title={copy.progress.bodyFatTrend}
-              points={progress.biometrics.slice(-8).map((entry) => ({ label: new Date(entry.date).toLocaleDateString(locale, { month: "short", day: "numeric" }), value: entry.body_fat_pct }))}
+              points={progress.biometric_series.body_fat.slice(-8).map((entry) => ({ label: new Date(entry.date).toLocaleDateString(locale, { month: "short", day: "numeric" }), value: entry.value }))}
               unit="%"
               emptyMessage={copy.progress.graphNoData}
             />
             <SparklineChart
               title={copy.progress.muscleTrend}
-              points={progress.biometrics.slice(-8).map((entry) => ({ label: new Date(entry.date).toLocaleDateString(locale, { month: "short", day: "numeric" }), value: entry.muscle_mass_kg }))}
+              points={progress.biometric_series.muscle.slice(-8).map((entry) => ({ label: new Date(entry.date).toLocaleDateString(locale, { month: "short", day: "numeric" }), value: entry.value }))}
               unit="kg"
               emptyMessage={copy.progress.graphNoData}
             />
@@ -234,7 +234,7 @@ export default function ProgressTab() {
                   unit="kg"
                   emptyMessage={copy.progress.noSessionVolume}
                 />
-                {recentSessions.map((session) => (
+                {progress.recent_workout_sessions.slice(0, 5).map((session) => (
                   <View key={session.id} style={[styles.row, { borderTopColor: theme.border, flexDirection: isRTL ? "row-reverse" : "row" }]}>
                     <Text style={[styles.rowTitle, { color: theme.foreground, fontFamily: fontSet.body, textAlign: isRTL ? "right" : "left", writingDirection: direction }]}>
                       {new Date(session.performed_at).toLocaleDateString(locale)}
@@ -262,28 +262,32 @@ export default function ProgressTab() {
 
           <Card>
             <SectionTitle>{copy.progress.prSection}</SectionTitle>
-            {progress.personal_records.length === 0 ? (
+            {exercisePrTable.length === 0 ? (
               <MutedText>{copy.progress.noPersonalRecords}</MutedText>
             ) : (
-              progress.personal_records.slice(0, 6).map((record) => (
-                <View key={record.id} style={[styles.prCard, { backgroundColor: theme.cardAlt, borderColor: theme.border }]}>
+              exercisePrTable.slice(0, 6).map((record) => (
+                <View key={record.exercise} style={[styles.prCard, { backgroundColor: theme.cardAlt, borderColor: theme.border }]}>
                   <View style={[styles.prHead, { flexDirection: isRTL ? "row-reverse" : "row" }]}>
                     <View style={styles.rowTextWrap}>
                       <Text style={[styles.prTitle, { color: theme.foreground, fontFamily: fontSet.body, textAlign: isRTL ? "right" : "left", writingDirection: direction }]}>
-                        {record.exercise_name || copy.progress.prFallback}
+                        {record.exercise}
                       </Text>
-                      <MutedText>{record.plan_name || copy.common.noCurrentPlan}</MutedText>
+                      <MutedText>
+                        {record.best_reps} {copy.progress.repsAt} {record.best_reps_weight} {copy.progress.weightUnit}
+                      </MutedText>
                     </View>
                     <Text style={[styles.prBadge, { color: theme.primary, fontFamily: fontSet.mono, textTransform: isRTL ? "none" : "uppercase" }]}>
-                      {record.pr_type || copy.progress.prFallback}
+                      {copy.progress.allTimeBest}
                     </Text>
                   </View>
-                  <Text style={[styles.prValue, { color: theme.foreground, fontFamily: fontSet.display, textAlign: isRTL ? "right" : "left", writingDirection: direction }]}>
-                    {record.pr_value || `${record.weight_kg ?? "--"} kg / ${record.reps_completed} reps`}
-                  </Text>
-                  {record.entry_volume != null ? <MutedText>{`${copy.progress.bestVolume}: ${formatVolume(record.entry_volume)}`}</MutedText> : null}
-                  {record.pr_notes ? <MutedText>{record.pr_notes}</MutedText> : null}
-                  <MutedText>{new Date(record.performed_at).toLocaleDateString(locale)}</MutedText>
+                  <View style={[styles.prMetaRow, { flexDirection: isRTL ? "row-reverse" : "row" }]}>
+                    <Text style={[styles.prValue, { color: theme.foreground, fontFamily: fontSet.display, textAlign: isRTL ? "right" : "left", writingDirection: direction }]}>
+                      {record.best_weight} {copy.progress.weightUnit} x {record.best_weight_reps}
+                    </Text>
+                    <MutedText>
+                      {`${copy.progress.bestVolume}: ${formatVolume(record.best_volume)}`}
+                    </MutedText>
+                  </View>
                 </View>
               ))
             )}
@@ -291,10 +295,10 @@ export default function ProgressTab() {
 
           <Card>
             <SectionTitle>{copy.progress.recentSessions}</SectionTitle>
-            {recentSessions.length === 0 ? (
+            {progress.recent_workout_sessions.length === 0 ? (
               <MutedText>{copy.progress.noSessions}</MutedText>
             ) : (
-              recentSessions.map((session) => (
+              progress.recent_workout_sessions.slice(0, 5).map((session) => (
                 <View key={session.id} style={[styles.blockRow, { borderTopColor: theme.border }]}>
                   <Text style={[styles.rowTitle, { color: theme.foreground, fontFamily: fontSet.body, textAlign: isRTL ? "right" : "left", writingDirection: direction }]}>
                     {new Date(session.performed_at).toLocaleString(locale)}
@@ -807,24 +811,31 @@ const styles = StyleSheet.create({
   prCard: {
     borderWidth: 1,
     borderRadius: 12,
-    padding: 12,
-    gap: 6,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    gap: 4,
   },
   prHead: {
     alignItems: "flex-start",
     justifyContent: "space-between",
-    gap: 10,
+    gap: 8,
   },
   prTitle: {
-    fontSize: 14,
+    fontSize: 13,
     fontWeight: "800",
   },
   prBadge: {
     fontSize: 10,
     fontWeight: "900",
   },
+  prMetaRow: {
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: 10,
+    flexWrap: "wrap",
+  },
   prValue: {
-    fontSize: 20,
+    fontSize: 16,
     fontWeight: "800",
   },
   row: {

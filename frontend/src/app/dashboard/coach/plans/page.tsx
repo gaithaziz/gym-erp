@@ -381,6 +381,8 @@ export default function WorkoutPlansPage() {
         return null;
     };
 
+    const videoActionClassName = 'inline-flex items-center gap-1 rounded-sm border border-cyan-500/30 bg-cyan-500/10 px-2 py-1 text-xs font-medium text-cyan-700 hover:bg-cyan-500/15 dark:border-cyan-400/30 dark:bg-cyan-400/10 dark:text-cyan-300';
+
     const getYouTubeEmbedUrl = (url: string) => {
         try {
             const parsed = new URL(url);
@@ -829,7 +831,7 @@ export default function WorkoutPlansPage() {
                                         videoUrl: !youtubeEmbedUrl && (ex.video_type === 'UPLOAD' || isDirectVideoFile) ? videoUrl : undefined,
                                         externalUrl: videoUrl,
                                     })}
-                                    className="inline-flex items-center gap-1 rounded-sm border border-primary/40 bg-primary/10 px-2 py-1 text-xs text-primary hover:bg-primary/20"
+                                    className={videoActionClassName}
                                     title={locale === 'ar' ? '\u062a\u0634\u063a\u064a\u0644 \u0641\u064a\u062f\u064a\u0648 \u0627\u0644\u062a\u0645\u0631\u064a\u0646' : 'Play exercise video'}
                                 >
                                     <PlayCircle size={14} />
@@ -840,7 +842,7 @@ export default function WorkoutPlansPage() {
                                     href={videoUrl}
                                     target="_blank"
                                     rel="noreferrer"
-                                    className="inline-flex items-center gap-1 rounded-sm border border-primary/40 bg-primary/10 px-2 py-1 text-xs text-primary hover:bg-primary/20"
+                                    className={videoActionClassName}
                                     title={locale === 'ar' ? '\u0641\u062a\u062d \u0641\u064a\u062f\u064a\u0648 \u0627\u0644\u062a\u0645\u0631\u064a\u0646' : 'Open exercise video'}
                                 >
                                     <Video size={14} />
@@ -1219,6 +1221,27 @@ export default function WorkoutPlansPage() {
                                                 </div>
                                                 <div className="flex items-center gap-2">
                                                     {resolveVideoUrl(ex) && <span className="inline-flex items-center gap-1 rounded-sm border border-border px-2 py-1 text-xs text-muted-foreground"><Video size={12} /> {txt.added}</span>}
+                                                    {resolveVideoUrl(ex) && (
+                                                        <button
+                                                            type="button"
+                                                            onClick={() => {
+                                                                const videoUrl = resolveVideoUrl(ex);
+                                                                if (!videoUrl) return;
+                                                                const youtubeEmbedUrl = getYouTubeEmbedUrl(videoUrl);
+                                                                setVideoPopup({
+                                                                    title: getExerciseDisplayName(ex),
+                                                                    youtubeEmbedUrl: youtubeEmbedUrl || undefined,
+                                                                    videoUrl: !youtubeEmbedUrl && (ex.video_type === 'UPLOAD' || /\.(mp4|webm|ogg|mov|m4v)(\?|$)/i.test(videoUrl)) ? videoUrl : undefined,
+                                                                    externalUrl: videoUrl,
+                                                                });
+                                                            }}
+                                                            className={videoActionClassName}
+                                                            title={locale === 'ar' ? '\u062a\u0634\u063a\u064a\u0644 \u0641\u064a\u062f\u064a\u0648 \u0627\u0644\u062a\u0645\u0631\u064a\u0646' : 'Play exercise video'}
+                                                        >
+                                                            <PlayCircle size={14} />
+                                                            {txt.watch}
+                                                        </button>
+                                                    )}
                                                     <button type="button" onClick={() => saveExerciseAsReusable(ex)} className="btn-ghost !px-2 !py-1 h-auto text-xs">{txt.saveReusable}</button>
                                                     <button type="button" onClick={() => removeExerciseFromSection(section.id, idx)} className="text-muted-foreground hover:text-destructive"><Trash2 size={16} /></button>
                                                 </div>

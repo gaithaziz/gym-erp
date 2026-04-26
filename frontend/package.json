@@ -29,6 +29,7 @@
     "test:e2e:ui": "playwright test --ui"
   },
   "dependencies": {
+    "@gym-erp/workout": "*",
     "@gym-erp/contracts": "*",
     "@gym-erp/i18n": "*",
     "@types/react-grid-layout": "^1.3.6",

@@ -14,7 +14,7 @@ from app.models.enums import Role
 from app.models.finance import PaymentMethod, Transaction, TransactionCategory, TransactionType
 from app.models.fitness import BiometricLog, DietPlan, WorkoutPlan
 from app.models.hr import LeaveRequest, LeaveStatus, LeaveType
-from app.models.lost_found import LostFoundItem, LostFoundStatus
+from app.models.lost_found import LostFoundCategory, LostFoundItem, LostFoundStatus
 from app.models.notification import MobileDevice, PushDeliveryLog, WhatsAppDeliveryLog
 from app.models.roaming import MemberRoamingAccess
 from app.models.subscription_enums import SubscriptionStatus
@@ -572,9 +572,10 @@ async def test_mobile_customer_plans_and_progress(client: AsyncClient, db_sessio
     assert progress["recent_workout_sessions"][0]["duration_minutes"] == 55
     assert progress["recent_workout_sessions"][0]["session_volume"] == 2100.0
     assert progress["workout_stats"][0]["workouts"] == 1
-    assert progress["personal_records"][0]["exercise_name"] == "Deadlift"
-    assert progress["personal_records"][0]["pr_value"] == "140kg x 5"
-    assert progress["personal_records"][0]["entry_volume"] == 2100.0
+    assert progress["exercise_pr_table"][0]["exercise"] == "Deadlift"
+    assert progress["exercise_pr_table"][0]["best_weight"] == 140.0
+    assert progress["exercise_pr_table"][0]["best_weight_reps"] == 5
+    assert progress["exercise_pr_table"][0]["best_volume"] == 2100.0
 
 
 @pytest.mark.asyncio
@@ -1200,7 +1201,7 @@ async def test_mobile_support_and_lost_found_respect_branch_filters(client: Asyn
                 status=LostFoundStatus.REPORTED,
                 title="A item",
                 description="A",
-                category="personal",
+                category=LostFoundCategory.LOST.value,
                 created_at=now,
                 updated_at=now,
                 gym_id=gym.id,
@@ -1212,7 +1213,7 @@ async def test_mobile_support_and_lost_found_respect_branch_filters(client: Asyn
                 status=LostFoundStatus.REPORTED,
                 title="B item",
                 description="B",
-                category="personal",
+                category=LostFoundCategory.LOST.value,
                 created_at=now,
                 updated_at=now,
                 gym_id=gym.id,

@@ -3,8 +3,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Activity } from 'lucide-react';
 import {
-    BarChart,
-    Bar,
     LineChart,
     Line,
     XAxis,
@@ -20,7 +18,7 @@ import { api } from '@/lib/api';
 import { useLocale } from '@/context/LocaleContext';
 
 import { fetchMemberProgressData } from '../_shared/customerData';
-import type { BiometricLogResponse, WorkoutSessionLog } from '../_shared/types';
+import type { BiometricLogResponse } from '../_shared/types';
 
 type MetricKey = keyof Pick<BiometricLogResponse, 'weight_kg' | 'body_fat_pct' | 'muscle_mass_kg'>;
 const PR_TABLE_PAGE_SIZE = 10;
@@ -30,29 +28,6 @@ const RANGE_OPTIONS = [
     { key: '90d', days: 90 },
     { key: 'all', days: null as null },
 ] as const;
-
-function parseSetDetailsVolume(setDetails?: WorkoutSessionLog["entries"][number]["set_details"] | null): number {
-    if (!setDetails?.length) return 0;
-    return setDetails.reduce((sum, row) => {
-        const reps = Number(row.reps || 0);
-        const weight = Number(row.weightKg || 0);
-        if (!Number.isFinite(reps) || !Number.isFinite(weight)) return sum;
-        return sum + Math.max(0, reps) * Math.max(0, weight);
-    }, 0);
-}
-
-function getEntryVolume(entry: WorkoutSessionLog["entries"][number]): number {
-    if (typeof entry.entry_volume === 'number' && Number.isFinite(entry.entry_volume)) return entry.entry_volume;
-    const setVolume = parseSetDetailsVolume(entry.set_details);
-    if (setVolume > 0) return setVolume;
-    if (entry.skipped) return 0;
-    return Math.max(0, Number(entry.sets_completed || 0) * Number(entry.reps_completed || 0) * Number(entry.weight_kg || 0));
-}
-
-function getSessionVolume(session: WorkoutSessionLog): number {
-    if (typeof session.session_volume === 'number' && Number.isFinite(session.session_volume)) return session.session_volume;
-    return (session.entries || []).reduce((sum, entry) => sum + getEntryVolume(entry), 0);
-}
 
 export default function MemberProgressPage() {
     const { locale, formatDate } = useLocale();
@@ -70,6 +45,7 @@ export default function MemberProgressPage() {
         noWorkoutData: 'لا توجد بيانات تمرين',
         bodyTracking: 'تتبع تقدم الجسم',
         noDataInRange: 'لا توجد بيانات في النطاق المحدد',
+        workoutTrend: 'اتجاه التمرين',
         quickLog: 'تسجيل سريع للجسم',
         heightCm: 'الطول (سم)',
         weightKg: 'الوزن (كجم)',
@@ -117,6 +93,7 @@ export default function MemberProgressPage() {
         noWorkoutData: 'No workout data',
         bodyTracking: 'Body Progress Tracking',
         noDataInRange: 'No data in selected range',
+        workoutTrend: 'Workout Trend',
         quickLog: 'Quick Body Log',
         heightCm: 'Height (cm)',
         weightKg: 'Weight (kg)',
@@ -152,9 +129,7 @@ export default function MemberProgressPage() {
         workoutsInRange: 'Workouts',
         attendanceInRange: 'Check-ins',
     };
-    const [workoutStats, setWorkoutStats] = useState<{ date: string; workouts: number }[]>([]);
-    const [sessionLogs, setSessionLogs] = useState<WorkoutSessionLog[]>([]);
-    const [biometrics, setBiometrics] = useState<BiometricLogResponse[]>([]);
+    const [progressData, setProgressData] = useState<Awaited<ReturnType<typeof fetchMemberProgressData>> | null>(null);
     const [prTablePage, setPrTablePage] = useState(1);
     const [weight, setWeight] = useState('');
     const [height, setHeight] = useState('');
@@ -186,18 +161,14 @@ export default function MemberProgressPage() {
     const loadData = useCallback(async () => {
         try {
             const data = await fetchMemberProgressData(rangeWindow ?? undefined);
-            setWorkoutStats(data.workoutStats);
-            setSessionLogs(data.sessionLogs);
-            setBiometrics(data.biometrics);
+            setProgressData(data);
 
             if (data.biometrics.length > 0) {
                 const latest = data.biometrics[data.biometrics.length - 1];
                 setHeight(latest.height_cm?.toString() ?? '');
             }
         } catch (error) {
-            setWorkoutStats([]);
-            setSessionLogs([]);
-            setBiometrics([]);
+            setProgressData(null);
             showToast(error instanceof Error ? error.message : txt.metricsFailed, 'error');
         }
     }, [rangeWindow, showToast, txt.metricsFailed]);
@@ -253,85 +224,39 @@ export default function MemberProgressPage() {
         }
     };
 
-    const filteredBiometrics = useMemo(() => biometrics, [biometrics]);
-    const filteredSessionLogs = useMemo(() => sessionLogs, [sessionLogs]);
-
     const buildMetricSeries = useCallback((metric: MetricKey) => {
-        const sorted = [...filteredBiometrics].sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
+        const source =
+            metric === 'weight_kg'
+                ? progressData?.biometric_series.weight ?? []
+                : metric === 'body_fat_pct'
+                    ? progressData?.biometric_series.body_fat ?? []
+                    : progressData?.biometric_series.muscle ?? [];
+        const sorted = [...source].sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
         return sorted
-            .filter((point) => typeof point[metric] === 'number')
             .map((point, index, arr) => {
-                const value = Number(point[metric] || 0);
-                const prev = index > 0 ? Number(arr[index - 1][metric] || 0) : null;
+                const value = Number(point.value || 0);
+                const prev = index > 0 ? Number(arr[index - 1].value || 0) : null;
                 return {
                     date: point.date,
                     value,
                     delta: prev === null ? null : value - prev,
                 };
             });
-    }, [filteredBiometrics]);
+    }, [progressData?.biometric_series.body_fat, progressData?.biometric_series.muscle, progressData?.biometric_series.weight]);
 
     const weightSeries = useMemo(() => buildMetricSeries('weight_kg'), [buildMetricSeries]);
     const bodyFatSeries = useMemo(() => buildMetricSeries('body_fat_pct'), [buildMetricSeries]);
     const muscleSeries = useMemo(() => buildMetricSeries('muscle_mass_kg'), [buildMetricSeries]);
 
-    const sessionVolumeSeries = useMemo(() => {
-        const map = new Map<string, { date: string; volume: number; sessions: number }>();
-        filteredSessionLogs.forEach((session) => {
-            const key = new Date(session.performed_at).toISOString().split('T')[0];
-            const volume = getSessionVolume(session);
-            const existing = map.get(key);
-            if (existing) {
-                existing.volume += volume;
-                existing.sessions += 1;
-            } else {
-                map.set(key, { date: key, volume, sessions: 1 });
-            }
-        });
-        return Array.from(map.values()).sort((a, b) => a.date.localeCompare(b.date)).slice(-90);
-    }, [filteredSessionLogs]);
+    const workoutStats = progressData?.workout_stats ?? [];
+    const biometrics = progressData?.biometrics ?? [];
+    const recentSessions = progressData?.recent_workout_sessions ?? [];
+    const sessionVolumeSeries = useMemo(() => progressData?.session_load_series ?? [], [progressData?.session_load_series]);
 
-    const exercisePrTable = useMemo(() => {
-        const byExercise = new Map<string, { bestWeight: number; bestWeightReps: number; bestReps: number; bestRepsWeight: number; bestVolume: number }>();
-        filteredSessionLogs.forEach((session) => {
-            session.entries.forEach((entry) => {
-                if (entry.skipped) return;
-                const name = (entry.exercise_name || txt.fallbackExercise).trim();
-                const weightValue = Number(entry.weight_kg || 0);
-                const repsValue = Number(entry.reps_completed || 0);
-                const volumeValue = getEntryVolume(entry);
-                const existing = byExercise.get(name);
-                if (!existing) {
-                    byExercise.set(name, {
-                        bestWeight: weightValue,
-                        bestWeightReps: repsValue,
-                        bestReps: repsValue,
-                        bestRepsWeight: weightValue,
-                        bestVolume: volumeValue,
-                    });
-                    return;
-                }
-                if (weightValue > existing.bestWeight || (weightValue === existing.bestWeight && repsValue > existing.bestWeightReps)) {
-                    existing.bestWeight = weightValue;
-                    existing.bestWeightReps = repsValue;
-                }
-                if (repsValue > existing.bestReps || (repsValue === existing.bestReps && weightValue > existing.bestRepsWeight)) {
-                    existing.bestReps = repsValue;
-                    existing.bestRepsWeight = weightValue;
-                }
-                if (volumeValue > existing.bestVolume) {
-                    existing.bestVolume = volumeValue;
-                }
-            });
-        });
-
-        return Array.from(byExercise.entries())
-            .map(([exercise, record]) => ({ exercise, ...record }))
-            .sort((a, b) => b.bestWeight - a.bestWeight)
-            .slice(0, 12);
-    }, [filteredSessionLogs, txt.fallbackExercise]);
+    const exercisePrTable = useMemo(() => progressData?.exercise_pr_table ?? [], [progressData?.exercise_pr_table]);
     const totalPrPages = Math.max(1, Math.ceil(exercisePrTable.length / PR_TABLE_PAGE_SIZE));
     const visibleExercisePrTable = exercisePrTable.slice((prTablePage - 1) * PR_TABLE_PAGE_SIZE, prTablePage * PR_TABLE_PAGE_SIZE);
+    const isArabic = locale === 'ar';
 
     useEffect(() => {
         setPrTablePage(1);
@@ -365,6 +290,21 @@ export default function MemberProgressPage() {
             </div>
         );
     }
+
+    const formatBestWeight = (value: number, reps: number) => {
+        if (value <= 0) return '-';
+        return isArabic ? `${value.toFixed(1)} ${txt.weightUnit} × ${reps}` : `${value.toFixed(1)} ${txt.weightUnit} x ${reps}`;
+    };
+
+    const formatBestReps = (reps: number, weight: number) => {
+        if (reps <= 0) return '-';
+        return isArabic ? `${reps} ${txt.repsAt} ${weight.toFixed(1)} ${txt.weightUnit}` : `${reps} ${txt.repsAt} ${weight.toFixed(1)} ${txt.weightUnit}`;
+    };
+
+    const formatBestVolume = (value: number) => {
+        if (value <= 0) return '-';
+        return `${value.toFixed(1)} ${txt.weightUnit}`;
+    };
 
     if (loading) {
         return (
@@ -413,7 +353,7 @@ export default function MemberProgressPage() {
                 <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
                     <div className="rounded-sm border border-border bg-muted/10 p-3">
                         <p className="text-[10px] uppercase font-bold text-muted-foreground">{txt.workoutsInRange}</p>
-                        <p className="text-lg font-mono text-foreground mt-1">{workoutStats.reduce((sum, row) => sum + row.workouts, 0)}</p>
+                        <p className="text-lg font-mono text-foreground mt-1">{progressData?.range_summary.workouts ?? 0}</p>
                     </div>
                     <div className="rounded-sm border border-border bg-muted/10 p-3">
                         <p className="text-[10px] uppercase font-bold text-muted-foreground">{txt.bodyTracking}</p>
@@ -421,55 +361,12 @@ export default function MemberProgressPage() {
                     </div>
                     <div className="rounded-sm border border-border bg-muted/10 p-3">
                         <p className="text-[10px] uppercase font-bold text-muted-foreground">{txt.sessionsLogged}</p>
-                        <p className="text-lg font-mono text-foreground mt-1">{sessionLogs.length}</p>
+                        <p className="text-lg font-mono text-foreground mt-1">{recentSessions.length}</p>
                     </div>
                 </div>
             </div>
 
             <div className="grid grid-cols-1 gap-6">
-                <div className="kpi-card p-5">
-                    <div className="flex items-center justify-between gap-3 flex-wrap mb-3">
-                        <p className="section-chip">{txt.consistencyTitle}</p>
-                        <p className="text-xs text-muted-foreground font-mono">{selectedRangeLabel}</p>
-                    </div>
-                    <div className="h-44">
-                        {workoutStats.length > 0 ? (
-                            <SafeResponsiveChart>
-                                <LineChart data={workoutStats}>
-                                    <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" vertical={false} />
-                                    <XAxis
-                                        dataKey="date"
-                                        tick={{ fontSize: 11, fill: 'var(--muted-foreground)', fontFamily: 'var(--font-mono)' }}
-                                        axisLine={false}
-                                        tickLine={false}
-                                        tickFormatter={(value) => {
-                                            const date = new Date(value);
-                                            return `${date.getMonth() + 1}/${date.getDate()}`;
-                                        }}
-                                    />
-                                    <YAxis
-                                        tick={{ fontSize: 11, fill: 'var(--muted-foreground)', fontFamily: 'var(--font-mono)' }}
-                                        axisLine={false}
-                                        tickLine={false}
-                                        allowDecimals={false}
-                                    />
-                                    <Tooltip
-                                        cursor={{ fill: 'var(--muted)' }}
-                                        contentStyle={{ background: 'var(--card)', border: '1px solid var(--border)', borderRadius: '0px', fontSize: '0.8rem', color: 'var(--foreground)' }}
-                                        labelFormatter={(label) => formatDate(String(label), { year: 'numeric', month: 'short', day: 'numeric' })}
-                                    />
-                                    <Line type="monotone" dataKey="workouts" stroke="var(--primary)" strokeWidth={2} dot={{ r: 2, fill: 'var(--primary)' }} />
-                                </LineChart>
-                            </SafeResponsiveChart>
-                        ) : (
-                            <div className="flex items-center justify-center h-full text-muted-foreground text-sm font-mono border border-dashed border-border flex-col">
-                                <Activity size={24} className="mb-2 opacity-50" />
-                                <span>{txt.noWorkoutData}</span>
-                            </div>
-                        )}
-                    </div>
-                </div>
-
                 <div className="kpi-card p-5">
                     <div className="flex items-center justify-between gap-3 flex-wrap mb-3">
                         <p className="section-chip">{txt.bodyTracking}</p>
@@ -519,81 +416,120 @@ export default function MemberProgressPage() {
                     </div>
                 </div>
 
-                <div className="kpi-card p-5 space-y-4">
-                    <div className="flex items-center justify-between gap-3 flex-wrap">
-                        <p className="section-chip">{txt.sessionLoad}</p>
-                        <p className="text-xs text-muted-foreground font-mono">{selectedRangeLabel}</p>
+                <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">
+                    <div className="kpi-card p-5">
+                        <div className="flex items-center justify-between gap-3 flex-wrap mb-3">
+                            <p className="section-chip">{txt.workoutTrend}</p>
+                            <p className="text-xs text-muted-foreground font-mono">{selectedRangeLabel}</p>
+                        </div>
+                        <div className="h-44">
+                            {workoutStats.length ? (
+                                <SafeResponsiveChart>
+                                    <LineChart data={workoutStats}>
+                                        <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" vertical={false} />
+                                        <XAxis
+                                            dataKey="date"
+                                            tick={{ fontSize: 11, fill: 'var(--muted-foreground)', fontFamily: 'var(--font-mono)' }}
+                                            axisLine={false}
+                                            tickLine={false}
+                                            tickFormatter={(value) => {
+                                                const date = new Date(value);
+                                                return `${date.getMonth() + 1}/${date.getDate()}`;
+                                            }}
+                                        />
+                                        <YAxis
+                                            tick={{ fontSize: 11, fill: 'var(--muted-foreground)', fontFamily: 'var(--font-mono)' }}
+                                            axisLine={false}
+                                            tickLine={false}
+                                            allowDecimals={false}
+                                        />
+                                        <Tooltip
+                                            cursor={{ fill: 'var(--muted)' }}
+                                            contentStyle={{ background: 'var(--card)', border: '1px solid var(--border)', borderRadius: '0px', fontSize: '0.8rem', color: 'var(--foreground)' }}
+                                            labelFormatter={(label) => formatDate(String(label), { year: 'numeric', month: 'short', day: 'numeric' })}
+                                        />
+                                        <Line type="monotone" dataKey="workouts" stroke="var(--primary)" strokeWidth={2} dot={{ r: 2, fill: 'var(--primary)' }} />
+                                    </LineChart>
+                                </SafeResponsiveChart>
+                            ) : (
+                                <div className="flex items-center justify-center h-full text-muted-foreground text-sm font-mono border border-dashed border-border flex-col">
+                                    <Activity size={24} className="mb-2 opacity-50" />
+                                    <span>{txt.noWorkoutData}</span>
+                                </div>
+                            )}
+                        </div>
                     </div>
-                    <div className="h-40">
-                        {sessionVolumeSeries.length > 0 ? (
-                            <SafeResponsiveChart>
-                                <LineChart data={sessionVolumeSeries}>
-                                    <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" vertical={false} />
-                                    <XAxis
-                                        dataKey="date"
-                                        tickFormatter={(value) => {
-                                            const date = new Date(value);
-                                            return `${date.getMonth() + 1}/${date.getDate()}`;
-                                        }}
-                                        tick={{ fontSize: 11, fill: 'var(--muted-foreground)', fontFamily: 'var(--font-mono)' }}
-                                        axisLine={false}
-                                        tickLine={false}
-                                    />
-                                    <YAxis
-                                        tick={{ fontSize: 11, fill: 'var(--muted-foreground)', fontFamily: 'var(--font-mono)' }}
-                                        axisLine={false}
-                                        tickLine={false}
-                                    />
-                                    <Tooltip
-                                        contentStyle={{ background: 'var(--card)', border: '1px solid var(--border)', borderRadius: '0px', fontSize: '0.8rem', color: 'var(--foreground)' }}
-                                        labelFormatter={(label) => formatDate(String(label), { year: 'numeric', month: 'short', day: 'numeric' })}
-                                    />
-                                    <Line type="monotone" dataKey="volume" stroke="var(--primary)" strokeWidth={2} name="Volume (kg)" dot={{ r: 2, fill: 'var(--primary)' }} />
-                                </LineChart>
-                            </SafeResponsiveChart>
-                        ) : (
-                            <div className="h-full flex items-center justify-center text-muted-foreground text-sm font-mono border border-dashed border-border">
-                                {txt.noSessionVolume}
-                            </div>
-                        )}
+
+                    <div className="kpi-card p-5 space-y-4">
+                        <div className="flex items-center justify-between gap-3 flex-wrap">
+                            <p className="section-chip">{txt.sessionLoad}</p>
+                            <p className="text-xs text-muted-foreground font-mono">{selectedRangeLabel}</p>
+                        </div>
+                        <div className="h-40">
+                            {sessionVolumeSeries.length > 0 ? (
+                                <SafeResponsiveChart>
+                                    <LineChart data={sessionVolumeSeries}>
+                                        <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" vertical={false} />
+                                        <XAxis
+                                            dataKey="date"
+                                            tickFormatter={(value) => {
+                                                const date = new Date(value);
+                                                return `${date.getMonth() + 1}/${date.getDate()}`;
+                                            }}
+                                            tick={{ fontSize: 11, fill: 'var(--muted-foreground)', fontFamily: 'var(--font-mono)' }}
+                                            axisLine={false}
+                                            tickLine={false}
+                                        />
+                                        <YAxis
+                                            tick={{ fontSize: 11, fill: 'var(--muted-foreground)', fontFamily: 'var(--font-mono)' }}
+                                            axisLine={false}
+                                            tickLine={false}
+                                        />
+                                        <Tooltip
+                                            contentStyle={{ background: 'var(--card)', border: '1px solid var(--border)', borderRadius: '0px', fontSize: '0.8rem', color: 'var(--foreground)' }}
+                                            labelFormatter={(label) => formatDate(String(label), { year: 'numeric', month: 'short', day: 'numeric' })}
+                                        />
+                                        <Line type="monotone" dataKey="volume" stroke="var(--primary)" strokeWidth={2} name="Volume (kg)" dot={{ r: 2, fill: 'var(--primary)' }} />
+                                    </LineChart>
+                                </SafeResponsiveChart>
+                            ) : (
+                                <div className="h-full flex items-center justify-center text-muted-foreground text-sm font-mono border border-dashed border-border">
+                                    {txt.noSessionVolume}
+                                </div>
+                            )}
+                        </div>
                     </div>
                 </div>
 
                 <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">
-                    <div className="kpi-card p-4">
+                    <div className="kpi-card p-4" dir={isArabic ? 'rtl' : 'ltr'}>
                         <div className="flex items-center justify-between mb-3">
                             <p className="section-chip">{`${txt.prTable} (${selectedRangeLabel})`}</p>
                             <p className="text-xs text-muted-foreground font-mono">{exercisePrTable.length}</p>
                         </div>
                         {exercisePrTable.length > 0 ? (
                             <>
-                                <div className="overflow-x-auto">
-                                    <table className="w-full text-start table-dark min-w-[420px]">
-                                        <thead>
-                                            <tr>
-                                                <th>{txt.exercise}</th>
-                                                <th>{txt.bestWeight}</th>
-                                                <th>{txt.bestReps}</th>
-                                                <th>{txt.bestVolume}</th>
-                                            </tr>
-                                        </thead>
-                                        <tbody>
-                                            {visibleExercisePrTable.map((row) => (
-                                                <tr key={row.exercise}>
-                                                    <td className="font-medium text-foreground">{row.exercise}</td>
-                                                    <td className="text-muted-foreground font-mono">
-                                                        {row.bestWeight > 0 ? `${row.bestWeight.toFixed(1)} kg x ${row.bestWeightReps}` : '-'}
-                                                    </td>
-                                                    <td className="text-muted-foreground font-mono">
-                                                        {`${row.bestReps} ${txt.repsAt} ${row.bestRepsWeight.toFixed(1)} ${txt.weightUnit}`}
-                                                    </td>
-                                                    <td className="text-muted-foreground font-mono">
-                                                        {row.bestVolume > 0 ? `${row.bestVolume.toFixed(1)} ${txt.weightUnit}` : '-'}
-                                                    </td>
-                                                </tr>
-                                            ))}
-                                        </tbody>
-                                    </table>
+                                <div className="space-y-2">
+                                    {visibleExercisePrTable.map((row) => (
+                                        <div key={row.exercise} className="border border-border bg-muted/10 px-3 py-2">
+                                            <div className={`flex items-start justify-between gap-3 ${isArabic ? 'flex-row-reverse' : ''}`}>
+                                                <div className={`min-w-0 flex-1 ${isArabic ? 'text-right' : ''}`}>
+                                                    <p className="text-sm font-medium text-foreground">{row.exercise}</p>
+                                                    <p className={`text-xs text-muted-foreground ${isArabic ? 'font-sans' : ''}`}>
+                                                        {formatBestReps(row.best_reps, row.best_reps_weight)}
+                                                    </p>
+                                                </div>
+                                                <div className={`text-right ${isArabic ? 'text-left' : ''}`}>
+                                                    <p className="text-sm font-mono text-foreground">
+                                                        {formatBestWeight(row.best_weight, row.best_weight_reps)}
+                                                    </p>
+                                                    <p className="text-xs text-muted-foreground">
+                                                        {formatBestVolume(row.best_volume)}
+                                                    </p>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    ))}
                                 </div>
                                 <TablePagination
                                     page={prTablePage}
