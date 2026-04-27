@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useMemo, useState } from "react";
+import { useState } from "react";
 import { Pressable, StyleSheet, Text, View } from "react-native";
 
 import { Card, InlineStat, Input, MutedText, PrimaryButton, QueryState, Screen, SectionTitle } from "@/components/ui";

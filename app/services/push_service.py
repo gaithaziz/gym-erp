@@ -79,12 +79,11 @@ class PushNotificationService:
     ) -> bool:
         if not scope_branch_id:
             return True
-        if user.home_branch_id and str(user.home_branch_id) == str(scope_branch_id):
-            return True
         assignment = (
             await db.execute(
                 select(UserBranchAccess.id).where(
                     UserBranchAccess.user_id == user.id,
+                    UserBranchAccess.gym_id == user.gym_id,
                     UserBranchAccess.branch_id == scope_branch_id,
                 )
             )

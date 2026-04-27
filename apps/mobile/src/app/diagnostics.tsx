@@ -1,7 +1,7 @@
 import Constants from "expo-constants";
 import * as Device from "expo-device";
-import { useEffect, useMemo, useState } from "react";
-import { Platform, ScrollView, StyleSheet, Text, View } from "react-native";
+import { useCallback, useEffect, useMemo, useState } from "react";
+import { Platform, StyleSheet, Text, View } from "react-native";
 
 import { Card, MutedText, PrimaryButton, Screen, SectionTitle, SecondaryButton } from "@/components/ui";
 import { API_BASE_URL } from "@/lib/api";
@@ -32,7 +32,7 @@ export default function DiagnosticsScreen() {
   const isPhysicalDevice = Device.isDevice;
   const apiOrigin = useMemo(() => API_BASE_URL.replace(/\/api\/v1\/?$/, ""), []);
 
-  async function runHealthCheck() {
+  const runHealthCheck = useCallback(async () => {
     setChecking(true);
     const started = Date.now();
     try {
@@ -58,11 +58,11 @@ export default function DiagnosticsScreen() {
     } finally {
       setChecking(false);
     }
-  }
+  }, [apiOrigin]);
 
   useEffect(() => {
     void runHealthCheck();
-  }, []);
+  }, [runHealthCheck]);
 
   return (
     <Screen title="Diagnostics" subtitle="Backend connection, session state, and mobile runtime details." scrollable>
@@ -138,9 +138,9 @@ export default function DiagnosticsScreen() {
 
       <Card>
         <SectionTitle>Quick note</SectionTitle>
-        <MutedText>
-          If you are testing on a physical device and the API base URL is localhost or 10.0.2.2, set EXPO_PUBLIC_API_BASE_URL to your computer's LAN IP before launching the app.
-        </MutedText>
+          <MutedText>
+            If you are testing on a physical device and the API base URL is localhost or 10.0.2.2, set EXPO_PUBLIC_API_BASE_URL to your computer&apos;s LAN IP before launching the app.
+          </MutedText>
       </Card>
 
       <PrimaryButton onPress={() => void runHealthCheck()} disabled={checking}>

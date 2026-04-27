@@ -18,9 +18,11 @@ from app.core.responses import StandardResponse
 from app.database import AsyncSessionLocal, get_db, set_rls_context
 from app.models.chat import ChatMessage, ChatReadReceipt, ChatThread
 from app.models.enums import Role
+from app.models.tenancy import UserBranchAccess
 from app.models.user import User
 from app.services.push_service import PushNotificationService
 from app.services.subscription_status_service import SubscriptionStatusService
+from app.services.tenancy_service import TenancyService
 
 router = APIRouter()
 
@@ -357,7 +359,21 @@ async def list_chat_contacts(
         if current_user.role == Role.ADMIN:
             stmt = select(User).where(User.role.in_([Role.COACH, Role.CUSTOMER])).order_by(User.full_name)
         elif current_user.role == Role.CUSTOMER:
-            stmt = select(User).where(User.role == Role.COACH).order_by(User.full_name)
+            branch_id = current_user.home_branch_id
+            if branch_id is None and current_user.gym_id is not None:
+                branch_id = await TenancyService.resolve_user_attribution_branch_id(db, user=current_user)
+
+            stmt = select(User).where(User.role == Role.COACH, User.is_active.is_(True))
+            if current_user.gym_id is not None:
+                stmt = stmt.where(User.gym_id == current_user.gym_id)
+            if branch_id is not None and current_user.gym_id is not None:
+                branch_access_match = select(UserBranchAccess.id).where(
+                    UserBranchAccess.user_id == User.id,
+                    UserBranchAccess.gym_id == current_user.gym_id,
+                    UserBranchAccess.branch_id == branch_id,
+                )
+                stmt = stmt.where(branch_access_match.exists())
+            stmt = stmt.order_by(User.full_name)
         else:
             stmt = select(User).where(User.role == Role.CUSTOMER).order_by(User.full_name)
 

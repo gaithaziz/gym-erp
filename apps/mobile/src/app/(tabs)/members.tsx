@@ -723,7 +723,7 @@ function PlanAssignRow({ plan, disabled, onPress }: { plan: PlanSummary; disable
 }
 
 function ProgressSnapshotCard({ detail, locale }: { detail: MobileStaffMemberDetail; locale: string }) {
-  const { copy, direction, fontSet, isRTL, theme } = usePreferences();
+  const { copy, fontSet, isRTL, theme } = usePreferences();
   const [rangeId, setRangeId] = useState<(typeof PROGRESS_RANGES)[number]["id"]>("30d");
   const selectedRange = PROGRESS_RANGES.find((item) => item.id === rangeId) ?? PROGRESS_RANGES[1];
   const selectedRangeLabel = copy.progress[selectedRange.labelKey];

@@ -6,6 +6,7 @@ import { Stack, useRouter } from "expo-router";
 import { StatusBar } from "expo-status-bar";
 import { useEffect, useRef, useState } from "react";
 import { LogBox } from "react-native";
+import { GestureHandlerRootView } from "react-native-gesture-handler";
 
 import { parseNotificationDeepLink } from "@/lib/deep-link";
 import { NetworkContext } from "@/lib/network-context";
@@ -33,17 +34,19 @@ export default function RootLayout() {
   }
 
   return (
-    // NetworkContext.Provider is transparent — adds no native View, never
-    // interferes with Expo Router's Stack gesture / touch responders.
-    <NetworkContext.Provider value={network}>
-      <QueryClientProvider client={queryClient}>
-        <PreferencesProvider>
-          <SessionProvider>
-            <AppNavigator />
-          </SessionProvider>
-        </PreferencesProvider>
-      </QueryClientProvider>
-    </NetworkContext.Provider>
+    <GestureHandlerRootView style={{ flex: 1 }}>
+      {/* NetworkContext.Provider is transparent — adds no native View, never
+          interferes with Expo Router's Stack gesture / touch responders. */}
+      <NetworkContext.Provider value={network}>
+        <QueryClientProvider client={queryClient}>
+          <PreferencesProvider>
+            <SessionProvider>
+              <AppNavigator />
+            </SessionProvider>
+          </PreferencesProvider>
+        </QueryClientProvider>
+      </NetworkContext.Provider>
+    </GestureHandlerRootView>
   );
 }
 

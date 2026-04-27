@@ -722,7 +722,7 @@ async def read_customer_chat_coaches(
     current_user: Annotated[User, Depends(dependencies.RoleChecker([schemas.Role.CUSTOMER]))],
     db: Annotated[AsyncSession, Depends(get_db)],
 ):
-    return StandardResponse(data=await MobileCustomerService.list_relevant_chat_coaches(current_user=current_user, db=db))
+    return await list_chat_contacts(current_user=current_user, db=db)
 
 
 @router.post("/customer/chat/threads", response_model=StandardResponse)
@@ -861,8 +861,6 @@ async def read_chat_contacts(
     db: Annotated[AsyncSession, Depends(get_db)],
 ):
     _ensure_mobile_chat_participant(current_user)
-    if current_user.role == schemas.Role.CUSTOMER:
-        return StandardResponse(data=await MobileCustomerService.list_relevant_chat_coaches(current_user=current_user, db=db))
     return await list_chat_contacts(current_user=current_user, db=db)
 
 

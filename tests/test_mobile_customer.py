@@ -478,7 +478,14 @@ async def test_mobile_customer_plans_and_progress(client: AsyncClient, db_sessio
         full_name="Progress Coach",
         is_active=True,
     )
-    db_session.add_all([customer, coach])
+    coach_two = User(
+        email="coach-progress-2@example.com",
+        hashed_password=security.get_password_hash("password123"),
+        role=Role.COACH,
+        full_name="Progress Coach Two",
+        is_active=True,
+    )
+    db_session.add_all([customer, coach, coach_two])
     await db_session.flush()
 
     db_session.add(
@@ -680,12 +687,15 @@ async def test_mobile_customer_scan_session_flow(client: AsyncClient, db_session
 @pytest.mark.asyncio
 async def test_mobile_customer_write_flows(client: AsyncClient, db_session: AsyncSession, monkeypatch: pytest.MonkeyPatch):
     now = datetime.now(timezone.utc)
+    gym, branch = await TenancyService.ensure_default_gym_and_branch(db_session)
     customer = User(
         email="customer-write@example.com",
         hashed_password=security.get_password_hash("password123"),
         role=Role.CUSTOMER,
         full_name="Write Customer",
         is_active=True,
+        gym_id=gym.id,
+        home_branch_id=branch.id,
     )
     coach = User(
         email="coach-write@example.com",
@@ -693,9 +703,17 @@ async def test_mobile_customer_write_flows(client: AsyncClient, db_session: Asyn
         role=Role.COACH,
         full_name="Write Coach",
         is_active=True,
+        gym_id=gym.id,
+        home_branch_id=branch.id,
     )
     db_session.add_all([customer, coach])
     await db_session.flush()
+    await TenancyService.ensure_user_branch_access(
+        db_session,
+        user_id=coach.id,
+        gym_id=gym.id,
+        branch_id=branch.id,
+    )
     db_session.add(
         Subscription(
             user_id=customer.id,
@@ -915,7 +933,8 @@ async def test_mobile_customer_write_flows(client: AsyncClient, db_session: Asyn
         headers=headers,
     )
     assert relevant_coaches.status_code == 200
-    assert relevant_coaches.json()["data"][0]["id"] == str(coach.id)
+    coach_ids = {row["id"] for row in relevant_coaches.json()["data"]}
+    assert str(coach.id) in coach_ids
 
     chat_send = await client.post(
         f"{settings.API_V1_STR}/mobile/customer/chat/threads/{thread_id}/messages",
@@ -1090,6 +1109,7 @@ async def test_branch_scoped_push_skips_branch_ineligible_recipients(db_session:
     )
     db_session.add_all([eligible, ineligible])
     await db_session.flush()
+    db_session.add(UserBranchAccess(user_id=eligible.id, gym_id=gym.id, branch_id=branch_a.id))
     db_session.add_all(
         [
             MobileDevice(user_id=eligible.id, device_token="ExponentPushToken[eligible]", platform="ios", is_active=True),

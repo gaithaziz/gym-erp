@@ -8,6 +8,7 @@ import {
     XAxis,
     YAxis,
     CartesianGrid,
+    ReferenceLine,
     Tooltip,
 } from 'recharts';
 
@@ -306,6 +307,40 @@ export default function MemberProgressPage() {
         return `${value.toFixed(1)} ${txt.weightUnit}`;
     };
 
+    const chartGridStroke = 'rgba(148, 163, 184, 0.58)';
+
+    const buildChartTicks = useCallback((values: number[], divisions = 4) => {
+        const maxValue = Math.max(0, ...values);
+        if (maxValue <= 0) {
+            return [0, 1, 2, 3, 4, 5];
+        }
+
+        const rawStep = Math.max(1, maxValue / divisions);
+        const magnitude = 10 ** Math.floor(Math.log10(rawStep));
+        const candidates = [1, 2, 2.5, 5, 10];
+        const step = candidates.find((candidate) => rawStep <= candidate * magnitude) ?? 10;
+        const tickStep = Math.max(1, step * magnitude);
+        const top = Math.ceil(maxValue / tickStep) * tickStep + tickStep;
+
+        const ticks: number[] = [];
+        for (let value = 0; value <= top; value += tickStep) {
+            ticks.push(value);
+        }
+        return ticks;
+    }, []);
+
+    const workoutTrendTicks = useMemo(() => buildChartTicks(workoutStats.map((point) => Number(point.workouts ?? 0))), [buildChartTicks, workoutStats]);
+    const sessionLoadTicks = useMemo(() => buildChartTicks(sessionVolumeSeries.map((point) => Number(point.volume ?? 0))), [buildChartTicks, sessionVolumeSeries]);
+    const renderGridLines = useCallback((ticks: number[]) => ticks.map((tick) => (
+        <ReferenceLine
+            key={`grid-${tick}`}
+            y={tick}
+            stroke={chartGridStroke}
+            strokeDasharray="3 3"
+            ifOverflow="extendDomain"
+        />
+    )), [chartGridStroke]);
+
     if (loading) {
         return (
             <div className="flex h-64 items-center justify-center">
@@ -389,7 +424,7 @@ export default function MemberProgressPage() {
                                     {metric.series.length > 0 ? (
                                         <SafeResponsiveChart>
                                             <LineChart data={metric.series}>
-                                                <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" vertical={false} />
+                                                <CartesianGrid strokeDasharray="3 3" stroke={chartGridStroke} />
                                                 <XAxis
                                                     dataKey="date"
                                                     tickFormatter={(value) => {
@@ -426,7 +461,7 @@ export default function MemberProgressPage() {
                             {workoutStats.length ? (
                                 <SafeResponsiveChart>
                                     <LineChart data={workoutStats}>
-                                        <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" vertical={false} />
+                                        {renderGridLines(workoutTrendTicks)}
                                         <XAxis
                                             dataKey="date"
                                             tick={{ fontSize: 11, fill: 'var(--muted-foreground)', fontFamily: 'var(--font-mono)' }}
@@ -438,10 +473,12 @@ export default function MemberProgressPage() {
                                             }}
                                         />
                                         <YAxis
+                                            ticks={workoutTrendTicks}
                                             tick={{ fontSize: 11, fill: 'var(--muted-foreground)', fontFamily: 'var(--font-mono)' }}
                                             axisLine={false}
                                             tickLine={false}
                                             allowDecimals={false}
+                                            domain={[0, workoutTrendTicks[workoutTrendTicks.length - 1] ?? 0]}
                                         />
                                         <Tooltip
                                             cursor={{ fill: 'var(--muted)' }}
@@ -469,7 +506,7 @@ export default function MemberProgressPage() {
                             {sessionVolumeSeries.length > 0 ? (
                                 <SafeResponsiveChart>
                                     <LineChart data={sessionVolumeSeries}>
-                                        <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" vertical={false} />
+                                        {renderGridLines(sessionLoadTicks)}
                                         <XAxis
                                             dataKey="date"
                                             tickFormatter={(value) => {
@@ -481,9 +518,11 @@ export default function MemberProgressPage() {
                                             tickLine={false}
                                         />
                                         <YAxis
+                                            ticks={sessionLoadTicks}
                                             tick={{ fontSize: 11, fill: 'var(--muted-foreground)', fontFamily: 'var(--font-mono)' }}
                                             axisLine={false}
                                             tickLine={false}
+                                            domain={[0, sessionLoadTicks[sessionLoadTicks.length - 1] ?? 0]}
                                         />
                                         <Tooltip
                                             contentStyle={{ background: 'var(--card)', border: '1px solid var(--border)', borderRadius: '0px', fontSize: '0.8rem', color: 'var(--foreground)' }}

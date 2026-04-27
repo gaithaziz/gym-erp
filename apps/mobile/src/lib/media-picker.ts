@@ -1,4 +1,5 @@
 import * as ImagePicker from "expo-image-picker";
+import { Platform } from "react-native";
 
 export type PickedMedia = {
   uri: string;
@@ -35,7 +36,10 @@ export async function pickMediaFromLibrary(options: {
   const result = await ImagePicker.launchImageLibraryAsync({
     allowsMultipleSelection: options.multiple ?? false,
     mediaTypes: options.mediaTypes ?? ["images"],
-    quality: 0.9,
+    quality: 1,
+    ...(Platform.OS === "ios"
+      ? { preferredAssetRepresentationMode: "compatible" as never }
+      : {}),
   });
 
   if (result.canceled) {
@@ -43,11 +47,11 @@ export async function pickMediaFromLibrary(options: {
   }
 
   return result.assets.map((asset, index) => {
-    const mimeType = asset.mimeType ?? "image/jpeg";
+    const sourceMimeType = asset.mimeType ?? "image/jpeg";
     return {
       uri: asset.uri,
-      name: asset.fileName || `photo-${Date.now()}-${index}.${extensionForMime(mimeType)}`,
-      mimeType,
+      name: asset.fileName || `photo-${Date.now()}-${index}.${extensionForMime(sourceMimeType)}`,
+      mimeType: sourceMimeType,
     };
   });
 }

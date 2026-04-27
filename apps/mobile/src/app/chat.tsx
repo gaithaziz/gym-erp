@@ -1,8 +1,10 @@
 import { Ionicons } from "@expo/vector-icons";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { Image } from "expo-image";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { useDeferredValue, useEffect, useMemo, useRef, useState } from "react";
 import {
+  Modal,
   KeyboardAvoidingView,
   Platform,
   Pressable,
@@ -11,18 +13,19 @@ import {
   Text,
   View,
 } from "react-native";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
+import Animated, { useAnimatedStyle, useSharedValue } from "react-native-reanimated";
+import { Gesture, GestureDetector } from "react-native-gesture-handler";
 
-import { API_BASE_URL } from "@/lib/api";
 import { Card, Input, MediaPreview, MutedText, QueryState, Screen } from "@/components/ui";
-import { pickImageOrVideoFromLibrary } from "@/lib/media-picker";
+import { classifyChatAttachment, isImageMime, resolveMediaUri } from "@/lib/chat-media";
+import { pickImageOrVideoFromLibrary, type PickedMedia } from "@/lib/media-picker";
 import { localeTag, localizeMessageType, localizeRole } from "@/lib/mobile-format";
 import { getCurrentRole, isAdminControlRole } from "@/lib/mobile-role";
 import { usePreferences } from "@/lib/preferences";
 import { useSession } from "@/lib/session";
 
 import { useAudioPlayer, useAudioPlayerStatus, useAudioRecorder, useAudioRecorderState, RecordingPresets, requestRecordingPermissionsAsync, setAudioModeAsync } from "expo-audio";
-
-const ASSET_BASE_URL = API_BASE_URL.replace(/\/api\/v1\/?$/, "");
 
 type Thread = {
   id: string;
@@ -143,6 +146,174 @@ function ChatAudioPlayer({
   );
 }
 
+function PhotoZoomableImage({ uri }: { uri: string }) {
+  const scale = useSharedValue(1);
+  const translateX = useSharedValue(0);
+  const translateY = useSharedValue(0);
+  const savedScale = useSharedValue(1);
+  const savedTranslateX = useSharedValue(0);
+  const savedTranslateY = useSharedValue(0);
+
+  const pinchGesture = Gesture.Pinch()
+    .onUpdate((event) => {
+      const nextScale = Math.max(1, Math.min(4, savedScale.value * event.scale));
+      scale.value = nextScale;
+      if (nextScale === 1) {
+        translateX.value = 0;
+        translateY.value = 0;
+        savedTranslateX.value = 0;
+        savedTranslateY.value = 0;
+      }
+    })
+    .onEnd(() => {
+      savedScale.value = scale.value;
+      if (scale.value <= 1) {
+        scale.value = 1;
+        translateX.value = 0;
+        translateY.value = 0;
+        savedTranslateX.value = 0;
+        savedTranslateY.value = 0;
+      }
+    });
+
+  const panGesture = Gesture.Pan()
+    .onUpdate((event) => {
+      if (scale.value <= 1) {
+        return;
+      }
+      translateX.value = savedTranslateX.value + event.translationX;
+      translateY.value = savedTranslateY.value + event.translationY;
+    })
+    .onEnd(() => {
+      if (scale.value <= 1) {
+        translateX.value = 0;
+        translateY.value = 0;
+        savedTranslateX.value = 0;
+        savedTranslateY.value = 0;
+        return;
+      }
+      savedTranslateX.value = translateX.value;
+      savedTranslateY.value = translateY.value;
+    });
+
+  const animatedStyle = useAnimatedStyle(() => ({
+    transform: [
+      { translateX: translateX.value },
+      { translateY: translateY.value },
+      { scale: scale.value },
+    ],
+  }));
+
+  return (
+    <GestureDetector gesture={Gesture.Simultaneous(pinchGesture, panGesture)}>
+      <Animated.View style={[styles.photoViewerZoomStage, animatedStyle]}>
+        <Image source={{ uri }} style={styles.photoViewerImage} contentFit="contain" />
+      </Animated.View>
+    </GestureDetector>
+  );
+}
+
+function ChatPhotoViewer({
+  uri,
+  onClose,
+}: {
+  uri: string | null;
+  onClose: () => void;
+}) {
+  const { fontSet, isRTL, theme } = usePreferences();
+  const insets = useSafeAreaInsets();
+  const resolvedUri = resolveMediaUri(uri);
+
+  return (
+    <Modal visible={Boolean(resolvedUri)} transparent animationType="fade" onRequestClose={onClose}>
+      <View style={styles.photoViewerOverlay}>
+        <Pressable style={StyleSheet.absoluteFill} onPress={onClose} />
+        <View style={styles.photoViewerFrame} pointerEvents="box-none">
+          <View style={[styles.photoViewerTopBar, { flexDirection: isRTL ? "row-reverse" : "row", paddingTop: insets.top + 4 }]}>
+            <Text style={[styles.photoViewerTitle, { color: "#FFFFFF", fontFamily: fontSet.body }]}>Photo</Text>
+            <Pressable onPress={onClose} style={[styles.photoViewerCloseButton, { borderColor: theme.border }]}>
+              <Ionicons name="close" size={20} color="#FFFFFF" />
+            </Pressable>
+          </View>
+          {resolvedUri ? (
+            <View style={[styles.photoViewerCanvas, { paddingBottom: insets.bottom + 16 }]}>
+              <PhotoZoomableImage uri={resolvedUri} />
+            </View>
+          ) : null}
+        </View>
+      </View>
+    </Modal>
+  );
+}
+
+function ChatPhotoMessage({
+  uri,
+  caption,
+  createdAt,
+  isOwn,
+  locale,
+  onPress,
+}: {
+  uri: string;
+  caption?: string | null;
+  createdAt: string;
+  isOwn: boolean;
+  locale: string;
+  onPress: () => void;
+}) {
+  const { fontSet, isRTL, theme } = usePreferences();
+  const resolvedUri = resolveMediaUri(uri);
+
+  if (!resolvedUri) {
+    return null;
+  }
+
+  return (
+    <View
+      style={[
+        styles.photoMessageShell,
+        {
+          alignSelf: isOwn ? (isRTL ? "flex-start" : "flex-end") : (isRTL ? "flex-end" : "flex-start"),
+        },
+      ]}
+    >
+      <Pressable onPress={onPress} accessibilityRole="button" style={styles.photoMessagePressable}>
+        <Image source={{ uri: resolvedUri }} style={styles.photoMessageImage} contentFit="contain" />
+      </Pressable>
+      {caption ? (
+        <Text
+          style={[
+            styles.photoMessageCaption,
+            {
+              color: isOwn ? theme.foreground : theme.foreground,
+              fontFamily: fontSet.body,
+              textAlign: isRTL ? "right" : "left",
+              writingDirection: isRTL ? "rtl" : "ltr",
+            },
+          ]}
+        >
+          {caption}
+        </Text>
+      ) : null}
+      <Text
+        style={[
+          styles.messageTime,
+          {
+            color: theme.muted,
+            fontFamily: fontSet.mono,
+            textAlign: isRTL ? "right" : "left",
+          },
+        ]}
+      >
+        {new Date(createdAt).toLocaleTimeString(locale, {
+          hour: "numeric",
+          minute: "2-digit",
+        })}
+      </Text>
+    </View>
+  );
+}
+
 export default function ChatScreen() {
   const router = useRouter();
   const params = useLocalSearchParams<{ contactId?: string; memberId?: string }>();
@@ -163,7 +334,10 @@ export default function ChatScreen() {
   const [contactDropdownOpen, setContactDropdownOpen] = useState(false);
   const [threadSearch, setThreadSearch] = useState("");
   const [threadDropdownOpen, setThreadDropdownOpen] = useState(false);
+  const [pendingPhotoUpload, setPendingPhotoUpload] = useState<PickedMedia | null>(null);
+  const [pendingPhotoCaption, setPendingPhotoCaption] = useState("");
   const [pendingVoiceUpload, setPendingVoiceUpload] = useState<PendingVoiceUpload | null>(null);
+  const [openPhotoUri, setOpenPhotoUri] = useState<string | null>(null);
   const messagesScrollRef = useRef<ScrollView | null>(null);
   const recorder = useAudioRecorder(RecordingPresets.HIGH_QUALITY);
   const recorderState = useAudioRecorderState(recorder);
@@ -173,6 +347,10 @@ export default function ChatScreen() {
   const contactsQuery = useQuery({
     queryKey: ["mobile-chat-contacts"],
     enabled: !readOnly,
+    staleTime: 0,
+    refetchOnMount: "always",
+    refetchOnReconnect: true,
+    refetchOnWindowFocus: true,
     queryFn: async () => (await authorizedRequest<ChatContact[]>("/mobile/chat/contacts")).data,
   });
   const contacts = useMemo(() => contactsQuery.data ?? [], [contactsQuery.data]);
@@ -182,6 +360,12 @@ export default function ChatScreen() {
       setSelectedCoachId(contacts[0].id);
     }
   }, [contacts, readOnly, selectedCoachId]);
+
+  useEffect(() => {
+    if (!readOnly && showNewChatPanel) {
+      void contactsQuery.refetch();
+    }
+  }, [contactsQuery, readOnly, showNewChatPanel]);
 
   useEffect(() => {
     if (!readOnly && params.contactId && typeof params.contactId === "string") {
@@ -315,14 +499,16 @@ export default function ChatScreen() {
     onError: (error) => setFeedback(error instanceof Error ? error.message : copy.common.errorTryAgain),
   });
 
-  const attachmentMutation = useMutation({
-    mutationFn: async () => {
+  const submitMediaAttachmentMutation = useMutation({
+    mutationFn: async ({
+      asset,
+      caption,
+    }: {
+      asset: PickedMedia;
+      caption?: string;
+    }) => {
       if (!selectedThread) {
         throw new Error(copy.chatScreen.pickThread);
-      }
-      const [asset] = await pickImageOrVideoFromLibrary({ permissionDeniedMessage: copy.common.photoPermissionDenied });
-      if (!asset) {
-        return null;
       }
       const formData = new FormData();
       formData.append(
@@ -333,8 +519,8 @@ export default function ChatScreen() {
           type: asset.mimeType,
         } as never,
       );
-      if (messageText.trim()) {
-        formData.append("text_content", messageText.trim());
+      if (caption?.trim()) {
+        formData.append("text_content", caption.trim());
       }
       return authorizedRequest(`/mobile/chat/threads/${selectedThread.id}/attachments`, {
         method: "POST",
@@ -345,6 +531,8 @@ export default function ChatScreen() {
       if (!payload) {
         return;
       }
+      setPendingPhotoUpload(null);
+      setPendingPhotoCaption("");
       setMessageText("");
       setFeedback(null);
       await queryClient.invalidateQueries({ queryKey: ["mobile-chat"] });
@@ -353,6 +541,30 @@ export default function ChatScreen() {
     },
     onError: (error) => setFeedback(error instanceof Error ? error.message : copy.common.errorTryAgain),
   });
+
+  async function handleAttachmentPress() {
+    if (!selectedThread) {
+      return;
+    }
+    try {
+      const [asset] = await pickImageOrVideoFromLibrary({ permissionDeniedMessage: copy.common.photoPermissionDenied });
+      if (!asset) {
+        return;
+      }
+      const selection = classifyChatAttachment(asset, messageText);
+      if (selection.kind === "photo-preview") {
+        setPendingPhotoUpload(selection.asset);
+        setPendingPhotoCaption(selection.caption);
+        return;
+      }
+      submitMediaAttachmentMutation.mutate({
+        asset: selection.asset,
+        caption: selection.caption,
+      });
+    } catch (error) {
+      setFeedback(error instanceof Error ? error.message : copy.common.errorTryAgain);
+    }
+  }
 
   const voiceUploadMutation = useMutation({
     mutationFn: async ({
@@ -696,6 +908,8 @@ export default function ChatScreen() {
                       {messagesQuery.data?.map((item) => {
                         const isOwn = currentUserId != null && item.sender_id === currentUserId;
                         const senderLabel = formatMessageSender(item, selectedThread, currentUserId, role, copy, isRTL);
+                        const mediaUri = resolveMediaUri(item.media_url);
+                        const isImageMessage = Boolean(item.media_mime && isImageMime(item.media_mime) && mediaUri);
                         return (
                           <View
                             key={item.id}
@@ -708,68 +922,79 @@ export default function ChatScreen() {
                               },
                             ]}
                           >
-                            <View
-                              style={[
-                                styles.messageBubble,
-                                {
-                                  backgroundColor: isOwn ? theme.primary : theme.cardAlt,
-                                  borderColor: isOwn ? theme.primary : theme.border,
-                                },
-                              ]}
-                            >
-                              <Text
-                                style={[
-                                  styles.messageSender,
-                                  {
-                                    color: isOwn ? "rgba(255,255,255,0.82)" : theme.primary,
-                                    fontFamily: fontSet.body,
-                                    textAlign: isRTL ? "right" : "left",
-                                    writingDirection: direction,
-                                  },
-                                ]}
-                              >
-                                {senderLabel}
-                              </Text>
-                              <Text
-                                style={[
-                                  styles.messageText,
-                                  {
-                                    color: isOwn ? "#FFFFFF" : theme.foreground,
-                                    fontFamily: fontSet.body,
-                                    textAlign: isRTL ? "right" : "left",
-                                    writingDirection: direction,
-                                  },
-                                ]}
-                              >
-                                {item.text_content || localizeMessageType(item.message_type, isRTL)}
-                              </Text>
-                              {item.media_url && item.media_mime?.startsWith("audio/") ? (
-                                <ChatAudioPlayer
-                                  src={item.media_url.startsWith("http") ? item.media_url : `${ASSET_BASE_URL}${item.media_url}`}
-                                  initialDurationSeconds={item.voice_duration_seconds}
-                                />
-                              ) : null}
-                              <MediaPreview
-                                uri={item.media_mime?.startsWith("audio/") ? null : item.media_url}
-                                mime={item.media_mime}
-                                label={item.media_url && !item.media_mime?.startsWith("audio/") ? localizeMessageType(item.message_type, isRTL) : null}
+                            {isImageMessage && mediaUri ? (
+                              <ChatPhotoMessage
+                                uri={mediaUri}
+                                caption={item.text_content ?? null}
+                                createdAt={item.created_at}
+                                isOwn={isOwn}
+                                locale={locale}
+                                onPress={() => setOpenPhotoUri(mediaUri)}
                               />
-                              <Text
+                            ) : (
+                              <View
                                 style={[
-                                  styles.messageTime,
+                                  styles.messageBubble,
                                   {
-                                    color: isOwn ? "rgba(255,255,255,0.8)" : theme.muted,
-                                    fontFamily: fontSet.mono,
-                                    textAlign: isRTL ? "right" : "left",
+                                    backgroundColor: isOwn ? theme.primary : theme.cardAlt,
+                                    borderColor: isOwn ? theme.primary : theme.border,
                                   },
                                 ]}
                               >
-                                {new Date(item.created_at).toLocaleTimeString(locale, {
-                                  hour: "numeric",
-                                  minute: "2-digit",
-                                })}
-                              </Text>
-                            </View>
+                                <Text
+                                  style={[
+                                    styles.messageSender,
+                                    {
+                                      color: isOwn ? "rgba(255,255,255,0.82)" : theme.primary,
+                                      fontFamily: fontSet.body,
+                                      textAlign: isRTL ? "right" : "left",
+                                      writingDirection: direction,
+                                    },
+                                  ]}
+                                >
+                                  {senderLabel}
+                                </Text>
+                                <Text
+                                  style={[
+                                    styles.messageText,
+                                    {
+                                      color: isOwn ? "#FFFFFF" : theme.foreground,
+                                      fontFamily: fontSet.body,
+                                      textAlign: isRTL ? "right" : "left",
+                                      writingDirection: direction,
+                                    },
+                                  ]}
+                                >
+                                  {item.text_content || localizeMessageType(item.message_type, isRTL)}
+                                </Text>
+                                {item.media_url && item.media_mime?.startsWith("audio/") ? (
+                                  <ChatAudioPlayer
+                                    src={resolveMediaUri(item.media_url) ?? item.media_url}
+                                    initialDurationSeconds={item.voice_duration_seconds}
+                                  />
+                                ) : null}
+                                <MediaPreview
+                                  uri={item.media_mime?.startsWith("audio/") ? null : item.media_url}
+                                  mime={item.media_mime}
+                                  label={item.media_url && !item.media_mime?.startsWith("audio/") ? localizeMessageType(item.message_type, isRTL) : null}
+                                />
+                                <Text
+                                  style={[
+                                    styles.messageTime,
+                                    {
+                                      color: isOwn ? "rgba(255,255,255,0.8)" : theme.muted,
+                                      fontFamily: fontSet.mono,
+                                      textAlign: isRTL ? "right" : "left",
+                                    },
+                                  ]}
+                                >
+                                  {new Date(item.created_at).toLocaleTimeString(locale, {
+                                    hour: "numeric",
+                                    minute: "2-digit",
+                                  })}
+                                </Text>
+                              </View>
+                            )}
                           </View>
                         );
                       })}
@@ -798,8 +1023,8 @@ export default function ChatScreen() {
                     ) : (
                     <View style={[styles.composerBar, { borderTopColor: theme.border, flexDirection: isRTL ? "row-reverse" : "row" }]}>
                       <Pressable
-                        onPress={() => attachmentMutation.mutate()}
-                        disabled={attachmentMutation.isPending || recording}
+                        onPress={() => void handleAttachmentPress()}
+                        disabled={submitMediaAttachmentMutation.isPending || recording || Boolean(pendingPhotoUpload)}
                         style={[styles.iconButton, { backgroundColor: theme.cardAlt, borderColor: theme.border }]}
                       >
                         <Ionicons name="attach" size={18} color={theme.primary} />
@@ -888,6 +1113,65 @@ export default function ChatScreen() {
                         </View>
                       </View>
                     ) : null}
+                    <Modal visible={Boolean(pendingPhotoUpload)} transparent animationType="fade" onRequestClose={() => setPendingPhotoUpload(null)}>
+                      <View style={styles.photoApprovalOverlay}>
+                        <Pressable style={styles.photoApprovalBackdrop} onPress={() => setPendingPhotoUpload(null)} />
+                        <View style={[styles.photoApprovalCard, { backgroundColor: theme.card, borderColor: theme.border }]}>
+                          <View style={[styles.photoApprovalHeader, { flexDirection: isRTL ? "row-reverse" : "row" }]}>
+                            <View style={styles.flex}>
+                              <Text style={[styles.photoApprovalTitle, { color: theme.foreground, fontFamily: fontSet.display, textAlign: isRTL ? "right" : "left", writingDirection: direction }]}>
+                                {copy.chatScreen.photoPreviewTitle}
+                              </Text>
+                              <MutedText>{copy.chatScreen.photoPreviewSubtitle}</MutedText>
+                            </View>
+                            <Pressable
+                              onPress={() => setPendingPhotoUpload(null)}
+                              style={[styles.panelCloseButton, { backgroundColor: theme.cardAlt, borderColor: theme.border }]}
+                            >
+                              <Ionicons name="close" size={18} color={theme.primary} />
+                            </Pressable>
+                          </View>
+                          {pendingPhotoUpload ? (
+                            <Pressable onPress={() => setOpenPhotoUri(resolveMediaUri(pendingPhotoUpload.uri))} accessibilityRole="button" style={styles.photoApprovalPreviewWrap}>
+                              <Image source={{ uri: pendingPhotoUpload.uri }} style={styles.photoApprovalPreview} contentFit="contain" />
+                            </Pressable>
+                          ) : null}
+                          {pendingPhotoCaption.trim() ? (
+                            <Text style={[styles.photoApprovalCaption, { color: theme.foreground, fontFamily: fontSet.body, textAlign: isRTL ? "right" : "left", writingDirection: direction }]}>
+                              {pendingPhotoCaption}
+                            </Text>
+                          ) : null}
+                          <View style={[styles.photoApprovalActions, { flexDirection: isRTL ? "row-reverse" : "row" }]}>
+                            <Pressable
+                              onPress={() => {
+                                if (!pendingPhotoUpload) {
+                                  return;
+                                }
+                                submitMediaAttachmentMutation.mutate({
+                                  asset: pendingPhotoUpload,
+                                  caption: pendingPhotoCaption,
+                                });
+                              }}
+                              disabled={submitMediaAttachmentMutation.isPending || !pendingPhotoUpload}
+                              style={[styles.photoApprovalButton, { backgroundColor: theme.primary, opacity: submitMediaAttachmentMutation.isPending ? 0.7 : 1 }]}
+                            >
+                            <Text style={[styles.photoApprovalButtonText, { fontFamily: fontSet.body }]}>
+                                {submitMediaAttachmentMutation.isPending ? copy.common.sending : copy.chatScreen.acceptSend}
+                              </Text>
+                            </Pressable>
+                            <Pressable
+                              onPress={() => setPendingPhotoUpload(null)}
+                              style={[styles.photoApprovalButton, { backgroundColor: theme.cardAlt, borderColor: theme.border, borderWidth: 1 }]}
+                            >
+                              <Text style={[styles.photoApprovalCancelText, { color: theme.foreground, fontFamily: fontSet.body }]}>
+                                {copy.chatScreen.discard}
+                              </Text>
+                            </Pressable>
+                          </View>
+                        </View>
+                      </View>
+                    </Modal>
+                    <ChatPhotoViewer uri={openPhotoUri} onClose={() => setOpenPhotoUri(null)} />
                   </>
                 ) : (
                   <View style={styles.emptyConversation}>
@@ -1276,6 +1560,131 @@ const styles = StyleSheet.create({
   },
   messageTime: {
     fontSize: 11,
+    fontWeight: "700",
+  },
+  photoMessageShell: {
+    maxWidth: "88%",
+    gap: 8,
+  },
+  photoMessagePressable: {
+    borderRadius: 18,
+    overflow: "hidden",
+    backgroundColor: "transparent",
+  },
+  photoMessageImage: {
+    width: "100%",
+    minHeight: 180,
+    maxHeight: 320,
+    aspectRatio: 1.15,
+    backgroundColor: "transparent",
+  },
+  photoMessageCaption: {
+    fontSize: 14,
+    lineHeight: 20,
+  },
+  photoViewerOverlay: {
+    flex: 1,
+    backgroundColor: "rgba(0, 0, 0, 0.92)",
+  },
+  photoViewerFrame: {
+    flex: 1,
+    paddingHorizontal: 16,
+    gap: 16,
+  },
+  photoViewerTopBar: {
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: 12,
+    zIndex: 1,
+  },
+  photoViewerTitle: {
+    fontSize: 14,
+    fontWeight: "700",
+  },
+  photoViewerCloseButton: {
+    width: 36,
+    height: 36,
+    borderRadius: 999,
+    borderWidth: 1,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: "rgba(255, 255, 255, 0.12)",
+  },
+  photoViewerCanvas: {
+    flex: 1,
+    width: "100%",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  photoViewerZoomStage: {
+    width: "100%",
+    height: "100%",
+  },
+  photoViewerImage: {
+    width: "100%",
+    height: "100%",
+    minHeight: 0,
+  },
+  photoApprovalOverlay: {
+    ...StyleSheet.absoluteFillObject,
+    alignItems: "center",
+    justifyContent: "center",
+    paddingHorizontal: 18,
+    backgroundColor: "rgba(0, 0, 0, 0.5)",
+  },
+  photoApprovalBackdrop: {
+    ...StyleSheet.absoluteFillObject,
+  },
+  photoApprovalCard: {
+    width: "100%",
+    maxWidth: 520,
+    borderRadius: 24,
+    borderWidth: 1,
+    padding: 16,
+    gap: 14,
+  },
+  photoApprovalHeader: {
+    alignItems: "flex-start",
+    justifyContent: "space-between",
+    gap: 12,
+  },
+  photoApprovalTitle: {
+    fontSize: 18,
+    fontWeight: "800",
+  },
+  photoApprovalPreviewWrap: {
+    borderRadius: 18,
+    overflow: "hidden",
+    backgroundColor: "rgba(0, 0, 0, 0.06)",
+  },
+  photoApprovalPreview: {
+    width: "100%",
+    minHeight: 220,
+    maxHeight: 360,
+    aspectRatio: 1.2,
+  },
+  photoApprovalCaption: {
+    fontSize: 14,
+    lineHeight: 20,
+  },
+  photoApprovalActions: {
+    gap: 10,
+  },
+  photoApprovalButton: {
+    borderRadius: 12,
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+    alignItems: "center",
+    justifyContent: "center",
+    minWidth: 120,
+  },
+  photoApprovalButtonText: {
+    color: "#FFFFFF",
+    fontSize: 14,
+    fontWeight: "700",
+  },
+  photoApprovalCancelText: {
+    fontSize: 14,
     fontWeight: "700",
   },
   composerBar: {

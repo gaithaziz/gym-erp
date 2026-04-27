@@ -1,3 +1,4 @@
+import uuid
 from datetime import datetime, timedelta, timezone
 
 import pytest
@@ -9,7 +10,9 @@ from app.config import settings
 from app.database import set_rls_context
 from app.models.access import Subscription, SubscriptionStatus
 from app.models.enums import Role
+from app.models.tenancy import Branch, UserBranchAccess
 from app.models.user import User
+from app.services.tenancy_service import TenancyService
 
 
 def _active_subscription(user_id):
@@ -154,3 +157,71 @@ async def test_participant_visibility_is_restricted(client: AsyncClient, db_sess
         headers=customer_2_headers,
     )
     assert forbidden_read.status_code == 403
+
+
+@pytest.mark.asyncio
+async def test_customer_chat_contacts_respect_branch_scope(client: AsyncClient, db_session: AsyncSession):
+    gym, branch_a = await TenancyService.ensure_default_gym_and_branch(db_session)
+    branch_b = Branch(
+        gym_id=gym.id,
+        slug=f"chat-branch-{uuid.uuid4().hex[:6]}",
+        code=f"CB-{uuid.uuid4().hex[:4].upper()}",
+        name="Chat Branch B",
+        display_name="Chat Branch B",
+        timezone="UTC",
+    )
+    hashed = get_password_hash("password")
+    coach_a = User(
+        email="chat-branch-coach-a@gym.com",
+        hashed_password=hashed,
+        role=Role.COACH,
+        full_name="Coach Branch A",
+        is_active=True,
+        gym_id=gym.id,
+        home_branch_id=branch_a.id,
+    )
+    coach_b = User(
+        email="chat-branch-coach-b@gym.com",
+        hashed_password=hashed,
+        role=Role.COACH,
+        full_name="Coach Branch B",
+        is_active=True,
+        gym_id=gym.id,
+        home_branch_id=branch_b.id,
+    )
+    customer = User(
+        email="chat-branch-customer@gym.com",
+        hashed_password=hashed,
+        role=Role.CUSTOMER,
+        full_name="Branch Customer",
+        is_active=True,
+        gym_id=gym.id,
+        home_branch_id=branch_a.id,
+    )
+    db_session.add_all([branch_b, coach_a, customer])
+    await db_session.flush()
+    await TenancyService.ensure_user_branch_access(
+        db_session,
+        user_id=coach_a.id,
+        gym_id=gym.id,
+        branch_id=branch_a.id,
+    )
+    await set_rls_context(db_session, user_id="", role=Role.ADMIN.value, gym_id=gym.id, branch_id=branch_b.id)
+    db_session.add(coach_b)
+    await db_session.flush()
+    await TenancyService.ensure_user_branch_access(
+        db_session,
+        user_id=coach_b.id,
+        gym_id=gym.id,
+        branch_id=branch_b.id,
+    )
+    await set_rls_context(db_session, user_id="", role=Role.ADMIN.value, gym_id=gym.id, branch_id=branch_a.id)
+    await _add_active_subscription(db_session, customer.id)
+    await db_session.commit()
+
+    headers = await _login(client, customer.email, "password")
+    contacts = await client.get(f"{settings.API_V1_STR}/chat/contacts", headers=headers)
+    assert contacts.status_code == 200
+    contact_ids = {row["id"] for row in contacts.json()["data"]}
+    assert str(coach_a.id) in contact_ids
+    assert str(coach_b.id) not in contact_ids
