@@ -77,42 +77,6 @@ function formatThreadName(thread: Thread | null | undefined, role: string | null
   return `${customerName} - ${coachName}`;
 }
 
-function formatThreadParticipants(thread: Thread | null | undefined, copy: ReturnType<typeof usePreferences>["copy"]) {
-  if (!thread) return null;
-  const customerName = thread.customer.full_name || copy.common.customer;
-  const coachName = thread.coach.full_name || copy.common.coach;
-  return `${copy.common.customer}: ${customerName} • ${copy.common.coach}: ${coachName}`;
-}
-
-function formatThreadSecondaryLabel(thread: Thread | null | undefined, role: string | null, copy: ReturnType<typeof usePreferences>["copy"]) {
-  if (!thread) return null;
-  const customerName = thread.customer.full_name || copy.common.customer;
-  const coachName = thread.coach.full_name || copy.common.coach;
-  if (role === "COACH") return `${copy.common.customer}: ${customerName}`;
-  if (role === "CUSTOMER") return `${copy.common.coach}: ${coachName}`;
-  return formatThreadParticipants(thread, copy);
-}
-
-function formatMessageSender(
-  message: ChatMessage,
-  thread: Thread | null | undefined,
-  currentUserId: string | null,
-  role: string | null,
-  copy: ReturnType<typeof usePreferences>["copy"],
-  isRTL: boolean,
-) {
-  if (thread?.customer.id && message.sender_id === thread.customer.id) {
-    return `${copy.common.customer}: ${thread.customer.full_name || copy.common.customer}`;
-  }
-  if (thread?.coach.id && message.sender_id === thread.coach.id) {
-    return `${copy.common.coach}: ${thread.coach.full_name || copy.common.coach}`;
-  }
-  if (currentUserId && message.sender_id === currentUserId && role) {
-    return localizeRole(role, isRTL);
-  }
-  return copy.common.chat;
-}
-
 function ChatAudioPlayer({
   src,
   initialDurationSeconds,
@@ -277,15 +241,25 @@ function ChatPhotoMessage({
         },
       ]}
     >
-      <Pressable onPress={onPress} accessibilityRole="button" style={styles.photoMessagePressable}>
-        <Image source={{ uri: resolvedUri }} style={styles.photoMessageImage} contentFit="contain" />
-      </Pressable>
+      <View
+        style={[
+        styles.photoMessageBubble,
+        {
+            backgroundColor: isOwn ? theme.primary : theme.cardAlt,
+            borderColor: isOwn ? theme.primary : theme.border,
+          },
+        ]}
+      >
+        <Pressable onPress={onPress} accessibilityRole="button" style={styles.photoMessagePressable}>
+          <Image source={{ uri: resolvedUri }} style={styles.photoMessageImage} contentFit="contain" />
+        </Pressable>
+      </View>
       {caption ? (
         <Text
           style={[
             styles.photoMessageCaption,
             {
-              color: isOwn ? theme.foreground : theme.foreground,
+              color: isOwn ? "#FFFFFF" : theme.foreground,
               fontFamily: fontSet.body,
               textAlign: isRTL ? "right" : "left",
               writingDirection: isRTL ? "rtl" : "ltr",
@@ -299,7 +273,7 @@ function ChatPhotoMessage({
         style={[
           styles.messageTime,
           {
-            color: theme.muted,
+            color: isOwn ? "rgba(255,255,255,0.8)" : theme.muted,
             fontFamily: fontSet.mono,
             textAlign: isRTL ? "right" : "left",
           },
@@ -319,6 +293,7 @@ export default function ChatScreen() {
   const params = useLocalSearchParams<{ contactId?: string; memberId?: string }>();
   const { authorizedRequest, bootstrap } = useSession();
   const { copy, direction, fontSet, isRTL, theme } = usePreferences();
+  const insets = useSafeAreaInsets();
   const role = getCurrentRole(bootstrap);
   const readOnly = isAdminControlRole(role);
   const queryClient = useQueryClient();
@@ -610,7 +585,6 @@ export default function ChatScreen() {
     (!readOnly && contactsQuery.error instanceof Error ? contactsQuery.error.message : null);
   const selectedCoach = contacts.find((contact) => contact.id === selectedCoachId) ?? null;
   const selectedThreadName = formatThreadName(selectedThread, role, copy);
-  const selectedThreadMeta = formatThreadSecondaryLabel(selectedThread, role, copy);
   const voiceNotesAvailable = true;
 
   useEffect(() => {
@@ -630,6 +604,16 @@ export default function ChatScreen() {
       }
     };
   }, [recorder, recorderState.isRecording]);
+
+  useEffect(() => {
+    if (!feedback) {
+      return;
+    }
+    const timer = setTimeout(() => {
+      setFeedback(null);
+    }, 1000);
+    return () => clearTimeout(timer);
+  }, [feedback]);
 
   async function uploadVoiceNoteDirect(pending: PendingVoiceUpload) {
     await voiceUploadMutation.mutateAsync({
@@ -694,12 +678,12 @@ export default function ChatScreen() {
 
   return (
     <Screen
-      title={selectedThread ? selectedThreadName : copy.common.chat}
-      subtitle={selectedThread ? copy.chatScreen.threadHint : copy.chatScreen.subtitle}
+      title={copy.common.chat}
       scrollable={false}
       compactTitle
       hideFloatingChat
       contentPaddingBottom={0}
+      headerTitleStyle={{ marginTop: 6 }}
       leadingAction={
         <Pressable
           onPress={() => router.replace("/(tabs)/home")}
@@ -727,154 +711,104 @@ export default function ChatScreen() {
           <QueryState loading={threadsLoading} loadingVariant="chat" skeletonCount={5} error={threadError} />
           {!threadsLoading && !threadError ? (
             <>
-              {threads.length > 0 ? (
-                <View style={styles.threadPickerStack}>
-                  <Input
-                    value={threadSearch}
-                    onChangeText={(value) => {
-                      setThreadSearch(value);
-                      if (!threadDropdownOpen) {
-                        setThreadDropdownOpen(true);
-                      }
-                    }}
-                    onFocus={() => setThreadDropdownOpen(true)}
-                    placeholder={copy.chatScreen.searchThreadsPlaceholder}
-                  />
-                  <Pressable
-                    onPress={() => setThreadDropdownOpen((current) => !current)}
-                    style={[
-                      styles.contactPickerTrigger,
-                      {
-                        backgroundColor: theme.cardAlt,
-                        borderColor: theme.border,
-                        flexDirection: isRTL ? "row-reverse" : "row",
-                      },
-                    ]}
-                  >
-                    <View style={styles.flex}>
-                      <Text
-                        style={[
-                          styles.coachRowName,
-                          {
-                            color: theme.foreground,
-                            fontFamily: fontSet.body,
-                            textAlign: isRTL ? "right" : "left",
-                            writingDirection: direction,
-                          },
-                        ]}
-                      >
-                        {selectedThread ? selectedThreadName : copy.chatScreen.threadPickerPlaceholder}
-                      </Text>
-                      {selectedThread ? (
-                        <Text
-                          style={[
-                            styles.coachRowEmail,
-                            {
-                              color: theme.muted,
-                              fontFamily: fontSet.body,
-                              textAlign: isRTL ? "right" : "left",
-                              writingDirection: direction,
-                            },
-                          ]}
-                          numberOfLines={2}
-                        >
-                          {[selectedThreadMeta, selectedThread.last_message?.text_content || copy.common.noMessagesYet].filter(Boolean).join(" • ")}
-                        </Text>
-                      ) : null}
-                    </View>
-                    <Ionicons name={threadDropdownOpen ? "chevron-up" : "chevron-down"} size={18} color={theme.primary} />
-                  </Pressable>
-                  {threadDropdownOpen ? (
-                    <View style={[styles.contactDropdown, { backgroundColor: theme.cardAlt, borderColor: theme.border }]}>
-                      <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.coachList}>
-                        {filteredThreads.length === 0 ? (
-                          <MutedText>{copy.chatScreen.noMatchingThreads}</MutedText>
-                        ) : (
-                          filteredThreads.map((thread) => {
-                            const active = selectedThread?.id === thread.id;
-                            return (
-                              <Pressable
-                                key={thread.id}
-                                onPress={() => {
-                                  setSelectedThreadId(thread.id);
-                                  setThreadDropdownOpen(false);
-                                }}
-                                style={[
-                                  styles.coachRow,
-                                  {
-                                    backgroundColor: active ? theme.primarySoft : theme.card,
-                                    borderColor: active ? theme.primary : theme.border,
-                                  },
-                                ]}
-                              >
-                                <View style={styles.flex}>
-                                  <Text
-                                    style={[
-                                      styles.coachRowName,
-                                      {
-                                        color: active ? theme.primary : theme.foreground,
-                                        fontFamily: fontSet.body,
-                                        textAlign: isRTL ? "right" : "left",
-                                        writingDirection: direction,
-                                      },
-                                    ]}
-                                  >
-                                    {formatThreadName(thread, role, copy)}
-                                  </Text>
-                                  <Text
-                                    style={[
-                                      styles.coachRowEmail,
-                                      {
-                                        color: theme.muted,
-                                        fontFamily: fontSet.body,
-                                        textAlign: isRTL ? "right" : "left",
-                                        writingDirection: direction,
-                                      },
-                                    ]}
-                                    numberOfLines={2}
-                                  >
-                                    {[formatThreadSecondaryLabel(thread, role, copy), thread.last_message?.text_content || copy.common.noMessagesYet].filter(Boolean).join(" • ")}
-                                  </Text>
+              <Modal visible={threadDropdownOpen} transparent animationType="fade" onRequestClose={() => setThreadDropdownOpen(false)}>
+                <Pressable style={styles.dropdownBackdrop} onPress={() => setThreadDropdownOpen(false)} />
+                <View style={styles.dropdownModalRoot} pointerEvents="box-none">
+                  <View style={[styles.contactDropdown, styles.dropdownPanel, { backgroundColor: theme.cardAlt, borderColor: theme.border }]}>
+                    <Input
+                      value={threadSearch}
+                      onChangeText={setThreadSearch}
+                      placeholder={copy.chatScreen.searchThreadsPlaceholder}
+                      style={styles.threadDropdownSearch}
+                    />
+                    <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.coachList}>
+                      {filteredThreads.length === 0 ? (
+                        <MutedText>{copy.chatScreen.noMatchingThreads}</MutedText>
+                      ) : (
+                        filteredThreads.map((thread) => {
+                          const active = selectedThread?.id === thread.id;
+                          return (
+                            <Pressable
+                              key={thread.id}
+                              onPress={() => {
+                                setSelectedThreadId(thread.id);
+                                setThreadDropdownOpen(false);
+                              }}
+                              style={[
+                                styles.coachRow,
+                                {
+                                  backgroundColor: active ? theme.primarySoft : theme.card,
+                                  borderColor: active ? theme.primary : theme.border,
+                                },
+                              ]}
+                            >
+                              <View style={styles.flex}>
+                                <Text
+                                  style={[
+                                    styles.coachRowName,
+                                    {
+                                      color: active ? theme.primary : theme.foreground,
+                                      fontFamily: fontSet.body,
+                                      textAlign: isRTL ? "right" : "left",
+                                      writingDirection: direction,
+                                    },
+                                  ]}
+                                >
+                                  {formatThreadName(thread, role, copy)}
+                                </Text>
+                              </View>
+                              {thread.unread_count > 0 ? (
+                                <View style={[styles.threadUnreadBadge, { backgroundColor: theme.primary }]}>
+                                  <Text style={[styles.threadUnreadText, { fontFamily: fontSet.mono }]}>{thread.unread_count}</Text>
                                 </View>
-                                {thread.unread_count > 0 ? (
-                                  <View style={[styles.threadUnreadBadge, { backgroundColor: theme.primary }]}>
-                                    <Text style={[styles.threadUnreadText, { fontFamily: fontSet.mono }]}>{thread.unread_count}</Text>
-                                  </View>
-                                ) : null}
-                              </Pressable>
-                            );
-                          })
-                        )}
-                      </ScrollView>
-                    </View>
-                  ) : null}
+                              ) : null}
+                            </Pressable>
+                          );
+                        })
+                      )}
+                    </ScrollView>
+                  </View>
                 </View>
-              ) : (
+              </Modal>
+              {threads.length === 0 ? (
                 <Card>
                   <MutedText>{copy.chatScreen.noThreads}</MutedText>
                 </Card>
-              )}
+              ) : null}
 
               <View style={[styles.messagesPane, { backgroundColor: theme.card, borderColor: theme.border }]}>
                 {selectedThread ? (
                   <>
                     <View style={[styles.conversationHeader, { borderBottomColor: theme.border, flexDirection: isRTL ? "row-reverse" : "row" }]}>
-                      <View style={styles.flex}>
+                      <Pressable
+                        onPress={() => setThreadDropdownOpen(true)}
+                        style={[
+                          styles.threadHeaderPicker,
+                          {
+                            backgroundColor: theme.cardAlt,
+                            borderColor: theme.border,
+                            flexDirection: isRTL ? "row-reverse" : "row",
+                          },
+                        ]}
+                      >
                         <Text
                           style={[
                             styles.conversationTitle,
                             {
+                              flex: 1,
+                              minWidth: 0,
                               color: theme.foreground,
                               fontFamily: fontSet.display,
                               textAlign: isRTL ? "right" : "left",
                               writingDirection: direction,
                             },
                           ]}
+                          numberOfLines={1}
                         >
                           {selectedThreadName}
                         </Text>
-                        <MutedText>{selectedThreadMeta || copy.chatScreen.threadHint}</MutedText>
-                      </View>
+                        <Ionicons name={threadDropdownOpen ? "chevron-up" : "chevron-down"} size={18} color={theme.primary} />
+                      </Pressable>
                       <View style={styles.headerActionsStack}>
                         {role === "COACH" && selectedThread?.customer.id ? (
                           <Pressable
@@ -907,7 +841,6 @@ export default function ChatScreen() {
                       />
                       {messagesQuery.data?.map((item) => {
                         const isOwn = currentUserId != null && item.sender_id === currentUserId;
-                        const senderLabel = formatMessageSender(item, selectedThread, currentUserId, role, copy, isRTL);
                         const mediaUri = resolveMediaUri(item.media_url);
                         const isImageMessage = Boolean(item.media_mime && isImageMime(item.media_mime) && mediaUri);
                         return (
@@ -941,19 +874,6 @@ export default function ChatScreen() {
                                   },
                                 ]}
                               >
-                                <Text
-                                  style={[
-                                    styles.messageSender,
-                                    {
-                                      color: isOwn ? "rgba(255,255,255,0.82)" : theme.primary,
-                                      fontFamily: fontSet.body,
-                                      textAlign: isRTL ? "right" : "left",
-                                      writingDirection: direction,
-                                    },
-                                  ]}
-                                >
-                                  {senderLabel}
-                                </Text>
                                 <Text
                                   style={[
                                     styles.messageText,
@@ -1236,40 +1156,26 @@ export default function ChatScreen() {
                             },
                           ]}
                         >
-                          <View style={styles.flex}>
-                            <Text
-                              style={[
-                                styles.coachRowName,
-                                {
-                                  color: theme.foreground,
-                                  fontFamily: fontSet.body,
-                                  textAlign: isRTL ? "right" : "left",
-                                  writingDirection: direction,
-                                },
-                              ]}
-                            >
-                              {selectedCoach ? selectedCoach.full_name || selectedCoach.email : copy.chatScreen.contactPickerPlaceholder}
-                            </Text>
-                            {selectedCoach ? (
-                              <Text
-                                style={[
-                                  styles.coachRowEmail,
-                                  {
-                                    color: theme.muted,
-                                    fontFamily: fontSet.body,
-                                    textAlign: isRTL ? "right" : "left",
-                                    writingDirection: direction,
-                                  },
-                                ]}
-                              >
-                                {[localizeRole(selectedCoach.role, isRTL), selectedCoach.email].filter(Boolean).join(" • ")}
-                              </Text>
-                            ) : null}
-                          </View>
+                          <Text
+                            style={[
+                              styles.coachRowName,
+                              {
+                                flex: 1,
+                                minWidth: 0,
+                                color: theme.foreground,
+                                fontFamily: fontSet.body,
+                                textAlign: isRTL ? "right" : "left",
+                                writingDirection: direction,
+                              },
+                            ]}
+                            numberOfLines={1}
+                          >
+                            {selectedCoach ? selectedCoach.full_name || selectedCoach.email : copy.chatScreen.contactPickerPlaceholder}
+                          </Text>
                           <Ionicons name={contactDropdownOpen ? "chevron-up" : "chevron-down"} size={18} color={theme.primary} />
                         </Pressable>
                         {contactDropdownOpen ? (
-                          <View style={[styles.contactDropdown, { backgroundColor: theme.cardAlt, borderColor: theme.border }]}>
+                          <View style={[styles.inlineContactDropdown, styles.dropdownPanel, { backgroundColor: theme.cardAlt, borderColor: theme.border }]}>
                             <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.coachList}>
                               {filteredContacts.length === 0 ? (
                                 <MutedText>{copy.chatScreen.noMatchingContacts}</MutedText>
@@ -1305,19 +1211,6 @@ export default function ChatScreen() {
                                           ]}
                                         >
                                           {contact.full_name || contact.email}
-                                        </Text>
-                                        <Text
-                                          style={[
-                                            styles.coachRowEmail,
-                                            {
-                                              color: theme.muted,
-                                              fontFamily: fontSet.body,
-                                              textAlign: isRTL ? "right" : "left",
-                                              writingDirection: direction,
-                                            },
-                                          ]}
-                                        >
-                                          {[localizeRole(contact.role, isRTL), contact.email].filter(Boolean).join(" • ")}
                                         </Text>
                                       </View>
                                       {active ? <Ionicons name="checkmark-circle" size={22} color={theme.primary} /> : null}
@@ -1369,13 +1262,24 @@ export default function ChatScreen() {
             </>
           ) : null}
 
-          {feedback ? (
-            <Card>
-              <MutedText>{feedback}</MutedText>
-            </Card>
-          ) : null}
         </View>
       </KeyboardAvoidingView>
+      {feedback ? (
+        <View pointerEvents="box-none" style={styles.feedbackOverlay}>
+          <Card
+            style={[
+              styles.feedbackToast,
+              {
+                backgroundColor: theme.cardAlt,
+                borderColor: theme.border,
+                bottom: insets.bottom + 12,
+              },
+            ]}
+          >
+            <MutedText>{feedback}</MutedText>
+          </Card>
+        </View>
+      ) : null}
     </Screen>
   );
 }
@@ -1480,7 +1384,7 @@ const styles = StyleSheet.create({
     minHeight: 0,
   },
   conversationHeader: {
-    alignItems: "center",
+    alignItems: "stretch",
     gap: 12,
     paddingHorizontal: 18,
     paddingVertical: 14,
@@ -1488,6 +1392,7 @@ const styles = StyleSheet.create({
   },
   headerActionsStack: {
     alignItems: "center",
+    justifyContent: "center",
     gap: 10,
   },
   threadActionButton: {
@@ -1499,8 +1404,28 @@ const styles = StyleSheet.create({
     justifyContent: "center",
   },
   conversationTitle: {
-    fontSize: 17,
+    fontSize: 18,
     fontWeight: "800",
+  },
+  threadHeaderPicker: {
+    flex: 1,
+    minWidth: 0,
+    borderWidth: 1,
+    borderRadius: 20,
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+    gap: 2,
+    justifyContent: "center",
+  },
+  threadHeaderLabel: {
+    fontSize: 11,
+    fontWeight: "700",
+    letterSpacing: 0.4,
+    textTransform: "uppercase",
+  },
+  threadHeaderSubtitle: {
+    fontSize: 12,
+    lineHeight: 16,
   },
   audioPlayer: {
     flexDirection: "row",
@@ -1532,6 +1457,7 @@ const styles = StyleSheet.create({
     width: 10,
     height: 10,
     borderRadius: 999,
+    alignSelf: "center",
   },
   messageList: {
     paddingHorizontal: 14,
@@ -1554,33 +1480,35 @@ const styles = StyleSheet.create({
     fontSize: 15,
     lineHeight: 22,
   },
-  messageSender: {
-    fontSize: 11,
-    fontWeight: "700",
-  },
   messageTime: {
     fontSize: 11,
     fontWeight: "700",
   },
   photoMessageShell: {
-    maxWidth: "88%",
-    gap: 8,
+    maxWidth: "66%",
+    gap: 2,
+    marginVertical: 1,
+  },
+  photoMessageBubble: {
+    borderWidth: 0.5,
+    borderRadius: 18,
+    padding: 3,
   },
   photoMessagePressable: {
-    borderRadius: 18,
+    borderRadius: 14,
     overflow: "hidden",
     backgroundColor: "transparent",
   },
   photoMessageImage: {
     width: "100%",
-    minHeight: 180,
-    maxHeight: 320,
-    aspectRatio: 1.15,
+    minHeight: 96,
+    maxHeight: 180,
+    aspectRatio: 1.12,
     backgroundColor: "transparent",
   },
   photoMessageCaption: {
-    fontSize: 14,
-    lineHeight: 20,
+    fontSize: 13,
+    lineHeight: 18,
   },
   photoViewerOverlay: {
     flex: 1,
@@ -1786,6 +1714,27 @@ const styles = StyleSheet.create({
   panelBackdrop: {
     ...StyleSheet.absoluteFillObject,
   },
+  feedbackOverlay: {
+    ...StyleSheet.absoluteFillObject,
+    justifyContent: "flex-end",
+    alignItems: "center",
+    zIndex: 50,
+    elevation: 50,
+  },
+  feedbackToast: {
+    position: "absolute",
+    left: 16,
+    right: 16,
+    borderWidth: 1,
+    borderRadius: 16,
+    paddingVertical: 12,
+    paddingHorizontal: 14,
+    shadowColor: "#000000",
+    shadowOpacity: 0.16,
+    shadowRadius: 12,
+    shadowOffset: { width: 0, height: 6 },
+    elevation: 8,
+  },
   newChatPanel: {
     borderBottomLeftRadius: 0,
     borderBottomRightRadius: 0,
@@ -1795,6 +1744,7 @@ const styles = StyleSheet.create({
   },
   contactPickerStack: {
     gap: 8,
+    position: "relative",
   },
   threadPickerStack: {
     gap: 8,
@@ -1812,6 +1762,39 @@ const styles = StyleSheet.create({
     borderRadius: 16,
     maxHeight: 180,
     padding: 8,
+  },
+  inlineContactDropdown: {
+    borderWidth: 1,
+    borderRadius: 16,
+    maxHeight: 180,
+    padding: 8,
+    position: "absolute",
+    left: 0,
+    right: 0,
+    bottom: "100%",
+    marginBottom: 8,
+    zIndex: 30,
+    elevation: 30,
+  },
+  dropdownOverlay: {
+    ...StyleSheet.absoluteFillObject,
+    zIndex: 20,
+    elevation: 20,
+  },
+  dropdownBackdrop: {
+    ...StyleSheet.absoluteFillObject,
+  },
+  dropdownModalRoot: {
+    flex: 1,
+    justifyContent: "flex-start",
+    paddingHorizontal: 14,
+    paddingTop: 120,
+  },
+  dropdownPanel: {
+    marginTop: 0,
+  },
+  threadDropdownSearch: {
+    marginBottom: 8,
   },
   panelCloseButton: {
     width: 38,

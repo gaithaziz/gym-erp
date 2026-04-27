@@ -13,6 +13,7 @@ import {
   type DimensionValue,
   type PressableProps,
   type TextInputProps,
+  type TextStyle,
   type ViewProps,
   type ViewStyle,
 } from "react-native";
@@ -20,6 +21,7 @@ import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context"
 import Animated, { useAnimatedStyle, useSharedValue, withRepeat, withSequence, withTiming } from "react-native-reanimated";
 
 import { API_BASE_URL, parseHomeEnvelope } from "@/lib/api";
+import { getArabicTextStyle } from "@/lib/arabic-typography";
 import { hasCapability, isCustomerRole } from "@/lib/mobile-role";
 import { NetworkContext } from "@/lib/network-context";
 import { usePreferences } from "@/lib/preferences";
@@ -131,6 +133,9 @@ export function Screen({
   showSubtitle = false,
   hideFloatingChat = false,
   contentPaddingBottom,
+  contentPaddingTop,
+  headerMainStyle,
+  headerTitleStyle,
 }: PropsWithChildren<{
   title: string;
   subtitle?: string;
@@ -142,13 +147,18 @@ export function Screen({
   showSubtitle?: boolean;
   hideFloatingChat?: boolean;
   contentPaddingBottom?: number;
+  contentPaddingTop?: number;
+  headerMainStyle?: ViewProps["style"];
+  headerTitleStyle?: TextStyle;
 }>) {
   const pathname = usePathname();
   const router = useRouter();
   const { bootstrap, selectedBranchId, setSelectedBranchId } = useSession();
   const { direction, isRTL, theme, themeMode, toggleLocale, toggleThemeMode, locale, fontSet } = usePreferences();
   const insets = useSafeAreaInsets();
+  const arabicTextAdjustments = locale === "ar" ? getArabicTextStyle(compactTitle ? styles.screenTitleCompact : styles.screenTitle) : null;
   const resolvedContentPaddingBottom = contentPaddingBottom ?? (hideFloatingChat ? insets.bottom + 8 : insets.bottom + 28);
+  const resolvedContentPaddingTop = contentPaddingTop ?? 4;
   const shouldShowBackButton = pathname !== "/" && pathname !== "/index" && pathname !== "/login" && !pathname.startsWith("/(tabs)") && router.canGoBack();
   const resolvedLeadingAction =
     leadingAction ??
@@ -163,7 +173,7 @@ export function Screen({
       </Pressable>
     ) : null);
   const headerMain = (
-    <View style={[styles.headerMain, { flexDirection: isRTL ? "row-reverse" : "row" }]}>
+    <View style={[styles.headerMain, headerMainStyle, { flexDirection: isRTL ? "row-reverse" : "row" }]}>
       {resolvedLeadingAction ? <View style={styles.headerLeading}>{resolvedLeadingAction}</View> : null}
       <View style={styles.headerText}>
         <Text
@@ -175,6 +185,8 @@ export function Screen({
               writingDirection: direction,
               fontFamily: fontSet.display,
             },
+            headerTitleStyle,
+            arabicTextAdjustments,
           ]}
           numberOfLines={1}
         >
@@ -264,12 +276,12 @@ export function Screen({
           contentOffset={{ x: 0, y: 0 }}
           contentInsetAdjustmentBehavior="never"
           automaticallyAdjustContentInsets={false}
-          contentContainerStyle={[styles.screenContent, { paddingBottom: resolvedContentPaddingBottom }]}
+          contentContainerStyle={[styles.screenContent, { paddingBottom: resolvedContentPaddingBottom, paddingTop: resolvedContentPaddingTop }]}
         >
           {content}
         </ScrollView>
       ) : (
-        <View style={[styles.screenContent, styles.screenContentStatic, { paddingBottom: resolvedContentPaddingBottom }]}>{content}</View>
+        <View style={[styles.screenContent, styles.screenContentStatic, { paddingBottom: resolvedContentPaddingBottom, paddingTop: resolvedContentPaddingTop }]}>{content}</View>
       )}
       <View pointerEvents="box-none" style={styles.screenOverlay}>
         {!hideFloatingChat ? <FloatingChatButton /> : null}
@@ -284,18 +296,20 @@ export function Card({ children, style }: PropsWithChildren<ViewProps>) {
 }
 
 export function SectionTitle({ children }: PropsWithChildren) {
-  const { direction, isRTL, theme, fontSet } = usePreferences();
+  const { direction, isRTL, theme, fontSet, locale } = usePreferences();
+  const arabicTextAdjustments = locale === "ar" ? getArabicTextStyle(styles.sectionTitle) : null;
   return (
-    <Text
-      style={[
-        styles.sectionTitle,
-        {
-          color: theme.foreground,
-          fontFamily: fontSet.display,
-          textAlign: isRTL ? "right" : "left",
-          writingDirection: direction,
-        },
-      ]}
+      <Text
+        style={[
+          styles.sectionTitle,
+          {
+            color: theme.foreground,
+            fontFamily: fontSet.display,
+            textAlign: isRTL ? "right" : "left",
+            writingDirection: direction,
+          },
+          arabicTextAdjustments,
+        ]}
     >
       {children}
     </Text>
@@ -303,18 +317,20 @@ export function SectionTitle({ children }: PropsWithChildren) {
 }
 
 export function MutedText({ children }: PropsWithChildren) {
-  const { direction, isRTL, theme, fontSet } = usePreferences();
+  const { direction, isRTL, theme, fontSet, locale } = usePreferences();
+  const arabicTextAdjustments = locale === "ar" ? getArabicTextStyle(styles.mutedText) : null;
   return (
-    <Text
-      style={[
-        styles.mutedText,
-        {
-          color: theme.muted,
-          fontFamily: fontSet.body,
-          textAlign: isRTL ? "right" : "left",
-          writingDirection: direction,
-        },
-      ]}
+      <Text
+        style={[
+          styles.mutedText,
+          {
+            color: theme.muted,
+            fontFamily: fontSet.body,
+            textAlign: isRTL ? "right" : "left",
+            writingDirection: direction,
+          },
+          arabicTextAdjustments,
+        ]}
     >
       {children}
     </Text>
@@ -322,18 +338,20 @@ export function MutedText({ children }: PropsWithChildren) {
 }
 
 export function ValueText({ children }: PropsWithChildren) {
-  const { direction, isRTL, theme, fontSet } = usePreferences();
+  const { direction, isRTL, theme, fontSet, locale } = usePreferences();
+  const arabicTextAdjustments = locale === "ar" ? getArabicTextStyle(styles.valueText) : null;
   return (
-    <Text
-      style={[
-        styles.valueText,
-        {
-          color: theme.foreground,
-          fontFamily: fontSet.display,
-          textAlign: isRTL ? "right" : "left",
-          writingDirection: direction,
-        },
-      ]}
+      <Text
+        style={[
+          styles.valueText,
+          {
+            color: theme.foreground,
+            fontFamily: fontSet.display,
+            textAlign: isRTL ? "right" : "left",
+            writingDirection: direction,
+          },
+          arabicTextAdjustments,
+        ]}
     >
       {children}
     </Text>
@@ -341,25 +359,28 @@ export function ValueText({ children }: PropsWithChildren) {
 }
 
 export function PrimaryButton({ children, ...props }: PropsWithChildren<PressableProps>) {
-  const { direction, fontSet, isRTL, theme } = usePreferences();
+  const { direction, fontSet, isRTL, theme, locale } = usePreferences();
+  const arabicTextAdjustments = locale === "ar" ? getArabicTextStyle(styles.primaryButtonText) : null;
   return (
     <Pressable {...props} style={({ pressed }) => [styles.primaryButton, { backgroundColor: theme.primary, flexDirection: isRTL ? "row-reverse" : "row" }, pressed && styles.buttonPressed, props.disabled && styles.buttonDisabled]}>
-      <Text style={[styles.primaryButtonText, { color: "#FFFFFF", fontFamily: fontSet.body, textAlign: isRTL ? "right" : "left", writingDirection: direction }]}>{children}</Text>
+      <Text style={[styles.primaryButtonText, { color: "#FFFFFF", fontFamily: fontSet.body, textAlign: isRTL ? "right" : "left", writingDirection: direction }, arabicTextAdjustments]}>{children}</Text>
     </Pressable>
   );
 }
 
 export function SecondaryButton({ children, ...props }: PropsWithChildren<PressableProps>) {
-  const { direction, fontSet, isRTL, theme } = usePreferences();
+  const { direction, fontSet, isRTL, theme, locale } = usePreferences();
+  const arabicTextAdjustments = locale === "ar" ? getArabicTextStyle(styles.secondaryButtonText) : null;
   return (
     <Pressable {...props} style={({ pressed }) => [styles.secondaryButton, { backgroundColor: theme.cardAlt, borderColor: theme.border, flexDirection: isRTL ? "row-reverse" : "row" }, pressed && styles.buttonPressed, props.disabled && styles.buttonDisabled]}>
-      <Text style={[styles.secondaryButtonText, { color: theme.foreground, fontFamily: fontSet.body, textAlign: isRTL ? "right" : "left", writingDirection: direction }]}>{children}</Text>
+      <Text style={[styles.secondaryButtonText, { color: theme.foreground, fontFamily: fontSet.body, textAlign: isRTL ? "right" : "left", writingDirection: direction }, arabicTextAdjustments]}>{children}</Text>
     </Pressable>
   );
 }
 
 export function SecondaryLink({ href, children }: PropsWithChildren<{ href: string }>) {
-  const { direction, isRTL, theme, fontSet } = usePreferences();
+  const { direction, isRTL, theme, fontSet, locale } = usePreferences();
+  const arabicTextAdjustments = locale === "ar" ? getArabicTextStyle(styles.linkLabel) : null;
   const router = useRouter();
   return (
     <Pressable
@@ -374,7 +395,7 @@ export function SecondaryLink({ href, children }: PropsWithChildren<{ href: stri
         pressed && styles.buttonPressed,
       ]}
     >
-      <Text style={[styles.linkLabel, { color: theme.foreground, fontFamily: fontSet.body, textAlign: isRTL ? "right" : "left", writingDirection: direction }]}>{children}</Text>
+      <Text style={[styles.linkLabel, { color: theme.foreground, fontFamily: fontSet.body, textAlign: isRTL ? "right" : "left", writingDirection: direction }, arabicTextAdjustments]}>{children}</Text>
       <Ionicons name={isRTL ? "chevron-back" : "chevron-forward"} size={18} color={theme.primary} />
     </Pressable>
   );
@@ -407,7 +428,8 @@ export function TextArea(props: TextInputProps) {
 }
 
 export function InlineStat({ label, value }: { label: string; value: string | number }) {
-  const { direction, isRTL, theme, fontSet } = usePreferences();
+  const { direction, isRTL, theme, fontSet, locale } = usePreferences();
+  const arabicTextAdjustments = locale === "ar" ? getArabicTextStyle(styles.inlineStatValue) : null;
   return (
     <View
       style={[
@@ -443,6 +465,7 @@ export function InlineStat({ label, value }: { label: string; value: string | nu
             textAlign: isRTL ? "right" : "left",
             writingDirection: direction,
           },
+          arabicTextAdjustments,
         ]}
       >
         {value}
@@ -827,6 +850,7 @@ const styles = StyleSheet.create({
     fontSize: 21,
     fontWeight: "800",
     letterSpacing: -0.2,
+    lineHeight: 26,
   },
   screenSubtitle: {
     fontSize: 13,

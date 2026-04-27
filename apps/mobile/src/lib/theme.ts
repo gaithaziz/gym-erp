@@ -52,19 +52,19 @@ export const fonts = {
   }),
   ar: Platform.select({
     ios: {
-      display: "Tajawal_800ExtraBold",
-      body: "Tajawal_500Medium",
-      mono: "Tajawal_500Medium",
+      display: "Tajawal_500Medium",
+      body: "Tajawal_400Regular",
+      mono: "Tajawal_400Regular",
     },
     android: {
-      display: "Tajawal_800ExtraBold",
-      body: "Tajawal_500Medium",
-      mono: "Tajawal_500Medium",
+      display: "Tajawal_500Medium",
+      body: "Tajawal_400Regular",
+      mono: "Tajawal_400Regular",
     },
     default: {
-      display: "Tajawal_800ExtraBold",
-      body: "Tajawal_500Medium",
-      mono: "Tajawal_500Medium",
+      display: "Tajawal_500Medium",
+      body: "Tajawal_400Regular",
+      mono: "Tajawal_400Regular",
     },
   }),
 } as const;

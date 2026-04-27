@@ -1,6 +1,8 @@
 import { Platform, StyleSheet, Text, type TextProps } from 'react-native';
 
 import { Fonts, ThemeColor } from '@/constants/theme';
+import { getArabicTextStyle } from '@/lib/arabic-typography';
+import { usePreferences } from '@/lib/preferences';
 import { useTheme } from '@/hooks/use-theme';
 
 export type ThemedTextProps = TextProps & {
@@ -10,6 +12,8 @@ export type ThemedTextProps = TextProps & {
 
 export function ThemedText({ style, type = 'default', themeColor, ...rest }: ThemedTextProps) {
   const theme = useTheme();
+  const { locale } = usePreferences();
+  const arabicTextAdjustments = locale === "ar" ? getArabicTextStyle([styles.default, style]) : null;
 
   return (
     <Text
@@ -24,6 +28,7 @@ export function ThemedText({ style, type = 'default', themeColor, ...rest }: The
         type === 'linkPrimary' && styles.linkPrimary,
         type === 'code' && styles.code,
         style,
+        arabicTextAdjustments,
       ]}
       {...rest}
     />
