@@ -29,6 +29,18 @@ class Settings(BaseSettings):
     GYM_SECONDARY_COLOR: str = "#F59E0B"
     GYM_SUPPORT_EMAIL: Optional[str] = None
     GYM_SUPPORT_PHONE: Optional[str] = None
+    FRONTEND_BASE_URL: str = "http://localhost:3000"
+    MOBILE_DEEPLINK_SCHEME: str = "gymerp"
+    PASSWORD_RESET_TOKEN_EXPIRE_MINUTES: int = 30
+    EMAIL_PROVIDER: str = "console"
+    EMAIL_FROM_NAME: str = "Gym ERP"
+    EMAIL_FROM_ADDRESS: str = "no-reply@gym-erp.com"
+    EMAIL_SMTP_HOST: Optional[str] = None
+    EMAIL_SMTP_PORT: int = 587
+    EMAIL_SMTP_USERNAME: Optional[str] = None
+    EMAIL_SMTP_PASSWORD: Optional[str] = None
+    EMAIL_SMTP_USE_TLS: bool = True
+    EMAIL_TIMEOUT_SECONDS: int = 10
 
     # Validation
     BACKEND_CORS_ORIGINS: List[AnyHttpUrl] = []

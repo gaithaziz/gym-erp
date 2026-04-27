@@ -28,6 +28,7 @@
     "ios:mobile:build": "npm run ios:dev --workspace @gym-erp/mobile",
     "android:mobile": "npm run android --workspace @gym-erp/mobile",
     "android:mobile:build": "npm run android:dev --workspace @gym-erp/mobile",
+    "mobile:build:both": "npm run ios:mobile:build & npm run android:mobile:build & wait",
     "prebuild:mobile": "npm run prebuild --workspace @gym-erp/mobile",
     "prebuild:mobile:clean": "npm run prebuild:clean --workspace @gym-erp/mobile",
     "typecheck:mobile": "npm run typecheck --workspace @gym-erp/mobile",

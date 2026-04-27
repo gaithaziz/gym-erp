@@ -1,3 +1,5 @@
+import asyncio
+import io
 import json
 import os
 import uuid
@@ -11,6 +13,7 @@ from pydantic import BaseModel
 from sqlalchemy import and_, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
+from PIL import Image, ImageOps
 
 from app.auth import dependencies
 from app.config import settings
@@ -31,10 +34,18 @@ VIDEO_MIME_TYPES = {"video/mp4", "video/webm", "video/quicktime"}
 VOICE_MIME_TYPES = {"audio/webm", "audio/mp4", "audio/mpeg", "audio/ogg"}
 ALL_MIME_TYPES = IMAGE_MIME_TYPES | VIDEO_MIME_TYPES | VOICE_MIME_TYPES
 MAX_BYTES_BY_MIME = {
-    **{mime: 15 * 1024 * 1024 for mime in IMAGE_MIME_TYPES},
+    **{mime: 25 * 1024 * 1024 for mime in IMAGE_MIME_TYPES},
     **{mime: 75 * 1024 * 1024 for mime in VIDEO_MIME_TYPES},
     **{mime: 25 * 1024 * 1024 for mime in VOICE_MIME_TYPES},
 }
+CHAT_IMAGE_UPLOAD_LIMIT_BYTES = 2 * 1024 * 1024
+CHAT_IMAGE_COMPRESSION_STEPS = (
+    (2048, 0.84),
+    (1600, 0.76),
+    (1280, 0.68),
+    (1024, 0.62),
+    (896, 0.58),
+)
 UPLOAD_DIR = os.path.join("static", "chat_media")
 
 
@@ -98,6 +109,61 @@ def _to_contact(user: User) -> ChatContactResponse:
         role=user.role.value,
         profile_picture_url=user.profile_picture_url,
     )
+
+
+def _flatten_to_jpeg(image: Image.Image) -> Image.Image:
+    if image.mode in {"RGBA", "LA"} or (image.mode == "P" and "transparency" in image.info):
+        rgba = image.convert("RGBA")
+        background = Image.new("RGB", rgba.size, (255, 255, 255))
+        background.paste(rgba, mask=rgba.getchannel("A"))
+        return background
+    if image.mode != "RGB":
+        return image.convert("RGB")
+    return image
+
+
+def _compress_chat_image(file_path: str, *, limit_bytes: int = CHAT_IMAGE_UPLOAD_LIMIT_BYTES) -> tuple[str, int] | None:
+    try:
+        with Image.open(file_path) as original:
+            image = ImageOps.exif_transpose(original)
+            rgb_image = _flatten_to_jpeg(image)
+    except Exception:
+        return None
+
+    best_bytes: bytes | None = None
+    best_size: int | None = None
+    resample = getattr(Image, "Resampling", Image).LANCZOS
+
+    for width, quality in CHAT_IMAGE_COMPRESSION_STEPS:
+        candidate = rgb_image.copy()
+        candidate.thumbnail((width, width), resample=resample)
+        buffer = io.BytesIO()
+        try:
+            candidate.save(buffer, format="JPEG", quality=int(quality * 100), optimize=True, progressive=True)
+        except Exception:
+            continue
+        candidate_bytes = buffer.getvalue()
+        candidate_size = len(candidate_bytes)
+        if best_bytes is None or best_size is None or candidate_size < best_size:
+            best_bytes = candidate_bytes
+            best_size = candidate_size
+        if candidate_size <= limit_bytes:
+            break
+
+    if best_bytes is None or best_size is None:
+        return None
+
+    new_file_name = f"{uuid.uuid4()}.jpg"
+    new_file_path = os.path.join(os.path.dirname(file_path), new_file_name)
+    with open(new_file_path, "wb") as output_file:
+        output_file.write(best_bytes)
+
+    try:
+        os.remove(file_path)
+    except OSError:
+        pass
+
+    return new_file_name, best_size
 
 
 def _snapshot_rls_context(db: AsyncSession) -> tuple[object, object, object, object]:
@@ -632,6 +698,14 @@ async def upload_attachment(
                         pass
                     raise HTTPException(status_code=400, detail="Attachment exceeds allowed size")
                 out_file.write(chunk)
+
+        if content_type in IMAGE_MIME_TYPES and total > CHAT_IMAGE_UPLOAD_LIMIT_BYTES:
+            compressed = await asyncio.to_thread(_compress_chat_image, file_path, limit_bytes=CHAT_IMAGE_UPLOAD_LIMIT_BYTES)
+            if compressed is not None:
+                file_name, total = compressed
+                file_path = os.path.join(thread_dir, file_name)
+                content_type = "image/jpeg"
+                ext = ".jpg"
 
         message_type = _resolve_message_type(content_type)
         message = await _persist_message(

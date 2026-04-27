@@ -14,6 +14,7 @@ interface SystemStats {
     total_gyms: number;
     total_branches: number;
     total_users: number;
+    active_users?: number;
     active_subscriptions: number;
     global_maintenance: boolean;
 }
@@ -91,6 +92,16 @@ export default function SystemStatsPage() {
         }));
     }, [revenueData, formatDate]);
 
+    const financeSummary = useMemo(() => {
+        const income = revenueData.reduce((sum, row) => sum + row.income, 0);
+        const expense = revenueData.reduce((sum, row) => sum + row.expense, 0);
+        return {
+            income,
+            expense,
+            net: income - expense,
+        };
+    }, [revenueData]);
+
     if (loading) {
         return (
             <div className="flex h-64 items-center justify-center">
@@ -115,9 +126,9 @@ export default function SystemStatsPage() {
             color: 'blue' 
         },
         { 
-            title: locale === 'ar' ? 'إجمالي المستخدمين' : 'Total Users', 
-            value: stats?.total_users ?? '--', 
-            subtitle: locale === 'ar' ? 'المستخدمين النشطين' : 'Global active users', 
+            title: locale === 'ar' ? 'المستخدمون النشطون' : 'Active Users', 
+            value: stats?.active_users ?? stats?.total_users ?? '--', 
+            subtitle: locale === 'ar' ? 'الحسابات المفعلة عبر كل الصالات' : 'Enabled accounts across all gyms', 
             icon: Users, 
             color: 'green' 
         },
@@ -202,9 +213,39 @@ export default function SystemStatsPage() {
 
                 {/* Revenue Chart */}
                 <div key="system-revenue" className="kpi-card p-6 h-full relative group flex flex-col" data-grid={{ w: 12, h: 8, x: 0, y: 4 }}>
-                    <h3 className="inline-flex rounded-md border border-orange-500/30 bg-orange-500/10 px-2 py-1 text-base font-extrabold text-orange-500 uppercase tracking-wider font-mono mb-6">
-                        {locale === 'ar' ? 'نمو الإيرادات العالمية' : 'Global Revenue Growth'} (30d)
-                    </h3>
+                    <div className="flex flex-col gap-3 mb-6">
+                        <div className="flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
+                            <h3 className="inline-flex rounded-md border border-orange-500/30 bg-orange-500/10 px-2 py-1 text-base font-extrabold text-orange-500 uppercase tracking-wider font-mono">
+                                {locale === 'ar' ? 'ملخص السيولة العالمية' : 'Global Cash Flow Summary'} (30d)
+                            </h3>
+                            <div className="flex flex-wrap gap-2 text-[10px] font-bold uppercase tracking-wider">
+                                <span className="inline-flex items-center gap-2 rounded-md border border-primary/30 bg-primary/10 px-2 py-1 text-primary">
+                                    <span className="h-2 w-2 rounded-full bg-primary" />
+                                    {locale === 'ar' ? 'إيراد' : 'Income'}
+                                </span>
+                                <span className="inline-flex items-center gap-2 rounded-md border border-amber-500/30 bg-amber-500/10 px-2 py-1 text-amber-500">
+                                    <span className="h-2 w-2 rounded-full bg-amber-500" />
+                                    {locale === 'ar' ? 'مصروف' : 'Expense'}
+                                </span>
+                            </div>
+                        </div>
+                        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                            <div className="rounded-lg border border-border bg-muted/20 px-3 py-2">
+                                <div className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">{locale === 'ar' ? 'إجمالي الإيرادات' : 'Total Income'}</div>
+                                <div className="mt-1 font-mono text-lg font-bold text-foreground">{formatCurrency(financeSummary.income, 'JOD')}</div>
+                            </div>
+                            <div className="rounded-lg border border-border bg-muted/20 px-3 py-2">
+                                <div className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">{locale === 'ar' ? 'إجمالي المصروفات' : 'Total Expenses'}</div>
+                                <div className="mt-1 font-mono text-lg font-bold text-foreground">{formatCurrency(financeSummary.expense, 'JOD')}</div>
+                            </div>
+                            <div className="rounded-lg border border-border bg-muted/20 px-3 py-2">
+                                <div className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">{locale === 'ar' ? 'صافي السيولة' : 'Net Cash Flow'}</div>
+                                <div className={`mt-1 font-mono text-lg font-bold ${financeSummary.net >= 0 ? 'text-emerald-500' : 'text-destructive'}`}>
+                                    {formatCurrency(financeSummary.net, 'JOD')}
+                                </div>
+                            </div>
+                        </div>
+                    </div>
                     <div className="mt-1 min-h-0 flex-1">
                         {chartData.length > 0 ? (
                             <SafeResponsiveChart>
@@ -221,7 +262,8 @@ export default function SystemStatsPage() {
                                         contentStyle={{ background: 'var(--card)', border: '1px solid var(--border)', borderRadius: '0px', fontSize: '0.8rem', color: 'var(--foreground)' }}
                                         formatter={(value) => formatCurrency(Number(value), 'JOD')}
                                     />
-                                    <Bar dataKey="income" fill="var(--primary)" barSize={32} radius={[2, 2, 0, 0]} />
+                                    <Bar dataKey="income" name={locale === 'ar' ? 'الإيراد' : 'Income'} fill="var(--primary)" barSize={24} radius={[2, 2, 0, 0]} />
+                                    <Bar dataKey="expense" name={locale === 'ar' ? 'المصروف' : 'Expense'} fill="var(--muted-foreground)" barSize={24} radius={[2, 2, 0, 0]} />
                                 </BarChart>
                             </SafeResponsiveChart>
                         ) : (

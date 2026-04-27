@@ -1,12 +1,13 @@
 import { Ionicons } from "@expo/vector-icons";
 import { Tabs } from "expo-router";
+import { Platform } from "react-native";
 
 import { usePreferences } from "@/lib/preferences";
 import { useSession } from "@/lib/session";
 import { getCurrentRole, hasModule, isCustomerRole } from "@/lib/mobile-role";
 
 export default function TabsLayout() {
-  const { copy, fontSet, isRTL, theme } = usePreferences();
+  const { copy, fontSet, isRTL, locale, theme } = usePreferences();
   const { bootstrap } = useSession();
   const role = getCurrentRole(bootstrap);
   const customer = isCustomerRole(role);
@@ -25,6 +26,7 @@ export default function TabsLayout() {
 
   return (
     <Tabs
+      key={locale}
       screenOptions={{
         headerShown: false,
         tabBarActiveTintColor: theme.primary,
@@ -37,6 +39,7 @@ export default function TabsLayout() {
         tabBarLabelStyle: {
           fontFamily: fontSet.body,
           fontSize: 11,
+          ...(Platform.OS === "android" && locale === "ar" ? { fontWeight: "400" } : null),
         },
         tabBarItemStyle: {
           flexDirection: isRTL ? "row-reverse" : "row",

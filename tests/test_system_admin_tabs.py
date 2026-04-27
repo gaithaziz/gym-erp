@@ -1,14 +1,20 @@
 import uuid
 from datetime import datetime, timedelta, timezone
+from decimal import Decimal
 
 import pytest
 from httpx import AsyncClient
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.auth import security
 from app.config import settings
 from app.database import set_rls_context
+from app.models.access import Subscription
+from app.models.finance import Transaction, TransactionCategory, TransactionType
 from app.models.enums import Role
+from app.models.subscription_enums import SubscriptionStatus
+from app.models.tenancy import Branch, Gym
 from app.models.user import User
 
 
@@ -175,3 +181,93 @@ async def test_system_audit_logs_empty_state_contract(client: AsyncClient, db_se
     assert payload["total"] == 0
     assert payload["page"] == 1
     assert payload["limit"] == 20
+
+
+@pytest.mark.asyncio
+async def test_system_stats_reports_clear_global_metrics(
+    client: AsyncClient,
+    db_session: AsyncSession,
+    superadmin_token_headers: dict[str, str],
+):
+    await set_rls_context(db_session, role=Role.SUPER_ADMIN.value)
+
+    gym = (await db_session.execute(select(Gym).order_by(Gym.created_at.asc()))).scalar_one()
+    branch = (await db_session.execute(select(Branch).where(Branch.gym_id == gym.id).order_by(Branch.created_at.asc()))).scalar_one()
+
+    active_user = User(
+        email=f"stats-active-{uuid.uuid4().hex[:8]}@example.com",
+        hashed_password=security.get_password_hash("password123"),
+        role=Role.CUSTOMER,
+        full_name="Active Member",
+        is_active=True,
+        gym_id=gym.id,
+        home_branch_id=branch.id,
+    )
+    inactive_user = User(
+        email=f"stats-inactive-{uuid.uuid4().hex[:8]}@example.com",
+        hashed_password=security.get_password_hash("password123"),
+        role=Role.CUSTOMER,
+        full_name="Inactive Member",
+        is_active=False,
+        gym_id=gym.id,
+        home_branch_id=branch.id,
+    )
+    db_session.add_all([active_user, inactive_user])
+    await db_session.flush()
+
+    db_session.add(
+        Subscription(
+            gym_id=gym.id,
+            user_id=active_user.id,
+            plan_name="Monthly",
+            start_date=datetime.now(timezone.utc) - timedelta(days=10),
+            end_date=datetime.now(timezone.utc) + timedelta(days=20),
+            status=SubscriptionStatus.ACTIVE,
+        )
+    )
+    db_session.add(
+        Transaction(
+            gym_id=gym.id,
+            branch_id=branch.id,
+            amount=Decimal("120.00"),
+            type=TransactionType.INCOME,
+            category=TransactionCategory.SUBSCRIPTION,
+            description="Membership renewal",
+            date=datetime.now(timezone.utc) - timedelta(days=2),
+        )
+    )
+    db_session.add(
+        Transaction(
+            gym_id=gym.id,
+            branch_id=branch.id,
+            amount=Decimal("35.00"),
+            type=TransactionType.EXPENSE,
+            category=TransactionCategory.UTILITIES,
+            description="Electricity bill",
+            date=datetime.now(timezone.utc) - timedelta(days=1),
+        )
+    )
+    await db_session.commit()
+
+    stats_resp = await client.get(
+        f"{settings.API_V1_STR}/system/stats",
+        headers=superadmin_token_headers,
+    )
+    assert stats_resp.status_code == 200
+    stats = stats_resp.json()
+    assert stats["total_gyms"] == 1
+    assert stats["total_branches"] == 1
+    assert stats["total_users"] == 3
+    assert stats["active_users"] == 2
+    assert stats["active_subscriptions"] == 1
+    assert stats["global_maintenance"] is False
+
+    revenue_resp = await client.get(
+        f"{settings.API_V1_STR}/system/analytics/revenue",
+        headers=superadmin_token_headers,
+        params={"days": 30},
+    )
+    assert revenue_resp.status_code == 200
+    revenue_rows = revenue_resp.json()
+    assert any(row["income"] > 0 for row in revenue_rows)
+    assert any(row["expense"] > 0 for row in revenue_rows)

@@ -124,6 +124,9 @@ export default function LoginScreen() {
         <PrimaryButton onPress={() => void handleLogin()} disabled={!canSubmit}>
           {busy ? copy.login.signingIn : copy.login.signInButton}
         </PrimaryButton>
+        <SecondaryButton onPress={() => router.push("/forgot-password" as never)}>
+          {copy.login.forgotPassword}
+        </SecondaryButton>
         {__DEV__ ? (
           <SecondaryButton onPress={() => router.push("/diagnostics" as never)}>
             Diagnostics

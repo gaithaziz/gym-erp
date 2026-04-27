@@ -325,6 +325,9 @@ def _cors_check() -> SecurityCheckResult:
 
 def _api_keys_check() -> SecurityCheckResult:
     suspicious_matches: list[str] = []
+    file_pattern = re.compile(
+        r'^\s*([A-Z0-9_]*(?:SECRET|TOKEN|API_KEY|PASSWORD)[A-Z0-9_]*)\s*=\s*(?:(["\'])([^"\']{8,})\2|([^#\n]+?))\s*(?:#.*)?$'
+    )
     for path in _tracked_repo_files():
         if not path.is_file() or path.suffix.lower() not in TRACKED_SOURCE_SUFFIXES:
             continue
@@ -341,8 +344,15 @@ def _api_keys_check() -> SecurityCheckResult:
             content = path.read_text(encoding="utf-8")
         except Exception:
             continue
-        if re.search(r"(SECRET_KEY|API_KEY|TOKEN|PASSWORD)\s*[:=]\s*[\"'][^\"']{8,}[\"']", content):
-            suspicious_matches.append(relative_str)
+        for line_no, line in enumerate(content.splitlines(), start=1):
+            match = file_pattern.search(line)
+            if not match:
+                continue
+            var_name = match.group(1)
+            value = (match.group(3) or match.group(4) or "").strip()
+            if _is_placeholder_secret(value):
+                continue
+            suspicious_matches.append(f"{relative_str}:{line_no} ({var_name})")
 
     details: list[str] = []
     evidence: list[str] = []

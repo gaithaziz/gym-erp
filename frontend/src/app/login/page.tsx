@@ -1,6 +1,7 @@
 'use client';
 
 import { useState } from 'react';
+import Link from 'next/link';
 import { useAuth } from '@/context/AuthContext';
 import { api } from '@/lib/api';
 import { Eye, EyeOff, ShieldCheck, Zap, Users } from 'lucide-react';
@@ -186,6 +187,12 @@ export default function LoginPage() {
                             ) : t('login.signIn')}
                         </button>
                     </form>
+
+                    <div className="mt-4 flex justify-end">
+                        <Link href="/forgot-password" className="text-xs font-medium text-primary hover:text-primary/80 transition-colors">
+                            {t('login.forgotPassword')}
+                        </Link>
+                    </div>
 
                     <p className="text-center text-xs text-muted-foreground mt-5 font-mono">
                         {t('login.footer')}

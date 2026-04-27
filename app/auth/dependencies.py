@@ -37,6 +37,7 @@ async def get_current_user(
         token_data = TokenPayload(
             sub=username,
             type=token_type,
+            session_version=int(payload.get("session_version") or 0),
             gym_id=token_gym_id,
             home_branch_id=payload.get("home_branch_id"),
             is_impersonated=payload.get("is_impersonated", False),
@@ -52,6 +53,9 @@ async def get_current_user(
     user = result.scalar_one_or_none()
     
     if user is None:
+        raise credentials_exception
+
+    if int(getattr(user, "session_version", 0) or 0) != int(token_data.session_version or 0):
         raise credentials_exception
     
     user.is_impersonated = token_data.is_impersonated

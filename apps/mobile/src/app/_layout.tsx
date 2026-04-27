@@ -5,7 +5,7 @@ import * as Notifications from "expo-notifications";
 import { Stack, useRouter } from "expo-router";
 import { StatusBar } from "expo-status-bar";
 import { useEffect, useRef, useState } from "react";
-import { LogBox } from "react-native";
+import { LogBox, Platform } from "react-native";
 import { GestureHandlerRootView } from "react-native-gesture-handler";
 
 import { parseNotificationDeepLink } from "@/lib/deep-link";
@@ -51,7 +51,7 @@ export default function RootLayout() {
 }
 
 function AppNavigator() {
-  const { copy, fontSet, theme, themeMode } = usePreferences();
+  const { copy, fontSet, locale, theme, themeMode } = usePreferences();
   const { status } = useSession();
   const router = useRouter();
   const notifListenerRef = useRef<Notifications.Subscription | null>(null);
@@ -74,10 +74,18 @@ function AppNavigator() {
     <>
       <StatusBar style={themeMode === "dark" ? "light" : "dark"} />
       <Stack
+        key={locale}
         screenOptions={{
           headerStyle: { backgroundColor: theme.background },
-          headerTitleStyle: { color: theme.foreground, fontFamily: fontSet.display },
-          headerBackTitleStyle: { fontFamily: fontSet.body },
+          headerTitleStyle: {
+            color: theme.foreground,
+            fontFamily: fontSet.display,
+            ...(Platform.OS === "android" && locale === "ar" ? { fontWeight: "500" } : null),
+          },
+          headerBackTitleStyle: {
+            fontFamily: fontSet.body,
+            ...(Platform.OS === "android" && locale === "ar" ? { fontWeight: "400" } : null),
+          },
           headerTintColor: theme.foreground,
           headerBackButtonDisplayMode: "minimal",
           headerShadowVisible: false,
@@ -88,6 +96,8 @@ function AppNavigator() {
       >
         <Stack.Screen name="index" options={{ headerShown: false }} />
         <Stack.Screen name="login" options={{ headerShown: false }} />
+        <Stack.Screen name="forgot-password" options={{ headerShown: false }} />
+        <Stack.Screen name="reset-password" options={{ headerShown: false }} />
         <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
         <Stack.Screen name="billing" options={{ headerShown: false, title: copy.common.billing }} />
         <Stack.Screen name="badges" options={{ headerShown: false, title: copy.home.achievements }} />

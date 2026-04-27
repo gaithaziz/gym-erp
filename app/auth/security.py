@@ -21,6 +21,7 @@ def create_access_token(
     gym_id: Optional[str] = None,
     home_branch_id: Optional[str] = None,
     is_impersonated: bool = False,
+    session_version: int = 0,
 ) -> str:
     if expires_delta:
         expire = datetime.now(timezone.utc) + expires_delta
@@ -28,6 +29,7 @@ def create_access_token(
         expire = datetime.now(timezone.utc) + timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES)
     
     to_encode = {"exp": expire, "sub": str(subject), "type": "access"}
+    to_encode["session_version"] = int(session_version)
     if gym_id:
         to_encode["gym_id"] = gym_id
     if home_branch_id:
@@ -44,6 +46,7 @@ def create_refresh_token(
     gym_id: Optional[str] = None,
     home_branch_id: Optional[str] = None,
     is_impersonated: bool = False,
+    session_version: int = 0,
 ) -> str:
     if expires_delta:
         expire = datetime.now(timezone.utc) + expires_delta
@@ -51,6 +54,7 @@ def create_refresh_token(
         expire = datetime.now(timezone.utc) + timedelta(days=7) # Refresh tokens live longer
     
     to_encode = {"exp": expire, "sub": str(subject), "type": "refresh", "jti": str(uuid.uuid4())}
+    to_encode["session_version"] = int(session_version)
     if gym_id:
         to_encode["gym_id"] = gym_id
     if home_branch_id:

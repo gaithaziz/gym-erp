@@ -15,6 +15,7 @@ class TokenPayload(BaseModel):
     sub: Optional[str] = None
     exp: Optional[int] = None
     type: Optional[str] = None
+    session_version: int = 0
     gym_id: Optional[uuid.UUID] = None
     home_branch_id: Optional[uuid.UUID] = None
     is_impersonated: bool = False
@@ -108,6 +109,19 @@ class UserUpdate(BaseModel):
 
 class PasswordChange(BaseModel):
     current_password: str
+    new_password: str
+
+
+class PasswordResetRequest(BaseModel):
+    email: EmailStr
+
+
+class PasswordResetRequestResult(BaseModel):
+    account_found: bool
+
+
+class PasswordResetConfirm(BaseModel):
+    token: str
     new_password: str
 
 

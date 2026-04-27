@@ -9,6 +9,7 @@ import {
   StyleSheet,
   Text,
   TextInput,
+  Platform,
   View,
   type DimensionValue,
   type PressableProps,
@@ -184,6 +185,7 @@ export function Screen({
               textAlign: isRTL ? "right" : "left",
               writingDirection: direction,
               fontFamily: fontSet.display,
+              ...(Platform.OS === "android" && locale === "ar" ? { fontWeight: "500" } : null),
             },
             headerTitleStyle,
             arabicTextAdjustments,
@@ -201,6 +203,7 @@ export function Screen({
                 textAlign: isRTL ? "right" : "left",
                 writingDirection: direction,
                 fontFamily: fontSet.body,
+                ...(Platform.OS === "android" && locale === "ar" ? { fontWeight: "400" } : null),
               },
             ]}
           >

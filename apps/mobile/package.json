@@ -18,8 +18,8 @@
   },
   "dependencies": {
     "@expo-google-fonts/tajawal": "^0.4.1",
-    "@gym-erp/workout": "*",
     "@gym-erp/contracts": "*",
+    "@gym-erp/workout": "*",
     "@react-native-community/datetimepicker": "^9.1.0",
     "@react-navigation/bottom-tabs": "^7.15.5",
     "@react-navigation/elements": "^2.9.10",

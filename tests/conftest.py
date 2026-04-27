@@ -156,3 +156,43 @@ async def admin_token_headers(client, db_session):
     )
     token = response.json()["data"]["access_token"]
     return {"Authorization": f"Bearer {token}"}
+
+
+@pytest.fixture
+async def superadmin_token_headers(client, db_session):
+    from app.models.user import User
+    from app.models.enums import Role
+    from app.auth.security import get_password_hash
+    from app.services.tenancy_service import TenancyService
+
+    superadmin_data = {
+        "email": "superadmin@test.com",
+        "password": "password",
+        "full_name": "Super Admin User",
+        "role": Role.SUPER_ADMIN,
+    }
+
+    from sqlalchemy import select
+    res = await db_session.execute(select(User).where(User.email == superadmin_data["email"]))
+    if not res.scalar_one_or_none():
+        gym, branch = await TenancyService.ensure_default_gym_and_branch(db_session)
+        user = User(
+            gym_id=gym.id,
+            email=superadmin_data["email"],
+            hashed_password=get_password_hash(superadmin_data["password"]),
+            full_name=superadmin_data["full_name"],
+            role=superadmin_data["role"],
+            is_active=True,
+            home_branch_id=branch.id,
+        )
+        db_session.add(user)
+        await db_session.commit()
+        await TenancyService.ensure_user_branch_access(db_session, user_id=user.id, gym_id=gym.id, branch_id=branch.id)
+        await db_session.commit()
+
+    response = await client.post(
+        "/api/v1/auth/login",
+        json={"email": superadmin_data["email"], "password": superadmin_data["password"]}
+    )
+    token = response.json()["data"]["access_token"]
+    return {"Authorization": f"Bearer {token}"}

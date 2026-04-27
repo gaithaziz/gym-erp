@@ -7,6 +7,7 @@ import { useEffect, useMemo, useState, useCallback } from 'react';
 import { ShieldAlert, Clock, User, Building2, Filter, RefreshCcw } from 'lucide-react';
 import { useLocale } from '@/context/LocaleContext';
 import TablePagination from '@/components/TablePagination';
+import { SecurityAuditPanel } from '@/components/SecurityAuditPanel';
 
 interface AuditLogRow {
     id: string;
@@ -33,6 +34,31 @@ interface AuditPayload {
     limit: number;
 }
 
+interface SecurityAuditSummary {
+    overall_status: 'pass' | 'warn' | 'fail' | 'not_applicable';
+    passed: number;
+    warnings: number;
+    failed: number;
+    not_applicable: number;
+}
+
+interface SecurityCheck {
+    id: string;
+    category: string;
+    title: string;
+    status: 'pass' | 'warn' | 'fail' | 'not_applicable';
+    summary: string;
+    details: string[];
+    evidence: string[];
+    recommended_action: string | null;
+}
+
+interface SecurityAudit {
+    summary: SecurityAuditSummary;
+    checks: SecurityCheck[];
+    generated_at: string;
+}
+
 const PAGE_SIZE = 20;
 
 export default function GlobalAuditLogsPage() {
@@ -41,6 +67,7 @@ export default function GlobalAuditLogsPage() {
 
     const [logs, setLogs] = useState<AuditLogRow[]>([]);
     const [gyms, setGyms] = useState<GymsLookup[]>([]);
+    const [securityAudit, setSecurityAudit] = useState<SecurityAudit | null>(null);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
 
@@ -77,16 +104,31 @@ export default function GlobalAuditLogsPage() {
             if (fromDate) params.from = fromDate;
             if (toDate) params.to = toDate;
 
-            const resp = await api.get('/system/audit-logs', { params });
-            const payload = resp.data?.data as AuditPayload | undefined;
+            const [logsResult, securityResult] = await Promise.allSettled([
+                api.get('/system/audit-logs', { params }),
+                api.get('/audit/security'),
+            ]);
 
-            if (payload && Array.isArray(payload.items)) {
-                setLogs(payload.items);
-                setTotal(Number(payload.total || 0));
+            if (logsResult.status === 'fulfilled') {
+                const resp = logsResult.value;
+                const payload = resp.data?.data as AuditPayload | undefined;
+
+                if (payload && Array.isArray(payload.items)) {
+                    setLogs(payload.items);
+                    setTotal(Number(payload.total || 0));
+                } else {
+                    const legacy = Array.isArray(resp.data) ? (resp.data as AuditLogRow[]) : [];
+                    setLogs(legacy);
+                    setTotal(legacy.length);
+                }
             } else {
-                const legacy = Array.isArray(resp.data) ? (resp.data as AuditLogRow[]) : [];
-                setLogs(legacy);
-                setTotal(legacy.length);
+                throw logsResult.reason;
+            }
+
+            if (securityResult.status === 'fulfilled') {
+                setSecurityAudit(securityResult.value.data?.data || null);
+            } else {
+                setSecurityAudit(null);
             }
         } catch (err) {
             const message = normalizeApiError(err);
@@ -101,6 +143,7 @@ export default function GlobalAuditLogsPage() {
                 from: fromDate,
                 to: toDate,
             });
+            setSecurityAudit(null);
         } finally {
             setLoading(false);
         }
@@ -168,6 +211,8 @@ export default function GlobalAuditLogsPage() {
                     </div>
                 </div>
             </div>
+
+            <SecurityAuditPanel securityAudit={securityAudit} />
 
             {error && (
                 <div className="rounded-md border border-destructive/30 bg-destructive/10 px-4 py-3 text-sm text-destructive flex items-center justify-between gap-3">

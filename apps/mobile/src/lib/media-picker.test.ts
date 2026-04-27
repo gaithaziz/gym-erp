@@ -36,6 +36,7 @@ describe("media picker", () => {
         uri: "file:///tmp/photo.heic",
         name: "photo.heic",
         mimeType: "image/heic",
+        sizeBytes: null,
       },
     ]);
   });
@@ -59,6 +60,7 @@ describe("media picker", () => {
         uri: "file:///tmp/photo.png",
         name: "photo.png",
         mimeType: "image/png",
+        sizeBytes: null,
       },
     ]);
   });

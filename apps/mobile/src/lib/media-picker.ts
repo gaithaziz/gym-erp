@@ -5,6 +5,7 @@ export type PickedMedia = {
   uri: string;
   name: string;
   mimeType: string;
+  sizeBytes?: number | null;
 };
 
 function extensionForMime(mimeType?: string | null) {
@@ -52,6 +53,7 @@ export async function pickMediaFromLibrary(options: {
       uri: asset.uri,
       name: asset.fileName || `photo-${Date.now()}-${index}.${extensionForMime(sourceMimeType)}`,
       mimeType: sourceMimeType,
+      sizeBytes: asset.fileSize ?? null,
     };
   });
 }

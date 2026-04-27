@@ -277,6 +277,7 @@ async def get_system_stats(db: AsyncSession = Depends(get_db)) -> dict[str, Any]
     total_gyms = (await db.execute(select(func.count(Gym.id)))).scalar() or 0
     total_branches = (await db.execute(select(func.count(Branch.id)))).scalar() or 0
     total_users = (await db.execute(select(func.count(User.id)))).scalar() or 0
+    active_users = (await db.execute(select(func.count(User.id)).where(User.is_active.is_(True)))).scalar() or 0
     active_subs = (await db.execute(select(func.count(Subscription.id)).where(Subscription.status == "ACTIVE"))).scalar() or 0
 
     global_maint = await db.execute(select(SystemConfig).where(SystemConfig.key == "global_maintenance_mode"))
@@ -286,6 +287,7 @@ async def get_system_stats(db: AsyncSession = Depends(get_db)) -> dict[str, Any]
         "total_gyms": total_gyms,
         "total_branches": total_branches,
         "total_users": total_users,
+        "active_users": active_users,
         "active_subscriptions": active_subs,
         "global_maintenance": maint_config.value_bool if maint_config else False,
     }
@@ -791,12 +793,14 @@ async def impersonate_user(user_id: uuid.UUID, db: AsyncSession = Depends(get_db
         gym_id=str(user.gym_id),
         home_branch_id=str(user.home_branch_id) if user.home_branch_id else None,
         is_impersonated=True,
+        session_version=int(getattr(user, "session_version", 0) or 0),
     )
     refresh_token = create_refresh_token(
         subject=user.id,
         gym_id=str(user.gym_id),
         home_branch_id=str(user.home_branch_id) if user.home_branch_id else None,
         is_impersonated=True,
+        session_version=int(getattr(user, "session_version", 0) or 0),
     )
 
     return {

@@ -20,6 +20,7 @@ from app.core.responses import StandardResponse
 from app.services.mobile_bootstrap_service import MobileBootstrapService
 from app.core.rate_limit import rate_limit_dependency
 from app.services.tenancy_service import TenancyService
+from app.services.password_reset_service import PasswordResetService
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
@@ -81,6 +82,10 @@ def _credentials_exception() -> HTTPException:
         detail="Could not validate credentials",
         headers={"WWW-Authenticate": "Bearer"},
     )
+
+
+def _current_session_version(user: User) -> int:
+    return int(getattr(user, "session_version", 0) or 0)
 
 
 async def _log_and_commit(
@@ -195,11 +200,13 @@ async def login(
         expires_delta=access_token_expires,
         gym_id=str(user.gym_id),
         home_branch_id=str(user.home_branch_id) if user.home_branch_id else None,
+        session_version=_current_session_version(user),
     )
     refresh_token = security.create_refresh_token(
         subject=user.email,
         gym_id=str(user.gym_id),
         home_branch_id=str(user.home_branch_id) if user.home_branch_id else None,
+        session_version=_current_session_version(user),
     )
     # Set context to the identified user to allow persisting their refresh token and other actions
     await dependencies.set_rls_context(
@@ -239,6 +246,7 @@ async def refresh_token(
         jti = payload.get("jti")
         gym_id = payload.get("gym_id")
         is_impersonated = payload.get("is_impersonated", False)
+        token_session_version = int(payload.get("session_version") or 0)
         if username is None or token_type != "refresh" or jti is None:
             raise credentials_exception
     except JWTError:
@@ -247,6 +255,8 @@ async def refresh_token(
     user = await _get_user_by_email(db, username)
     
     if user is None:
+        raise credentials_exception
+    if _current_session_version(user) != token_session_version:
         raise credentials_exception
         
     # Set context to the identified user to allow finding their refresh token
@@ -286,12 +296,14 @@ async def refresh_token(
         gym_id=str(user.gym_id),
         home_branch_id=str(user.home_branch_id) if user.home_branch_id else None,
         is_impersonated=is_impersonated,
+        session_version=_current_session_version(user),
     )
     new_refresh_token = security.create_refresh_token(
         subject=user.email,
         gym_id=str(user.gym_id),
         home_branch_id=str(user.home_branch_id) if user.home_branch_id else None,
         is_impersonated=is_impersonated,
+        session_version=_current_session_version(user),
     )
     await _persist_refresh_token(db, user.id, new_refresh_token)
     await db.commit()
@@ -402,7 +414,7 @@ async def change_password(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Incorrect current password"
         )
-    
+    await PasswordResetService.revoke_user_sessions(db, user=current_user)
     current_user.hashed_password = security.get_password_hash(password_data.new_password)
     db.add(current_user)
     await db.commit()
@@ -416,3 +428,48 @@ async def change_password(
     )
     
     return StandardResponse(message="Password changed successfully")
+
+
+@router.post(
+    "/password-reset/request",
+    response_model=StandardResponse[schemas.PasswordResetRequestResult],
+    dependencies=[rate_limit_dependency(route_key="POST /api/v1/auth/password-reset/request", scope="auth_password_reset_request", limit=5, window_seconds=60, json_fields=("email",))],
+)
+async def request_password_reset(
+    payload: schemas.PasswordResetRequest,
+    db: Annotated[AsyncSession, Depends(get_db)],
+):
+    user = await _get_user_by_email(db, payload.email)
+    if user is not None:
+        await dependencies.set_rls_context(
+            db,
+            role=Role.SUPER_ADMIN.value,
+            gym_id=str(user.gym_id),
+        )
+        raw_token = await PasswordResetService.issue_reset_token(db, user=user)
+        await PasswordResetService.send_reset_link(user=user, raw_token=raw_token)
+        return StandardResponse(
+            data=schemas.PasswordResetRequestResult(account_found=True),
+            message="An account was found for that email. A password reset link has been sent.",
+        )
+    return StandardResponse(
+        data=schemas.PasswordResetRequestResult(account_found=False),
+        message="No account was found for that email.",
+    )
+
+
+@router.post(
+    "/password-reset/confirm",
+    response_model=StandardResponse,
+    dependencies=[rate_limit_dependency(route_key="POST /api/v1/auth/password-reset/confirm", scope="auth_password_reset_confirm", limit=10, window_seconds=60)],
+)
+async def confirm_password_reset(
+    payload: schemas.PasswordResetConfirm,
+    db: Annotated[AsyncSession, Depends(get_db)],
+):
+    await dependencies.set_rls_context(db, role=Role.SUPER_ADMIN.value)
+    try:
+        await PasswordResetService.confirm_password_reset(db, token=payload.token, new_password=payload.new_password)
+    except ValueError:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid or expired reset token")
+    return StandardResponse(message="Password reset successfully")

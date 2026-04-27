@@ -3,6 +3,7 @@ from datetime import datetime, timedelta, timezone
 
 import pytest
 from httpx import AsyncClient
+from PIL import Image
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.auth.security import get_password_hash
@@ -12,6 +13,7 @@ from app.models.access import Subscription, SubscriptionStatus
 from app.models.enums import Role
 from app.models.tenancy import Branch, UserBranchAccess
 from app.models.user import User
+from app.routers.chat import _compress_chat_image
 from app.services.tenancy_service import TenancyService
 
 
@@ -225,3 +227,24 @@ async def test_customer_chat_contacts_respect_branch_scope(client: AsyncClient, 
     contact_ids = {row["id"] for row in contacts.json()["data"]}
     assert str(coach_a.id) in contact_ids
     assert str(coach_b.id) not in contact_ids
+
+
+def test_compress_chat_image_reduces_large_images(tmp_path):
+    image_path = tmp_path / "photo.png"
+    width, height = 1800, 1400
+    image = Image.new("RGB", (width, height))
+    pixels = []
+    for y in range(height):
+        for x in range(width):
+            pixels.append(((x * 17 + y * 11) % 256, (x * 7 + y * 19) % 256, (x * 13 + y * 5) % 256))
+    image.putdata(pixels)
+    image.save(image_path)
+
+    compressed = _compress_chat_image(str(image_path), limit_bytes=500_000)
+
+    assert compressed is not None
+    new_name, new_size = compressed
+    assert new_name.endswith(".jpg")
+    assert new_size <= 500_000
+    assert not image_path.exists()
+    assert (tmp_path / new_name).exists()

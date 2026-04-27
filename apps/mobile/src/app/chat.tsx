@@ -80,32 +80,72 @@ function formatThreadName(thread: Thread | null | undefined, role: string | null
 function ChatAudioPlayer({
   src,
   initialDurationSeconds,
+  isOwn,
 }: {
   src: string;
   initialDurationSeconds?: number | null;
+  isOwn?: boolean;
 }) {
-  const { fontSet, theme } = usePreferences();
-  const player = useAudioPlayer(src);
+  const { fontSet, isRTL, theme } = usePreferences();
+  const player = useAudioPlayer(src, { updateInterval: 250 });
   const status = useAudioPlayerStatus(player);
+  const [speed, setSpeed] = useState(1);
 
-  const durationSeconds = status.duration ? Math.round(status.duration / 1000) : (initialDurationSeconds ?? 0);
+  const currentSeconds = Math.max(0, Math.round(status.currentTime || 0));
+  const durationSeconds = Math.max(Math.round(status.duration || 0), initialDurationSeconds ?? 0);
+  const progressPercent = durationSeconds > 0 ? Math.min(100, (currentSeconds / durationSeconds) * 100) : 0;
 
-  function togglePlayback() {
+  useEffect(() => {
+    player.setPlaybackRate(speed);
+  }, [player, speed]);
+
+  async function togglePlayback() {
     if (status.playing) {
       player.pause();
-    } else {
-      player.play();
+      return;
     }
+
+    if (status.didJustFinish || (durationSeconds > 0 && currentSeconds >= durationSeconds - 1)) {
+      await player.seekTo(0);
+    }
+
+    player.play();
+  }
+
+  function cycleSpeed() {
+    setSpeed((current) => (current === 1 ? 1.5 : current === 1.5 ? 2 : 1));
   }
 
   return (
-    <View style={[styles.audioPlayer, { backgroundColor: theme.cardAlt, borderColor: theme.border }]}>
-      <Pressable onPress={togglePlayback} style={[styles.audioButton, { backgroundColor: theme.primary }]}>
-        <Ionicons name={status.playing ? "pause" : "play"} size={16} color="#FFFFFF" />
-      </Pressable>
-      <Text style={[styles.audioDuration, { color: theme.foreground, fontFamily: fontSet.mono }]}>
-        {formatDuration(durationSeconds)}
-      </Text>
+    <View
+      style={[
+        styles.audioPlayer,
+        {
+          backgroundColor: theme.card,
+          borderColor: theme.primary,
+          alignSelf: isOwn ? (isRTL ? "flex-start" : "flex-end") : (isRTL ? "flex-end" : "flex-start"),
+          maxWidth: "72%",
+        },
+      ]}
+    >
+      <View style={[styles.audioControls, { flexDirection: isRTL ? "row-reverse" : "row" }]}>
+        <Pressable onPress={() => void togglePlayback()} accessibilityRole="button" accessibilityLabel={status.playing ? "Pause" : "Play"} style={[styles.audioButton, { backgroundColor: theme.primary }]}>
+          <Ionicons name={status.playing ? "pause" : "play"} size={16} color="#FFFFFF" />
+        </Pressable>
+        <Pressable onPress={cycleSpeed} accessibilityRole="button" accessibilityLabel="Change playback speed" style={[styles.audioSpeedButton, { borderColor: theme.primarySoft, backgroundColor: theme.primarySoft }]}>
+          <Text style={[styles.audioSpeedText, { color: theme.primary, fontFamily: fontSet.body }]}>
+            {speed === 1 ? "1x" : speed === 1.5 ? "1.5x" : "2x"}
+          </Text>
+        </Pressable>
+      </View>
+      <View style={styles.audioMeta}>
+        <View style={[styles.audioProgressTrack, { backgroundColor: theme.border }]}>
+          <View style={[styles.audioProgressFill, { backgroundColor: theme.primary, width: `${progressPercent}%` }]} />
+        </View>
+        <Text style={[styles.audioDuration, { color: theme.foreground, fontFamily: fontSet.mono }]}>
+          {formatDuration(currentSeconds)} / {formatDuration(durationSeconds)}
+        </Text>
+      </View>
     </View>
   );
 }
@@ -840,7 +880,11 @@ export default function ChatScreen() {
                         emptyMessage={copy.common.noMessagesYet}
                       />
                       {messagesQuery.data?.map((item) => {
+                        const isAdminMessageView = readOnly;
                         const isOwn = currentUserId != null && item.sender_id === currentUserId;
+                        const isRightAligned = isAdminMessageView
+                          ? item.sender_id === selectedThread?.coach.id
+                          : isOwn;
                         const mediaUri = resolveMediaUri(item.media_url);
                         const isImageMessage = Boolean(item.media_mime && isImageMime(item.media_mime) && mediaUri);
                         return (
@@ -849,7 +893,7 @@ export default function ChatScreen() {
                             style={[
                               styles.messageRow,
                               {
-                                alignItems: isOwn
+                                alignItems: isRightAligned
                                   ? (isRTL ? "flex-start" : "flex-end")
                                   : (isRTL ? "flex-end" : "flex-start"),
                               },
@@ -860,17 +904,23 @@ export default function ChatScreen() {
                                 uri={mediaUri}
                                 caption={item.text_content ?? null}
                                 createdAt={item.created_at}
-                                isOwn={isOwn}
+                                isOwn={isRightAligned}
                                 locale={locale}
                                 onPress={() => setOpenPhotoUri(mediaUri)}
                               />
+                            ) : item.media_url && item.media_mime?.startsWith("audio/") ? (
+                                <ChatAudioPlayer
+                                  src={resolveMediaUri(item.media_url) ?? item.media_url}
+                                  initialDurationSeconds={item.voice_duration_seconds}
+                                  isOwn={isRightAligned}
+                                />
                             ) : (
                               <View
                                 style={[
                                   styles.messageBubble,
                                   {
-                                    backgroundColor: isOwn ? theme.primary : theme.cardAlt,
-                                    borderColor: isOwn ? theme.primary : theme.border,
+                                    backgroundColor: isRightAligned ? theme.primary : theme.cardAlt,
+                                    borderColor: isRightAligned ? theme.primary : theme.border,
                                   },
                                 ]}
                               >
@@ -878,21 +928,15 @@ export default function ChatScreen() {
                                   style={[
                                     styles.messageText,
                                     {
-                                      color: isOwn ? "#FFFFFF" : theme.foreground,
+                                      color: isRightAligned ? "#FFFFFF" : theme.foreground,
                                       fontFamily: fontSet.body,
                                       textAlign: isRTL ? "right" : "left",
                                       writingDirection: direction,
                                     },
                                   ]}
                                 >
-                                  {item.text_content || localizeMessageType(item.message_type, isRTL)}
-                                </Text>
-                                {item.media_url && item.media_mime?.startsWith("audio/") ? (
-                                  <ChatAudioPlayer
-                                    src={resolveMediaUri(item.media_url) ?? item.media_url}
-                                    initialDurationSeconds={item.voice_duration_seconds}
-                                  />
-                                ) : null}
+                                {item.text_content || localizeMessageType(item.message_type, isRTL)}
+                              </Text>
                                 <MediaPreview
                                   uri={item.media_mime?.startsWith("audio/") ? null : item.media_url}
                                   mime={item.media_mime}
@@ -902,7 +946,7 @@ export default function ChatScreen() {
                                   style={[
                                     styles.messageTime,
                                     {
-                                      color: isOwn ? "rgba(255,255,255,0.8)" : theme.muted,
+                                      color: isRightAligned ? "rgba(255,255,255,0.8)" : theme.muted,
                                       fontFamily: fontSet.mono,
                                       textAlign: isRTL ? "right" : "left",
                                     },
@@ -1432,21 +1476,54 @@ const styles = StyleSheet.create({
     alignItems: "center",
     alignSelf: "flex-start",
     borderWidth: 1,
-    borderRadius: 999,
-    paddingHorizontal: 10,
-    paddingVertical: 8,
-    gap: 8,
+    borderRadius: 16,
+    paddingHorizontal: 7,
+    paddingVertical: 6,
+    gap: 6,
+    maxWidth: "100%",
+  },
+  audioControls: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
   },
   audioButton: {
-    width: 28,
-    height: 28,
+    width: 30,
+    height: 30,
     borderRadius: 999,
     alignItems: "center",
     justifyContent: "center",
   },
+  audioSpeedButton: {
+    minWidth: 34,
+    height: 26,
+    borderRadius: 999,
+    borderWidth: 1,
+    alignItems: "center",
+    justifyContent: "center",
+    paddingHorizontal: 8,
+  },
+  audioSpeedText: {
+    fontSize: 11,
+    fontWeight: "800",
+  },
   audioDuration: {
-    fontSize: 12,
+    fontSize: 10,
     fontWeight: "700",
+  },
+  audioMeta: {
+    flexShrink: 1,
+    minWidth: 58,
+    gap: 2,
+  },
+  audioProgressTrack: {
+    height: 3,
+    borderRadius: 999,
+    overflow: "hidden",
+  },
+  audioProgressFill: {
+    height: "100%",
+    borderRadius: 999,
   },
   audioFallbackText: {
     flex: 1,

@@ -64,7 +64,7 @@ async def get_audit_logs(
 @router.get("/security", response_model=StandardResponse[SecurityAuditResponse])
 async def get_security_audit(
     request: Request,
-    current_user: Annotated[User, Depends(dependencies.RoleChecker([Role.ADMIN]))],
+    current_user: Annotated[User, Depends(dependencies.RoleChecker([Role.SUPER_ADMIN]))],
 ):
     del current_user
     report = collect_security_audit(request.app)
