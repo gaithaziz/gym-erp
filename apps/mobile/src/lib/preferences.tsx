@@ -1,5 +1,6 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useState, type PropsWithChildren } from "react";
 import * as SecureStore from "expo-secure-store";
+import { Platform, Text, TextInput } from "react-native";
 
 import { fonts, themes, type Locale, type ThemeMode } from "@/lib/theme";
 
@@ -103,6 +104,14 @@ const copy = {
       signingIn: "Signing in...",
       email: "Email",
       password: "Password",
+      showPassword: "Show password",
+      hidePassword: "Hide password",
+      invalidCredentials: "Email or password is incorrect.",
+      connectionIssue: "Can't reach the server right now. Check your connection and try again.",
+      tooManyAttempts: "Too many attempts. Please wait a minute and try again.",
+      accountAccessIssue: "This account can't be used in the mobile app right now.",
+      serverIssue: "The server is having trouble right now. Please try again soon.",
+      signInFailed: "We couldn't sign you in. Please try again.",
       localDemo: "Local demo accounts",
       localDemoHint: "Use the seeded customer account for a full Phase 2 walkthrough.",
     },
@@ -1089,6 +1098,14 @@ const copy = {
       signingIn: "جارٍ تسجيل الدخول...",
       email: "البريد الإلكتروني",
       password: "كلمة المرور",
+      showPassword: "إظهار كلمة المرور",
+      hidePassword: "إخفاء كلمة المرور",
+      invalidCredentials: "البريد الإلكتروني أو كلمة المرور غير صحيحة.",
+      connectionIssue: "تعذّر الاتصال بالخادم الآن. تحقق من اتصالك ثم حاول مرة أخرى.",
+      tooManyAttempts: "محاولات كثيرة جدًا. يرجى الانتظار دقيقة ثم المحاولة مرة أخرى.",
+      accountAccessIssue: "لا يمكن استخدام هذا الحساب في تطبيق الجوال الآن.",
+      serverIssue: "الخادم يواجه مشكلة الآن. حاول مرة أخرى بعد قليل.",
+      signInFailed: "تعذّر تسجيل الدخول. حاول مرة أخرى.",
       localDemo: "حسابات تجريبية محلية",
       localDemoHint: "استخدم حساب العميل المزروع محلياً لتجربة المرحلة الثانية كاملة.",
     },
@@ -2026,6 +2043,37 @@ export function PreferencesProvider({ children }: PropsWithChildren) {
       alive = false;
     };
   }, []);
+
+  useEffect(() => {
+    if (Platform.OS !== "android") {
+      return;
+    }
+
+    const textType = Text as typeof Text & { defaultProps?: Record<string, unknown> };
+    const textInputType = TextInput as typeof TextInput & { defaultProps?: Record<string, unknown> };
+    const previousTextDefaults = textType.defaultProps;
+    const previousTextInputDefaults = textInputType.defaultProps;
+    const arabicFontFamily = locale === "ar" ? fonts.ar.body : undefined;
+
+    textType.defaultProps = arabicFontFamily
+      ? {
+          ...previousTextDefaults,
+          style: [previousTextDefaults?.style, { fontFamily: arabicFontFamily }],
+        }
+      : previousTextDefaults;
+
+    textInputType.defaultProps = arabicFontFamily
+      ? {
+          ...previousTextInputDefaults,
+          style: [previousTextInputDefaults?.style, { fontFamily: arabicFontFamily }],
+        }
+      : previousTextInputDefaults;
+
+    return () => {
+      textType.defaultProps = previousTextDefaults;
+      textInputType.defaultProps = previousTextInputDefaults;
+    };
+  }, [locale]);
 
   const toggleLocale = useCallback(async () => {
     const next = locale === "en" ? "ar" : "en";

@@ -16,6 +16,27 @@ const PUSH_STORAGE_KEY = "gymerpmobilepushregistration";
 const BRANCH_STORAGE_KEY_PREFIX = "gymerpmobileselectedbranch";
 
 type SessionStatus = "loading" | "signed_out" | "signed_in";
+export type SessionErrorCode =
+  | "invalid_credentials"
+  | "connection_issue"
+  | "rate_limited"
+  | "account_issue"
+  | "server_issue"
+  | "bootstrap_failed"
+  | "restore_failed"
+  | "unexpected";
+
+export class SessionError extends Error {
+  code: SessionErrorCode;
+  status?: number;
+
+  constructor(code: SessionErrorCode, message: string, status?: number) {
+    super(message);
+    this.name = "SessionError";
+    this.code = code;
+    this.status = status;
+  }
+}
 
 type SessionContextValue = {
   apiBaseUrl: string;
@@ -46,6 +67,39 @@ function branchStorageKey(userId: string) {
 
 function describeConnectionIssue() {
   return `Unable to reach ${API_BASE_URL}. If you're on a physical device, set EXPO_PUBLIC_API_BASE_URL to your computer's LAN IP.`;
+}
+
+function isNetworkError(caught: unknown) {
+  return caught instanceof TypeError || (caught instanceof Error && caught.message === "Network request failed");
+}
+
+function loginErrorFromResponse(status: number, message: string) {
+  if (status === 401) {
+    return new SessionError("invalid_credentials", message || "Incorrect email or password.", status);
+  }
+  if (status === 429) {
+    return new SessionError("rate_limited", message || "Too many attempts. Please wait a moment and try again.", status);
+  }
+  if (status >= 500) {
+    return new SessionError("server_issue", message || "The server is having trouble right now. Please try again soon.", status);
+  }
+  return new SessionError("unexpected", message || `Request failed (${status})`, status);
+}
+
+function bootstrapErrorFromResponse(status: number, message: string) {
+  if (status === 401) {
+    return new SessionError("restore_failed", "Your session expired. Please sign in again.", status);
+  }
+  if (status === 403) {
+    return new SessionError("account_issue", message || "This account can't be used in the mobile app right now.", status);
+  }
+  if (status === 429) {
+    return new SessionError("rate_limited", message || "Too many attempts. Please wait a moment and try again.", status);
+  }
+  if (status >= 500) {
+    return new SessionError("server_issue", message || "The server is having trouble right now. Please try again soon.", status);
+  }
+  return new SessionError("bootstrap_failed", message || `Request failed (${status})`, status);
 }
 
 function resolveBranchSelection(
@@ -210,7 +264,12 @@ export function SessionProvider({ children }: PropsWithChildren) {
       },
     });
 
-    const payload = parseLoginEnvelope(await readJsonResponse<TokenPair>(response));
+    const envelope = await readJsonResponse<unknown>(response);
+    if (!response.ok || !envelope.success) {
+      throw loginErrorFromResponse(response.status, envelope.message || "");
+    }
+
+    const payload = parseLoginEnvelope(envelope);
     const nextPair = payload.data;
     tokenPairRef.current = nextPair;
     setTokenPair(nextPair);
@@ -301,10 +360,11 @@ export function SessionProvider({ children }: PropsWithChildren) {
           },
           body: JSON.stringify({ email, password }),
         });
-        const payload = parseLoginEnvelope(await readJsonResponse<TokenPair>(response));
-        if (!response.ok || !payload.success) {
-          throw new Error(payload.message || "Login failed");
+        const envelope = await readJsonResponse<unknown>(response);
+        if (!response.ok || !envelope.success) {
+          throw loginErrorFromResponse(response.status, envelope.message || "");
         }
+        const payload = parseLoginEnvelope(envelope);
 
         setTokenPair(payload.data);
         tokenPairRef.current = payload.data;
@@ -318,7 +378,7 @@ export function SessionProvider({ children }: PropsWithChildren) {
         });
         const bootstrapPayload = parseBootstrapEnvelope(await readJsonResponse<MobileBootstrap>(bootstrapResponse));
         if (!bootstrapResponse.ok || !bootstrapPayload.success) {
-          throw new Error(bootstrapPayload.message || "Bootstrap failed");
+          throw bootstrapErrorFromResponse(bootstrapResponse.status, bootstrapPayload.message || "");
         }
 
         const resolvedBranch = resolveBranchSelection(bootstrapPayload.data, await loadSelectedBranch(bootstrapPayload.data.user.id));
@@ -329,8 +389,8 @@ export function SessionProvider({ children }: PropsWithChildren) {
         void registerCurrentDevice(payload.data.access_token);
       } catch (caught) {
         await signOut();
-        if (caught instanceof TypeError || (caught instanceof Error && caught.message === "Network request failed")) {
-          throw new Error(describeConnectionIssue());
+        if (isNetworkError(caught)) {
+          throw new SessionError("connection_issue", describeConnectionIssue());
         }
         throw caught;
       }
@@ -362,7 +422,7 @@ export function SessionProvider({ children }: PropsWithChildren) {
           await refreshAccessToken();
           const refreshed = tokenPairRef.current;
           if (!refreshed) {
-            throw new Error("Session refresh failed");
+            throw new SessionError("restore_failed", "Your session expired. Please sign in again.");
           }
           const retry = await fetch(`${API_BASE_URL}/mobile/bootstrap`, {
             headers: {
@@ -370,10 +430,11 @@ export function SessionProvider({ children }: PropsWithChildren) {
               Authorization: `Bearer ${refreshed.access_token}`,
             },
           });
-          const payload = parseBootstrapEnvelope(await readJsonResponse<MobileBootstrap>(retry));
-          if (!retry.ok || !payload.success) {
-            throw new Error(payload.message || "Bootstrap failed");
+          const retryEnvelope = await readJsonResponse<unknown>(retry);
+          if (!retry.ok || !retryEnvelope.success) {
+            throw bootstrapErrorFromResponse(retry.status, retryEnvelope.message || "");
           }
+          const payload = parseBootstrapEnvelope(retryEnvelope);
           if (alive) {
             const resolvedBranch = resolveBranchSelection(payload.data, await loadSelectedBranch(payload.data.user.id));
             setBootstrap(payload.data);
@@ -385,10 +446,11 @@ export function SessionProvider({ children }: PropsWithChildren) {
           return;
         }
 
-        const payload = parseBootstrapEnvelope(await readJsonResponse<MobileBootstrap>(response));
-        if (!response.ok || !payload.success) {
-          throw new Error(payload.message || "Bootstrap failed");
+        const envelope = await readJsonResponse<unknown>(response);
+        if (!response.ok || !envelope.success) {
+          throw bootstrapErrorFromResponse(response.status, envelope.message || "");
         }
+        const payload = parseBootstrapEnvelope(envelope);
 
         if (alive) {
           const resolvedBranch = resolveBranchSelection(payload.data, await loadSelectedBranch(payload.data.user.id));
@@ -402,7 +464,11 @@ export function SessionProvider({ children }: PropsWithChildren) {
         if (!alive) {
           return;
         }
-        setError(caught instanceof Error ? caught.message : "Session restore failed");
+        if (isNetworkError(caught)) {
+          setError("Unable to reach the server. Please check your connection and reopen the app.");
+        } else {
+          setError(caught instanceof Error ? caught.message : "Session restore failed");
+        }
         await signOut();
       }
     }
