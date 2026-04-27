@@ -86,11 +86,18 @@ class ClientTelemetryEvent(BaseModel):
     context: dict[str, Any] | None = None
 
 
+class ImpersonationRequest(BaseModel):
+    reason: str | None = None
+
+
 router = APIRouter(
     prefix="",
     tags=["System Admin"],
     dependencies=[Depends(RoleChecker([Role.SUPER_ADMIN]))],
 )
+
+RECENT_ACTIVITY_ACTIVE_DAYS = 7
+RECENT_ACTIVITY_STALE_DAYS = 30
 
 
 def _snapshot_rls_context(db: AsyncSession) -> tuple[object, object, object, object]:
@@ -270,15 +277,39 @@ async def _log_super_admin_event(
 
 
 @router.get("/stats")
-async def get_system_stats(db: AsyncSession = Depends(get_db)) -> dict[str, Any]:
+async def get_system_stats(
+    gym_id: uuid.UUID | None = Query(None),
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
     """Get global system statistics (Super-Admin only)."""
     await set_rls_context(db, role=Role.SUPER_ADMIN.value)
 
-    total_gyms = (await db.execute(select(func.count(Gym.id)))).scalar() or 0
-    total_branches = (await db.execute(select(func.count(Branch.id)))).scalar() or 0
-    total_users = (await db.execute(select(func.count(User.id)))).scalar() or 0
-    active_users = (await db.execute(select(func.count(User.id)).where(User.is_active.is_(True)))).scalar() or 0
-    active_subs = (await db.execute(select(func.count(Subscription.id)).where(Subscription.status == "ACTIVE"))).scalar() or 0
+    gym_filter = Gym.id == gym_id if gym_id else None
+    branch_filter = Branch.gym_id == gym_id if gym_id else None
+    user_filter = User.gym_id == gym_id if gym_id else None
+    sub_filter = Subscription.gym_id == gym_id if gym_id else None
+
+    total_gyms_stmt = select(func.count(Gym.id))
+    total_branches_stmt = select(func.count(Branch.id))
+    total_users_stmt = select(func.count(User.id))
+    active_users_stmt = select(func.count(User.id)).where(User.is_active.is_(True))
+    active_subs_stmt = select(func.count(Subscription.id)).where(Subscription.status == "ACTIVE")
+
+    if gym_filter is not None:
+        total_gyms_stmt = total_gyms_stmt.where(gym_filter)
+    if branch_filter is not None:
+        total_branches_stmt = total_branches_stmt.where(branch_filter)
+    if user_filter is not None:
+        total_users_stmt = total_users_stmt.where(user_filter)
+        active_users_stmt = active_users_stmt.where(user_filter)
+    if sub_filter is not None:
+        active_subs_stmt = active_subs_stmt.where(sub_filter)
+
+    total_gyms = (await db.execute(total_gyms_stmt)).scalar() or 0
+    total_branches = (await db.execute(total_branches_stmt)).scalar() or 0
+    total_users = (await db.execute(total_users_stmt)).scalar() or 0
+    active_users = (await db.execute(active_users_stmt)).scalar() or 0
+    active_subs = (await db.execute(active_subs_stmt)).scalar() or 0
 
     global_maint = await db.execute(select(SystemConfig).where(SystemConfig.key == "global_maintenance_mode"))
     maint_config = global_maint.scalar_one_or_none()
@@ -312,6 +343,35 @@ async def list_gyms(db: AsyncSession = Depends(get_db)) -> list[dict[str, Any]]:
             "created_at": g.created_at,
         }
         for g in gyms
+    ]
+
+
+@router.get("/branches")
+async def list_branches(
+    gym_id: uuid.UUID | None = Query(None),
+    db: AsyncSession = Depends(get_db),
+) -> list[dict[str, Any]]:
+    """List branches across the platform for super-admin filters."""
+    await set_rls_context(db, role=Role.SUPER_ADMIN.value)
+
+    stmt = select(Branch, Gym.name.label("gym_name")).join(Gym, Gym.id == Branch.gym_id)
+    if gym_id is not None:
+        stmt = stmt.where(Branch.gym_id == gym_id)
+    stmt = stmt.order_by(Gym.name.asc(), Branch.name.asc())
+
+    rows = (await db.execute(stmt)).all()
+    return [
+        {
+            "id": str(branch.id),
+            "gym_id": str(branch.gym_id),
+            "gym_name": gym_name,
+            "name": branch.name,
+            "display_name": branch.display_name,
+            "code": branch.code,
+            "slug": branch.slug,
+            "is_active": branch.is_active,
+        }
+        for branch, gym_name in rows
     ]
 
 
@@ -350,9 +410,25 @@ async def update_gym_status(
 
 
 @router.get("/analytics/revenue")
-async def get_global_revenue(days: int = 30, db: AsyncSession = Depends(get_db)):
+async def get_global_revenue(
+    days: int = 30,
+    from_date: date | None = Query(None, alias="from"),
+    to_date: date | None = Query(None, alias="to"),
+    gym_id: uuid.UUID | None = Query(None),
+    db: AsyncSession = Depends(get_db),
+):
     """Get global revenue and expense trends."""
     await set_rls_context(db, role=Role.SUPER_ADMIN.value)
+
+    stmt_filters = []
+    if gym_id is not None:
+        stmt_filters.append(Transaction.gym_id == gym_id)
+    if from_date is not None:
+        stmt_filters.append(Transaction.date >= datetime.combine(from_date, datetime.min.time(), tzinfo=timezone.utc))
+    if to_date is not None:
+        stmt_filters.append(Transaction.date <= datetime.combine(to_date, datetime.max.time(), tzinfo=timezone.utc))
+    if not stmt_filters:
+        stmt_filters.append(Transaction.date >= datetime.now(timezone.utc) - timedelta(days=days))
 
     stmt = (
         select(
@@ -360,9 +436,9 @@ async def get_global_revenue(days: int = 30, db: AsyncSession = Depends(get_db))
             func.sum(Transaction.amount).filter(Transaction.type == TransactionType.INCOME).label("income"),
             func.sum(Transaction.amount).filter(Transaction.type == TransactionType.EXPENSE).label("expense"),
         )
+        .where(and_(*stmt_filters))
         .group_by(func.date(Transaction.date))
         .order_by(func.date(Transaction.date))
-        .limit(days)
     )
 
     result = await db.execute(stmt)
@@ -372,11 +448,28 @@ async def get_global_revenue(days: int = 30, db: AsyncSession = Depends(get_db))
 
 
 @router.get("/gyms/health")
-async def get_gyms_health(db: AsyncSession = Depends(get_db)):
+async def get_gyms_health(
+    gym_id: uuid.UUID | None = Query(None),
+    status: str | None = Query(None),
+    db: AsyncSession = Depends(get_db),
+):
     """Get activity metrics for each gym to identify at-risk tenants."""
     await set_rls_context(db, role=Role.SUPER_ADMIN.value)
 
-    result = await db.execute(select(Gym))
+    if status:
+        normalized_status = status.strip().lower()
+        if normalized_status not in {"healthy", "low_activity", "maintenance", "inactive"}:
+            raise HTTPException(
+                status_code=422,
+                detail=[_error_detail(code="INVALID_HEALTH_STATUS", field="status", message="Health status must be healthy, low_activity, maintenance, or inactive.")],
+            )
+    else:
+        normalized_status = ""
+
+    stmt = select(Gym)
+    if gym_id is not None:
+        stmt = stmt.where(Gym.id == gym_id)
+    result = await db.execute(stmt)
     gyms = result.scalars().all()
 
     health_data = []
@@ -390,16 +483,32 @@ async def get_gyms_health(db: AsyncSession = Depends(get_db)):
         )
         recent_tx = (await db.execute(recent_tx_stmt)).scalar() or 0
 
+        if g.is_maintenance_mode:
+            health_status = "maintenance"
+        elif not g.is_active:
+            health_status = "inactive"
+        elif recent_tx > 5:
+            health_status = "healthy"
+        else:
+            health_status = "low_activity"
+
+        if normalized_status and health_status != normalized_status:
+            continue
+
         health_data.append(
             {
                 "gym_id": str(g.id),
                 "gym_name": g.name,
+                "is_active": g.is_active,
+                "is_maintenance_mode": g.is_maintenance_mode,
                 "active_members": active_members,
                 "recent_activity_score": recent_tx,
-                "status": "Healthy" if recent_tx > 5 else "Low Activity",
+                "status": health_status,
+                "attention_score": 0 if health_status == "healthy" else (1 if health_status == "low_activity" else 2),
             }
         )
 
+    health_data.sort(key=lambda row: (row["attention_score"], -row["recent_activity_score"], row["gym_name"]))
     return health_data
 
 
@@ -543,7 +652,9 @@ async def get_global_audit_logs(
     page: int = Query(1, ge=1),
     limit: int = Query(20, ge=1, le=100),
     gym_id: uuid.UUID | None = Query(None),
+    branch_id: uuid.UUID | None = Query(None),
     action: str | None = Query(None),
+    severity: str | None = Query(None),
     from_date: date | None = Query(None, alias="from"),
     to_date: date | None = Query(None, alias="to"),
     db: AsyncSession = Depends(get_db),
@@ -562,6 +673,7 @@ async def get_global_audit_logs(
     target_gyms = [gym_id] if gym_id else [row_gym_id for row_gym_id, _ in gym_rows]
 
     normalized_action = action.strip() if action else ""
+    normalized_severity = severity.strip().lower() if severity else ""
     from_dt = datetime.combine(from_date, datetime.min.time(), tzinfo=timezone.utc) if from_date else None
     to_dt = datetime.combine(to_date, datetime.max.time(), tzinfo=timezone.utc) if to_date else None
 
@@ -572,6 +684,8 @@ async def get_global_audit_logs(
             await set_rls_context(db, role=Role.ADMIN.value, gym_id=str(target_gym_id))
 
             filters = [AuditLog.gym_id == target_gym_id]
+            if branch_id is not None:
+                filters.append(AuditLog.branch_id == branch_id)
             if normalized_action:
                 filters.append(AuditLog.action.ilike(normalized_action))
             if from_dt:
@@ -590,6 +704,16 @@ async def get_global_audit_logs(
             await _restore_rls_context(db, snapshot)
 
         for l in logs:
+            severity_value = "low"
+            action_name = (l.action or "").upper()
+            if action_name in {"USER_IMPERSONATED", "GLOBAL_MAINTENANCE_TOGGLED"}:
+                severity_value = "high"
+            elif action_name in {"GYM_ONBOARD_BLOCKED", "GYM_MAINTENANCE_TOGGLED", "SUBSCRIPTIONS_SYNC_TRIGGERED"}:
+                severity_value = "medium"
+
+            if normalized_severity and severity_value != normalized_severity:
+                continue
+
             all_items.append(
                 {
                     "id": str(l.id),
@@ -600,6 +724,7 @@ async def get_global_audit_logs(
                     "user_id": str(l.user_id) if l.user_id else None,
                     "user_name": l.user.full_name if l.user else "SYSTEM",
                     "action": l.action,
+                    "severity": severity_value,
                     "timestamp": l.timestamp,
                     "details": l.details,
                 }
@@ -705,12 +830,29 @@ async def global_user_search(
     q: str | None = Query(None),
     page: int = Query(1, ge=1),
     limit: int = Query(20, ge=1, le=100),
+    role: str | None = Query(None),
+    gym_id: uuid.UUID | None = Query(None),
+    branch_id: uuid.UUID | None = Query(None),
+    activity_status: str | None = Query(None),
     db: AsyncSession = Depends(get_db),
 ) -> StandardResponse[dict[str, Any]]:
     """Search users globally. If q is empty, returns recent users by latest activity."""
     await set_rls_context(db, role=Role.SUPER_ADMIN.value)
 
     normalized_q = (q or "").strip()
+    normalized_role = role.strip().upper() if role else ""
+    normalized_activity_status = activity_status.strip().lower() if activity_status else ""
+
+    if normalized_role and normalized_role not in {item.value for item in Role}:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=[_error_detail(code="INVALID_ROLE", field="role", message="Invalid role filter.")],
+        )
+    if normalized_activity_status and normalized_activity_status not in {"active", "stale", "inactive"}:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=[_error_detail(code="INVALID_ACTIVITY_STATUS", field="activity_status", message="Activity status must be active, stale, or inactive.")],
+        )
 
     activity_subq = (
         select(
@@ -722,38 +864,59 @@ async def global_user_search(
         .subquery()
     )
 
-    gym_rows = (await db.execute(select(Gym.id, Gym.name).order_by(Gym.created_at.desc(), Gym.name.asc()))).all()
     all_items: list[dict[str, Any]] = []
 
-    for target_gym_id, gym_name in gym_rows:
-        snapshot = _snapshot_rls_context(db)
-        try:
-            await set_rls_context(db, role=Role.ADMIN.value, gym_id=str(target_gym_id))
-            stmt = (
-                select(User, activity_subq.c.last_activity_at)
-                .outerjoin(activity_subq, activity_subq.c.user_id == User.id)
-                .where(User.gym_id == target_gym_id)
-            )
-            if normalized_q:
-                like = f"%{normalized_q}%"
-                stmt = stmt.where(or_(User.email.ilike(like), User.full_name.ilike(like)))
-            rows = (await db.execute(stmt)).all()
-        finally:
-            await _restore_rls_context(db, snapshot)
+    stmt = (
+        select(User, Gym.name.label("gym_name"), Branch.name.label("branch_name"), Branch.display_name.label("branch_display_name"), activity_subq.c.last_activity_at)
+        .join(Gym, Gym.id == User.gym_id)
+        .outerjoin(Branch, Branch.id == User.home_branch_id)
+        .outerjoin(activity_subq, activity_subq.c.user_id == User.id)
+    )
 
-        for user, last_activity_at in rows:
-            all_items.append(
-                {
-                    "id": str(user.id),
-                    "email": user.email,
-                    "full_name": user.full_name,
-                    "role": user.role,
-                    "gym_id": str(user.gym_id),
-                    "gym_name": gym_name,
-                    "home_branch_id": str(user.home_branch_id) if user.home_branch_id else None,
-                    "last_activity_at": last_activity_at,
-                }
-            )
+    if normalized_q:
+        like = f"%{normalized_q}%"
+        stmt = stmt.where(or_(User.email.ilike(like), User.full_name.ilike(like)))
+    if normalized_role:
+        stmt = stmt.where(User.role == Role[normalized_role])
+    if gym_id is not None:
+        stmt = stmt.where(User.gym_id == gym_id)
+    if branch_id is not None:
+        stmt = stmt.where(User.home_branch_id == branch_id)
+
+    rows = (await db.execute(stmt)).all()
+
+    now = datetime.now(timezone.utc)
+    active_cutoff = now - timedelta(days=RECENT_ACTIVITY_ACTIVE_DAYS)
+    stale_cutoff = now - timedelta(days=RECENT_ACTIVITY_STALE_DAYS)
+
+    for user, gym_name, branch_name, branch_display_name, last_activity_at in rows:
+        if last_activity_at is None:
+            computed_status = "inactive"
+        elif last_activity_at >= active_cutoff:
+            computed_status = "active"
+        elif last_activity_at >= stale_cutoff:
+            computed_status = "stale"
+        else:
+            computed_status = "inactive"
+
+        if normalized_activity_status and computed_status != normalized_activity_status:
+            continue
+
+        all_items.append(
+            {
+                "id": str(user.id),
+                "email": user.email,
+                "full_name": user.full_name,
+                "role": user.role,
+                "is_active": user.is_active,
+                "gym_id": str(user.gym_id),
+                "gym_name": gym_name,
+                "home_branch_id": str(user.home_branch_id) if user.home_branch_id else None,
+                "home_branch_name": branch_display_name or branch_name,
+                "last_activity_at": last_activity_at,
+                "activity_status": computed_status,
+            }
+        )
 
     all_items.sort(
         key=lambda item: (
@@ -769,7 +932,12 @@ async def global_user_search(
 
 
 @router.post("/users/{user_id}/impersonate")
-async def impersonate_user(user_id: uuid.UUID, db: AsyncSession = Depends(get_db), current_user: User = Depends(get_current_active_user)):
+async def impersonate_user(
+    user_id: uuid.UUID,
+    payload: ImpersonationRequest | None = None,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_active_user),
+):
     """Generate impersonation tokens for a specific user (Super-Admin only)."""
     await set_rls_context(db, role=Role.SUPER_ADMIN.value)
 
@@ -777,13 +945,18 @@ async def impersonate_user(user_id: uuid.UUID, db: AsyncSession = Depends(get_db
     if not user:
         raise HTTPException(status_code=404, detail="User not found")
 
+    reason = payload.reason.strip() if payload and payload.reason else ""
+
     await _log_super_admin_event(
         db,
         gym_id=user.gym_id,
         action="USER_IMPERSONATED",
         actor_user_id=current_user.id,
         target_id=str(user.id),
-        details=f"Super-Admin impersonated user: {user.email}",
+        details=(
+            f"Super-Admin impersonated user: {user.email}"
+            + (f" | reason={reason}" if reason else "")
+        ),
         branch_id=user.home_branch_id,
     )
     await db.commit()

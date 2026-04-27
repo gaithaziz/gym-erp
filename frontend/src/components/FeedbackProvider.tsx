@@ -1,6 +1,6 @@
 'use client';
 
-import { createContext, useCallback, useContext, useMemo, useState } from 'react';
+import { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react';
 
 type ToastKind = 'info' | 'success' | 'error';
 
@@ -55,6 +55,18 @@ export function FeedbackProvider({ children }: { children: React.ReactNode }) {
             });
         });
     }, []);
+
+    useEffect(() => {
+        if (typeof window === 'undefined') return;
+
+        const message = sessionStorage.getItem('pending_toast_message');
+        const kind = sessionStorage.getItem('pending_toast_kind') as ToastKind | null;
+        if (!message) return;
+
+        sessionStorage.removeItem('pending_toast_message');
+        sessionStorage.removeItem('pending_toast_kind');
+        showToast(message, kind === 'success' || kind === 'error' ? kind : 'info');
+    }, [showToast]);
 
     const closeConfirm = useCallback((value: boolean) => {
         setPendingConfirm((prev) => {

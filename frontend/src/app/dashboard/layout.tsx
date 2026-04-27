@@ -70,6 +70,7 @@ export default function DashboardLayout({
     const chatNewConversations = canUseChat
         ? chatThreads.filter((t) => (t.unread_count || 0) > 0).length
         : 0;
+    const supportReason = typeof window !== 'undefined' ? sessionStorage.getItem('admin_support_reason') : null;
 
     useEffect(() => {
         if (!isLoading && !user) {
@@ -271,28 +272,38 @@ export default function DashboardLayout({
         <div className="flex min-h-dvh bg-background">
             {/* Impersonation Banner */}
             {user?.is_impersonated && (
-                <div className="fixed top-0 inset-x-0 z-[100] bg-yellow-500 text-black py-1 px-4 flex items-center justify-between font-bold text-[10px] sm:text-xs uppercase tracking-wider">
-                    <div className="flex items-center gap-2">
-                        <ShieldAlert size={14} />
-                        <span>Support Mode Active: Impersonating {user.full_name}</span>
+                <div className="fixed top-0 inset-x-0 z-[100] border-b border-yellow-300 bg-yellow-500/95 text-black px-4 py-2 shadow-lg">
+                    <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                        <div className="flex items-start gap-2 font-bold text-[10px] sm:text-xs uppercase tracking-wider">
+                            <ShieldAlert size={14} className="mt-0.5" />
+                            <div>
+                                <div>Support Mode Active: Impersonating {user.full_name}</div>
+                                <div className="mt-1 text-[10px] font-medium normal-case tracking-normal">
+                                    {supportReason
+                                        ? `Reason: ${supportReason}`
+                                        : 'This session is operating under support access.'}
+                                </div>
+                            </div>
+                        </div>
+                        <button
+                            onClick={() => {
+                                const adminAccess = sessionStorage.getItem('admin_access_token');
+                                const adminRefresh = sessionStorage.getItem('admin_refresh_token');
+                                if (adminAccess && adminRefresh) {
+                                    setTokens(adminAccess, adminRefresh);
+                                    sessionStorage.removeItem('admin_access_token');
+                                    sessionStorage.removeItem('admin_refresh_token');
+                                    sessionStorage.removeItem('admin_support_reason');
+                                    window.location.href = '/dashboard/system/users';
+                                } else {
+                                    logout();
+                                }
+                            }}
+                            className="bg-black text-white px-3 py-1 rounded hover:bg-black/80 transition-colors self-start sm:self-auto"
+                        >
+                            Exit Mode
+                        </button>
                     </div>
-                    <button 
-                        onClick={() => {
-                            const adminAccess = sessionStorage.getItem('admin_access_token');
-                            const adminRefresh = sessionStorage.getItem('admin_refresh_token');
-                            if (adminAccess && adminRefresh) {
-                                setTokens(adminAccess, adminRefresh);
-                                sessionStorage.removeItem('admin_access_token');
-                                sessionStorage.removeItem('admin_refresh_token');
-                                window.location.href = '/dashboard/system/users';
-                            } else {
-                                logout();
-                            }
-                        }}
-                        className="bg-black text-white px-3 py-1 rounded hover:bg-black/80 transition-colors"
-                    >
-                        Exit Mode
-                    </button>
                 </div>
             )}
 
