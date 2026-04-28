@@ -19,21 +19,23 @@ from app.core.responses import StandardResponse
 
 router = APIRouter()
 
-async def _resolve_branch_ids(
+async def _resolve_scope(
     *,
     db: AsyncSession,
     current_user: User,
+    gym_id: uuid.UUID | None,
     branch_id: uuid.UUID | None,
-) -> list[uuid.UUID]:
+) -> tuple[uuid.UUID, list[uuid.UUID]]:
     if current_user.role == Role.SUPER_ADMIN:
+        target_gym_id = gym_id or current_user.gym_id
         if branch_id is not None:
-            branch = await TenancyService.get_branch_in_gym(db, gym_id=current_user.gym_id, branch_id=branch_id)
+            branch = await TenancyService.get_branch_in_gym(db, gym_id=target_gym_id, branch_id=branch_id)
             if branch is None:
-                return []
-            return [branch.id]
-        branch_rows = await db.execute(select(Branch.id).where(Branch.gym_id == current_user.gym_id))
-        return list(branch_rows.scalars().all())
-    return await TenancyService.branch_scope_ids(
+                return target_gym_id, []
+            return target_gym_id, [branch.id]
+        branch_rows = await db.execute(select(Branch.id).where(Branch.gym_id == target_gym_id))
+        return target_gym_id, list(branch_rows.scalars().all())
+    return current_user.gym_id, await TenancyService.branch_scope_ids(
         db,
         current_user=current_user,
         branch_id=branch_id,
@@ -47,12 +49,13 @@ async def get_dashboard(
     db: Annotated[AsyncSession, Depends(get_db)],
     from_date: date | None = Query(None, alias="from"),
     to_date: date | None = Query(None, alias="to"),
+    gym_id: uuid.UUID | None = Query(None),
     branch_id: uuid.UUID | None = Query(None),
 ):
-    branch_ids = await _resolve_branch_ids(db=db, current_user=current_user, branch_id=branch_id)
+    scoped_gym_id, branch_ids = await _resolve_scope(db=db, current_user=current_user, gym_id=gym_id, branch_id=branch_id)
     stats = await AnalyticsService.get_dashboard_stats(
         db,
-        gym_id=current_user.gym_id,
+        gym_id=scoped_gym_id,
         from_date=from_date,
         to_date=to_date,
         branch_ids=branch_ids,
@@ -65,13 +68,14 @@ async def get_attendance_trends(
     current_user: Annotated[User, Depends(dependencies.RoleChecker([Role.SUPER_ADMIN, Role.ADMIN]))],
     db: Annotated[AsyncSession, Depends(get_db)],
     days: int = 30,
+    gym_id: uuid.UUID | None = Query(None),
     branch_id: uuid.UUID | None = Query(None),
 ):
-    branch_ids = await _resolve_branch_ids(db=db, current_user=current_user, branch_id=branch_id)
+    scoped_gym_id, branch_ids = await _resolve_scope(db=db, current_user=current_user, gym_id=gym_id, branch_id=branch_id)
     trends = await AnalyticsService.get_attendance_trends(
         days,
         db,
-        gym_id=current_user.gym_id,
+        gym_id=scoped_gym_id,
         branch_ids=branch_ids,
     )
     return StandardResponse(data=trends)
@@ -82,13 +86,14 @@ async def get_revenue_chart(
     current_user: Annotated[User, Depends(dependencies.RoleChecker([Role.SUPER_ADMIN, Role.ADMIN]))],
     db: Annotated[AsyncSession, Depends(get_db)],
     days: int = 30,
+    gym_id: uuid.UUID | None = Query(None),
     branch_id: uuid.UUID | None = Query(None),
 ):
-    branch_ids = await _resolve_branch_ids(db=db, current_user=current_user, branch_id=branch_id)
+    scoped_gym_id, branch_ids = await _resolve_scope(db=db, current_user=current_user, gym_id=gym_id, branch_id=branch_id)
     data = await AnalyticsService.get_revenue_vs_expenses(
         days,
         db,
-        gym_id=current_user.gym_id,
+        gym_id=scoped_gym_id,
         branch_ids=branch_ids,
     )
     return StandardResponse(data=data)
@@ -98,6 +103,7 @@ async def get_revenue_chart(
 async def get_recent_activity(
     current_user: Annotated[User, Depends(dependencies.RoleChecker([Role.SUPER_ADMIN, Role.ADMIN]))],
     db: Annotated[AsyncSession, Depends(get_db)],
+    gym_id: uuid.UUID | None = Query(None),
     branch_id: uuid.UUID | None = Query(None),
 ):
     """Return the last 10 notable events: check-ins, new users, transactions."""
@@ -105,12 +111,12 @@ async def get_recent_activity(
     from app.models.access import AccessLog, AttendanceLog
     from app.models.finance import Transaction
 
-    branch_ids = await _resolve_branch_ids(db=db, current_user=current_user, branch_id=branch_id)
+    scoped_gym_id, branch_ids = await _resolve_scope(db=db, current_user=current_user, gym_id=gym_id, branch_id=branch_id)
     events = []
 
     access_stmt = (
         sel(AccessLog)
-        .where(AccessLog.gym_id == current_user.gym_id)
+        .where(AccessLog.gym_id == scoped_gym_id)
         .order_by(AccessLog.scan_time.desc())
         .limit(10)
     )
@@ -120,7 +126,7 @@ async def get_recent_activity(
 
     att_stmt = (
         sel(AttendanceLog)
-        .where(AttendanceLog.gym_id == current_user.gym_id)
+        .where(AttendanceLog.gym_id == scoped_gym_id)
         .order_by(AttendanceLog.check_in_time.desc())
         .limit(10)
     )
@@ -145,7 +151,7 @@ async def get_recent_activity(
 
     tx_stmt = (
         sel(Transaction)
-        .where(Transaction.gym_id == current_user.gym_id)
+        .where(Transaction.gym_id == scoped_gym_id)
         .order_by(Transaction.date.desc())
         .limit(10)
     )
@@ -180,12 +186,13 @@ async def get_daily_visitors(
     to_date: date | None = Query(None, alias="to"),
     group_by: str = Query("day", pattern="^(day|week)$"),
     format: str = Query("json", pattern="^(json|csv)$"),
+    gym_id: uuid.UUID | None = Query(None),
     branch_id: uuid.UUID | None = Query(None),
 ):
-    branch_ids = await _resolve_branch_ids(db=db, current_user=current_user, branch_id=branch_id)
+    scoped_gym_id, branch_ids = await _resolve_scope(db=db, current_user=current_user, gym_id=gym_id, branch_id=branch_id)
     data = await AnalyticsService.get_daily_visitors_report(
         db,
-        gym_id=current_user.gym_id,
+        gym_id=scoped_gym_id,
         from_date=from_date,
         to_date=to_date,
         group_by=group_by,
@@ -217,12 +224,13 @@ async def get_branch_comparison(
     db: Annotated[AsyncSession, Depends(get_db)],
     from_date: date | None = Query(None, alias="from"),
     to_date: date | None = Query(None, alias="to"),
+    gym_id: uuid.UUID | None = Query(None),
     branch_id: uuid.UUID | None = Query(None),
 ):
-    branch_ids = await _resolve_branch_ids(db=db, current_user=current_user, branch_id=branch_id)
+    scoped_gym_id, branch_ids = await _resolve_scope(db=db, current_user=current_user, gym_id=gym_id, branch_id=branch_id)
     comparison = await AnalyticsService.get_branch_comparison(
         db,
-        gym_id=current_user.gym_id,
+        gym_id=scoped_gym_id,
         branch_ids=branch_ids,
         from_date=from_date,
         to_date=to_date,

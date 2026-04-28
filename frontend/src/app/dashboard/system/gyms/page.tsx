@@ -56,6 +56,7 @@ type FieldKey =
     | 'admin_password'
     | 'plan_tier'
     | 'timezone'
+    | 'subscription_expires_at'
     | 'initial_branch_name'
     | 'initial_branch_display_name'
     | 'initial_branch_slug'
@@ -65,12 +66,24 @@ interface Gym {
     id: string;
     slug: string;
     name: string;
+    brand_name: string;
     is_active: boolean;
     is_maintenance_mode: boolean;
     plan_tier: string;
+    timezone: string;
     subscription_expires_at: string | null;
     grace_period_days: number;
     created_at: string;
+}
+
+interface EditGymFormState {
+    name: string;
+    slug: string;
+    brand_name: string;
+    plan_tier: string;
+    timezone: string;
+    subscription_expires_at: string;
+    grace_period_days: string;
 }
 
 interface OnboardFormState {
@@ -81,6 +94,7 @@ interface OnboardFormState {
     admin_password: string;
     plan_tier: string;
     timezone: string;
+    subscription_expires_at: string;
     initial_branch_name: string;
     initial_branch_display_name: string;
     initial_branch_slug: string;
@@ -132,6 +146,7 @@ const DEFAULT_FORM: OnboardFormState = {
     admin_password: '',
     plan_tier: 'standard',
     timezone: 'UTC',
+    subscription_expires_at: '',
     initial_branch_name: 'Main Branch',
     initial_branch_display_name: 'Main Branch',
     initial_branch_slug: 'main',
@@ -157,8 +172,22 @@ export default function GymManagementPage() {
     const [branchDisplayTouched, setBranchDisplayTouched] = useState(false);
     const [branchSlugTouched, setBranchSlugTouched] = useState(false);
     const [branchCodeTouched, setBranchCodeTouched] = useState(false);
+    const [editingGym, setEditingGym] = useState<Gym | null>(null);
+    const [editGymModalOpen, setEditGymModalOpen] = useState(false);
+    const [editGymError, setEditGymError] = useState<string | null>(null);
+    const [editFieldErrors, setEditFieldErrors] = useState<Partial<Record<FieldKey | 'grace_period_days', string>>>({});
+    const [savingGym, setSavingGym] = useState(false);
 
     const [formData, setFormData] = useState<OnboardFormState>(DEFAULT_FORM);
+    const [editFormData, setEditFormData] = useState<EditGymFormState>({
+        name: '',
+        slug: '',
+        brand_name: '',
+        plan_tier: 'standard',
+        timezone: 'UTC',
+        subscription_expires_at: '',
+        grace_period_days: '7',
+    });
 
     const passwordChecks = useMemo(() => {
         const password = formData.admin_password;
@@ -176,6 +205,30 @@ export default function GymManagementPage() {
         const seed = normalizeSlug(formData.name).replace(/-/g, '').slice(0, 4).toUpperCase();
         return formData.initial_branch_code || `${seed || 'MAIN'}-01`;
     }, [formData.initial_branch_code, formData.name]);
+
+    const openEditGymModal = (gym: Gym) => {
+        setEditingGym(gym);
+        setEditGymError(null);
+        setEditFieldErrors({});
+        setEditFormData({
+            name: gym.name,
+            slug: gym.slug,
+            brand_name: gym.brand_name,
+            plan_tier: gym.plan_tier,
+            timezone: gym.timezone,
+            subscription_expires_at: gym.subscription_expires_at ? new Date(gym.subscription_expires_at).toISOString().slice(0, 10) : '',
+            grace_period_days: String(gym.grace_period_days),
+        });
+        setEditGymModalOpen(true);
+    };
+
+    const closeEditGymModal = () => {
+        setEditGymModalOpen(false);
+        setEditingGym(null);
+        setEditGymError(null);
+        setEditFieldErrors({});
+        setSavingGym(false);
+    };
 
     const fetchData = useCallback(async (opts?: { silent?: boolean }) => {
         const silent = opts?.silent ?? false;
@@ -260,6 +313,72 @@ export default function GymManagementPage() {
         }
     };
 
+    const updateEditField = (field: keyof EditGymFormState, value: string) => {
+        setEditFormData((prev) => ({ ...prev, [field]: value }));
+        setEditFieldErrors((prev) => ({ ...prev, [field]: undefined }));
+    };
+
+    const validateEditGymForm = () => {
+        const nextErrors: Partial<Record<FieldKey | 'grace_period_days', string>> = {};
+        const normalizedSlug = normalizeSlug(editFormData.slug);
+        const normalizedGrace = Number.parseInt(editFormData.grace_period_days, 10);
+
+        if (!editFormData.name.trim()) nextErrors.name = locale === 'ar' ? 'اسم النادي مطلوب.' : 'Gym name is required.';
+        if (!normalizedSlug) nextErrors.slug = locale === 'ar' ? 'المسار مطلوب.' : 'Gym slug is required.';
+        if (!editFormData.brand_name.trim()) nextErrors.brand_name = locale === 'ar' ? 'اسم العلامة التجارية مطلوب.' : 'Brand name is required.';
+        if (!PLAN_OPTIONS.some((option) => option.value === editFormData.plan_tier)) nextErrors.plan_tier = locale === 'ar' ? 'الباقة غير صالحة.' : 'Invalid package selected.';
+        if (!editFormData.timezone.trim()) nextErrors.timezone = locale === 'ar' ? 'اختر المنطقة الزمنية.' : 'Timezone is required.';
+        if (editFormData.subscription_expires_at) {
+            const parsed = new Date(editFormData.subscription_expires_at);
+            if (Number.isNaN(parsed.getTime())) {
+                nextErrors.subscription_expires_at = locale === 'ar' ? 'تاريخ انتهاء الاشتراك غير صالح.' : 'Subscription expiry date is invalid.';
+            }
+        }
+        if (!Number.isInteger(normalizedGrace) || normalizedGrace < 0 || normalizedGrace > 365) {
+            nextErrors.grace_period_days = locale === 'ar' ? 'فترة السماح يجب أن تكون بين 0 و365 يوماً.' : 'Grace period must be between 0 and 365 days.';
+        }
+        if (editingGym && gyms.some((gym) => gym.id !== editingGym.id && gym.slug === normalizedSlug)) {
+            nextErrors.slug = locale === 'ar' ? 'المسار مستخدم بالفعل.' : 'Gym slug already exists.';
+        }
+
+        setEditFieldErrors(nextErrors);
+        return Object.keys(nextErrors).length === 0;
+    };
+
+    const handleSaveGym = async (e: React.FormEvent) => {
+        e.preventDefault();
+        if (!editingGym) return;
+        if (!validateEditGymForm()) return;
+
+        setSavingGym(true);
+        setEditGymError(null);
+
+        const payload = {
+            name: editFormData.name.trim(),
+            slug: normalizeSlug(editFormData.slug),
+            brand_name: editFormData.brand_name.trim(),
+            plan_tier: editFormData.plan_tier,
+            timezone: editFormData.timezone.trim(),
+            subscription_expires_at: editFormData.subscription_expires_at || null,
+            grace_period_days: Number.parseInt(editFormData.grace_period_days, 10),
+        };
+
+        try {
+            await api.patch(`/system/gyms/${editingGym.id}`, payload);
+            await fetchData({ silent: true });
+            closeEditGymModal();
+            showToast(locale === 'ar' ? 'تم تحديث بيانات النادي.' : 'Gym details updated.', 'success');
+        } catch (err) {
+            await reportSystemTabError('system_gyms', 'edit_gym', err, { gymId: editingGym.id, slug: payload.slug });
+            const apiErr = err as { response?: { data?: { detail?: unknown } } };
+            const parsed = parseOnboardErrors(apiErr.response?.data?.detail);
+            setEditGymError(parsed.formError || normalizeApiError(err));
+            setEditFieldErrors((prev) => ({ ...prev, ...parsed.fieldErrors }));
+        } finally {
+            setSavingGym(false);
+        }
+    };
+
     const updateField = (field: keyof OnboardFormState, value: string) => {
         setFormData((prev) => {
             const next = { ...prev, [field]: value };
@@ -335,6 +454,12 @@ export default function GymManagementPage() {
         if (!PLAN_OPTIONS.some((option) => option.value === formData.plan_tier)) {
             nextErrors.plan_tier = locale === 'ar' ? 'الباقة غير صالحة.' : 'Invalid package selected.';
         }
+        if (formData.subscription_expires_at) {
+            const parsed = new Date(formData.subscription_expires_at);
+            if (Number.isNaN(parsed.getTime())) {
+                nextErrors.subscription_expires_at = locale === 'ar' ? 'تاريخ انتهاء الاشتراك غير صالح.' : 'Subscription expiry date is invalid.';
+            }
+        }
         setFieldErrors((prev) => ({ ...prev, ...nextErrors }));
         return Object.keys(nextErrors).length === 0;
     };
@@ -388,6 +513,7 @@ export default function GymManagementPage() {
             initial_branch_slug: normalizeSlug(derivedBranchSlug),
             initial_branch_code: derivedBranchCode.trim().toUpperCase(),
             brand_name: formData.brand_name.trim() || formData.name.trim(),
+            subscription_expires_at: formData.subscription_expires_at || null,
         };
 
         try {
@@ -524,10 +650,18 @@ export default function GymManagementPage() {
                                                             const now = new Date();
                                                             const graceDeadline = new Date(expiry);
                                                             graceDeadline.setDate(graceDeadline.getDate() + gym.grace_period_days);
+                                                            const graceLabel = `${locale === 'ar' ? 'المهلة حتى' : 'Grace until'} ${formatDate(graceDeadline)}`;
 
                                                             if (now > graceDeadline) return <span className="text-[8px] uppercase text-destructive font-extrabold px-1.5 py-0.5 bg-destructive/10 rounded w-fit mt-1">{locale === 'ar' ? 'منتهي تماماً' : 'Locked'}</span>;
-                                                            if (now > expiry) return <span className="text-[8px] uppercase text-amber-500 font-extrabold px-1.5 py-0.5 bg-amber-500/10 rounded w-fit mt-1">{locale === 'ar' ? 'فترة سماح' : 'Grace Period'}</span>;
-                                                            return null;
+                                                            if (now > expiry) {
+                                                                return (
+                                                                    <>
+                                                                        <span className="text-[8px] uppercase text-amber-500 font-extrabold px-1.5 py-0.5 bg-amber-500/10 rounded w-fit mt-1">{locale === 'ar' ? 'فترة سماح' : 'Grace Period'}</span>
+                                                                        <span className="text-[9px] text-muted-foreground">{graceLabel}</span>
+                                                                    </>
+                                                                );
+                                                            }
+                                                            return <span className="text-[9px] text-muted-foreground">{graceLabel}</span>;
                                                         })()}
                                                     </>
                                                 ) : (
@@ -538,6 +672,12 @@ export default function GymManagementPage() {
                                         <td className="font-mono text-[10px] text-muted-foreground">{formatDate(new Date(gym.created_at))}</td>
                                         <td className="text-end">
                                             <div className="flex items-center justify-end gap-2">
+                                                <button
+                                                    onClick={() => openEditGymModal(gym)}
+                                                    className="btn-ghost !py-1 !px-2 text-[10px] uppercase font-bold tracking-tighter"
+                                                >
+                                                    {locale === 'ar' ? 'تعديل' : 'Edit'}
+                                                </button>
                                                 <button
                                                     onClick={() => handleCopy(gym.id, locale === 'ar' ? 'معرف النادي' : 'Gym ID')}
                                                     className="btn-ghost !py-1 !px-2 text-[10px] uppercase font-bold tracking-tighter"
@@ -565,6 +705,83 @@ export default function GymManagementPage() {
                     </table>
                 </div>
             </div>
+
+            <Modal
+                isOpen={editGymModalOpen}
+                onClose={closeEditGymModal}
+                title={locale === 'ar' ? 'تعديل النادي' : 'Edit Gym'}
+                maxWidthClassName="max-w-3xl"
+            >
+                <form onSubmit={handleSaveGym} className="space-y-5 pt-4">
+                    {editGymError ? (
+                        <div className="rounded-md border border-destructive/30 bg-destructive/10 px-3 py-2 text-sm text-destructive">{editGymError}</div>
+                    ) : null}
+
+                    <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                        <div className="space-y-1.5">
+                            <label className="text-[10px] font-bold uppercase text-muted-foreground tracking-widest">{locale === 'ar' ? 'اسم النادي' : 'Gym Name'}</label>
+                            <input value={editFormData.name} onChange={(e) => updateEditField('name', e.target.value)} className="w-full bg-muted/30 border border-border rounded px-3 py-2 text-sm" />
+                            {editFieldErrors.name ? <p className="text-xs text-destructive">{editFieldErrors.name}</p> : null}
+                        </div>
+                        <div className="space-y-1.5">
+                            <label className="text-[10px] font-bold uppercase text-muted-foreground tracking-widest">{locale === 'ar' ? 'اسم العلامة التجارية' : 'Brand Name'}</label>
+                            <input value={editFormData.brand_name} onChange={(e) => updateEditField('brand_name', e.target.value)} className="w-full bg-muted/30 border border-border rounded px-3 py-2 text-sm" />
+                            {editFieldErrors.brand_name ? <p className="text-xs text-destructive">{editFieldErrors.brand_name}</p> : null}
+                        </div>
+                    </div>
+
+                    <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                        <div className="space-y-1.5">
+                            <label className="text-[10px] font-bold uppercase text-muted-foreground tracking-widest">{locale === 'ar' ? 'المسار' : 'Slug'}</label>
+                            <input value={editFormData.slug} onChange={(e) => updateEditField('slug', e.target.value)} className="w-full bg-muted/30 border border-border rounded px-3 py-2 text-sm font-mono" />
+                            {editFieldErrors.slug ? <p className="text-xs text-destructive">{editFieldErrors.slug}</p> : null}
+                        </div>
+                        <div className="space-y-1.5">
+                            <label className="text-[10px] font-bold uppercase text-muted-foreground tracking-widest">{locale === 'ar' ? 'المنطقة الزمنية' : 'Timezone'}</label>
+                            <select value={editFormData.timezone} onChange={(e) => updateEditField('timezone', e.target.value)} className="w-full bg-muted/30 border border-border rounded px-3 py-2 text-sm">
+                                {COMMON_TIMEZONES.map((tz) => (
+                                    <option key={tz} value={tz}>{tz}</option>
+                                ))}
+                            </select>
+                            {editFieldErrors.timezone ? <p className="text-xs text-destructive">{editFieldErrors.timezone}</p> : null}
+                        </div>
+                    </div>
+
+                    <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
+                        <div className="space-y-1.5 sm:col-span-1">
+                            <label className="text-[10px] font-bold uppercase text-muted-foreground tracking-widest">{locale === 'ar' ? 'الخطة' : 'Plan'}</label>
+                            <select value={editFormData.plan_tier} onChange={(e) => updateEditField('plan_tier', e.target.value)} className="w-full bg-muted/30 border border-border rounded px-3 py-2 text-sm">
+                                {PLAN_OPTIONS.map((option) => (
+                                    <option key={option.value} value={option.value}>{option.title}</option>
+                                ))}
+                            </select>
+                            {editFieldErrors.plan_tier ? <p className="text-xs text-destructive">{editFieldErrors.plan_tier}</p> : null}
+                        </div>
+                        <div className="space-y-1.5 sm:col-span-1">
+                            <label className="text-[10px] font-bold uppercase text-muted-foreground tracking-widest">{locale === 'ar' ? 'انتهاء الاشتراك' : 'Subscription Expiry'}</label>
+                            <input type="date" value={editFormData.subscription_expires_at} onChange={(e) => updateEditField('subscription_expires_at', e.target.value)} className="w-full bg-muted/30 border border-border rounded px-3 py-2 text-sm" />
+                            <p className="text-[11px] text-muted-foreground">{locale === 'ar' ? 'استخدم هذا الحقل لتجديد الاشتراك أو تمديده.' : 'Use this to renew or extend the subscription.'}</p>
+                            {editFieldErrors.subscription_expires_at ? <p className="text-xs text-destructive">{editFieldErrors.subscription_expires_at}</p> : null}
+                        </div>
+                        <div className="space-y-1.5 sm:col-span-1">
+                            <label className="text-[10px] font-bold uppercase text-muted-foreground tracking-widest">{locale === 'ar' ? 'فترة السماح بالأيام' : 'Grace Period (days)'}</label>
+                            <input type="number" min="0" max="365" value={editFormData.grace_period_days} onChange={(e) => updateEditField('grace_period_days', e.target.value)} className="w-full bg-muted/30 border border-border rounded px-3 py-2 text-sm" />
+                            {editFieldErrors.grace_period_days ? <p className="text-xs text-destructive">{editFieldErrors.grace_period_days}</p> : null}
+                        </div>
+                    </div>
+
+                    <div className="rounded-xl border border-border bg-muted/20 p-4 text-sm text-muted-foreground">
+                        {locale === 'ar'
+                            ? 'يمكنك من هنا تعديل بيانات النادي الأساسية، تغيير الباقة، تجديد تاريخ الاشتراك، أو تعديل مهلة السماح قبل الإغلاق التلقائي.'
+                            : 'From here you can update gym basics, change the plan tier, renew the subscription date, or adjust the grace period before auto-locking.'}
+                    </div>
+
+                    <div className="flex justify-end gap-3">
+                        <button type="button" onClick={closeEditGymModal} className="btn-ghost">{locale === 'ar' ? 'إلغاء' : 'Cancel'}</button>
+                        <button type="submit" disabled={savingGym} className="btn-primary min-w-[140px]">{savingGym ? '...' : (locale === 'ar' ? 'حفظ التغييرات' : 'Save Changes')}</button>
+                    </div>
+                </form>
+            </Modal>
 
             <Modal
                 isOpen={onboardModalOpen}
@@ -692,6 +909,35 @@ export default function GymManagementPage() {
 
                             {fieldErrors.plan_tier ? <p className="text-xs text-destructive">{fieldErrors.plan_tier}</p> : null}
 
+                            <div className="grid grid-cols-1 gap-4 pt-2 sm:grid-cols-2">
+                                <div className="space-y-1.5">
+                                    <label className="text-[10px] font-bold uppercase text-muted-foreground tracking-widest">{locale === 'ar' ? 'انتهاء الاشتراك' : 'Subscription Expiry'}</label>
+                                    <input
+                                        type="date"
+                                        value={formData.subscription_expires_at}
+                                        onChange={(e) => updateField('subscription_expires_at', e.target.value)}
+                                        className="w-full bg-muted/30 border border-border rounded px-3 py-2 text-sm"
+                                    />
+                                    <p className="text-[11px] text-muted-foreground">
+                                        {locale === 'ar'
+                                            ? 'اختياري. إذا تركته فارغاً فلن يطبق القفل التلقائي للاشتراك.'
+                                            : 'Optional. Leave blank if you do not want subscription auto-locking yet.'}
+                                    </p>
+                                    {fieldErrors.subscription_expires_at ? <p className="text-xs text-destructive">{fieldErrors.subscription_expires_at}</p> : null}
+                                </div>
+                                <div className="space-y-1.5">
+                                    <label className="text-[10px] font-bold uppercase text-muted-foreground tracking-widest">{locale === 'ar' ? 'فترة السماح' : 'Grace Period'}</label>
+                                    <div className="w-full rounded border border-border bg-muted/20 px-3 py-2 text-sm text-muted-foreground">
+                                        {locale === 'ar' ? '7 أيام افتراضياً' : '7 days by default'}
+                                    </div>
+                                    <p className="text-[11px] text-muted-foreground">
+                                        {locale === 'ar'
+                                            ? 'تستخدم المنصة حالياً فترة السماح الافتراضية لكل ناد جديد.'
+                                            : 'The platform currently uses the default grace period for each new gym.'}
+                                    </p>
+                                </div>
+                            </div>
+
                             <div className="flex justify-between gap-3 pt-2">
                                 <button type="button" onClick={() => setOnboardStep(1)} className="btn-ghost">{locale === 'ar' ? 'رجوع' : 'Back'}</button>
                                 <button type="button" onClick={() => {
@@ -715,6 +961,10 @@ export default function GymManagementPage() {
                                 <div>
                                     <div className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">{locale === 'ar' ? 'الباقة' : 'Package'}</div>
                                     <div className="mt-1 font-semibold text-foreground">{PLAN_OPTIONS.find((option) => option.value === formData.plan_tier)?.title || formData.plan_tier || '--'}</div>
+                                </div>
+                                <div>
+                                    <div className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">{locale === 'ar' ? 'انتهاء الاشتراك' : 'Subscription expiry'}</div>
+                                    <div className="mt-1 font-semibold text-foreground">{formData.subscription_expires_at || '--'}</div>
                                 </div>
                                 <div>
                                     <div className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">{locale === 'ar' ? 'الفرع' : 'Branch'}</div>

@@ -163,25 +163,34 @@ function formatMoney(value: number, locale: string) {
 
 function AdminOperationsTab() {
   const router = useRouter();
-  const { authorizedRequest, bootstrap } = useSession();
+  const { authorizedRequest, bootstrap, selectedBranchId } = useSession();
   const { copy, direction, fontSet, isRTL, locale, theme } = usePreferences();
   const role = getCurrentRole(bootstrap);
   const canViewAudit = role === "ADMIN";
 
   const operationsQuery = useQuery({
-    queryKey: ["mobile-admin-operations-summary", role],
-    queryFn: async () => parseAdminOperationsSummaryEnvelope(await authorizedRequest("/mobile/admin/operations/summary")).data,
+    queryKey: ["mobile-admin-operations-summary", role, selectedBranchId ?? "all"],
+    queryFn: async () => {
+      const suffix = selectedBranchId ? `?branch_id=${encodeURIComponent(selectedBranchId)}` : "";
+      return parseAdminOperationsSummaryEnvelope(await authorizedRequest(`/mobile/admin/operations/summary${suffix}`)).data;
+    },
   });
 
   const auditQuery = useQuery({
-    queryKey: ["mobile-admin-audit-summary", role],
+    queryKey: ["mobile-admin-audit-summary", role, selectedBranchId ?? "all"],
     enabled: canViewAudit,
-    queryFn: async () => parseAdminAuditSummaryEnvelope(await authorizedRequest("/mobile/admin/audit/summary")).data,
+    queryFn: async () => {
+      const suffix = selectedBranchId ? `?branch_id=${encodeURIComponent(selectedBranchId)}` : "";
+      return parseAdminAuditSummaryEnvelope(await authorizedRequest(`/mobile/admin/audit/summary${suffix}`)).data;
+    },
   });
 
   const inventoryQuery = useQuery({
-    queryKey: ["mobile-admin-inventory-summary", role],
-    queryFn: async () => parseAdminInventorySummaryEnvelope(await authorizedRequest("/mobile/admin/inventory/summary")).data,
+    queryKey: ["mobile-admin-inventory-summary", role, selectedBranchId ?? "all"],
+    queryFn: async () => {
+      const suffix = selectedBranchId ? `?branch_id=${encodeURIComponent(selectedBranchId)}` : "";
+      return parseAdminInventorySummaryEnvelope(await authorizedRequest(`/mobile/admin/inventory/summary${suffix}`)).data;
+    },
   });
 
   const operations = operationsQuery.data;

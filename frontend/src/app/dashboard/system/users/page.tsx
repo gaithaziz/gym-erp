@@ -7,7 +7,7 @@ import { normalizeApiError, reportSystemTabError } from '@/lib/systemTelemetry';
 import { getAccessToken, getRefreshToken, setTokens } from '@/lib/tokenStorage';
 import { usePathname, useRouter, useSearchParams } from 'next/navigation';
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { Building2, Copy, Mail, RefreshCcw, Search, Shield, UserCog } from 'lucide-react';
+import { Mail, RefreshCcw, Search, Shield, UserCog } from 'lucide-react';
 import { useLocale } from '@/context/LocaleContext';
 import TablePagination from '@/components/TablePagination';
 import Modal from '@/components/Modal';
@@ -37,6 +37,10 @@ interface UsersPayload {
 interface GymOption {
     id: string;
     name: string;
+    slug: string;
+    is_active: boolean;
+    is_maintenance_mode: boolean;
+    plan_tier: string;
 }
 
 interface BranchOption {
@@ -50,7 +54,7 @@ interface BranchOption {
 }
 
 const PAGE_SIZE = 20;
-const ROLE_OPTIONS = ['ADMIN', 'MANAGER', 'COACH', 'RECEPTION', 'FRONT_DESK', 'EMPLOYEE', 'CASHIER', 'CUSTOMER'];
+const ROLE_OPTIONS = ['SUPER_ADMIN', 'ADMIN', 'MANAGER', 'COACH', 'RECEPTION', 'FRONT_DESK', 'EMPLOYEE', 'CASHIER', 'CUSTOMER'];
 const ACTIVITY_OPTIONS: Array<{ value: string; label: { en: string; ar: string } }> = [
     { value: '', label: { en: 'All activity', ar: 'كل النشاط' } },
     { value: 'active', label: { en: 'Active', ar: 'نشط' } },
@@ -130,7 +134,26 @@ export default function GlobalUserSearchPage() {
     const fetchGyms = useCallback(async () => {
         try {
             const resp = await api.get('/system/gyms');
-            setGyms(Array.isArray(resp.data) ? resp.data.map((gym: { id: string; name: string }) => ({ id: gym.id, name: gym.name })) : []);
+            const items = Array.isArray(resp.data)
+                ? resp.data
+                : (Array.isArray(resp.data?.data) ? resp.data.data : []);
+            setGyms(
+                items.map((gym: {
+                    id: string;
+                    name: string;
+                    slug?: string | null;
+                    is_active?: boolean | null;
+                    is_maintenance_mode?: boolean | null;
+                    plan_tier?: string | null;
+                }) => ({
+                    id: gym.id,
+                    name: gym.name,
+                    slug: gym.slug || '',
+                    is_active: Boolean(gym.is_active),
+                    is_maintenance_mode: Boolean(gym.is_maintenance_mode),
+                    plan_tier: gym.plan_tier || '',
+                }))
+            );
         } catch {
             setGyms([]);
         }
@@ -271,15 +294,6 @@ export default function GlobalUserSearchPage() {
         }
     };
 
-    const handleCopy = async (value: string, label: string) => {
-        try {
-            await navigator.clipboard.writeText(value);
-            showToast(locale === 'ar' ? `تم نسخ ${label}` : `${label} copied`, 'success');
-        } catch {
-            showToast(locale === 'ar' ? 'فشل النسخ.' : 'Copy failed.', 'error');
-        }
-    };
-
     const summary = useMemo(() => {
         const active = results.filter((item) => item.activity_status === 'active').length;
         const stale = results.filter((item) => item.activity_status === 'stale').length;
@@ -299,7 +313,7 @@ export default function GlobalUserSearchPage() {
         return <SystemAdminAccessDenied />;
     }
 
-    const selectedGym = gyms.find((gym) => gym.id === gymFilter)?.name || '';
+    const selectedGym = gyms.find((gym) => gym.id === gymFilter) || null;
 
     return (
         <SystemAdminShell
@@ -373,7 +387,12 @@ export default function GlobalUserSearchPage() {
                         <select className="input-dark w-full mt-1" value={gymFilter} onChange={(e) => { setPage(1); setGymFilter(e.target.value); setBranchFilter(''); }}>
                             <option value="">{locale === 'ar' ? 'الكل' : 'All gyms'}</option>
                             {gyms.map((gym) => (
-                                <option key={gym.id} value={gym.id}>{gym.name}</option>
+                                <option key={gym.id} value={gym.id}>
+                                    {gym.name}
+                                    {gym.slug ? ` (${gym.slug})` : ''}
+                                    {!gym.is_active ? (locale === 'ar' ? ' - معلق' : ' - Suspended') : ''}
+                                    {gym.is_maintenance_mode ? (locale === 'ar' ? ' - صيانة' : ' - Maintenance') : ''}
+                                </option>
                             ))}
                         </select>
                     </div>
@@ -383,7 +402,7 @@ export default function GlobalUserSearchPage() {
                             <option value="">{locale === 'ar' ? 'الكل' : 'All branches'}</option>
                             {branches.map((branch) => (
                                 <option key={branch.id} value={branch.id}>
-                                    {branch.display_name || branch.name} {selectedGym ? `(${branch.gym_name})` : ''}
+                                    {branch.display_name || branch.name} {selectedGym ? '' : `(${branch.gym_name})`}
                                 </option>
                             ))}
                         </select>
@@ -472,23 +491,7 @@ export default function GlobalUserSearchPage() {
                                                 </span>
                                             </td>
                                             <td className="text-end">
-                                                <div className="flex items-center justify-end gap-2">
-                                                    <button
-                                                        type="button"
-                                                        onClick={() => handleCopy(row.id, locale === 'ar' ? 'معرف المستخدم' : 'User ID')}
-                                                        className="btn-ghost !py-1 !px-2 text-[10px] uppercase font-bold tracking-tighter"
-                                                    >
-                                                        <Copy size={12} className="mr-1" />
-                                                        {locale === 'ar' ? 'نسخ' : 'Copy'}
-                                                    </button>
-                                                    <button
-                                                        type="button"
-                                                        onClick={() => router.push(`/dashboard/system/gyms?gym=${row.gym_id}`)}
-                                                        className="btn-ghost !py-1 !px-2 text-[10px] uppercase font-bold tracking-tighter"
-                                                    >
-                                                        <Building2 size={12} className="mr-1" />
-                                                        {locale === 'ar' ? 'فتح النادي' : 'Gym'}
-                                                    </button>
+                                                <div className="flex items-center justify-end">
                                                     <button
                                                         type="button"
                                                         onClick={() => openImpersonationModal(row)}
@@ -567,22 +570,6 @@ export default function GlobalUserSearchPage() {
                             </div>
 
                             <div className="mt-4 flex flex-wrap gap-2">
-                                <button
-                                    type="button"
-                                    onClick={() => handleCopy(row.id, locale === 'ar' ? 'معرف المستخدم' : 'User ID')}
-                                    className="btn-ghost !py-1 !px-2 text-[10px] uppercase font-bold tracking-tighter"
-                                >
-                                    <Copy size={12} className="mr-1" />
-                                    {locale === 'ar' ? 'نسخ' : 'Copy'}
-                                </button>
-                                <button
-                                    type="button"
-                                    onClick={() => router.push(`/dashboard/system/gyms?gym=${row.gym_id}`)}
-                                    className="btn-ghost !py-1 !px-2 text-[10px] uppercase font-bold tracking-tighter"
-                                >
-                                    <Building2 size={12} className="mr-1" />
-                                    {locale === 'ar' ? 'فتح النادي' : 'Gym'}
-                                </button>
                                 <button
                                     type="button"
                                     onClick={() => openImpersonationModal(row)}

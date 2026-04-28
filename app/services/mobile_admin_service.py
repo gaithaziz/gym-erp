@@ -4,7 +4,7 @@ from datetime import datetime, timedelta, timezone
 from decimal import Decimal
 from typing import Any
 
-from sqlalchemy import or_, func, select
+from sqlalchemy import false, or_, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.access import AccessLog, AttendanceLog, Subscription, SubscriptionRenewalRequest, RenewalRequestStatus
@@ -20,6 +20,7 @@ from app.models.subscription_enums import SubscriptionStatus
 from app.models.support import SupportTicket, TicketStatus
 from app.models.user import User
 from app.services.audit_service import AuditService
+from app.services.tenancy_service import TenancyService
 
 
 ADMIN_CONTROL_ROLES = {Role.ADMIN, Role.MANAGER}
@@ -62,13 +63,28 @@ class MobileAdminService:
             raise ValueError("Not allowed")
 
     @classmethod
-    async def get_home_summary(cls, *, current_user: User, db: AsyncSession) -> dict[str, Any]:
+    async def _branch_scope_ids(
+        cls,
+        *,
+        current_user: User,
+        db: AsyncSession,
+        branch_id=None,
+    ) -> list:
+        return await TenancyService.branch_scope_ids(
+            db,
+            current_user=current_user,
+            branch_id=branch_id,
+            allow_all_for_admin=True,
+        )
+
+    @classmethod
+    async def get_home_summary(cls, *, current_user: User, db: AsyncSession, branch_id=None) -> dict[str, Any]:
         cls._ensure_allowed(current_user)
 
-        people = await cls.get_people_summary(current_user=current_user, db=db)
-        operations = await cls.get_operations_summary(current_user=current_user, db=db)
-        finance = await cls.get_finance_summary(current_user=current_user, db=db)
-        audit = await cls.get_audit_summary(current_user=current_user, db=db) if current_user.role == Role.ADMIN else {"recent_events": []}
+        people = await cls.get_people_summary(current_user=current_user, db=db, branch_id=branch_id)
+        operations = await cls.get_operations_summary(current_user=current_user, db=db, branch_id=branch_id)
+        finance = await cls.get_finance_summary(current_user=current_user, db=db, branch_id=branch_id)
+        audit = await cls.get_audit_summary(current_user=current_user, db=db, branch_id=branch_id) if current_user.role == Role.ADMIN else {"recent_events": []}
 
         alerts = [
             {
@@ -127,23 +143,27 @@ class MobileAdminService:
         }
 
     @classmethod
-    async def get_people_summary(cls, *, current_user: User, db: AsyncSession) -> dict[str, Any]:
+    async def get_people_summary(cls, *, current_user: User, db: AsyncSession, branch_id=None) -> dict[str, Any]:
         cls._ensure_allowed(current_user)
+        branch_ids = await cls._branch_scope_ids(current_user=current_user, db=db, branch_id=branch_id)
+        user_scope = User.home_branch_id.in_(branch_ids) if branch_ids else false()
+        access_scope = AccessLog.branch_id.in_(branch_ids) if branch_ids else false()
+        attendance_scope = AttendanceLog.branch_id.in_(branch_ids) if branch_ids else false()
 
-        total_members = await cls._count(db, select(func.count(User.id)).where(User.role == Role.CUSTOMER))
+        total_members = await cls._count(db, select(func.count(User.id)).where(User.role == Role.CUSTOMER, user_scope))
         active_members = await cls._count(
             db,
             select(func.count(User.id))
             .join(Subscription, Subscription.user_id == User.id)
-            .where(User.role == Role.CUSTOMER, Subscription.status == SubscriptionStatus.ACTIVE),
+            .where(User.role == Role.CUSTOMER, Subscription.status == SubscriptionStatus.ACTIVE, user_scope),
         )
         blocked_members = max(total_members - active_members, 0)
-        staff_total = await cls._count(db, select(func.count(User.id)).where(User.role != Role.CUSTOMER))
+        staff_total = await cls._count(db, select(func.count(User.id)).where(User.role != Role.CUSTOMER, user_scope))
 
         staff_rows = (
             await db.execute(
                 select(User.role, func.count(User.id))
-                .where(User.role != Role.CUSTOMER)
+                .where(User.role != Role.CUSTOMER, user_scope)
                 .group_by(User.role)
                 .order_by(User.role.asc())
             )
@@ -151,15 +171,15 @@ class MobileAdminService:
         recent_members = (
             await db.execute(
                 select(User)
-                .where(User.role == Role.CUSTOMER)
+                .where(User.role == Role.CUSTOMER, user_scope)
                 .order_by(User.full_name.asc().nullslast(), User.email.asc())
                 .limit(5)
             )
         ).scalars().all()
 
         today = _start_of_today()
-        staff_checked_in = await cls._count(db, select(func.count(AttendanceLog.id)).where(AttendanceLog.check_in_time >= today))
-        member_scans = await cls._count(db, select(func.count(AccessLog.id)).where(AccessLog.scan_time >= today))
+        staff_checked_in = await cls._count(db, select(func.count(AttendanceLog.id)).where(AttendanceLog.check_in_time >= today, attendance_scope))
+        member_scans = await cls._count(db, select(func.count(AccessLog.id)).where(AccessLog.scan_time >= today, access_scope))
 
         return {
             "members": {
@@ -199,14 +219,16 @@ class MobileAdminService:
         search: str | None = None,
         role: Role | None = None,
         status: str | None = None,
+        branch_id=None,
     ) -> dict[str, Any]:
         cls._ensure_allowed(current_user)
+        branch_ids = await cls._branch_scope_ids(current_user=current_user, db=db, branch_id=branch_id)
 
         roles = STAFF_OPERATION_ROLES
         stmt = (
             select(User, Contract)
             .outerjoin(Contract, Contract.user_id == User.id)
-            .where(User.role.in_(roles))
+            .where(User.role.in_(roles), User.home_branch_id.in_(branch_ids) if branch_ids else false())
             .order_by(User.full_name.asc().nullslast(), User.email.asc())
         )
         if role and role in roles:
@@ -230,6 +252,7 @@ class MobileAdminService:
                         AttendanceLog.user_id == staff.id,
                         AttendanceLog.check_in_time >= today,
                         AttendanceLog.check_out_time.is_(None),
+                        AttendanceLog.branch_id.in_(branch_ids) if branch_ids else false(),
                     )
                     .order_by(AttendanceLog.check_in_time.desc())
                     .limit(1)
@@ -269,14 +292,19 @@ class MobileAdminService:
         return {"items": items}
 
     @classmethod
-    async def get_staff_operation_detail(cls, *, current_user: User, db: AsyncSession, staff_id) -> dict[str, Any]:
+    async def get_staff_operation_detail(cls, *, current_user: User, db: AsyncSession, staff_id, branch_id=None) -> dict[str, Any]:
         cls._ensure_allowed(current_user)
+        branch_ids = await cls._branch_scope_ids(current_user=current_user, db=db, branch_id=branch_id)
 
         row = (
             await db.execute(
                 select(User, Contract)
                 .outerjoin(Contract, Contract.user_id == User.id)
-                .where(User.id == staff_id, User.role.in_(STAFF_OPERATION_ROLES))
+                .where(
+                    User.id == staff_id,
+                    User.role.in_(STAFF_OPERATION_ROLES),
+                    User.home_branch_id.in_(branch_ids) if branch_ids else false(),
+                )
             )
         ).first()
         if not row:
@@ -289,7 +317,7 @@ class MobileAdminService:
         attendance_logs = (
             await db.execute(
                 select(AttendanceLog)
-                .where(AttendanceLog.user_id == staff.id)
+                .where(AttendanceLog.user_id == staff.id, AttendanceLog.branch_id.in_(branch_ids) if branch_ids else false())
                 .order_by(AttendanceLog.check_in_time.desc())
                 .limit(12)
             )
@@ -350,30 +378,39 @@ class MobileAdminService:
         }
 
     @classmethod
-    async def get_operations_summary(cls, *, current_user: User, db: AsyncSession) -> dict[str, Any]:
+    async def get_operations_summary(cls, *, current_user: User, db: AsyncSession, branch_id=None) -> dict[str, Any]:
         cls._ensure_allowed(current_user)
+        branch_ids = await cls._branch_scope_ids(current_user=current_user, db=db, branch_id=branch_id)
 
         today = _start_of_today()
-        checkins_today = await cls._count(db, select(func.count(AccessLog.id)).where(AccessLog.scan_time >= today))
+        checkins_today = await cls._count(db, select(func.count(AccessLog.id)).where(AccessLog.scan_time >= today, AccessLog.branch_id.in_(branch_ids) if branch_ids else false()))
         denied_today = await cls._count(
             db,
-            select(func.count(AccessLog.id)).where(AccessLog.scan_time >= today, AccessLog.status != "GRANTED"),
+            select(func.count(AccessLog.id)).where(AccessLog.scan_time >= today, AccessLog.status != "GRANTED", AccessLog.branch_id.in_(branch_ids) if branch_ids else false()),
         )
         open_tickets = await cls._count(
             db,
-            select(func.count(SupportTicket.id)).where(SupportTicket.status.in_([TicketStatus.OPEN, TicketStatus.IN_PROGRESS])),
+            select(func.count(SupportTicket.id)).where(SupportTicket.status.in_([TicketStatus.OPEN, TicketStatus.IN_PROGRESS]), SupportTicket.branch_id.in_(branch_ids) if branch_ids else false()),
         )
         open_lost_found = await cls._count(
             db,
             select(func.count(LostFoundItem.id)).where(
-                LostFoundItem.status.in_([LostFoundStatus.REPORTED, LostFoundStatus.UNDER_REVIEW, LostFoundStatus.READY_FOR_PICKUP])
+                LostFoundItem.status.in_([LostFoundStatus.REPORTED, LostFoundStatus.UNDER_REVIEW, LostFoundStatus.READY_FOR_PICKUP]),
+                LostFoundItem.branch_id.in_(branch_ids) if branch_ids else false(),
             ),
         )
         pending_renewals = await cls._count(
             db,
-            select(func.count(SubscriptionRenewalRequest.id)).where(SubscriptionRenewalRequest.status == RenewalRequestStatus.PENDING),
+            select(func.count(SubscriptionRenewalRequest.id))
+            .join(User, User.id == SubscriptionRenewalRequest.user_id)
+            .where(SubscriptionRenewalRequest.status == RenewalRequestStatus.PENDING, User.home_branch_id.in_(branch_ids) if branch_ids else false()),
         )
-        pending_leaves = await cls._count(db, select(func.count(LeaveRequest.id)).where(LeaveRequest.status == LeaveStatus.PENDING))
+        pending_leaves = await cls._count(
+            db,
+            select(func.count(LeaveRequest.id))
+            .join(User, User.id == LeaveRequest.user_id)
+            .where(LeaveRequest.status == LeaveStatus.PENDING, User.home_branch_id.in_(branch_ids) if branch_ids else false()),
+        )
         queued_push = await cls._count(db, select(func.count(PushDeliveryLog.id)).where(PushDeliveryLog.status == "QUEUED"))
         failed_push = await cls._count(db, select(func.count(PushDeliveryLog.id)).where(PushDeliveryLog.status == "FAILED"))
         automation_rules = await cls._count(
@@ -385,6 +422,7 @@ class MobileAdminService:
             await db.execute(
                 select(SupportTicket, User.full_name)
                 .join(User, User.id == SupportTicket.customer_id)
+                .where(SupportTicket.branch_id.in_(branch_ids) if branch_ids else false())
                 .order_by(SupportTicket.created_at.desc())
                 .limit(5)
             )
@@ -392,13 +430,14 @@ class MobileAdminService:
 
         # Staff metrics
         month_start = _start_of_month()
-        total_active_staff = await cls._count(db, select(func.count(User.id)).where(User.role != Role.CUSTOMER, User.is_active.is_(True)))
-        staff_checked_in = await cls._count(db, select(func.count(AttendanceLog.id)).where(AttendanceLog.check_in_time >= today))
+        total_active_staff = await cls._count(db, select(func.count(User.id)).where(User.role != Role.CUSTOMER, User.is_active.is_(True), User.home_branch_id.in_(branch_ids) if branch_ids else false()))
+        staff_checked_in = await cls._count(db, select(func.count(AttendanceLog.id)).where(AttendanceLog.check_in_time >= today, AttendanceLog.branch_id.in_(branch_ids) if branch_ids else false()))
         attendance_rate = (staff_checked_in / total_active_staff * 100.0) if total_active_staff > 0 else 0.0
 
         monthly_payroll_query = await db.execute(
             select(func.sum(Payroll.total_pay))
-            .where(Payroll.month == month_start.month, Payroll.year == month_start.year)
+            .join(User, User.id == Payroll.user_id)
+            .where(Payroll.month == month_start.month, Payroll.year == month_start.year, User.home_branch_id.in_(branch_ids) if branch_ids else false())
         )
         payroll_total = _as_float(monthly_payroll_query.scalar())
 
@@ -406,14 +445,16 @@ class MobileAdminService:
         upcoming_leaves = await cls._count(
             db,
             select(func.count(LeaveRequest.id))
+            .join(User, User.id == LeaveRequest.user_id)
             .where(
                 LeaveRequest.status == LeaveStatus.APPROVED,
                 LeaveRequest.start_date >= today.date(),
                 LeaveRequest.start_date <= next_week.date(),
+                User.home_branch_id.in_(branch_ids) if branch_ids else false(),
             ),
         )
 
-        inventory = await cls.get_inventory_summary(current_user=current_user, db=db)
+        inventory = await cls.get_inventory_summary(current_user=current_user, db=db, branch_id=branch_id)
         return {
             "attendance": {
                 "checkins_today": checkins_today,
@@ -505,20 +546,22 @@ class MobileAdminService:
         }
 
     @classmethod
-    async def get_finance_summary(cls, *, current_user: User, db: AsyncSession) -> dict[str, Any]:
+    async def get_finance_summary(cls, *, current_user: User, db: AsyncSession, branch_id=None) -> dict[str, Any]:
         cls._ensure_allowed(current_user)
+        branch_ids = await cls._branch_scope_ids(current_user=current_user, db=db, branch_id=branch_id)
 
         today = _start_of_today()
         month = _start_of_month()
-        today_income = await cls._sum_transactions(db=db, from_date=today, transaction_type=TransactionType.INCOME)
-        today_expense = await cls._sum_transactions(db=db, from_date=today, transaction_type=TransactionType.EXPENSE)
-        month_income = await cls._sum_transactions(db=db, from_date=month, transaction_type=TransactionType.INCOME)
-        month_expense = await cls._sum_transactions(db=db, from_date=month, transaction_type=TransactionType.EXPENSE)
+        today_income = await cls._sum_transactions(db=db, from_date=today, transaction_type=TransactionType.INCOME, branch_ids=branch_ids)
+        today_expense = await cls._sum_transactions(db=db, from_date=today, transaction_type=TransactionType.EXPENSE, branch_ids=branch_ids)
+        month_income = await cls._sum_transactions(db=db, from_date=month, transaction_type=TransactionType.INCOME, branch_ids=branch_ids)
+        month_expense = await cls._sum_transactions(db=db, from_date=month, transaction_type=TransactionType.EXPENSE, branch_ids=branch_ids)
 
         recent_transactions = (
             await db.execute(
                 select(Transaction, User.full_name)
                 .outerjoin(User, User.id == Transaction.user_id)
+                .where(Transaction.branch_id.in_(branch_ids) if branch_ids else false())
                 .order_by(Transaction.date.desc())
                 .limit(8)
             )
@@ -526,7 +569,7 @@ class MobileAdminService:
 
         low_stock = await cls._count(
             db,
-            select(func.count(Product.id)).where(Product.is_active.is_(True), Product.stock_quantity <= Product.low_stock_threshold),
+            select(func.count(Product.id)).where(Product.is_active.is_(True), Product.stock_quantity <= Product.low_stock_threshold, Product.branch_id.in_(branch_ids) if branch_ids else false()),
         )
 
         return {
@@ -557,13 +600,15 @@ class MobileAdminService:
         }
 
     @classmethod
-    async def get_audit_summary(cls, *, current_user: User, db: AsyncSession) -> dict[str, Any]:
+    async def get_audit_summary(cls, *, current_user: User, db: AsyncSession, branch_id=None) -> dict[str, Any]:
         cls._ensure_audit_allowed(current_user)
+        branch_ids = await cls._branch_scope_ids(current_user=current_user, db=db, branch_id=branch_id)
 
         recent_events = (
             await db.execute(
                 select(AuditLog, User.full_name)
                 .outerjoin(User, User.id == AuditLog.user_id)
+                .where(AuditLog.branch_id.in_(branch_ids) if branch_ids else false())
                 .order_by(AuditLog.timestamp.desc())
                 .limit(10)
             )
@@ -571,6 +616,7 @@ class MobileAdminService:
         action_rows = (
             await db.execute(
                 select(AuditLog.action, func.count(AuditLog.id))
+                .where(AuditLog.branch_id.in_(branch_ids) if branch_ids else false())
                 .group_by(AuditLog.action)
                 .order_by(func.count(AuditLog.id).desc())
                 .limit(6)
@@ -578,7 +624,7 @@ class MobileAdminService:
         ).all()
 
         return {
-            "total_events": await cls._count(db, select(func.count(AuditLog.id))),
+            "total_events": await cls._count(db, select(func.count(AuditLog.id)).where(AuditLog.branch_id.in_(branch_ids) if branch_ids else false())),
             "action_counts": [
                 {"id": action, "label": action.replace("_", " ").title(), "value": int(count or 0)}
                 for action, count in action_rows
@@ -601,21 +647,22 @@ class MobileAdminService:
         }
 
     @classmethod
-    async def get_inventory_summary(cls, *, current_user: User, db: AsyncSession) -> dict[str, Any]:
+    async def get_inventory_summary(cls, *, current_user: User, db: AsyncSession, branch_id=None) -> dict[str, Any]:
         cls._ensure_allowed(current_user)
+        branch_ids = await cls._branch_scope_ids(current_user=current_user, db=db, branch_id=branch_id)
 
         low_stock_products = (
             await db.execute(
                 select(Product)
-                .where(Product.is_active.is_(True), Product.stock_quantity <= Product.low_stock_threshold)
+                .where(Product.is_active.is_(True), Product.stock_quantity <= Product.low_stock_threshold, Product.branch_id.in_(branch_ids) if branch_ids else false())
                 .order_by(Product.stock_quantity.asc(), Product.name.asc())
                 .limit(8)
             )
         ).scalars().all()
-        total_active = await cls._count(db, select(func.count(Product.id)).where(Product.is_active.is_(True)))
+        total_active = await cls._count(db, select(func.count(Product.id)).where(Product.is_active.is_(True), Product.branch_id.in_(branch_ids) if branch_ids else false()))
         out_of_stock = await cls._count(
             db,
-            select(func.count(Product.id)).where(Product.is_active.is_(True), Product.stock_quantity <= 0),
+            select(func.count(Product.id)).where(Product.is_active.is_(True), Product.stock_quantity <= 0, Product.branch_id.in_(branch_ids) if branch_ids else false()),
         )
 
         return {
@@ -636,18 +683,19 @@ class MobileAdminService:
         }
 
     @classmethod
-    async def get_approvals(cls, *, current_user: User, db: AsyncSession) -> dict[str, Any]:
+    async def get_approvals(cls, *, current_user: User, db: AsyncSession, branch_id=None) -> dict[str, Any]:
         if current_user.role not in {Role.ADMIN, Role.MANAGER, Role.COACH}:
             raise ValueError("Not allowed")
 
         admin_mode = current_user.role in ADMIN_CONTROL_ROLES
+        branch_ids = await cls._branch_scope_ids(current_user=current_user, db=db, branch_id=branch_id)
 
 
         renewal_rows = (
             await db.execute(
                 select(SubscriptionRenewalRequest, User)
                 .join(User, User.id == SubscriptionRenewalRequest.user_id)
-                .where(SubscriptionRenewalRequest.status == RenewalRequestStatus.PENDING)
+                .where(SubscriptionRenewalRequest.status == RenewalRequestStatus.PENDING, User.home_branch_id.in_(branch_ids) if branch_ids else false())
                 .order_by(SubscriptionRenewalRequest.requested_at.asc())
                 .limit(50)
             )
@@ -656,7 +704,7 @@ class MobileAdminService:
             await db.execute(
                 select(LeaveRequest, User)
                 .join(User, User.id == LeaveRequest.user_id)
-                .where(LeaveRequest.status == LeaveStatus.PENDING)
+                .where(LeaveRequest.status == LeaveStatus.PENDING, User.home_branch_id.in_(branch_ids) if branch_ids else false())
                 .order_by(LeaveRequest.start_date.asc())
                 .limit(50)
             )
@@ -667,7 +715,7 @@ class MobileAdminService:
             .join(User, User.id == ClassReservation.member_id)
             .join(ClassSession, ClassSession.id == ClassReservation.session_id)
             .join(ClassTemplate, ClassTemplate.id == ClassSession.template_id)
-            .where(ClassReservation.status == ClassReservationStatus.PENDING)
+            .where(ClassReservation.status == ClassReservationStatus.PENDING, ClassSession.branch_id.in_(branch_ids) if branch_ids else false())
             .order_by(ClassSession.starts_at.asc())
         )
         if current_user.role == Role.COACH:
@@ -796,9 +844,11 @@ class MobileAdminService:
         search: str | None = None,
         category: ProductCategory | None = None,
         status_filter: str = "all",
+        branch_id=None,
     ) -> dict[str, Any]:
         cls._ensure_allowed(current_user)
-        stmt = select(Product)
+        branch_ids = await cls._branch_scope_ids(current_user=current_user, db=db, branch_id=branch_id)
+        stmt = select(Product).where(Product.branch_id.in_(branch_ids) if branch_ids else false())
         if status_filter == "active":
             stmt = stmt.where(Product.is_active.is_(True))
         elif status_filter == "inactive":
@@ -974,12 +1024,13 @@ class MobileAdminService:
         return int(value or 0)
 
     @staticmethod
-    async def _sum_transactions(*, db: AsyncSession, from_date: datetime, transaction_type: TransactionType) -> float:
+    async def _sum_transactions(*, db: AsyncSession, from_date: datetime, transaction_type: TransactionType, branch_ids: list | None = None) -> float:
         value = (
             await db.execute(
                 select(func.sum(Transaction.amount)).where(
                     Transaction.date >= from_date,
                     Transaction.type == transaction_type,
+                    Transaction.branch_id.in_(branch_ids) if branch_ids else false(),
                 )
             )
         ).scalar()

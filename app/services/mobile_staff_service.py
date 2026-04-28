@@ -5,7 +5,7 @@ from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal
 import uuid
 
-from sqlalchemy import and_, func, or_, select
+from sqlalchemy import and_, false, func, or_, select, true
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -147,6 +147,9 @@ class MobileStaffService:
                 allow_all_for_admin=True,
             )
             return branch_id
+        if current_user.role in {Role.ADMIN, Role.MANAGER}:
+            # Treat an omitted branch as "all accessible branches" for mobile admin filters.
+            return None
         return current_user.home_branch_id
 
     @staticmethod
@@ -502,9 +505,15 @@ class MobileStaffService:
         }
 
     @staticmethod
-    async def get_finance_summary(*, current_user: User, db: AsyncSession) -> dict:
+    async def get_finance_summary(*, current_user: User, db: AsyncSession, branch_id: uuid.UUID | None = None) -> dict:
         if current_user.role not in {Role.ADMIN, Role.MANAGER, Role.CASHIER}:
             raise ValueError("Not allowed")
+        branch_ids = await TenancyService.branch_scope_ids(
+            db,
+            current_user=current_user,
+            branch_id=branch_id,
+            allow_all_for_admin=current_user.role == Role.ADMIN,
+        )
 
         today = _start_of_today()
         total_sales = (
@@ -513,6 +522,7 @@ class MobileStaffService:
                 .where(
                     Transaction.category == TransactionCategory.POS_SALE,
                     Transaction.date >= today,
+                    Transaction.branch_id.in_(branch_ids) if branch_ids else false(),
                 )
             )
         ).scalar()
@@ -521,15 +531,17 @@ class MobileStaffService:
                 select(func.count(Transaction.id)).where(
                     Transaction.category == TransactionCategory.POS_SALE,
                     Transaction.date >= today,
+                    Transaction.branch_id.in_(branch_ids) if branch_ids else false(),
                 )
             )
         ).scalar()
-        recent_transactions = await MobileStaffService.get_recent_transactions(current_user=current_user, db=db, limit=5)
+        recent_transactions = await MobileStaffService.get_recent_transactions(current_user=current_user, db=db, limit=5, branch_id=branch_id)
         low_stock = (
             await db.execute(
                 select(func.count(Product.id)).where(
                     Product.is_active.is_(True),
                     Product.stock_quantity <= Product.low_stock_threshold,
+                    Product.branch_id.in_(branch_ids) if branch_ids else false(),
                 )
             )
         ).scalar()
@@ -541,14 +553,23 @@ class MobileStaffService:
         }
 
     @staticmethod
-    async def get_recent_transactions(*, current_user: User, db: AsyncSession, limit: int = 20) -> list[dict]:
+    async def get_recent_transactions(*, current_user: User, db: AsyncSession, limit: int = 20, branch_id: uuid.UUID | None = None) -> list[dict]:
         if current_user.role not in {Role.ADMIN, Role.MANAGER, Role.CASHIER}:
             raise ValueError("Not allowed")
+        branch_ids = await TenancyService.branch_scope_ids(
+            db,
+            current_user=current_user,
+            branch_id=branch_id,
+            allow_all_for_admin=current_user.role == Role.ADMIN,
+        )
 
         stmt = (
             select(Transaction, User.full_name)
             .outerjoin(User, User.id == Transaction.user_id)
-            .where(Transaction.category == TransactionCategory.POS_SALE)
+            .where(
+                Transaction.category == TransactionCategory.POS_SALE,
+                Transaction.branch_id.in_(branch_ids) if branch_ids else false(),
+            )
             .order_by(Transaction.date.desc())
             .limit(limit)
         )
@@ -577,11 +598,17 @@ class MobileStaffService:
         payment_method: PaymentMethod,
         member_id: uuid.UUID | None = None,
         idempotency_key: str | None = None,
+        branch_id: uuid.UUID | None = None,
     ) -> dict:
         if current_user.role not in {Role.ADMIN, Role.MANAGER, Role.CASHIER}:
             raise ValueError("Not allowed")
         if not items:
             raise ValueError("Cart is empty")
+        effective_branch_id = await MobileStaffService._resolve_effective_branch_id(
+            current_user=current_user,
+            db=db,
+            branch_id=branch_id,
+        )
 
         quantities: dict[uuid.UUID, int] = {}
         for item in items:
@@ -613,7 +640,10 @@ class MobileStaffService:
         products = (
             await db.execute(
                 select(Product)
-                .where(Product.id.in_(list(quantities.keys())))
+                .where(
+                    Product.id.in_(list(quantities.keys())),
+                    Product.branch_id == effective_branch_id if effective_branch_id is not None else true(),
+                )
                 .with_for_update()
             )
         ).scalars().all()
@@ -663,6 +693,8 @@ class MobileStaffService:
             user_id=member.id if member else None,
             idempotency_key=idempotency_key,
             date=datetime.utcnow(),
+            branch_id=effective_branch_id,
+            gym_id=current_user.gym_id,
         )
         transaction.pos_items = line_items
         db.add(transaction)

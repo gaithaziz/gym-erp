@@ -63,7 +63,7 @@ function posTransactionTitle(description: string | undefined, copy: ReturnType<t
 }
 
 export default function FinanceTab() {
-  const { authorizedRequest, bootstrap } = useSession();
+  const { authorizedRequest, bootstrap, selectedBranchId } = useSession();
   const { copy, direction, fontSet, isRTL, locale, theme } = usePreferences();
   const queryClient = useQueryClient();
   const role = getCurrentRole(bootstrap);
@@ -77,22 +77,35 @@ export default function FinanceTab() {
   const [lastReceiptId, setLastReceiptId] = useState<string | null>(null);
 
   const summaryQuery = useQuery({
-    queryKey: ["mobile-pos-summary"],
+    queryKey: ["mobile-pos-summary", selectedBranchId ?? "all"],
     enabled: !adminControl || showAdminPos,
-    queryFn: async () => parsePosSummaryEnvelope(await authorizedRequest("/mobile/staff/finance/summary")).data,
+    queryFn: async () => {
+      const suffix = selectedBranchId ? `?branch_id=${encodeURIComponent(selectedBranchId)}` : "";
+      return parsePosSummaryEnvelope(await authorizedRequest(`/mobile/staff/finance/summary${suffix}`)).data;
+    },
   });
 
   const adminFinanceQuery = useQuery({
-    queryKey: ["mobile-admin-finance-summary", role],
+    queryKey: ["mobile-admin-finance-summary", role, selectedBranchId ?? "all"],
     enabled: adminControl,
-    queryFn: async () => parseAdminFinanceSummaryEnvelope(await authorizedRequest("/mobile/admin/finance/summary")).data,
+    queryFn: async () => {
+      const suffix = selectedBranchId ? `?branch_id=${encodeURIComponent(selectedBranchId)}` : "";
+      return parseAdminFinanceSummaryEnvelope(await authorizedRequest(`/mobile/admin/finance/summary${suffix}`)).data;
+    },
   });
 
   const productsQuery = useQuery({
-    queryKey: ["mobile-products", search.trim()],
+    queryKey: ["mobile-products", search.trim(), selectedBranchId ?? "all"],
     enabled: !adminControl || showAdminPos,
     queryFn: async () => {
-      const suffix = search.trim() ? `?search=${encodeURIComponent(search.trim())}` : "";
+      const params = new URLSearchParams();
+      if (search.trim()) {
+        params.set("search", search.trim());
+      }
+      if (selectedBranchId) {
+        params.set("branch_id", selectedBranchId);
+      }
+      const suffix = params.toString() ? `?${params.toString()}` : "";
       return (await authorizedRequest<Product[]>(`/inventory/products${suffix}`)).data;
     },
   });
@@ -113,6 +126,7 @@ export default function FinanceTab() {
             payment_method: paymentMethod,
             member_id: memberId.trim() || null,
             idempotency_key: `mobile-pos:${Date.now()}:${Object.keys(cart).join(",")}`,
+            branch_id: selectedBranchId,
           }),
         }),
       ).data,

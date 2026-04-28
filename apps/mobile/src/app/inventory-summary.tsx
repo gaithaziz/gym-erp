@@ -35,7 +35,7 @@ const EMPTY_FORM: ProductForm = {
 };
 
 export default function InventorySummaryScreen() {
-  const { authorizedRequest, bootstrap } = useSession();
+  const { authorizedRequest, bootstrap, selectedBranchId } = useSession();
   const { copy, direction, fontSet, isRTL, theme } = usePreferences();
   const role = getCurrentRole(bootstrap);
   const adminControl = isAdminControlRole(role);
@@ -48,9 +48,12 @@ export default function InventorySummaryScreen() {
   const [feedback, setFeedback] = useState<string | null>(null);
 
   const inventoryQuery = useQuery({
-    queryKey: ["mobile-admin-inventory-summary", role],
+    queryKey: ["mobile-admin-inventory-summary", role, selectedBranchId ?? "all"],
     enabled: adminControl,
-    queryFn: async () => parseAdminInventorySummaryEnvelope(await authorizedRequest("/mobile/admin/inventory/summary")).data,
+    queryFn: async () => {
+      const suffix = selectedBranchId ? `?branch_id=${encodeURIComponent(selectedBranchId)}` : "";
+      return parseAdminInventorySummaryEnvelope(await authorizedRequest(`/mobile/admin/inventory/summary${suffix}`)).data;
+    },
   });
 
   const productQueryString = useMemo(() => {
@@ -62,8 +65,11 @@ export default function InventorySummaryScreen() {
     if (categoryFilter !== "ALL") {
       params.set("category", categoryFilter);
     }
+    if (selectedBranchId) {
+      params.set("branch_id", selectedBranchId);
+    }
     return params.toString();
-  }, [categoryFilter, search, statusFilter]);
+  }, [categoryFilter, search, selectedBranchId, statusFilter]);
 
   const productsQuery = useQuery({
     queryKey: ["mobile-admin-inventory-products", productQueryString, role],

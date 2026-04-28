@@ -11,6 +11,7 @@ from app.auth import dependencies
 from app.models.user import User
 from app.models.enums import Role
 from app.models.inventory import Product, ProductCategory
+from app.models.tenancy import Branch
 from app.models.finance import Transaction, TransactionType, TransactionCategory, PaymentMethod
 from app.services.audit_service import AuditService
 from app.services.tenancy_service import TenancyService
@@ -216,25 +217,40 @@ async def list_products(
 
 @router.get("/products/low-stock", response_model=StandardResponse[list[ProductResponse]])
 async def get_low_stock_products(
-    current_user: Annotated[User, Depends(dependencies.RoleChecker([Role.ADMIN, Role.EMPLOYEE, Role.CASHIER]))],
+    current_user: Annotated[User, Depends(dependencies.RoleChecker([Role.SUPER_ADMIN, Role.ADMIN, Role.EMPLOYEE, Role.CASHIER]))],
     db: Annotated[AsyncSession, Depends(get_db)],
+    gym_id: uuid.UUID | None = Query(None),
     branch_id: uuid.UUID | None = Query(None),
 ):
     """Fetch products that have reached or fallen below their low stock threshold."""
     now = datetime.now(timezone.utc)
+    target_gym_id = gym_id or current_user.gym_id
     stmt = (
         select(Product)
+        .where(Product.gym_id == target_gym_id)
         .where(Product.is_active.is_(True))
         .where(Product.stock_quantity <= Product.low_stock_threshold)
         .where((Product.low_stock_snoozed_until.is_(None)) | (Product.low_stock_snoozed_until <= now))
         .order_by(Product.stock_quantity.asc())
     )
-    branch_ids = await TenancyService.branch_scope_ids(
-        db,
-        current_user=current_user,
-        branch_id=branch_id,
-        allow_all_for_admin=current_user.role == Role.ADMIN,
-    )
+    if current_user.role == Role.SUPER_ADMIN:
+        if branch_id is not None:
+            branch = await TenancyService.get_branch_in_gym(
+                db,
+                gym_id=target_gym_id,
+                branch_id=branch_id,
+            )
+            branch_ids = [branch.id] if branch is not None else []
+        else:
+            rows = await db.execute(select(Branch.id).where(Branch.gym_id == target_gym_id))
+            branch_ids = list(rows.scalars().all())
+    else:
+        branch_ids = await TenancyService.branch_scope_ids(
+            db,
+            current_user=current_user,
+            branch_id=branch_id,
+            allow_all_for_admin=current_user.role == Role.ADMIN,
+        )
     if branch_ids:
         stmt = stmt.where(Product.branch_id.in_(branch_ids))
     else:

@@ -398,11 +398,14 @@ function StaffHomeTab() {
 
 function AdminHomeTab() {
   const router = useRouter();
-  const { bootstrap, authorizedRequest } = useSession();
+  const { bootstrap, authorizedRequest, selectedBranchId } = useSession();
   const { copy, direction, fontSet, isRTL, locale, theme } = usePreferences();
   const homeQuery = useQuery({
-    queryKey: ["mobile-admin-home", bootstrap?.role],
-    queryFn: async () => parseAdminHomeEnvelope(await authorizedRequest("/mobile/admin/home")).data,
+    queryKey: ["mobile-admin-home", bootstrap?.role, selectedBranchId ?? "all"],
+    queryFn: async () => {
+      const suffix = selectedBranchId ? `?branch_id=${encodeURIComponent(selectedBranchId)}` : "";
+      return parseAdminHomeEnvelope(await authorizedRequest(`/mobile/admin/home${suffix}`)).data;
+    },
   });
   const home = homeQuery.data;
 

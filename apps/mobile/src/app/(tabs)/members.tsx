@@ -67,9 +67,12 @@ export default function MembersTab() {
   const canRegister = role === "ADMIN" || role === "MANAGER" || role === "RECEPTION" || role === "FRONT_DESK";
 
   const adminSummaryQuery = useQuery({
-    queryKey: ["mobile-admin-people-summary", role],
+    queryKey: ["mobile-admin-people-summary", role, selectedBranchId ?? "all"],
     enabled: adminControl,
-    queryFn: async () => parseAdminPeopleSummaryEnvelope(await authorizedRequest("/mobile/admin/people/summary")).data,
+    queryFn: async () => {
+      const suffix = selectedBranchId ? `?branch_id=${encodeURIComponent(selectedBranchId)}` : "";
+      return parseAdminPeopleSummaryEnvelope(await authorizedRequest(`/mobile/admin/people/summary${suffix}`)).data;
+    },
   });
 
   const membersQuery = useQuery({

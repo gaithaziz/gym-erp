@@ -2,14 +2,13 @@ import uuid
 from collections import defaultdict
 from datetime import date, datetime, timedelta, timezone
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import and_, case, exists, false, or_, select, true, func
+from sqlalchemy import case, false, select, true, func
 from app.config import settings
 from app.models.access import AccessLog, AttendanceLog, Subscription, SubscriptionStatus, SubscriptionRenewalRequest, RenewalRequestStatus
-from app.models.hr import Payroll, LeaveRequest, LeaveStatus
+from app.models.hr import Payroll, PayrollStatus, LeaveRequest, LeaveStatus
 from app.models.classes import ClassReservation, ClassReservationStatus, ClassSession
 from app.models.user import User
 from app.models.tenancy import Branch
-from app.models.tenancy import UserBranchAccess
 from app.services.timezone_service import get_gym_timezone
 
 class AnalyticsService:
@@ -27,23 +26,12 @@ class AnalyticsService:
     ):
         from app.models.finance import Transaction, TransactionType
 
-        def _user_in_branch_scope_expr() -> object:
+        def _home_branch_scope_expr() -> object:
             if branch_ids is None:
                 return true()
             if not branch_ids:
                 return false()
-            return or_(
-                User.home_branch_id.in_(branch_ids),
-                exists(
-                    select(UserBranchAccess.id).where(
-                        and_(
-                            UserBranchAccess.user_id == User.id,
-                            UserBranchAccess.gym_id == gym_id,
-                            UserBranchAccess.branch_id.in_(branch_ids),
-                        )
-                    )
-                ),
-            )
+            return User.home_branch_id.in_(branch_ids)
 
         now = datetime.now(timezone.utc)
         branch_cache_key = ",".join(sorted(str(branch_id) for branch_id in branch_ids)) if branch_ids is not None else "all"
@@ -110,7 +98,7 @@ class AnalyticsService:
             Subscription.status == SubscriptionStatus.ACTIVE,
             Subscription.end_date >= now,
         )
-        stmt_members = stmt_members.where(_user_in_branch_scope_expr())
+        stmt_members = stmt_members.where(_home_branch_scope_expr())
         result_members = await db.execute(stmt_members)
         active_members = result_members.scalar() or 0
 
@@ -147,9 +135,10 @@ class AnalyticsService:
         stmt_pending = select(func.sum(Payroll.total_pay)).join(User, User.id == Payroll.user_id).where(
             Payroll.gym_id == gym_id,
             Payroll.month == now.month,
-            Payroll.year == now.year
+            Payroll.year == now.year,
+            Payroll.status != PayrollStatus.PAID,
         )
-        stmt_pending = stmt_pending.where(_user_in_branch_scope_expr())
+        stmt_pending = stmt_pending.where(_home_branch_scope_expr())
         result_pending = await db.execute(stmt_pending)
         pending_salaries = float(result_pending.scalar() or 0.0)
 
@@ -168,7 +157,7 @@ class AnalyticsService:
             ClassReservation.status == ClassReservationStatus.PENDING,
         )
 
-        branch_user_filter = _user_in_branch_scope_expr()
+        branch_user_filter = _home_branch_scope_expr()
         renewal_stmt = renewal_stmt.where(branch_user_filter)
         leave_stmt = leave_stmt.where(branch_user_filter)
         if branch_ids is not None:

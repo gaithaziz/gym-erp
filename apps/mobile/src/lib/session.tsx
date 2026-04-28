@@ -109,6 +109,9 @@ function resolveBranchSelection(
   if (!supportsBranchSelection(bootstrap)) {
     return null;
   }
+  if (preferredBranchId === null) {
+    return null;
+  }
   const accessibleIds = new Set((bootstrap.accessible_branches ?? []).map((item) => item.id));
   if (preferredBranchId && accessibleIds.has(preferredBranchId)) {
     return preferredBranchId;

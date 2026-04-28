@@ -14,7 +14,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
-from app.auth.dependencies import RoleChecker, get_current_active_user
+from app.auth.dependencies import RoleChecker, ensure_gym_accessible, get_current_active_user
 from app.auth.security import create_access_token, create_refresh_token, get_password_hash
 from app.core.responses import StandardResponse
 from app.database import get_db, set_rls_context
@@ -64,6 +64,7 @@ class GymOnboard(BaseModel):
     admin_password: str
     plan_tier: str = "standard"
     timezone: str = "UTC"
+    subscription_expires_at: date | None = None
     initial_branch_name: str = "Main Branch"
     initial_branch_display_name: str | None = "Main Branch"
     initial_branch_slug: str = "main"
@@ -75,8 +76,14 @@ class MaintenanceUpdate(BaseModel):
 
 
 class GymUpdateRequest(BaseModel):
+    name: str | None = None
+    slug: str | None = None
+    brand_name: str | None = None
     is_active: bool | None = None
     plan_tier: str | None = None
+    timezone: str | None = None
+    subscription_expires_at: date | None = None
+    grace_period_days: int | None = None
 
 
 class ClientTelemetryEvent(BaseModel):
@@ -213,6 +220,24 @@ def _validate_onboard_payload(data: GymOnboard) -> GymOnboard:
     if not _validate_timezone(data.timezone):
         errors.append(_error_detail(code="INVALID_TIMEZONE", field="timezone", message="Invalid IANA timezone."))
 
+    if data.subscription_expires_at is not None:
+        if data.subscription_expires_at < date.today() - timedelta(days=3650):
+            errors.append(
+                _error_detail(
+                    code="INVALID_SUBSCRIPTION_EXPIRY",
+                    field="subscription_expires_at",
+                    message="Subscription expiry date is too far in the past.",
+                )
+            )
+        elif data.subscription_expires_at > date.today() + timedelta(days=3650):
+            errors.append(
+                _error_detail(
+                    code="INVALID_SUBSCRIPTION_EXPIRY",
+                    field="subscription_expires_at",
+                    message="Subscription expiry date is too far in the future.",
+                )
+            )
+
     if not data.initial_branch_slug:
         errors.append(_error_detail(code="INVALID_BRANCH_SLUG", field="initial_branch_slug", message="Branch slug is required."))
     elif len(data.initial_branch_slug) < 2 or len(data.initial_branch_slug) > 50:
@@ -293,7 +318,10 @@ async def get_system_stats(
     total_branches_stmt = select(func.count(Branch.id))
     total_users_stmt = select(func.count(User.id))
     active_users_stmt = select(func.count(User.id)).where(User.is_active.is_(True))
-    active_subs_stmt = select(func.count(Subscription.id)).where(Subscription.status == "ACTIVE")
+    active_subs_stmt = select(func.count(Subscription.id)).where(
+        Subscription.status == "ACTIVE",
+        Subscription.end_date >= datetime.now(timezone.utc),
+    )
 
     if gym_filter is not None:
         total_gyms_stmt = total_gyms_stmt.where(gym_filter)
@@ -335,9 +363,11 @@ async def list_gyms(db: AsyncSession = Depends(get_db)) -> list[dict[str, Any]]:
             "id": g.id,
             "slug": g.slug,
             "name": g.name,
+            "brand_name": g.brand_name,
             "is_active": g.is_active,
             "is_maintenance_mode": g.is_maintenance_mode,
             "plan_tier": g.plan_tier,
+            "timezone": g.timezone,
             "subscription_expires_at": g.subscription_expires_at,
             "grace_period_days": g.grace_period_days,
             "created_at": g.created_at,
@@ -387,6 +417,56 @@ async def update_gym_status(
     if not gym:
         raise HTTPException(status_code=404, detail="Gym not found")
 
+    if payload.name is not None:
+        normalized_name = payload.name.strip()
+        if len(normalized_name) < 3 or len(normalized_name) > 120:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail=[_error_detail(code="INVALID_NAME", field="name", message="Gym name must be between 3 and 120 characters.")],
+            )
+        gym.name = normalized_name
+
+    if payload.brand_name is not None:
+        normalized_brand = payload.brand_name.strip()
+        if len(normalized_brand) < 2 or len(normalized_brand) > 120:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail=[_error_detail(code="INVALID_BRAND_NAME", field="brand_name", message="Brand name must be between 2 and 120 characters.")],
+            )
+        gym.brand_name = normalized_brand
+
+    if payload.slug is not None:
+        normalized_slug = _normalize_slug(payload.slug)
+        if not normalized_slug:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail=[_error_detail(code="INVALID_GYM_SLUG", field="slug", message="Gym slug is required.")],
+            )
+        if len(normalized_slug) < 3 or len(normalized_slug) > 50:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail=[_error_detail(code="INVALID_GYM_SLUG", field="slug", message="Gym slug must be between 3 and 50 characters.")],
+            )
+        if normalized_slug in RESERVED_GYM_SLUGS:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail=[_error_detail(code="RESERVED_GYM_SLUG", field="slug", message="This gym slug is reserved.")],
+            )
+        if not SLUG_RE.match(normalized_slug):
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail=[_error_detail(code="INVALID_GYM_SLUG", field="slug", message="Gym slug may only contain lowercase letters, numbers, and single hyphens.")],
+            )
+        slug_owner = (
+            await db.execute(select(Gym.id).where(Gym.slug == normalized_slug, Gym.id != gym.id))
+        ).scalar_one_or_none()
+        if slug_owner:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail=_error_detail(code="GYM_SLUG_CONFLICT", field="slug", message="Gym slug already exists."),
+            )
+        gym.slug = normalized_slug
+
     if payload.plan_tier is not None:
         normalized_tier = payload.plan_tier.strip().lower()
         if normalized_tier not in ALLOWED_PLAN_TIERS:
@@ -402,11 +482,51 @@ async def update_gym_status(
             )
         gym.plan_tier = normalized_tier
 
+    if payload.timezone is not None:
+        normalized_timezone = payload.timezone.strip()
+        if not _validate_timezone(normalized_timezone):
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail=[_error_detail(code="INVALID_TIMEZONE", field="timezone", message="Invalid IANA timezone.")],
+            )
+        gym.timezone = normalized_timezone
+
+    subscription_field_provided = "subscription_expires_at" in getattr(payload, "model_fields_set", set())
+    if subscription_field_provided:
+        if payload.subscription_expires_at is None:
+            gym.subscription_expires_at = None
+        else:
+            target_timezone = payload.timezone.strip() if payload.timezone is not None else gym.timezone
+            gym.subscription_expires_at = datetime.combine(
+                payload.subscription_expires_at,
+                datetime.max.time(),
+                tzinfo=ZoneInfo(target_timezone),
+            ).astimezone(timezone.utc)
+
+    if payload.grace_period_days is not None:
+        if payload.grace_period_days < 0 or payload.grace_period_days > 365:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail=[_error_detail(code="INVALID_GRACE_PERIOD", field="grace_period_days", message="Grace period must be between 0 and 365 days.")],
+            )
+        gym.grace_period_days = payload.grace_period_days
+
     if payload.is_active is not None:
         gym.is_active = payload.is_active
 
     await db.commit()
-    return {"message": "Gym updated successfully", "id": gym.id, "is_active": gym.is_active, "plan_tier": gym.plan_tier}
+    return {
+        "message": "Gym updated successfully",
+        "id": gym.id,
+        "name": gym.name,
+        "slug": gym.slug,
+        "brand_name": gym.brand_name,
+        "is_active": gym.is_active,
+        "plan_tier": gym.plan_tier,
+        "timezone": gym.timezone,
+        "subscription_expires_at": gym.subscription_expires_at,
+        "grace_period_days": gym.grace_period_days,
+    }
 
 
 @router.get("/analytics/revenue")
@@ -562,6 +682,15 @@ async def onboard_gym(
         brand_name=data.brand_name or data.name,
         plan_tier=data.plan_tier,
         timezone=data.timezone,
+        subscription_expires_at=(
+            datetime.combine(
+                data.subscription_expires_at,
+                datetime.max.time(),
+                tzinfo=ZoneInfo(data.timezone),
+            ).astimezone(timezone.utc)
+            if data.subscription_expires_at is not None
+            else None
+        ),
     )
     branch = Branch(
         name=data.initial_branch_name,
@@ -944,6 +1073,7 @@ async def impersonate_user(
     user = await db.get(User, user_id)
     if not user:
         raise HTTPException(status_code=404, detail="User not found")
+    await ensure_gym_accessible(db=db, current_user=user)
 
     reason = payload.reason.strip() if payload and payload.reason else ""
 
@@ -962,14 +1092,14 @@ async def impersonate_user(
     await db.commit()
 
     access_token = create_access_token(
-        subject=user.id,
+        subject=user.email,
         gym_id=str(user.gym_id),
         home_branch_id=str(user.home_branch_id) if user.home_branch_id else None,
         is_impersonated=True,
         session_version=int(getattr(user, "session_version", 0) or 0),
     )
     refresh_token = create_refresh_token(
-        subject=user.id,
+        subject=user.email,
         gym_id=str(user.gym_id),
         home_branch_id=str(user.home_branch_id) if user.home_branch_id else None,
         is_impersonated=True,

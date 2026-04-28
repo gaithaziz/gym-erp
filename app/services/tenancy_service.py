@@ -86,6 +86,14 @@ class TenancyService:
 
     @classmethod
     async def get_accessible_branches(cls, db: AsyncSession, *, user) -> Sequence[Branch]:
+        if user.role == Role.ADMIN:
+            rows = await db.execute(
+                select(Branch)
+                .where(Branch.gym_id == user.gym_id)
+                .order_by(Branch.name.asc())
+            )
+            return list(rows.scalars().all())
+
         rows = await db.execute(
             select(Branch)
             .join(UserBranchAccess, UserBranchAccess.branch_id == Branch.id)

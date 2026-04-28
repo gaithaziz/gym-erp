@@ -9,14 +9,17 @@ import { usePreferences } from "@/lib/preferences";
 import { useSession } from "@/lib/session";
 
 export default function AdminAuditScreen() {
-  const { authorizedRequest, bootstrap } = useSession();
+  const { authorizedRequest, bootstrap, selectedBranchId } = useSession();
   const { copy, direction, fontSet, isRTL, locale, theme } = usePreferences();
   const role = getCurrentRole(bootstrap);
 
   const auditQuery = useQuery({
-    queryKey: ["mobile-admin-audit-summary", role],
+    queryKey: ["mobile-admin-audit-summary", role, selectedBranchId ?? "all"],
     enabled: role === "ADMIN",
-    queryFn: async () => parseAdminAuditSummaryEnvelope(await authorizedRequest("/mobile/admin/audit/summary")).data,
+    queryFn: async () => {
+      const suffix = selectedBranchId ? `?branch_id=${encodeURIComponent(selectedBranchId)}` : "";
+      return parseAdminAuditSummaryEnvelope(await authorizedRequest(`/mobile/admin/audit/summary${suffix}`)).data;
+    },
   });
 
   if (role !== "ADMIN") {

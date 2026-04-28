@@ -1,16 +1,41 @@
-from fastapi import Request, HTTPException, status
+from fastapi import Request, status
+from fastapi.responses import JSONResponse
 from starlette.middleware.base import BaseHTTPMiddleware
 from sqlalchemy import select
 import os
+from jose import JWTError, jwt
+
 from app.database import AsyncSessionLocal
 from app.models.tenancy import Gym
 from app.models.system import SystemConfig
-from app.models.enums import Role
 from app.config import settings
-# from app.auth.security import decode_token # Placeholder for future role-based bypass logic
 import logging
 
 logger = logging.getLogger(__name__)
+
+
+def _error_response(status_code: int, detail: str) -> JSONResponse:
+    return JSONResponse(status_code=status_code, content={"detail": detail})
+
+
+def _extract_token_scope(request: Request) -> tuple[str | None, str | None]:
+    auth_header = request.headers.get("Authorization")
+    if not auth_header or not auth_header.startswith("Bearer "):
+        return None, None
+
+    token = auth_header.split(" ", 1)[1].strip()
+    if not token:
+        return None, None
+
+    try:
+        payload = jwt.decode(token, settings.SECRET_KEY, algorithms=[settings.ALGORITHM])
+    except JWTError:
+        return None, None
+
+    role = payload.get("role")
+    gym_id = payload.get("gym_id")
+    return (str(role) if role is not None else None, str(gym_id) if gym_id is not None else None)
+
 
 class MaintenanceMiddleware(BaseHTTPMiddleware):
     async def dispatch(self, request: Request, call_next):
@@ -20,55 +45,40 @@ class MaintenanceMiddleware(BaseHTTPMiddleware):
         if request.url.path in ["/healthz", "/metrics", "/docs", "/redoc", "/openapi.json"]:
             return await call_next(request)
         
-        # 2. Check for Super-Admin bypass
-        # We try to extract the user from the token if present
-        auth_header = request.headers.get("Authorization")
-        is_super_admin = False
-        if auth_header and auth_header.startswith("Bearer "):
-            try:
-                # We won't do full validation here to keep it fast, 
-                # but we need the role.
-                # In a real app, we'd use a cached session or a fast JWT decode.
-                pass 
-            except:
-                pass
+        token_role, token_gym_id = _extract_token_scope(request)
 
-        # For now, we'll implement a simple check: 
-        # If the route is /api/v1/system/*, it's for super-admins anyway (they have a role check dependency).
-        # We only care about blocking regular gym routes.
-        if request.url.path.startswith("/api/v1/system"):
+        # System routes remain available so super-admins can recover a locked tenant.
+        if request.url.path.startswith("/api/v1/system") or token_role == "SUPER_ADMIN":
             return await call_next(request)
 
         async with AsyncSessionLocal() as db:
-            # 3. Check Global Maintenance
             global_maint = await db.execute(
                 select(SystemConfig).where(SystemConfig.key == "global_maintenance_mode")
             )
             config = global_maint.scalar_one_or_none()
             if config and config.value_bool:
-                # Still allow super admins if we could identify them, 
-                # but for simplicity in this MVP, we'll block and 
-                # let them use the /system routes to turn it off.
-                raise HTTPException(
-                    status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-                    detail="System is undergoing global maintenance."
+                return _error_response(
+                    status.HTTP_503_SERVICE_UNAVAILABLE,
+                    "System is undergoing global maintenance.",
                 )
 
-            # 4. Check Gym-level Maintenance
-            # We need to know which gym this request belongs to.
-            # Usually it's in the X-Gym-Id header or the user's token.
-            gym_id = request.headers.get("X-Gym-Id")
+            gym_id = request.headers.get("X-Gym-Id") or token_gym_id
             if gym_id:
                 try:
                     gym_stmt = select(Gym).where(Gym.id == gym_id)
                     gym_res = await db.execute(gym_stmt)
                     gym = gym_res.scalar_one_or_none()
-                    if gym and gym.is_maintenance_mode:
-                        raise HTTPException(
-                            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-                            detail=f"Gym '{gym.name}' is undergoing maintenance."
+                    if gym and not gym.is_active:
+                        return _error_response(
+                            status.HTTP_403_FORBIDDEN,
+                            "Gym is suspended",
                         )
-                except:
-                    pass # Invalid UUID or other error
+                    if gym and gym.is_maintenance_mode:
+                        return _error_response(
+                            status.HTTP_503_SERVICE_UNAVAILABLE,
+                            f"Gym '{gym.name}' is undergoing maintenance.",
+                        )
+                except Exception:
+                    logger.exception("Failed to resolve gym access state for request path=%s", request.url.path)
 
         return await call_next(request)

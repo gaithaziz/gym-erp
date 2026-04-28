@@ -35,6 +35,7 @@ from app.models.lost_found import LostFoundCategory, LostFoundComment, LostFound
 from app.models.notification import WhatsAppAutomationRule, WhatsAppDeliveryLog
 from app.models.support import SupportMessage, SupportTicket, TicketCategory, TicketStatus
 from app.models.subscription_enums import SubscriptionStatus
+from app.models.tenancy import Branch, Gym
 from app.models.user import User
 from app.models.chat import ChatMessage, ChatReadReceipt, ChatThread
 from app.models.workout_log import DietFeedback, GymFeedback, WorkoutLog, WorkoutSession, WorkoutSessionEntry
@@ -301,6 +302,231 @@ async def _upsert_transaction(
         tx.user_id = user_id
 
 
+async def _seed_secondary_demo_gym(session, *, gym: Gym, branch: Branch) -> None:
+    if gym.slug != "gaith":
+        return
+
+    admin_email = "gaithdiabat14@gmail.com"
+    admin = (await session.execute(select(User).where(User.email == admin_email))).scalar_one_or_none()
+    if admin is None:
+        admin = await _upsert_user(
+            session,
+            {
+                "email": admin_email,
+                "full_name": "gaith Admin",
+                "role": Role.ADMIN,
+                "password": LOCAL_DEFAULT_PASSWORD,
+                "gym_id": gym.id,
+                "home_branch_id": branch.id,
+            },
+        )
+        await session.flush()
+
+    await _act_as(session, admin)
+
+    gaith_users = [
+        {
+            "email": "gaith.member.one@gym-erp.com",
+            "full_name": "Gaith Member One",
+            "role": Role.CUSTOMER,
+            "password": DEMO_PASSWORD,
+            "gym_id": gym.id,
+            "home_branch_id": branch.id,
+        },
+        {
+            "email": "gaith.member.two@gym-erp.com",
+            "full_name": "Gaith Member Two",
+            "role": Role.CUSTOMER,
+            "password": DEMO_PASSWORD,
+            "gym_id": gym.id,
+            "home_branch_id": branch.id,
+        },
+        {
+            "email": "gaith.coach@gym-erp.com",
+            "full_name": "Gaith Coach",
+            "role": Role.COACH,
+            "password": DEMO_PASSWORD,
+            "gym_id": gym.id,
+            "home_branch_id": branch.id,
+        },
+    ]
+
+    users_by_email: dict[str, User] = {admin.email: admin}
+    for payload in gaith_users:
+        user = await _upsert_user(session, payload)
+        users_by_email[user.email] = user
+    await session.commit()
+
+    await _upsert_subscription(
+        session,
+        user=users_by_email["gaith.member.one@gym-erp.com"],
+        plan_name="Gaith Standard 1M",
+        status=SubscriptionStatus.ACTIVE,
+        start_offset_days=-10,
+        end_offset_days=20,
+    )
+    await _upsert_subscription(
+        session,
+        user=users_by_email["gaith.member.two@gym-erp.com"],
+        plan_name="Gaith Premium 3M",
+        status=SubscriptionStatus.ACTIVE,
+        start_offset_days=-25,
+        end_offset_days=45,
+    )
+    await session.commit()
+
+    await _upsert_contract(
+        session,
+        user=users_by_email["gaith.coach@gym-erp.com"],
+        contract_type=ContractType.PART_TIME,
+        base_salary=900.0,
+    )
+    await session.commit()
+
+    now = datetime.now(timezone.utc)
+    coach = users_by_email["gaith.coach@gym-erp.com"]
+    payroll_stmt = select(Payroll).where(
+        Payroll.user_id == coach.id,
+        Payroll.month == now.month,
+        Payroll.year == now.year,
+    )
+    payroll = (await session.execute(payroll_stmt)).scalar_one_or_none()
+    if payroll is None:
+        payroll = Payroll(
+            user_id=coach.id,
+            month=now.month,
+            year=now.year,
+            base_pay=900.0,
+            overtime_hours=4.0,
+            overtime_pay=80.0,
+            commission_pay=40.0,
+            bonus_pay=60.0,
+            deductions=20.0,
+            total_pay=1060.0,
+            status=PayrollStatus.DRAFT,
+        )
+        session.add(payroll)
+    else:
+        payroll.base_pay = 900.0
+        payroll.overtime_hours = 4.0
+        payroll.overtime_pay = 80.0
+        payroll.commission_pay = 40.0
+        payroll.bonus_pay = 60.0
+        payroll.deductions = 20.0
+        payroll.total_pay = 1060.0
+        payroll.status = PayrollStatus.DRAFT
+    await session.commit()
+
+    await _upsert_product(
+        session,
+        {
+            "name": "Gaith Energy Drink",
+            "sku": "GAITH-PRO-001",
+            "category": ProductCategory.DRINK,
+            "price": 3.25,
+            "cost_price": 1.15,
+            "stock_quantity": 2,
+            "low_stock_threshold": 6,
+            "low_stock_restock_target": 24,
+            "image_url": None,
+            "is_active": True,
+        },
+    )
+    await _upsert_product(
+        session,
+        {
+            "name": "Gaith Wrist Wraps",
+            "sku": "GAITH-PRO-002",
+            "category": ProductCategory.MERCHANDISE,
+            "price": 12.0,
+            "cost_price": 4.5,
+            "stock_quantity": 9,
+            "low_stock_threshold": 4,
+            "low_stock_restock_target": 18,
+            "image_url": None,
+            "is_active": True,
+        },
+    )
+    await session.commit()
+
+    hero_member = users_by_email["gaith.member.one@gym-erp.com"]
+    for day in range(6):
+        when = now - timedelta(days=day, hours=day % 3)
+        await _upsert_transaction(
+            session,
+            key=f"gaith-income-{day}",
+            amount=42.0 + (day * 4.0),
+            tx_type=TransactionType.INCOME,
+            category=TransactionCategory.SUBSCRIPTION if day % 2 == 0 else TransactionCategory.POS_SALE,
+            description=f"{DEMO_TAG} Gaith revenue #{day + 1}",
+            when=when,
+            payment_method=PaymentMethod.CARD if day % 2 == 0 else PaymentMethod.CASH,
+            user_id=hero_member.id,
+        )
+    for day in range(0, 6, 3):
+        when = now - timedelta(days=day, hours=1)
+        await _upsert_transaction(
+            session,
+            key=f"gaith-expense-{day}",
+            amount=18.0 + (day * 2.0),
+            tx_type=TransactionType.EXPENSE,
+            category=TransactionCategory.UTILITIES if day == 0 else TransactionCategory.MAINTENANCE,
+            description=f"{DEMO_TAG} Gaith expense #{day + 1}",
+            when=when,
+            payment_method=PaymentMethod.TRANSFER,
+        )
+    await session.commit()
+
+    for day in range(4):
+        for idx, email in enumerate(["gaith.member.one@gym-erp.com", "gaith.member.two@gym-erp.com"]):
+            member = users_by_email[email]
+            scan_time = (now - timedelta(days=day)).replace(hour=7 + idx, minute=20 + day, second=0, microsecond=0)
+            existing = (
+                await session.execute(
+                    select(AccessLog).where(
+                        AccessLog.user_id == member.id,
+                        AccessLog.scan_time == scan_time,
+                        AccessLog.kiosk_id == DEMO_KIOSK_ID,
+                    )
+                )
+            ).scalar_one_or_none()
+            if existing is None:
+                session.add(
+                    AccessLog(
+                        user_id=member.id,
+                        kiosk_id=DEMO_KIOSK_ID,
+                        scan_time=scan_time,
+                        status="GRANTED",
+                        reason=None,
+                    )
+                )
+    await session.commit()
+
+    start_window = date.today() - timedelta(days=4)
+    for day in range(4):
+        day_date = start_window + timedelta(days=day)
+        check_in = datetime.combine(day_date, datetime.min.time(), tzinfo=timezone.utc).replace(hour=9, minute=0)
+        check_out = check_in + timedelta(hours=6, minutes=30)
+        existing = (
+            await session.execute(
+                select(AttendanceLog).where(
+                    AttendanceLog.user_id == coach.id,
+                    AttendanceLog.check_in_time == check_in,
+                )
+            )
+        ).scalar_one_or_none()
+        if existing is None:
+            session.add(
+                AttendanceLog(
+                    user_id=coach.id,
+                    check_in_time=check_in,
+                    check_out_time=check_out,
+                    hours_worked=6.5,
+                )
+            )
+    await session.commit()
+
+
 async def _upsert_class_template(
     session,
     *,
@@ -416,6 +642,14 @@ async def seed_demo_data():
             user = await _upsert_user(session, payload)
             users_by_email[user.email] = user
         await session.commit()
+
+        await set_rls_context(session, role=Role.SUPER_ADMIN.value)
+        extra_gyms = (
+            await session.execute(select(Gym, Branch).join(Branch, Branch.gym_id == Gym.id).where(Gym.id != gym.id))
+        ).all()
+        for extra_gym, extra_branch in extra_gyms:
+            await set_rls_context(session, role=Role.SUPER_ADMIN.value, gym_id=str(extra_gym.id), branch_id=str(extra_branch.id))
+            await _seed_secondary_demo_gym(session, gym=extra_gym, branch=extra_branch)
 
         logger.info("Seeding subscriptions...")
         admin_actor = users_by_email["admin.demo@gym-erp.com"]

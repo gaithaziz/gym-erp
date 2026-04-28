@@ -19,6 +19,7 @@ import { subDays } from 'date-fns';
 import { useLocale } from '@/context/LocaleContext';
 import SafeResponsiveChart from '@/components/SafeResponsiveChart';
 import { BranchSelector } from '@/components/BranchSelector';
+import { GymSelector } from '@/components/GymSelector';
 import { useBranch } from '@/context/BranchContext';
 import { getBranchParams } from '@/lib/branch';
 
@@ -106,6 +107,12 @@ interface MemberSummary {
 }
 const VISITOR_ROWS_PAGE_SIZE = 10;
 
+interface DashboardGymOption {
+    id: string;
+    name: string;
+    slug: string;
+}
+
 interface BiometricLogResponse {
     id: string;
     date: string;
@@ -144,6 +151,7 @@ const calculateAge = (dob?: string) => {
 };
 
 function AdminDashboard({ userName, userRole }: { userName: string; userRole: string }) {
+    const { user } = useAuth();
     const { t, direction, formatCurrency, formatDate, formatNumber, locale } = useLocale();
     const adminTxt = locale === 'ar'
         ? {
@@ -206,12 +214,49 @@ function AdminDashboard({ userName, userRole }: { userName: string; userRole: st
     const [dailyVisitors, setDailyVisitors] = useState<DailyVisitorRow[]>([]);
     const [branchComparison, setBranchComparison] = useState<BranchComparisonResponse | null>(null);
     const [dailyVisitorsPage, setDailyVisitorsPage] = useState(1);
+    const [gyms, setGyms] = useState<DashboardGymOption[]>([]);
     const [dateRange, setDateRange] = useState<DateRange | undefined>({
         from: subDays(new Date(), 30),
         to: new Date(),
     });
     const { branches, selectedBranchId, setSelectedBranchId } = useBranch();
-    const isGlobalBranchMode = selectedBranchId === 'all' && userRole === 'SUPER_ADMIN';
+    const [selectedGymId, setSelectedGymId] = useState<string>(user?.gym_id || '');
+
+    const filteredBranches = useMemo(() => {
+        if (userRole !== 'SUPER_ADMIN') return branches;
+        if (!selectedGymId) return [];
+        return branches.filter((branch) => branch.gym_id === selectedGymId);
+    }, [branches, selectedGymId, userRole]);
+
+    const isGlobalBranchMode = selectedBranchId === 'all' && userRole === 'SUPER_ADMIN' && Boolean(selectedGymId);
+
+    useEffect(() => {
+        if (user?.gym_id && !selectedGymId) {
+            setSelectedGymId(user.gym_id);
+        }
+    }, [selectedGymId, user?.gym_id]);
+
+    useEffect(() => {
+        if (userRole !== 'SUPER_ADMIN') return;
+        api.get('/system/gyms')
+            .then((res) => {
+                const items = Array.isArray(res.data) ? res.data : [];
+                setGyms(items.map((gym: { id: string; name: string; slug: string }) => ({
+                    id: gym.id,
+                    name: gym.name,
+                    slug: gym.slug,
+                })));
+            })
+            .catch(() => setGyms([]));
+    }, [userRole]);
+
+    useEffect(() => {
+        if (userRole !== 'SUPER_ADMIN') return;
+        if (!selectedBranchId || selectedBranchId === 'all') return;
+        if (!filteredBranches.some((branch) => branch.id === selectedBranchId)) {
+            setSelectedBranchId('all');
+        }
+    }, [filteredBranches, selectedBranchId, setSelectedBranchId, userRole]);
 
     const selectedDays = useMemo(() => {
         if (!dateRange?.from || !dateRange?.to) return 30;
@@ -228,45 +273,44 @@ function AdminDashboard({ userName, userRole }: { userName: string; userRole: st
     const fetchData = useCallback(() => {
         const from = dateRange?.from ? dateRange.from.toISOString().split('T')[0] : '';
         const to = dateRange?.to ? dateRange.to.toISOString().split('T')[0] : '';
-        const branchParams = getBranchParams(selectedBranchId);
-        const baseDateParams = from && to ? { from, to, ...branchParams } : branchParams;
+        const scopeParams: Record<string, string> = getBranchParams(selectedBranchId);
+        if (userRole === 'SUPER_ADMIN' && selectedGymId) {
+            scopeParams.gym_id = selectedGymId;
+        }
+        const baseDateParams = from && to ? { from, to, ...scopeParams } : scopeParams;
 
         api.get('/analytics/dashboard', { params: baseDateParams })
             .then(res => setStats(res.data.data))
             .catch(err => console.error("Failed to fetch dashboard stats", err));
 
-        api.get('/analytics/attendance', { params: { days: selectedDays, ...branchParams } })
+        api.get('/analytics/attendance', { params: { days: selectedDays, ...scopeParams } })
             .then(res => setAttendanceData(res.data.data || []))
             .catch(() => { });
 
-        api.get('/analytics/revenue-chart', { params: { days: selectedDays, ...branchParams } })
+        api.get('/analytics/revenue-chart', { params: { days: selectedDays, ...scopeParams } })
             .then(res => setRevenueData(res.data.data || []))
             .catch(() => { });
 
-        api.get('/analytics/recent-activity', { params: branchParams })
+        api.get('/analytics/recent-activity', { params: scopeParams })
             .then(res => setRecentActivity(res.data.data || []))
             .catch(() => setRecentActivity([]));
 
-        if (userRole !== 'SUPER_ADMIN') {
-            api.get('/inventory/products/low-stock', { params: branchParams })
-                .then(res => setLowStockItems(res.data.data || []))
-                .catch(() => setLowStockItems([]));
-        } else {
-            setLowStockItems([]);
-        }
+        api.get('/inventory/products/low-stock', { params: scopeParams })
+            .then(res => setLowStockItems(res.data.data || []))
+            .catch(() => setLowStockItems([]));
 
         api.get('/analytics/daily-visitors', { params: baseDateParams })
             .then(res => setDailyVisitors(res.data.data || []))
             .catch(() => setDailyVisitors([]));
 
         if (isGlobalBranchMode) {
-            api.get('/analytics/branch-comparison', { params: from && to ? { from, to } : undefined })
+            api.get('/analytics/branch-comparison', { params: from && to ? { from, to, ...scopeParams } : scopeParams })
                 .then(res => setBranchComparison(res.data.data || null))
                 .catch(() => setBranchComparison(null));
         } else {
             setBranchComparison(null);
         }
-    }, [dateRange, isGlobalBranchMode, selectedDays, selectedBranchId, userRole]);
+    }, [dateRange, isGlobalBranchMode, selectedBranchId, selectedDays, selectedGymId, userRole]);
 
     // Branches are now managed by BranchContext
 
@@ -351,7 +395,11 @@ function AdminDashboard({ userName, userRole }: { userName: string; userRole: st
         if (from) params.set('from', from);
         if (to) params.set('to', to);
         const branchParams = getBranchParams(selectedBranchId);
+        if (userRole === 'SUPER_ADMIN' && selectedGymId) {
+            branchParams.gym_id = selectedGymId;
+        }
         if (branchParams.branch_id) params.set('branch_id', branchParams.branch_id);
+        if (branchParams.gym_id) params.set('gym_id', branchParams.gym_id);
         params.set('format', 'csv');
 
         try {
@@ -380,8 +428,15 @@ function AdminDashboard({ userName, userRole }: { userName: string; userRole: st
                     <p className="text-sm text-muted-foreground mt-1">{t('dashboard.home.operationsCenter')} | {userName}</p>
                 </div>
                 <div className="flex flex-wrap items-center gap-2 mt-1 md:mt-2">
+                    {userRole === 'SUPER_ADMIN' ? (
+                        <GymSelector
+                            gyms={gyms}
+                            selectedGymId={selectedGymId}
+                            onSelect={setSelectedGymId}
+                        />
+                    ) : null}
                     <BranchSelector 
-                        branches={branches}
+                        branches={filteredBranches}
                         selectedBranchId={selectedBranchId}
                         onSelect={setSelectedBranchId}
                     />

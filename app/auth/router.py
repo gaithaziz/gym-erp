@@ -192,6 +192,8 @@ async def login(
             detail="Incorrect email or password",
             headers={"WWW-Authenticate": "Bearer"},
         )
+
+    await dependencies.ensure_gym_accessible(db=db, current_user=user)
     
     logger.info("Login successful for user: %s (gym_id: %s)", user.email, user.gym_id)
     access_token_expires = timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES)
@@ -258,6 +260,8 @@ async def refresh_token(
         raise credentials_exception
     if _current_session_version(user) != token_session_version:
         raise credentials_exception
+
+    await dependencies.ensure_gym_accessible(db=db, current_user=user)
         
     # Set context to the identified user to allow finding their refresh token
     await dependencies.set_rls_context(

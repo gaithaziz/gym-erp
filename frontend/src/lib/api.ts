@@ -54,6 +54,31 @@ function clearSessionAndRedirect() {
     }
 }
 
+function isGymAccessLock(error: AxiosError): boolean {
+    const status = error.response?.status;
+    if (status !== 403 && status !== 503) return false;
+
+    const detail = extractErrorDetail(error);
+    return (
+        detail.includes('gym is suspended') ||
+        detail.includes('undergoing maintenance') ||
+        detail.includes('system is undergoing global maintenance')
+    );
+}
+
+function clearSessionForGymLock(error: AxiosError) {
+    if (!isBrowser) return;
+    const detail = extractErrorDetail(error);
+    const message = detail.includes('suspended')
+        ? 'This gym is suspended.'
+        : detail.includes('global maintenance')
+            ? 'The system is currently in maintenance mode.'
+            : 'This gym is currently in maintenance mode.';
+    sessionStorage.setItem('pending_toast_message', message);
+    sessionStorage.setItem('pending_toast_kind', 'error');
+    clearSessionAndRedirect();
+}
+
 async function refreshAccessToken(): Promise<string | null> {
     if (!isBrowser) return null;
     const refreshToken = getRefreshToken();
@@ -122,6 +147,11 @@ api.interceptors.response.use(
             if (window.location.pathname !== '/dashboard/subscription') {
                 window.location.href = '/dashboard/subscription';
             }
+            return Promise.reject(error);
+        }
+
+        if (isGymAccessLock(error)) {
+            clearSessionForGymLock(error);
             return Promise.reject(error);
         }
 

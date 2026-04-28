@@ -7,6 +7,9 @@ import { useAuth } from '@/context/AuthContext';
 interface Branch {
     id: string;
     name: string;
+    gym_id?: string;
+    display_name?: string | null;
+    gym_name?: string;
 }
 
 interface BranchContextType {
@@ -32,9 +35,12 @@ export function BranchProvider({ children }: { children: ReactNode }) {
 
         // eslint-disable-next-line react-hooks/set-state-in-effect
         setIsLoading(true);
-        api.get('/hr/branches')
+        const endpoint = user.role === 'SUPER_ADMIN' ? '/system/branches' : '/hr/branches';
+        api.get(endpoint)
             .then(res => {
-                const branchData = res.data.data || [];
+                const branchData = user.role === 'SUPER_ADMIN'
+                    ? (Array.isArray(res.data) ? res.data : [])
+                    : (res.data.data || []);
                 setBranches(branchData);
                 
                 // Persistence: try to load from localStorage

@@ -7,6 +7,7 @@ from sqlalchemy import select
 
 from app.config import settings
 from app.database import get_db, set_rls_context
+from app.models.tenancy import Gym
 from app.models.user import User
 from app.auth.schemas import TokenPayload
 from app.models.enums import Role
@@ -17,6 +18,32 @@ oauth2_scheme = OAuth2PasswordBearer(tokenUrl=f"{settings.API_V1_STR}/auth/login
 
 def _coerce_role(value: Role | str) -> Role:
     return value if isinstance(value, Role) else Role(value)
+
+
+async def ensure_gym_accessible(*, db: AsyncSession, current_user: User) -> None:
+    current_user.role = _coerce_role(current_user.role)
+    if current_user.role == Role.SUPER_ADMIN or current_user.gym_id is None:
+        return
+
+    await set_rls_context(db, role=Role.SUPER_ADMIN.value)
+    gym = await db.get(Gym, current_user.gym_id)
+    await set_rls_context(
+        db,
+        user_id=str(current_user.id),
+        role=current_user.role.value,
+        gym_id=str(current_user.gym_id),
+        branch_id=str(current_user.home_branch_id) if current_user.home_branch_id else "",
+    )
+
+    if gym is None:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Gym not found")
+    if not gym.is_active:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Gym is suspended")
+    if gym.is_maintenance_mode:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail=f"Gym '{gym.name}' is undergoing maintenance.",
+        )
 
 async def get_current_user(
     token: Annotated[str, Depends(oauth2_scheme)],
@@ -72,10 +99,12 @@ async def get_current_user(
     return user
 
 async def get_current_active_user(
-    current_user: Annotated[User, Depends(get_current_user)]
+    current_user: Annotated[User, Depends(get_current_user)],
+    db: Annotated[AsyncSession, Depends(get_db)],
 ) -> User:
     if not current_user.is_active:
         raise HTTPException(status_code=400, detail="Inactive user")
+    await ensure_gym_accessible(db=db, current_user=current_user)
     return current_user
 
 class RoleChecker:

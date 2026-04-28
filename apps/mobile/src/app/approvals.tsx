@@ -14,7 +14,7 @@ import { useSession } from "@/lib/session";
 const PAYMENT_METHODS = ["CASH", "CARD", "TRANSFER"] as const;
 
 export default function ApprovalsScreen() {
-  const { authorizedRequest, bootstrap } = useSession();
+  const { authorizedRequest, bootstrap, selectedBranchId } = useSession();
   const { copy, isRTL } = usePreferences();
   const role = getCurrentRole(bootstrap);
   const adminControl = isAdminControlRole(role);
@@ -29,9 +29,12 @@ export default function ApprovalsScreen() {
   const [feedback, setFeedback] = useState<string | null>(null);
 
   const approvalsQuery = useQuery({
-    queryKey: ["mobile-admin-approvals", role],
+    queryKey: ["mobile-admin-approvals", role, selectedBranchId ?? "all"],
     enabled: adminControl,
-    queryFn: async () => parseAdminApprovalsEnvelope(await authorizedRequest("/mobile/admin/approvals")).data,
+    queryFn: async () => {
+      const suffix = selectedBranchId ? `?branch_id=${encodeURIComponent(selectedBranchId)}` : "";
+      return parseAdminApprovalsEnvelope(await authorizedRequest(`/mobile/admin/approvals${suffix}`)).data;
+    },
   });
 
   async function invalidateOps() {

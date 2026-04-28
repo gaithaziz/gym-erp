@@ -209,6 +209,7 @@ class MobilePOSCheckoutRequest(BaseModel):
     payment_method: PaymentMethod = PaymentMethod.CASH
     member_id: uuid.UUID | None = None
     idempotency_key: str | None = Field(default=None, min_length=8, max_length=160)
+    branch_id: uuid.UUID | None = None
 
 
 class MobilePOSCheckoutResponse(BaseModel):
@@ -1074,8 +1075,9 @@ async def create_lost_found_media_mobile(
 async def read_admin_mobile_home(
     current_user: Annotated[User, Depends(dependencies.RoleChecker([schemas.Role.ADMIN, schemas.Role.MANAGER]))],
     db: Annotated[AsyncSession, Depends(get_db)],
+    branch_id: uuid.UUID | None = Query(None),
 ):
-    data = await MobileAdminService.get_home_summary(current_user=current_user, db=db)
+    data = await MobileAdminService.get_home_summary(current_user=current_user, db=db, branch_id=branch_id)
     return StandardResponse(data=MobileAdminHomeResponse(**data))
 
 
@@ -1083,8 +1085,9 @@ async def read_admin_mobile_home(
 async def read_admin_mobile_people_summary(
     current_user: Annotated[User, Depends(dependencies.RoleChecker([schemas.Role.ADMIN, schemas.Role.MANAGER]))],
     db: Annotated[AsyncSession, Depends(get_db)],
+    branch_id: uuid.UUID | None = Query(None),
 ):
-    data = await MobileAdminService.get_people_summary(current_user=current_user, db=db)
+    data = await MobileAdminService.get_people_summary(current_user=current_user, db=db, branch_id=branch_id)
     return StandardResponse(data=MobileAdminPeopleSummaryResponse(**data))
 
 
@@ -1095,6 +1098,7 @@ async def read_admin_mobile_staff_operations(
     q: str | None = Query(None, max_length=120),
     role: schemas.Role | None = Query(None),
     status: str | None = Query(None, pattern="^(all|active|inactive)$"),
+    branch_id: uuid.UUID | None = Query(None),
 ):
     data = await MobileAdminService.list_staff_operations(
         current_user=current_user,
@@ -1102,6 +1106,7 @@ async def read_admin_mobile_staff_operations(
         search=q,
         role=role,
         status=None if status == "all" else status,
+        branch_id=branch_id,
     )
     return StandardResponse(data=MobileAdminStaffListResponse(**data))
 
@@ -1111,9 +1116,10 @@ async def read_admin_mobile_staff_operation_detail(
     staff_id: uuid.UUID,
     current_user: Annotated[User, Depends(dependencies.RoleChecker([schemas.Role.ADMIN, schemas.Role.MANAGER]))],
     db: Annotated[AsyncSession, Depends(get_db)],
+    branch_id: uuid.UUID | None = Query(None),
 ):
     try:
-        data = await MobileAdminService.get_staff_operation_detail(current_user=current_user, db=db, staff_id=staff_id)
+        data = await MobileAdminService.get_staff_operation_detail(current_user=current_user, db=db, staff_id=staff_id, branch_id=branch_id)
     except ValueError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
     return StandardResponse(data=MobileAdminStaffDetailResponse(**data))
@@ -1123,8 +1129,9 @@ async def read_admin_mobile_staff_operation_detail(
 async def read_admin_mobile_operations_summary(
     current_user: Annotated[User, Depends(dependencies.RoleChecker([schemas.Role.ADMIN, schemas.Role.MANAGER]))],
     db: Annotated[AsyncSession, Depends(get_db)],
+    branch_id: uuid.UUID | None = Query(None),
 ):
-    data = await MobileAdminService.get_operations_summary(current_user=current_user, db=db)
+    data = await MobileAdminService.get_operations_summary(current_user=current_user, db=db, branch_id=branch_id)
     return StandardResponse(data=MobileAdminOperationsSummaryResponse(**data))
 
 
@@ -1132,8 +1139,9 @@ async def read_admin_mobile_operations_summary(
 async def read_admin_mobile_finance_summary(
     current_user: Annotated[User, Depends(dependencies.RoleChecker([schemas.Role.ADMIN, schemas.Role.MANAGER]))],
     db: Annotated[AsyncSession, Depends(get_db)],
+    branch_id: uuid.UUID | None = Query(None),
 ):
-    data = await MobileAdminService.get_finance_summary(current_user=current_user, db=db)
+    data = await MobileAdminService.get_finance_summary(current_user=current_user, db=db, branch_id=branch_id)
     return StandardResponse(data=MobileAdminFinanceSummaryResponse(**data))
 
 
@@ -1141,8 +1149,9 @@ async def read_admin_mobile_finance_summary(
 async def read_admin_mobile_audit_summary(
     current_user: Annotated[User, Depends(dependencies.RoleChecker([schemas.Role.ADMIN]))],
     db: Annotated[AsyncSession, Depends(get_db)],
+    branch_id: uuid.UUID | None = Query(None),
 ):
-    data = await MobileAdminService.get_audit_summary(current_user=current_user, db=db)
+    data = await MobileAdminService.get_audit_summary(current_user=current_user, db=db, branch_id=branch_id)
     return StandardResponse(data=MobileAdminAuditSummaryResponse(**data))
 
 
@@ -1150,8 +1159,9 @@ async def read_admin_mobile_audit_summary(
 async def read_admin_mobile_inventory_summary(
     current_user: Annotated[User, Depends(dependencies.RoleChecker([schemas.Role.ADMIN, schemas.Role.MANAGER]))],
     db: Annotated[AsyncSession, Depends(get_db)],
+    branch_id: uuid.UUID | None = Query(None),
 ):
-    data = await MobileAdminService.get_inventory_summary(current_user=current_user, db=db)
+    data = await MobileAdminService.get_inventory_summary(current_user=current_user, db=db, branch_id=branch_id)
     return StandardResponse(data=MobileAdminInventorySummaryResponse(**data))
 
 
@@ -1159,8 +1169,9 @@ async def read_admin_mobile_inventory_summary(
 async def read_admin_mobile_approvals(
     current_user: Annotated[User, Depends(dependencies.RoleChecker([schemas.Role.ADMIN, schemas.Role.MANAGER, schemas.Role.COACH]))],
     db: Annotated[AsyncSession, Depends(get_db)],
+    branch_id: uuid.UUID | None = Query(None),
 ):
-    data = await MobileAdminService.get_approvals(current_user=current_user, db=db)
+    data = await MobileAdminService.get_approvals(current_user=current_user, db=db, branch_id=branch_id)
     return StandardResponse(data=MobileAdminApprovalsResponse(**data))
 
 
@@ -1228,6 +1239,7 @@ async def list_admin_mobile_inventory_products(
     search: str | None = Query(None),
     category: ProductCategory | None = Query(None),
     status_filter: str = Query("all", pattern="^(active|inactive|all)$"),
+    branch_id: uuid.UUID | None = Query(None),
 ):
     try:
         data = await MobileAdminService.list_inventory_products(
@@ -1236,6 +1248,7 @@ async def list_admin_mobile_inventory_products(
             search=search,
             category=category,
             status_filter=status_filter,
+            branch_id=branch_id,
         )
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
@@ -1490,8 +1503,9 @@ async def read_staff_finance_summary(
         Depends(dependencies.RoleChecker([schemas.Role.CASHIER, schemas.Role.ADMIN, schemas.Role.MANAGER])),
     ],
     db: Annotated[AsyncSession, Depends(get_db)],
+    branch_id: uuid.UUID | None = Query(None),
 ):
-    data = await MobileStaffService.get_finance_summary(current_user=current_user, db=db)
+    data = await MobileStaffService.get_finance_summary(current_user=current_user, db=db, branch_id=branch_id)
     return StandardResponse(data=MobileFinanceSummaryResponse(**data))
 
 
@@ -1512,6 +1526,7 @@ async def checkout_staff_pos_cart(
             payment_method=payload.payment_method,
             member_id=payload.member_id,
             idempotency_key=payload.idempotency_key,
+            branch_id=payload.branch_id,
         )
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
@@ -1526,8 +1541,9 @@ async def read_staff_recent_transactions(
     ],
     db: Annotated[AsyncSession, Depends(get_db)],
     limit: int = Query(20, ge=1, le=100),
+    branch_id: uuid.UUID | None = Query(None),
 ):
-    return StandardResponse(data=await MobileStaffService.get_recent_transactions(current_user=current_user, db=db, limit=limit))
+    return StandardResponse(data=await MobileStaffService.get_recent_transactions(current_user=current_user, db=db, limit=limit, branch_id=branch_id))
 
 
 @router.get("/staff/coach/feedback", response_model=StandardResponse[MobileCoachFeedbackResponse])

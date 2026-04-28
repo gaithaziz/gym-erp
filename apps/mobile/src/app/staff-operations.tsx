@@ -14,7 +14,7 @@ const ROLE_FILTERS = ["ALL", "MANAGER", "COACH", "EMPLOYEE", "CASHIER", "RECEPTI
 const STATUS_FILTERS = ["all", "active", "inactive"] as const;
 
 export default function StaffOperationsScreen() {
-  const { authorizedRequest, bootstrap } = useSession();
+  const { authorizedRequest, bootstrap, selectedBranchId } = useSession();
   const { copy, direction, fontSet, isRTL, theme } = usePreferences();
   const role = getCurrentRole(bootstrap);
   const [search, setSearch] = useState("");
@@ -26,13 +26,14 @@ export default function StaffOperationsScreen() {
   const canUse = isAdminControlRole(role);
 
   const staffQuery = useQuery({
-    queryKey: ["mobile-admin-staff-operations", search.trim(), roleFilter, statusFilter, role],
+    queryKey: ["mobile-admin-staff-operations", search.trim(), roleFilter, statusFilter, role, selectedBranchId ?? "all"],
     enabled: canUse,
     queryFn: async () => {
       const params = new URLSearchParams();
       if (search.trim()) params.set("q", search.trim());
       if (roleFilter !== "ALL") params.set("role", roleFilter);
       if (statusFilter !== "all") params.set("status", statusFilter);
+      if (selectedBranchId) params.set("branch_id", selectedBranchId);
       const suffix = params.toString() ? `?${params.toString()}` : "";
       return parseAdminStaffListEnvelope(await authorizedRequest(`/mobile/admin/staff${suffix}`)).data;
     },
@@ -45,9 +46,12 @@ export default function StaffOperationsScreen() {
   );
 
   const detailQuery = useQuery({
-    queryKey: ["mobile-admin-staff-operation-detail", selectedStaff?.id],
+    queryKey: ["mobile-admin-staff-operation-detail", selectedStaff?.id, selectedBranchId ?? "all"],
     enabled: canUse && Boolean(selectedStaff?.id),
-    queryFn: async () => parseAdminStaffDetailEnvelope(await authorizedRequest(`/mobile/admin/staff/${selectedStaff?.id}`)).data,
+    queryFn: async () => {
+      const suffix = selectedBranchId ? `?branch_id=${encodeURIComponent(selectedBranchId)}` : "";
+      return parseAdminStaffDetailEnvelope(await authorizedRequest(`/mobile/admin/staff/${selectedStaff?.id}${suffix}`)).data;
+    },
   });
 
   if (!canUse) {

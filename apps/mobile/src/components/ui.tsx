@@ -155,7 +155,7 @@ export function Screen({
   const pathname = usePathname();
   const router = useRouter();
   const { bootstrap, selectedBranchId, setSelectedBranchId } = useSession();
-  const { direction, isRTL, theme, themeMode, toggleLocale, toggleThemeMode, locale, fontSet } = usePreferences();
+  const { copy, direction, isRTL, theme, themeMode, toggleLocale, toggleThemeMode, locale, fontSet } = usePreferences();
   const insets = useSafeAreaInsets();
   const arabicTextAdjustments = locale === "ar" ? getArabicTextStyle(compactTitle ? styles.screenTitleCompact : styles.screenTitle) : null;
   const resolvedContentPaddingBottom = contentPaddingBottom ?? (hideFloatingChat ? insets.bottom + 8 : insets.bottom + 28);
@@ -232,6 +232,20 @@ export function Screen({
       </View>
       {bootstrap && (bootstrap.role === "ADMIN" || bootstrap.role === "MANAGER") && bootstrap.accessible_branches.length > 0 ? (
         <View style={[styles.branchRow, { flexDirection: isRTL ? "row-reverse" : "row" }]}>
+          <Pressable
+            onPress={() => void setSelectedBranchId(null)}
+            style={[
+              styles.branchChip,
+              {
+                backgroundColor: selectedBranchId === null ? theme.primary : theme.cardAlt,
+                borderColor: selectedBranchId === null ? theme.primary : theme.border,
+              },
+            ]}
+          >
+            <Text style={{ color: selectedBranchId === null ? "#FFFFFF" : theme.foreground, fontFamily: fontSet.body, fontSize: 12 }}>
+              {copy.common.all}
+            </Text>
+          </Pressable>
           {bootstrap.accessible_branches.map((branch) => {
             const active = branch.id === selectedBranchId;
             return (
