@@ -1378,8 +1378,9 @@ async def read_staff_home(
         ),
     ],
     db: Annotated[AsyncSession, Depends(get_db)],
+    branch_id: uuid.UUID | None = Query(None),
 ):
-    data = await MobileStaffService.get_home_summary(current_user=current_user, db=db)
+    data = await MobileStaffService.get_home_summary(current_user=current_user, db=db, branch_id=branch_id)
     return StandardResponse(data=MobileStaffHomeResponse(**data))
 
 
@@ -1476,8 +1477,9 @@ async def lookup_staff_check_in(
         ),
     ],
     db: Annotated[AsyncSession, Depends(get_db)],
+    branch_id: uuid.UUID | None = Query(default=None),
 ):
-    data = await MobileStaffService.lookup_members(current_user=current_user, db=db, query=q)
+    data = await MobileStaffService.lookup_members(current_user=current_user, db=db, query=q, branch_id=branch_id)
     return StandardResponse(data=MobileCheckInLookupResponse(**data))
 
 
@@ -1564,8 +1566,9 @@ async def read_coach_feedback_summary(
         Depends(dependencies.RoleChecker([schemas.Role.ADMIN, schemas.Role.MANAGER, schemas.Role.COACH])),
     ],
     db: Annotated[AsyncSession, Depends(get_db)],
+    branch_id: uuid.UUID | None = Query(None),
 ):
-    data = await MobileStaffService.get_coach_feedback_summary(current_user=current_user, db=db)
+    data = await MobileStaffService.get_coach_feedback_summary(current_user=current_user, db=db, branch_id=branch_id)
     return StandardResponse(data=MobileCoachFeedbackResponse(**data))
 
 
@@ -1576,8 +1579,9 @@ async def read_coach_plans_summary(
         Depends(dependencies.RoleChecker([schemas.Role.COACH])),
     ],
     db: Annotated[AsyncSession, Depends(get_db)],
+    branch_id: uuid.UUID | None = Query(None),
 ):
-    data = await MobileStaffService.get_coach_plans_summary(current_user=current_user, db=db)
+    data = await MobileStaffService.get_coach_plans_summary(current_user=current_user, db=db, branch_id=branch_id)
     return StandardResponse(data=MobileCoachPlansResponse(**data))
 
 

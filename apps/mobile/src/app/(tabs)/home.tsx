@@ -314,11 +314,14 @@ function CustomerHomeTab() {
 
 function StaffHomeTab() {
   const router = useRouter();
-  const { bootstrap, authorizedRequest } = useSession();
+  const { bootstrap, authorizedRequest, selectedBranchId } = useSession();
   const { copy, direction, fontSet, isRTL, theme } = usePreferences();
   const homeQuery = useQuery({
-    queryKey: ["mobile-staff-home", bootstrap?.role],
-    queryFn: async () => parseStaffHomeEnvelope(await authorizedRequest("/mobile/staff/home")).data,
+    queryKey: ["mobile-staff-home", bootstrap?.role, selectedBranchId ?? "all"],
+    queryFn: async () => {
+      const suffix = selectedBranchId ? `?branch_id=${encodeURIComponent(selectedBranchId)}` : "";
+      return parseStaffHomeEnvelope(await authorizedRequest(`/mobile/staff/home${suffix}`)).data;
+    },
   });
   const home = homeQuery.data;
   const statLabels = copy.staffHome.stats as Record<string, string>;

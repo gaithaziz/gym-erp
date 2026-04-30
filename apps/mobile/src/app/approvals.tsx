@@ -44,6 +44,9 @@ export default function ApprovalsScreen() {
       queryClient.invalidateQueries({ queryKey: ["mobile-admin-operations-summary"] }),
       queryClient.invalidateQueries({ queryKey: ["mobile-admin-finance-summary"] }),
       queryClient.invalidateQueries({ queryKey: ["mobile-admin-people-summary"] }),
+      queryClient.invalidateQueries({ queryKey: ["staff-class-sessions"] }),
+      queryClient.invalidateQueries({ queryKey: ["staff-class-pending-reservations"] }),
+      queryClient.invalidateQueries({ queryKey: ["staff-class-attendees"] }),
     ]);
   }
 

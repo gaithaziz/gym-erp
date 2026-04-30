@@ -658,11 +658,20 @@ async def upload_lost_found_media(
 async def get_lost_found_summary(
     current_user: Annotated[User, Depends(dependencies.get_current_active_user)],
     db: Annotated[AsyncSession, Depends(get_db)],
+    branch_id: Annotated[uuid.UUID | None, Query()] = None,
 ):
     if not _is_handler(current_user):
         raise HTTPException(status_code=403, detail="Operation not permitted")
 
+    branch_ids = await TenancyService.branch_scope_ids(
+        db,
+        current_user=current_user,
+        branch_id=branch_id,
+        allow_all_for_admin=True,
+    )
     stmt = select(LostFoundItem.status, func.count(LostFoundItem.id)).group_by(LostFoundItem.status)
+    if branch_id is not None and branch_ids:
+        stmt = stmt.where(LostFoundItem.branch_id.in_(branch_ids))
     result = await db.execute(stmt)
     counters = {status: count for status, count in result.all()}
     reported = counters.get(LostFoundStatus.REPORTED, 0)

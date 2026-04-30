@@ -6,8 +6,11 @@ import { Plus, Utensils, Trash2, Pencil, Save, X, Send, Archive, RefreshCw, User
 import { api } from '@/lib/api';
 import Modal from '@/components/Modal';
 import PlanDetailsToggle from '@/components/PlanDetailsToggle';
+import { BranchSelector } from '@/components/BranchSelector';
 import { useFeedback } from '@/components/FeedbackProvider';
 import { useLocale } from '@/context/LocaleContext';
+import { useBranch } from '@/context/BranchContext';
+import { getBranchParams } from '@/lib/branch';
 
 interface DietPlan {
     id: string;
@@ -195,6 +198,7 @@ const getPlanMealGroups = (plan: DietPlan): MealGroupDraft[] => {
 export default function DietPlansPage() {
     const { locale } = useLocale();
     const { showToast, confirm: confirmAction } = useFeedback();
+    const { branches, selectedBranchId, setSelectedBranchId } = useBranch();
     const txt: Record<string, string> = locale === 'ar' ? {
         title: 'خطط التغذية',
         subtitle: 'إنشاء وإدارة برامج التغذية',
@@ -369,6 +373,7 @@ export default function DietPlansPage() {
     const [assigningPlan, setAssigningPlan] = useState<DietPlan | null>(null);
     const [bulkAssignMemberIds, setBulkAssignMemberIds] = useState<string[]>([]);
     const [memberSearch, setMemberSearch] = useState('');
+    const branchParams = useMemo(() => getBranchParams(selectedBranchId), [selectedBranchId]);
 
     const generatedContentPreview = useMemo(() => {
         const cleaned = normalizeMealGroups(mealGroups);
@@ -379,8 +384,8 @@ export default function DietPlansPage() {
         setRefreshing(true);
         try {
             const [plansRes, membersRes] = await Promise.all([
-                api.get('/fitness/diets', { params: { include_archived: true, include_all_creators: true } }),
-                api.get('/hr/members').catch(() => ({ data: { data: [] } })),
+                api.get('/fitness/diets', { params: { include_archived: true, include_all_creators: true, ...branchParams } }),
+                api.get('/hr/members', { params: branchParams }).catch(() => ({ data: { data: [] } })),
             ]);
             setPlans(plansRes.data.data || []);
             setMembers(membersRes.data.data || []);
@@ -389,7 +394,7 @@ export default function DietPlansPage() {
         }
         setLoading(false);
         setRefreshing(false);
-    }, [showToast, txt.failedLoadPlans]);
+    }, [branchParams, showToast, txt.failedLoadPlans]);
 
     const fetchDietLibrary = useCallback(async (query?: string) => {
         setLibraryLoading(true);
@@ -411,6 +416,15 @@ export default function DietPlansPage() {
     useEffect(() => {
         setTimeout(() => fetchData(), 0);
     }, [fetchData]);
+
+    useEffect(() => {
+        setExpandedTemplatePlanId(null);
+        setExpandedAssignedPlanId(null);
+        setAssignModalOpen(false);
+        setAssigningPlan(null);
+        setBulkAssignMemberIds([]);
+        setMemberSearch('');
+    }, [selectedBranchId]);
 
     const resetForm = () => {
         setEditingPlan(null);
@@ -713,7 +727,14 @@ export default function DietPlansPage() {
                     <h1 className="text-2xl font-bold text-white">{txt.title}</h1>
                     <p className="text-sm text-[#6B6B6B] mt-1">{refreshing ? txt.refreshing : txt.subtitle}</p>
                 </div>
-                <div className="flex items-center gap-2">
+                <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2 w-full sm:w-auto">
+                    {branches.length > 0 && (
+                        <BranchSelector
+                            branches={branches}
+                            selectedBranchId={selectedBranchId}
+                            onSelect={setSelectedBranchId}
+                        />
+                    )}
                     <Link href="/dashboard/coach/library" className="btn-ghost min-h-11">
                         {txt.openLibrary}
                     </Link>

@@ -5,9 +5,12 @@ import { useParams, useRouter } from 'next/navigation';
 import { api } from '@/lib/api';
 import { ArrowLeft, Calendar, Printer } from 'lucide-react';
 import { useFeedback } from '@/components/FeedbackProvider';
+import { BranchSelector } from '@/components/BranchSelector';
 import TablePagination from '@/components/TablePagination';
+import { useBranch } from '@/context/BranchContext';
 import { useLocale } from '@/context/LocaleContext';
 import { escapePrintHtml, renderPrintShell } from '@/lib/print';
+import { getBranchParams } from '@/lib/branch';
 
 interface AttendanceRecord {
     id: string;
@@ -56,6 +59,7 @@ const STAFF_SUMMARY_PAGE_SIZE = 10;
 export default function StaffSummaryPage() {
     const { locale, direction, formatDate } = useLocale();
     const { showToast } = useFeedback();
+    const { branches, selectedBranchId, setSelectedBranchId } = useBranch();
     const txt = locale === 'ar'
         ? {
             missingId: 'معرّف الموظف غير موجود في الرابط.',
@@ -181,6 +185,7 @@ export default function StaffSummaryPage() {
     const [preset, setPreset] = useState<'7d' | '30d' | 'custom'>('30d');
     const [attendancePage, setAttendancePage] = useState(1);
     const [leavePage, setLeavePage] = useState(1);
+    const branchParams = useMemo(() => getBranchParams(selectedBranchId), [selectedBranchId]);
 
     const toDateInput = (d: Date) => {
         const year = d.getFullYear();
@@ -217,7 +222,13 @@ export default function StaffSummaryPage() {
         setLoading(true);
         setLoadError(null);
         try {
-            const res = await api.get(`/hr/staff/${id}/summary`, { params: { start_date: startDate, end_date: endDate } });
+            const res = await api.get(`/hr/staff/${id}/summary`, {
+                params: {
+                    start_date: startDate,
+                    end_date: endDate,
+                    ...branchParams,
+                },
+            });
             setSummary(res.data.data);
         } catch (err) {
             const error = err as { response?: { status?: number, data?: { detail?: string } } };
@@ -236,9 +247,14 @@ export default function StaffSummaryPage() {
         } finally {
             setLoading(false);
         }
-    }, [endDate, id, showToast, startDate, txt.adminOnly, txt.failedSummary, txt.missingId, txt.notFound, txt.startAfterEnd]);
+    }, [branchParams, endDate, id, showToast, startDate, txt.adminOnly, txt.failedSummary, txt.missingId, txt.notFound, txt.startAfterEnd]);
 
     useEffect(() => { setTimeout(() => fetchSummary(), 0); }, [fetchSummary]);
+
+    useEffect(() => {
+        setAttendancePage(1);
+        setLeavePage(1);
+    }, [selectedBranchId]);
 
     const attendanceRows = useMemo(() => summary?.attendance_summary.records ?? [], [summary]);
     const leaveRows = useMemo(() => summary?.leave_summary.records ?? [], [summary]);
@@ -444,9 +460,16 @@ export default function StaffSummaryPage() {
 
     return (
         <div className="space-y-6">
-            <button className="btn-ghost !px-0" onClick={() => router.push('/dashboard/admin/staff')}>
-                <ArrowLeft size={16} /> {txt.backToStaff}
-            </button>
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                <button className="btn-ghost !px-0 w-fit" onClick={() => router.push('/dashboard/admin/staff')}>
+                    <ArrowLeft size={16} /> {txt.backToStaff}
+                </button>
+                <BranchSelector
+                    branches={branches}
+                    selectedBranchId={selectedBranchId}
+                    onSelect={setSelectedBranchId}
+                />
+            </div>
 
             <div>
                 <h1 className="text-2xl font-bold text-foreground">{summary.employee.full_name}</h1>

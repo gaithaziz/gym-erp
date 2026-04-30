@@ -4,7 +4,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { Alert, Modal, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 import { useFocusEffect } from "expo-router";
 
-import { Input, MutedText, PrimaryButton, QueryState, Screen, SecondaryButton, SkeletonBlock } from "@/components/ui";
+import { Card, Input, MutedText, PrimaryButton, QueryState, Screen, SecondaryButton, SkeletonBlock } from "@/components/ui";
 import {
   parseClassSessionsEnvelope,
   parseMyReservationsEnvelope,
@@ -13,7 +13,7 @@ import {
   type ClassSession,
 } from "@/lib/api";
 import { usePreferences } from "@/lib/preferences";
-import { getCurrentRole, isCustomerRole, isStaffRole } from "@/lib/mobile-role";
+import { getCurrentRole, isCustomerRole } from "@/lib/mobile-role";
 import { useSession } from "@/lib/session";
 
 type StaffUser = {
@@ -155,17 +155,24 @@ function parsePositiveInteger(value: string) {
 
 export default function ClassesScreen() {
   const { bootstrap } = useSession();
+  const { copy } = usePreferences();
   const role = getCurrentRole(bootstrap);
 
   if (isCustomerRole(role)) {
     return <CustomerClassesScreen />;
   }
 
-  if (isStaffRole(role)) {
+  if (role === "ADMIN" || role === "MANAGER" || role === "COACH") {
     return <StaffClassesScreen />;
   }
 
-  return <CustomerClassesScreen />;
+  return (
+    <Screen title={copy.classesScreen.title} subtitle={copy.classesScreen.subtitle}>
+      <Card>
+        <MutedText>{copy.common.noData}</MutedText>
+      </Card>
+    </Screen>
+  );
 }
 
 function CustomerClassesScreen() {

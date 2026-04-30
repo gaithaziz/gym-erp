@@ -249,9 +249,12 @@ function StaffQrTab() {
   const [shiftError, setShiftError] = useState<string | null>(null);
 
   const lookupQuery = useQuery({
-    queryKey: ["mobile-staff-checkin-lookup", search.trim()],
+    queryKey: ["mobile-staff-checkin-lookup", search.trim(), selectedBranchId ?? "all"],
     enabled: search.trim().length >= 2,
-    queryFn: async () => parseCheckInLookupEnvelope(await authorizedRequest(`/mobile/staff/check-in/lookup?q=${encodeURIComponent(search.trim())}`)).data,
+    queryFn: async () => {
+      const suffix = selectedBranchId ? `&branch_id=${encodeURIComponent(selectedBranchId)}` : "";
+      return parseCheckInLookupEnvelope(await authorizedRequest(`/mobile/staff/check-in/lookup?q=${encodeURIComponent(search.trim())}${suffix}`)).data;
+    },
   });
 
   const selectedMemberQuery = useQuery({

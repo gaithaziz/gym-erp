@@ -1579,6 +1579,7 @@ function CoachPlansTab() {
   const { copy, direction, fontSet, isRTL, theme } = usePreferences();
   const coachClassesCopy = copy.coachClasses;
   const queryClient = useQueryClient();
+  const { selectedBranchId } = useSession();
   const [editorMode, setEditorMode] = useState<"workout" | "diet" | "classes">("workout");
   const [creatingWorkout, setCreatingWorkout] = useState(false);
   const [creatingDiet, setCreatingDiet] = useState(false);
@@ -1602,14 +1603,20 @@ function CoachPlansTab() {
   const [planActionNotice, setPlanActionNotice] = useState<PlanActionNotice | null>(null);
 
   const coachPlansQuery = useQuery({
-    queryKey: ["mobile-coach-plan-manager"],
+    queryKey: ["mobile-coach-plan-manager", selectedBranchId ?? "all"],
     enabled: editorMode !== "classes",
-    queryFn: async () => parseCoachPlansEnvelope(await authorizedRequest("/mobile/staff/coach/plans")).data,
+    queryFn: async () => {
+      const suffix = selectedBranchId ? `?branch_id=${encodeURIComponent(selectedBranchId)}` : "";
+      return parseCoachPlansEnvelope(await authorizedRequest(`/mobile/staff/coach/plans${suffix}`)).data;
+    },
   });
 
   const coachClassesQuery = useQuery({
-    queryKey: ["mobile-coach-classes"],
-    queryFn: async () => parseClassSessionsEnvelope(await authorizedRequest("/classes/sessions")).data,
+    queryKey: ["mobile-coach-classes", selectedBranchId ?? "all"],
+    queryFn: async () => {
+      const suffix = selectedBranchId ? `?branch_id=${encodeURIComponent(selectedBranchId)}` : "";
+      return parseClassSessionsEnvelope(await authorizedRequest(`/classes/sessions${suffix}`)).data;
+    },
   });
 
   const workoutPlans = useMemo(() => coachPlansQuery.data?.workouts ?? [], [coachPlansQuery.data?.workouts]);

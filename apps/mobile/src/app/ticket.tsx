@@ -149,6 +149,7 @@ export default function SupportScreen() {
     onSuccess: async () => {
       setFeedback(copy.common.successUpdated);
       await queryClient.invalidateQueries({ queryKey: ["mobile-support"] });
+      await queryClient.invalidateQueries({ queryKey: ["mobile-support-tab"] });
       await queryClient.invalidateQueries({ queryKey: ["mobile-admin-operations-summary"] });
       await queryClient.invalidateQueries({ queryKey: ["mobile-admin-home"] });
     },

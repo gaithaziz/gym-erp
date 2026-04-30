@@ -6,6 +6,9 @@ import { api } from '@/lib/api';
 import { MessageSquare, Star } from 'lucide-react';
 import { useAuth } from '@/context/AuthContext';
 import { useLocale } from '@/context/LocaleContext';
+import { BranchSelector } from '@/components/BranchSelector';
+import { useBranch } from '@/context/BranchContext';
+import { getBranchParams } from '@/lib/branch';
 
 interface Plan {
     id: string;
@@ -46,6 +49,15 @@ interface GymFeedbackRow {
     created_at: string;
 }
 
+interface CoachFeedbackSummary {
+    stats: {
+        workout_feedback: number;
+        diet_feedback: number;
+        gym_feedback: number;
+        flagged_sessions: number;
+    };
+}
+
 interface FlaggedWorkoutSession {
     id: string;
     member_id?: string | null;
@@ -83,6 +95,7 @@ interface FlaggedWorkoutSession {
 export default function FeedbackPage() {
     const { locale, direction, formatDate } = useLocale();
     const { user } = useAuth();
+    const { branches, selectedBranchId, setSelectedBranchId } = useBranch();
     const [plans, setPlans] = useState<Plan[]>([]);
     const [dietPlans, setDietPlans] = useState<DietPlanSummary[]>([]);
     const [selectedPlan, setSelectedPlan] = useState('');
@@ -90,19 +103,21 @@ export default function FeedbackPage() {
     const [dietFeedback, setDietFeedback] = useState<DietFeedbackRow[]>([]);
     const [gymFeedback, setGymFeedback] = useState<GymFeedbackRow[]>([]);
     const [flaggedSessions, setFlaggedSessions] = useState<FlaggedWorkoutSession[]>([]);
+    const [summary, setSummary] = useState<CoachFeedbackSummary | null>(null);
     const [expandedSessionId, setExpandedSessionId] = useState<string | null>(null);
     const [tab, setTab] = useState<'FLAGGED' | 'WORKOUT' | 'DIET' | 'GYM'>('FLAGGED');
     const [minRating, setMinRating] = useState(1);
     const [loading, setLoading] = useState(true);
     const canReviewSessions = ['ADMIN', 'MANAGER', 'COACH'].includes(user?.role || '');
     const canAdjustPlans = ['ADMIN', 'MANAGER', 'COACH'].includes(user?.role || '');
+    const branchParams = useMemo(() => getBranchParams(selectedBranchId), [selectedBranchId]);
 
     useEffect(() => {
         const fetchPlans = async () => {
             try {
                 const [workoutRes, dietRes] = await Promise.all([
-                    api.get('/fitness/plans'),
-                    api.get('/fitness/diet-summaries').catch(() => api.get('/fitness/diets')),
+                    api.get('/fitness/plans', { params: branchParams }),
+                    api.get('/fitness/diet-summaries', { params: branchParams }).catch(() => api.get('/fitness/diets', { params: branchParams })),
                 ]);
                 setPlans(workoutRes.data.data || []);
                 setDietPlans(dietRes.data.data || []);
@@ -112,31 +127,40 @@ export default function FeedbackPage() {
             setLoading(false);
         };
         fetchPlans();
-    }, []);
+    }, [branchParams]);
 
     useEffect(() => {
-        api.get('/fitness/diet-feedback', { params: { min_rating: minRating } })
+        api.get('/fitness/diet-feedback', { params: { min_rating: minRating, ...branchParams } })
             .then((res) => setDietFeedback(res.data.data || []))
             .catch(() => setDietFeedback([]));
 
-        api.get('/fitness/gym-feedback', { params: { min_rating: minRating } })
+        api.get('/fitness/gym-feedback', { params: { min_rating: minRating, ...branchParams } })
             .then((res) => setGymFeedback(res.data.data || []))
             .catch(() => setGymFeedback([]));
 
-        api.get('/mobile/staff/coach/feedback')
-            .then((res) => setFlaggedSessions(res.data.data?.flagged_sessions || []))
+        api.get('/mobile/staff/coach/feedback', { params: branchParams })
+            .then((res) => {
+                setSummary(res.data.data || null);
+                setFlaggedSessions(res.data.data?.flagged_sessions || []);
+            })
             .catch(() => setFlaggedSessions([]));
-    }, [minRating]);
+    }, [branchParams, minRating]);
 
     const fetchLogs = async (planId: string) => {
         try {
-            const res = await api.get(`/fitness/logs/${planId}`);
+            const res = await api.get(`/fitness/logs/${planId}`, { params: branchParams });
             setLogs(res.data.data);
         } catch (err) {
             console.error(err);
             setLogs([]);
         }
     };
+
+    useEffect(() => {
+        setSelectedPlan('');
+        setLogs([]);
+        setExpandedSessionId(null);
+    }, [branchParams, setSelectedPlan]);
 
     const markSessionReviewed = async (sessionId: string) => {
         await api.post(`/fitness/session-logs/${sessionId}/review`, {
@@ -222,15 +246,38 @@ export default function FeedbackPage() {
 
     return (
         <div className="space-y-8" dir={direction}>
-            <div>
-                <h1 className="text-2xl font-bold text-white">{locale === 'ar' ? 'ملاحظات المتدربين' : 'Trainee Feedback'}</h1>
-                <p className="text-sm text-[#6B6B6B] mt-1">{locale === 'ar' ? 'نظرة عامة على ملاحظات التدريب والتغذية وتجربة النادي' : 'Workout, diet, and full gym feedback overview'}</p>
-                {user?.role === 'MANAGER' ? (
-                    <p className="mt-2 text-xs font-mono uppercase text-muted-foreground">{locale === 'ar' ? 'عرض فرع المدير' : 'Branch manager overview'}</p>
-                ) : null}
+            <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+                <div>
+                    <h1 className="text-2xl font-bold text-white">{locale === 'ar' ? 'ملاحظات المتدربين' : 'Trainee Feedback'}</h1>
+                    <p className="text-sm text-[#6B6B6B] mt-1">{locale === 'ar' ? 'نظرة عامة على ملاحظات التدريب والتغذية وتجربة النادي' : 'Workout, diet, and full gym feedback overview'}</p>
+                    {user?.role === 'MANAGER' ? (
+                        <p className="mt-2 text-xs font-mono uppercase text-muted-foreground">{locale === 'ar' ? 'عرض فرع المدير' : 'Branch manager overview'}</p>
+                    ) : null}
+                </div>
+                {branches.length > 0 && (
+                    <BranchSelector
+                        branches={branches}
+                        selectedBranchId={selectedBranchId}
+                        onSelect={setSelectedBranchId}
+                    />
+                )}
             </div>
 
-            <div className="flex flex-wrap gap-2">
+            <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-3">
+                {[
+                    { label: locale === 'ar' ? 'مراجعات التمرين' : 'Workout Reviews', value: summary?.stats.workout_feedback ?? '--' },
+                    { label: locale === 'ar' ? 'مراجعات التغذية' : 'Diet Reviews', value: summary?.stats.diet_feedback ?? '--' },
+                    { label: locale === 'ar' ? 'ملاحظات النادي' : 'Gym Feedback', value: summary?.stats.gym_feedback ?? '--' },
+                    { label: locale === 'ar' ? 'جلسات تحتاج مراجعة' : 'Flagged Sessions', value: summary?.stats.flagged_sessions ?? '--' },
+                ].map((card) => (
+                    <div key={card.label} className="kpi-card p-4">
+                        <p className="text-xs font-semibold uppercase tracking-[0.18em] text-muted-foreground">{card.label}</p>
+                        <p className="mt-2 text-3xl font-bold font-mono text-foreground">{card.value}</p>
+                    </div>
+                ))}
+            </div>
+
+            <div className="grid grid-cols-2 sm:flex sm:flex-wrap gap-2">
                 <button type="button" onClick={() => setTab('FLAGGED')} className={`px-3 py-1.5 text-xs font-mono uppercase border transition-colors ${tab === 'FLAGGED' ? 'bg-primary text-primary-foreground border-primary' : 'border-border text-muted-foreground hover:text-foreground'}`}>
                     {locale === 'ar' ? `مراجعة (${flaggedSessions.length})` : `Review (${flaggedSessions.length})`}
                 </button>

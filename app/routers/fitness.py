@@ -3542,10 +3542,22 @@ async def list_diet_feedback(
     to_date: datetime | None = Query(None),
     limit: int = Query(100, ge=1, le=500),
     offset: int = Query(0, ge=0),
+    branch_id: uuid.UUID | None = Query(None),
 ):
     stmt = select(DietFeedback, DietPlan.name).join(DietPlan, DietFeedback.diet_plan_id == DietPlan.id)
+    branch_ids = await TenancyService.branch_scope_ids(
+        db,
+        current_user=current_user,
+        branch_id=branch_id,
+        allow_all_for_admin=current_user.role == Role.ADMIN,
+    )
+    stmt = stmt.join(User, User.id == DietFeedback.member_id)
     if current_user.role == Role.COACH:
         stmt = stmt.where(DietPlan.creator_id == current_user.id)
+    if branch_ids:
+        stmt = stmt.where(User.home_branch_id.in_(branch_ids))
+    else:
+        stmt = stmt.where(false())
     if diet_plan_id:
         stmt = stmt.where(DietFeedback.diet_plan_id == diet_plan_id)
     if member_id:
@@ -3595,14 +3607,25 @@ async def list_gym_feedback(
     to_date: datetime | None = Query(None),
     limit: int = Query(100, ge=1, le=500),
     offset: int = Query(0, ge=0),
+    branch_id: uuid.UUID | None = Query(None),
 ):
-    stmt = select(GymFeedback)
+    stmt = select(GymFeedback).join(User, User.id == GymFeedback.member_id)
+    branch_ids = await TenancyService.branch_scope_ids(
+        db,
+        current_user=current_user,
+        branch_id=branch_id,
+        allow_all_for_admin=current_user.role == Role.ADMIN,
+    )
     if member_id:
         stmt = stmt.where(GymFeedback.member_id == member_id)
     if category:
         stmt = stmt.where(GymFeedback.category == category)
     if min_rating:
         stmt = stmt.where(GymFeedback.rating >= min_rating)
+    if branch_ids:
+        stmt = stmt.where(User.home_branch_id.in_(branch_ids))
+    else:
+        stmt = stmt.where(false())
     stmt = _apply_date_filters(stmt, GymFeedback.created_at, from_date, to_date)
     stmt = stmt.order_by(GymFeedback.created_at.desc()).offset(offset).limit(limit)
 

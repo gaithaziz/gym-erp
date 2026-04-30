@@ -66,7 +66,7 @@ export default function LostFoundScreen() {
   const selectedItem = useMemo(() => items.find((item) => item.id === selectedItemId) ?? items[0] ?? null, [items, selectedItemId]);
 
   const itemDetailQuery = useQuery({
-    queryKey: ["mobile-lost-found-detail", selectedItem?.id],
+    queryKey: ["mobile-lost-found-detail", selectedItem?.id, selectedBranchId ?? "all"],
     enabled: Boolean(selectedItem?.id),
     queryFn: async () => (await authorizedRequest<LostFoundItem>(`/mobile/lost-found/items/${selectedItem?.id}`)).data,
   });

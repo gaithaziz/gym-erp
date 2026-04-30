@@ -11,7 +11,10 @@ import PlanCardShell from '@/components/PlanCardShell';
 import PlanDetailsToggle from '@/components/PlanDetailsToggle';
 import PlanSectionHeader from '@/components/PlanSectionHeader';
 import AssignPlanSummaryPanel from '@/components/AssignPlanSummaryPanel';
+import { BranchSelector } from '@/components/BranchSelector';
+import { useBranch } from '@/context/BranchContext';
 import { useLocale } from '@/context/LocaleContext';
+import { getBranchParams } from '@/lib/branch';
 
 interface Member {
     id: string;
@@ -104,6 +107,7 @@ async function loadWorkoutPlansData({
     setPlanSummaries,
     setAdherenceRows,
     setMembers,
+    branchParams,
     showToast,
     loadingErrorText,
     setLoading,
@@ -113,6 +117,7 @@ async function loadWorkoutPlansData({
     setPlanSummaries: (value: PlanSummary[]) => void;
     setAdherenceRows: (value: PlanAdherenceRow[]) => void;
     setMembers: (value: Member[]) => void;
+    branchParams: Record<string, string>;
     showToast: (message: string, type: 'success' | 'error' | 'info') => void;
     loadingErrorText: string;
     setLoading: (value: boolean) => void;
@@ -120,15 +125,15 @@ async function loadWorkoutPlansData({
     setRefreshing(true);
     try {
         const [plansRes, summariesRes, adherenceRes] = await Promise.all([
-            api.get('/fitness/plans', { params: { include_all_creators: true } }),
-            api.get('/fitness/plan-summaries').catch(() => ({ data: { data: [] } })),
-            api.get('/fitness/plans/adherence', { params: { window_days: 30 } }).catch(() => ({ data: { data: [] } })),
+            api.get('/fitness/plans', { params: { include_all_creators: true, ...branchParams } }),
+            api.get('/fitness/plan-summaries', { params: branchParams }).catch(() => ({ data: { data: [] } })),
+            api.get('/fitness/plans/adherence', { params: { window_days: 30, ...branchParams } }).catch(() => ({ data: { data: [] } })),
         ]);
         setPlans(plansRes.data.data);
         setPlanSummaries(summariesRes.data.data || []);
         setAdherenceRows(adherenceRes.data.data || []);
         try {
-            const membersRes = await api.get('/hr/members');
+            const membersRes = await api.get('/hr/members', { params: branchParams });
             setMembers(membersRes.data.data || []);
         } catch {
             setMembers([]);
@@ -142,7 +147,9 @@ async function loadWorkoutPlansData({
 
 export default function WorkoutPlansPage() {
     const { locale } = useLocale();
+    const { branches, selectedBranchId, setSelectedBranchId } = useBranch();
     const { showToast, confirm: confirmAction } = useFeedback();
+    const branchParams = useMemo(() => getBranchParams(selectedBranchId), [selectedBranchId]);
     const txt: Record<string, string> = locale === 'ar'
         ? {
             pageTitle: 'خطط التمرين',
@@ -440,6 +447,7 @@ export default function WorkoutPlansPage() {
             setPlanSummaries,
             setAdherenceRows,
             setMembers,
+            branchParams,
             showToast,
             loadingErrorText,
             setLoading,
@@ -481,13 +489,14 @@ export default function WorkoutPlansPage() {
                 setPlanSummaries,
                 setAdherenceRows,
                 setMembers,
+                branchParams,
                 showToast,
                 loadingErrorText,
                 setLoading,
             });
         }, 0);
         return () => clearTimeout(timer);
-    }, [loadingErrorText, showToast]);
+    }, [branchParams, loadingErrorText, showToast]);
 
     const resetForm = () => {
         const defaultSection = { id: makeId(), name: txt.general, exercises: [] };
@@ -514,6 +523,16 @@ export default function WorkoutPlansPage() {
         setShowModal(true);
         fetchExerciseLibrary();
     };
+
+    useEffect(() => {
+        setExpandedTemplatePlanId(null);
+        setExpandedAssignedPlanId(null);
+        setAssignModalOpen(false);
+        setAssigningPlan(null);
+        setBulkAssignMemberIds([]);
+        setMemberSearch('');
+        setLastBulkAssignSnapshot(null);
+    }, [selectedBranchId]);
 
     const addSection = () => {
         const name = sectionNameInput.trim();
@@ -937,7 +956,14 @@ export default function WorkoutPlansPage() {
                     <h1 className="text-2xl font-bold text-foreground">{txt.pageTitle}</h1>
                     <p className="text-sm text-muted-foreground mt-1">{txt.pageSubtitle}</p>
                 </div>
-                <div className="flex flex-wrap items-center gap-2">
+                <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2 w-full sm:w-auto">
+                    {branches.length > 0 && (
+                        <BranchSelector
+                            branches={branches}
+                            selectedBranchId={selectedBranchId}
+                            onSelect={setSelectedBranchId}
+                        />
+                    )}
                     <Link href="/dashboard/coach/library" className="btn-ghost min-h-11">
                         {txt.openLibrary}
                     </Link>

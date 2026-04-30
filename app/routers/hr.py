@@ -1347,11 +1347,20 @@ async def get_staff_summary(
     db: Annotated[AsyncSession, Depends(get_db)],
     start_date: Optional[date] = Query(None),
     end_date: Optional[date] = Query(None),
+    branch_id: Optional[uuid.UUID] = Query(None),
 ):
     if start_date and end_date and start_date > end_date:
         raise HTTPException(status_code=400, detail="start_date cannot be after end_date")
 
     user_stmt = select(User, Contract).outerjoin(Contract, Contract.user_id == User.id).where(User.id == user_id, User.gym_id == current_user.gym_id)
+    branch_ids = await TenancyService.branch_scope_ids(
+        db,
+        current_user=current_user,
+        branch_id=branch_id,
+        allow_all_for_admin=True,
+    )
+    if branch_ids:
+        user_stmt = user_stmt.where(User.home_branch_id.in_(branch_ids))
     user_result = await db.execute(user_stmt)
     row = user_result.first()
     if not row:
@@ -1359,6 +1368,8 @@ async def get_staff_summary(
     user, contract = row
 
     attendance_stmt = select(AttendanceLog).where(AttendanceLog.user_id == user_id)
+    if branch_ids:
+        attendance_stmt = attendance_stmt.where(AttendanceLog.branch_id.in_(branch_ids))
     if start_date:
         attendance_stmt = attendance_stmt.where(func.date(AttendanceLog.check_in_time) >= start_date)
     if end_date:

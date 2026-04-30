@@ -148,17 +148,37 @@ export default function MembersTab() {
   const selectedSubscription = detailQuery.data?.subscription ?? selectedMemberSummary?.subscription ?? null;
 
   const workoutPlansQuery = useQuery({
-    queryKey: ["mobile-coach-plan-summaries", role],
+    queryKey: ["mobile-coach-plan-summaries", role, selectedBranchId ?? "all"],
     enabled: canAssignWorkout,
-    queryFn: async () =>
-      (await authorizedRequest<PlanSummary[]>(role === "COACH" ? "/fitness/plan-summaries" : "/fitness/plan-summaries?include_all_creators=true&templates_only=true")).data,
+    queryFn: async () => {
+      const params = new URLSearchParams();
+      if (role !== "COACH") {
+        params.set("include_all_creators", "true");
+        params.set("templates_only", "true");
+      }
+      if (selectedBranchId) {
+        params.set("branch_id", selectedBranchId);
+      }
+      const suffix = params.toString();
+      return (await authorizedRequest<PlanSummary[]>(suffix ? `/fitness/plan-summaries?${suffix}` : "/fitness/plan-summaries")).data;
+    },
   });
 
   const dietPlansQuery = useQuery({
-    queryKey: ["mobile-coach-diet-summaries", role],
+    queryKey: ["mobile-coach-diet-summaries", role, selectedBranchId ?? "all"],
     enabled: canAssignDiet,
-    queryFn: async () =>
-      (await authorizedRequest<PlanSummary[]>(role === "COACH" ? "/fitness/diet-summaries" : "/fitness/diet-summaries?include_all_creators=true&templates_only=true")).data,
+    queryFn: async () => {
+      const params = new URLSearchParams();
+      if (role !== "COACH") {
+        params.set("include_all_creators", "true");
+        params.set("templates_only", "true");
+      }
+      if (selectedBranchId) {
+        params.set("branch_id", selectedBranchId);
+      }
+      const suffix = params.toString();
+      return (await authorizedRequest<PlanSummary[]>(suffix ? `/fitness/diet-summaries?${suffix}` : "/fitness/diet-summaries")).data;
+    },
   });
 
   const assignWorkoutMutation = useMutation({

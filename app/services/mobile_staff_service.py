@@ -423,12 +423,19 @@ class MobileStaffService:
         }
 
     @staticmethod
-    async def lookup_members(*, current_user: User, db: AsyncSession, query: str) -> dict:
+    async def lookup_members(
+        *,
+        current_user: User,
+        db: AsyncSession,
+        query: str,
+        branch_id: uuid.UUID | None = None,
+    ) -> dict:
         items = await MobileStaffService.list_members(
             current_user=current_user,
             db=db,
             query=query,
-            apply_branch_scope=False,
+            branch_id=branch_id,
+            apply_branch_scope=branch_id is not None,
         )
         return {"query": query, "items": items}
 
@@ -739,39 +746,60 @@ class MobileStaffService:
         }
 
     @staticmethod
-    async def get_home_summary(*, current_user: User, db: AsyncSession) -> dict:
+    async def get_home_summary(*, current_user: User, db: AsyncSession, branch_id: uuid.UUID | None = None) -> dict:
         role = current_user.role
         if role == Role.COACH:
-            members = await MobileStaffService.list_members(current_user=current_user, db=db)
+            branch_ids = await TenancyService.branch_scope_ids(
+                db,
+                current_user=current_user,
+                branch_id=branch_id,
+                allow_all_for_admin=True,
+            )
+            branch_scope = User.home_branch_id.in_(branch_ids) if branch_ids else false()
+            members_count = await cls._count(
+                db,
+                select(func.count(User.id)).where(User.role == Role.CUSTOMER, branch_scope),
+            )
             workout_total = (
                 await db.execute(
-                    select(func.count(WorkoutPlan.id)).where(
+                    select(func.count(WorkoutPlan.id))
+                    .join(User, User.id == WorkoutPlan.member_id)
+                    .where(
                         WorkoutPlan.creator_id == current_user.id,
                         WorkoutPlan.member_id.is_not(None),
                         WorkoutPlan.status != "ARCHIVED",
+                        branch_scope,
                     )
                 )
             ).scalar()
             diet_total = (
                 await db.execute(
-                    select(func.count(DietPlan.id)).where(
+                    select(func.count(DietPlan.id))
+                    .join(User, User.id == DietPlan.member_id)
+                    .where(
                         DietPlan.creator_id == current_user.id,
                         DietPlan.member_id.is_not(None),
                         DietPlan.status != "ARCHIVED",
+                        branch_scope,
                     )
                 )
             ).scalar()
             feedback_total = (
                 await db.execute(
-                    select(func.count(DietFeedback.id)).where(DietFeedback.coach_id == current_user.id)
+                    select(func.count(DietFeedback.id))
+                    .join(DietPlan, DietPlan.id == DietFeedback.diet_plan_id)
+                    .join(User, User.id == DietFeedback.member_id)
+                    .where(DietFeedback.coach_id == current_user.id, branch_scope)
                 )
             ).scalar()
             pending_sessions = (
                 await db.execute(
                     select(func.count(WorkoutSession.id))
                     .join(WorkoutPlan, WorkoutPlan.id == WorkoutSession.plan_id)
+                    .join(User, User.id == WorkoutSession.member_id)
                     .where(
                         WorkoutPlan.creator_id == current_user.id,
+                        branch_scope,
                         WorkoutSession.performed_at >= _start_of_today(),
                     )
                 )
@@ -781,7 +809,7 @@ class MobileStaffService:
                     select(WorkoutSession, WorkoutPlan.name, User.full_name)
                     .join(WorkoutPlan, WorkoutPlan.id == WorkoutSession.plan_id)
                     .join(User, User.id == WorkoutSession.member_id)
-                    .where(WorkoutPlan.creator_id == current_user.id)
+                    .where(WorkoutPlan.creator_id == current_user.id, branch_scope)
                     .order_by(WorkoutSession.performed_at.desc())
                     .limit(5)
                 )
@@ -791,7 +819,7 @@ class MobileStaffService:
                     select(DietFeedback, DietPlan.name, User.full_name)
                     .join(DietPlan, DietPlan.id == DietFeedback.diet_plan_id)
                     .join(User, User.id == DietFeedback.member_id)
-                    .where(DietPlan.creator_id == current_user.id)
+                    .where(DietPlan.creator_id == current_user.id, branch_scope)
                     .order_by(DietFeedback.created_at.desc())
                     .limit(5)
                 )
@@ -821,7 +849,7 @@ class MobileStaffService:
                 "role": role.value,
                 "headline": "Coach control center",
                 "stats": {
-                    "members": len(members),
+                    "members": int(members_count or 0),
                     "active_workout_plans": int(workout_total or 0),
                     "active_diet_plans": int(diet_total or 0),
                     "feedback_items": int(feedback_total or 0),
@@ -837,10 +865,20 @@ class MobileStaffService:
             }
 
         if role in {Role.RECEPTION, Role.FRONT_DESK}:
-            members = await MobileStaffService.list_members(current_user=current_user, db=db)
+            branch_ids = await TenancyService.branch_scope_ids(
+                db,
+                current_user=current_user,
+                branch_id=branch_id,
+                allow_all_for_admin=True,
+            )
+            branch_scope = User.home_branch_id.in_(branch_ids) if branch_ids else false()
+            members = await cls._count(db, select(func.count(User.id)).where(User.role == Role.CUSTOMER, branch_scope))
             open_tickets = (
                 await db.execute(
-                    select(func.count(SupportTicket.id)).where(SupportTicket.status.in_([TicketStatus.OPEN, TicketStatus.IN_PROGRESS]))
+                    select(func.count(SupportTicket.id)).where(
+                        SupportTicket.status.in_([TicketStatus.OPEN, TicketStatus.IN_PROGRESS]),
+                        SupportTicket.branch_id.in_(branch_ids) if branch_ids else false(),
+                    )
                 )
             ).scalar()
             open_lost_found = (
@@ -852,7 +890,8 @@ class MobileStaffService:
                                 LostFoundStatus.UNDER_REVIEW,
                                 LostFoundStatus.READY_FOR_PICKUP,
                             ]
-                        )
+                        ),
+                        LostFoundItem.branch_id.in_(branch_ids) if branch_ids else false(),
                     )
                 )
             ).scalar()
@@ -860,6 +899,7 @@ class MobileStaffService:
                 await db.execute(
                     select(AccessLog, User.full_name)
                     .join(User, User.id == AccessLog.user_id)
+                    .where(AccessLog.branch_id.in_(branch_ids) if branch_ids else false())
                     .order_by(AccessLog.scan_time.desc())
                     .limit(5)
                 )
@@ -868,7 +908,7 @@ class MobileStaffService:
                 "role": role.value,
                 "headline": "Front desk overview",
                 "stats": {
-                    "members": len(members),
+                    "members": int(members or 0),
                     "open_support_tickets": int(open_tickets or 0),
                     "open_lost_found": int(open_lost_found or 0),
                     "recent_scans": len(recent_scans),
@@ -891,7 +931,17 @@ class MobileStaffService:
             }
 
         if role == Role.CASHIER:
-            finance = await MobileStaffService.get_finance_summary(current_user=current_user, db=db)
+            branch_ids = await TenancyService.branch_scope_ids(
+                db,
+                current_user=current_user,
+                branch_id=branch_id,
+                allow_all_for_admin=True,
+            )
+            finance = await MobileStaffService.get_finance_summary(
+                current_user=current_user,
+                db=db,
+                branch_id=branch_ids[0] if branch_ids else None,
+            )
             return {
                 "role": role.value,
                 "headline": "Cashier sales desk",
@@ -1194,9 +1244,31 @@ class MobileStaffService:
                 )
 
     @staticmethod
-    async def get_coach_feedback_summary(*, current_user: User, db: AsyncSession) -> dict:
+    async def get_coach_feedback_summary(
+        *,
+        current_user: User,
+        db: AsyncSession,
+        branch_id: uuid.UUID | None = None,
+    ) -> dict:
         is_coach = current_user.role == Role.COACH
+        branch_ids: list[uuid.UUID] | None = None
+        if current_user.role in {Role.ADMIN, Role.MANAGER} or branch_id is not None or is_coach:
+            branch_ids = await TenancyService.branch_scope_ids(
+                db,
+                current_user=current_user,
+                branch_id=branch_id,
+                allow_all_for_admin=current_user.role == Role.ADMIN,
+            )
+
+        def _branch_member_scope(model):
+            if branch_ids is None:
+                return true()
+            if not branch_ids:
+                return false()
+            return model.home_branch_id.in_(branch_ids)
+
         plan_scope = [WorkoutPlan.creator_id == current_user.id] if is_coach else []
+        member_scope = _branch_member_scope(User)
 
         workout_rows = (
             await db.execute(
@@ -1205,6 +1277,7 @@ class MobileStaffService:
                 .join(User, User.id == WorkoutLog.member_id)
                 .where(
                     *plan_scope,
+                    member_scope,
                     or_(WorkoutLog.comment.is_not(None), WorkoutLog.difficulty_rating.is_not(None)),
                 )
                 .order_by(WorkoutLog.date.desc())
@@ -1216,7 +1289,10 @@ class MobileStaffService:
                 select(DietFeedback, DietPlan.name, User.full_name)
                 .join(DietPlan, DietPlan.id == DietFeedback.diet_plan_id)
                 .join(User, User.id == DietFeedback.member_id)
-                .where(*([DietPlan.creator_id == current_user.id] if is_coach else []))
+                .where(
+                    *([DietPlan.creator_id == current_user.id] if is_coach else []),
+                    member_scope,
+                )
                 .order_by(DietFeedback.created_at.desc())
                 .limit(20)
             )
@@ -1231,6 +1307,7 @@ class MobileStaffService:
                     )
                 )
             )
+        gym_stmt = gym_stmt.where(member_scope)
         gym_rows = (await db.execute(gym_stmt.order_by(GymFeedback.created_at.desc()).limit(20))).all()
         flagged_session_rows = (
             await db.execute(
@@ -1239,6 +1316,7 @@ class MobileStaffService:
                 .join(User, User.id == WorkoutSession.member_id)
                 .where(
                     *plan_scope,
+                    member_scope,
                     or_(
                         WorkoutSession.pain_level >= 4,
                         WorkoutSession.effort_feedback == "TOO_HARD",
@@ -1305,15 +1383,24 @@ class MobileStaffService:
         }
 
     @staticmethod
-    async def get_coach_plans_summary(*, current_user: User, db: AsyncSession) -> dict:
+    async def get_coach_plans_summary(*, current_user: User, db: AsyncSession, branch_id: uuid.UUID | None = None) -> dict:
         if current_user.role != Role.COACH:
             raise ValueError("Not allowed")
+
+        branch_ids = await TenancyService.branch_scope_ids(
+            db,
+            current_user=current_user,
+            branch_id=branch_id,
+            allow_all_for_admin=True,
+        )
+        branch_scope = User.home_branch_id.in_(branch_ids) if branch_ids else false()
+        plan_scope = or_(WorkoutPlan.member_id.is_(None), branch_scope)
 
         workout_rows = (
             await db.execute(
                 select(WorkoutPlan, User.full_name)
                 .outerjoin(User, User.id == WorkoutPlan.member_id)
-                .where(WorkoutPlan.creator_id == current_user.id)
+                .where(WorkoutPlan.creator_id == current_user.id, plan_scope)
                 .options(selectinload(WorkoutPlan.exercises))
                 .order_by(WorkoutPlan.published_at.desc().nullslast(), WorkoutPlan.archived_at.desc().nullslast(), WorkoutPlan.name.asc())
             )
@@ -1322,7 +1409,7 @@ class MobileStaffService:
             await db.execute(
                 select(DietPlan, User.full_name)
                 .outerjoin(User, User.id == DietPlan.member_id)
-                .where(DietPlan.creator_id == current_user.id)
+                .where(DietPlan.creator_id == current_user.id, or_(DietPlan.member_id.is_(None), branch_scope))
                 .order_by(DietPlan.published_at.desc().nullslast(), DietPlan.archived_at.desc().nullslast(), DietPlan.name.asc())
             )
         ).all()

@@ -13,7 +13,7 @@ import { useSession } from "@/lib/session";
 export default function CoachFeedbackScreen() {
   const router = useRouter();
   const queryClient = useQueryClient();
-  const { authorizedRequest, bootstrap } = useSession();
+  const { authorizedRequest, bootstrap, selectedBranchId } = useSession();
   const { copy, direction, fontSet, isRTL, theme } = usePreferences();
   const [expandedSessionId, setExpandedSessionId] = useState<string | null>(null);
   const locale = localeTag(isRTL);
@@ -21,8 +21,11 @@ export default function CoachFeedbackScreen() {
   const canReviewSessions = role === "ADMIN" || role === "COACH";
   const canAdjustPlans = role === "COACH";
   const feedbackQuery = useQuery({
-    queryKey: ["mobile-coach-feedback"],
-    queryFn: async () => parseCoachFeedbackEnvelope(await authorizedRequest("/mobile/staff/coach/feedback")).data,
+    queryKey: ["mobile-coach-feedback", selectedBranchId ?? "all"],
+    queryFn: async () => {
+      const suffix = selectedBranchId ? `?branch_id=${encodeURIComponent(selectedBranchId)}` : "";
+      return parseCoachFeedbackEnvelope(await authorizedRequest(`/mobile/staff/coach/feedback${suffix}`)).data;
+    },
   });
   const reviewMutation = useMutation({
     mutationFn: async (sessionId: string) => {
