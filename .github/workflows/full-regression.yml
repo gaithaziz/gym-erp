@@ -108,15 +108,23 @@ jobs:
           exit 1
 
       - name: Run migrations
+        env:
+          POSTGRES_HOST: db
         run: docker compose run --rm backend alembic upgrade head
 
       - name: Seed demo data
+        env:
+          POSTGRES_HOST: db
         run: docker compose run --rm backend python -m app.seed_demo_data
 
       - name: Run backend branching regression tests
+        env:
+          POSTGRES_HOST: db
         run: docker compose run --rm backend python -m pytest tests/test_branching_regression.py -q
 
       - name: Start application stack
+        env:
+          POSTGRES_HOST: db
         run: docker compose up -d backend frontend
 
       - name: Wait for backend health

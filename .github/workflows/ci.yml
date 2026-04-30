@@ -142,9 +142,13 @@ jobs:
           exit 1
 
       - name: Run migrations
+        env:
+          POSTGRES_HOST: db
         run: docker compose run --rm backend alembic upgrade head
 
       - name: Start application stack
+        env:
+          POSTGRES_HOST: db
         run: docker compose up -d backend frontend
 
       - name: Verify backend health
