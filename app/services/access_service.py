@@ -145,8 +145,9 @@ class AccessService:
 
         # Duplicate scan protection: check if user scanned within the last 60 seconds
         now = datetime.now(timezone.utc)
+        user_role = user.role if isinstance(user.role, Role) else Role(str(user.role))
         contract_denial_reason = None
-        if user.role not in {Role.ADMIN, Role.MANAGER}:
+        if user_role in {Role.COACH, Role.EMPLOYEE, Role.CASHIER, Role.RECEPTION, Role.FRONT_DESK}:
             contract_denial_reason = await AccessService._get_contract_denial_reason(user.id, now, db)
 
         status_decision = "GRANTED"

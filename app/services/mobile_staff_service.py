@@ -133,6 +133,11 @@ def _session_summary(session: WorkoutSession, plan_name: str | None = None, memb
 
 class MobileStaffService:
     @staticmethod
+    async def _count(db: AsyncSession, stmt) -> int:
+        result = await db.execute(stmt)
+        return int(result.scalar() or 0)
+
+    @staticmethod
     async def _resolve_effective_branch_id(
         *,
         current_user: User,
@@ -756,7 +761,7 @@ class MobileStaffService:
                 allow_all_for_admin=True,
             )
             branch_scope = User.home_branch_id.in_(branch_ids) if branch_ids else false()
-            members_count = await cls._count(
+            members_count = await MobileStaffService._count(
                 db,
                 select(func.count(User.id)).where(User.role == Role.CUSTOMER, branch_scope),
             )
@@ -872,7 +877,7 @@ class MobileStaffService:
                 allow_all_for_admin=True,
             )
             branch_scope = User.home_branch_id.in_(branch_ids) if branch_ids else false()
-            members = await cls._count(db, select(func.count(User.id)).where(User.role == Role.CUSTOMER, branch_scope))
+            members = await MobileStaffService._count(db, select(func.count(User.id)).where(User.role == Role.CUSTOMER, branch_scope))
             open_tickets = (
                 await db.execute(
                     select(func.count(SupportTicket.id)).where(

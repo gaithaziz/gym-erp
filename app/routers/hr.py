@@ -1460,7 +1460,7 @@ async def print_staff_summary(
     start_date: Optional[date] = Query(None),
     end_date: Optional[date] = Query(None),
 ):
-    summary_response = await get_staff_summary(user_id, current_user, db, start_date, end_date)
+    summary_response = await get_staff_summary(user_id, current_user, db, start_date, end_date, branch_id=None)
     data = summary_response.data
     employee = data["employee"]
     attendance = data["attendance_summary"]

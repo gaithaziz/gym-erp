@@ -22,7 +22,7 @@ jobs:
       OWNER: ${{ github.repository_owner }}
       PROD_APP_DIR: ${{ secrets.PROD_APP_DIR }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
         with:
           ref: ${{ github.event.workflow_run.head_sha || github.sha }}
 
