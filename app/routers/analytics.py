@@ -45,7 +45,7 @@ async def _resolve_scope(
 
 @router.get("/dashboard", response_model=StandardResponse)
 async def get_dashboard(
-    current_user: Annotated[User, Depends(dependencies.RoleChecker([Role.SUPER_ADMIN, Role.ADMIN]))],
+    current_user: Annotated[User, Depends(dependencies.RoleChecker([Role.SUPER_ADMIN, Role.ADMIN, Role.MANAGER]))],
     db: Annotated[AsyncSession, Depends(get_db)],
     from_date: date | None = Query(None, alias="from"),
     to_date: date | None = Query(None, alias="to"),
@@ -65,7 +65,7 @@ async def get_dashboard(
 
 @router.get("/attendance", response_model=StandardResponse)
 async def get_attendance_trends(
-    current_user: Annotated[User, Depends(dependencies.RoleChecker([Role.SUPER_ADMIN, Role.ADMIN]))],
+    current_user: Annotated[User, Depends(dependencies.RoleChecker([Role.SUPER_ADMIN, Role.ADMIN, Role.MANAGER]))],
     db: Annotated[AsyncSession, Depends(get_db)],
     days: int = 30,
     gym_id: uuid.UUID | None = Query(None),
@@ -83,7 +83,7 @@ async def get_attendance_trends(
 
 @router.get("/revenue-chart", response_model=StandardResponse)
 async def get_revenue_chart(
-    current_user: Annotated[User, Depends(dependencies.RoleChecker([Role.SUPER_ADMIN, Role.ADMIN]))],
+    current_user: Annotated[User, Depends(dependencies.RoleChecker([Role.SUPER_ADMIN, Role.ADMIN, Role.MANAGER]))],
     db: Annotated[AsyncSession, Depends(get_db)],
     days: int = 30,
     gym_id: uuid.UUID | None = Query(None),
@@ -101,7 +101,7 @@ async def get_revenue_chart(
 
 @router.get("/recent-activity", response_model=StandardResponse)
 async def get_recent_activity(
-    current_user: Annotated[User, Depends(dependencies.RoleChecker([Role.SUPER_ADMIN, Role.ADMIN]))],
+    current_user: Annotated[User, Depends(dependencies.RoleChecker([Role.SUPER_ADMIN, Role.ADMIN, Role.MANAGER]))],
     db: Annotated[AsyncSession, Depends(get_db)],
     gym_id: uuid.UUID | None = Query(None),
     branch_id: uuid.UUID | None = Query(None),
@@ -180,7 +180,7 @@ async def get_recent_activity(
 
 @router.get("/daily-visitors")
 async def get_daily_visitors(
-    current_user: Annotated[User, Depends(dependencies.RoleChecker([Role.SUPER_ADMIN, Role.ADMIN]))],
+    current_user: Annotated[User, Depends(dependencies.RoleChecker([Role.SUPER_ADMIN, Role.ADMIN, Role.MANAGER]))],
     db: Annotated[AsyncSession, Depends(get_db)],
     from_date: date | None = Query(None, alias="from"),
     to_date: date | None = Query(None, alias="to"),

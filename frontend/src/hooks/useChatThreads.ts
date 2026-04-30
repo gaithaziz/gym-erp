@@ -2,6 +2,7 @@
 
 import useSWR from 'swr';
 import { api } from '@/lib/api';
+import { getBranchParams } from '@/lib/branch';
 
 export interface ChatThreadSummary {
     id: string;
@@ -14,15 +15,16 @@ export interface ChatThreadSummary {
 interface UseChatThreadsOptions {
     enabled: boolean;
     limit?: number;
+    branchId?: string;
 }
 
-export function useChatThreads({ enabled, limit = 50 }: UseChatThreadsOptions) {
-    const key = enabled ? ['chat-threads', limit] : null;
+export function useChatThreads({ enabled, limit = 50, branchId = 'all' }: UseChatThreadsOptions) {
+    const key = enabled ? ['chat-threads', limit, branchId] : null;
     const swr = useSWR(
         key,
         async () => {
             const response = await api.get('/chat/threads', {
-                params: { limit, sort_by: 'last_message_at', sort_order: 'desc' },
+                params: { limit, sort_by: 'last_message_at', sort_order: 'desc', ...getBranchParams(branchId) },
             });
             return (response.data?.data || []) as ChatThreadSummary[];
         },

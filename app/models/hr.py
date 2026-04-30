@@ -16,6 +16,8 @@ class ContractType(str, Enum):
 
 class PayrollStatus(str, Enum):
     DRAFT = "DRAFT"
+    APPROVED = "APPROVED"
+    REJECTED = "REJECTED"
     PARTIAL = "PARTIAL"
     PAID = "PAID"
 
@@ -57,16 +59,21 @@ class Payroll(GymScopedMixin, Base):
     user_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id"), nullable=False)
     month: Mapped[int] = mapped_column(Integer, nullable=False)
     year: Mapped[int] = mapped_column(Integer, nullable=False)
+    period_start: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    period_end: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     
     base_pay: Mapped[float] = mapped_column(Float, default=0.0)
     overtime_hours: Mapped[float] = mapped_column(Float, default=0.0)
     overtime_pay: Mapped[float] = mapped_column(Float, default=0.0)
     commission_pay: Mapped[float] = mapped_column(Float, default=0.0)
     bonus_pay: Mapped[float] = mapped_column(Float, default=0.0)
+    manual_deductions: Mapped[float] = mapped_column(Float, default=0.0)
     deductions: Mapped[float] = mapped_column(Float, default=0.0)
     total_pay: Mapped[float] = mapped_column(Float, default=0.0)
     
-    status: Mapped[PayrollStatus] = mapped_column(SAEnum(PayrollStatus, native_enum=False), default=PayrollStatus.DRAFT, nullable=False)
+    status: Mapped[PayrollStatus] = mapped_column(SAEnum(PayrollStatus, native_enum=False, length=8), default=PayrollStatus.DRAFT, nullable=False)
+    approved_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    approved_by_user_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("users.id"), nullable=True)
     paid_transaction_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("transactions.id"), nullable=True)
     paid_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     paid_by_user_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("users.id"), nullable=True)

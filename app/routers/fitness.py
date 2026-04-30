@@ -9,9 +9,9 @@ from urllib.parse import parse_qs, urlparse
 
 from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile
 from pydantic import AnyHttpUrl, BaseModel, Field, field_validator
-from sqlalchemy import delete, func, select
+from sqlalchemy import delete, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.orm import selectinload
+from sqlalchemy.orm import aliased, selectinload
 
 from app.auth import dependencies
 from app.core.responses import StandardResponse
@@ -58,6 +58,23 @@ WORKOUT_DRAFT_STALE_HOURS = 24
 
 def _is_admin_or_coach(user: User) -> bool:
     return user.role in [Role.ADMIN, Role.MANAGER, Role.COACH]
+
+
+def _apply_creator_scope(
+    stmt,
+    *,
+    current_user: User,
+    include_all_creators: bool,
+    creator_id: uuid.UUID | None = None,
+    creator_column=None,
+):
+    if current_user.role in {Role.ADMIN, Role.MANAGER}:
+        if creator_id is not None:
+            return stmt.where(creator_column == creator_id)
+        if not include_all_creators:
+            return stmt.where(creator_column == current_user.id)
+        return stmt
+    return stmt.where(creator_column == current_user.id)
 
 
 def _snapshot_rls_context(db: AsyncSession) -> tuple[object, object, object, object]:
@@ -233,6 +250,29 @@ def _ensure_plan_owned_by_requester_or_admin(plan: WorkoutPlan, current_user: Us
 def _ensure_diet_owned_by_requester_or_admin(plan: DietPlan, current_user: User, *, action: str) -> None:
     if current_user.role not in {Role.ADMIN, Role.MANAGER} and plan.creator_id != current_user.id:
         raise HTTPException(status_code=403, detail=f"Cannot {action} diet plan created by another user")
+
+
+def _branch_scope_plan_clause(*, branch_ids: list[uuid.UUID], creator_user, member_user):
+    if not branch_ids:
+        return False
+    clauses = [creator_user.home_branch_id.in_(branch_ids)]
+    if member_user is not None:
+        clauses.append(member_user.home_branch_id.in_(branch_ids))
+    return or_(*clauses)
+
+
+def _plan_visible_in_branch_scope(
+    plan,
+    branch_ids: list[uuid.UUID],
+    branch_id: uuid.UUID | None = None,
+) -> bool:
+    creator_branch_id = getattr(getattr(plan, "creator", None), "home_branch_id", None)
+    member_branch_id = getattr(getattr(plan, "member", None), "home_branch_id", None)
+    if branch_id is not None:
+        return creator_branch_id == branch_id or member_branch_id == branch_id
+    if not branch_ids:
+        return False
+    return creator_branch_id in branch_ids or member_branch_id in branch_ids
 
 
 def _can_manage_shared_library_item(*, current_user: User, is_global: bool, owner_coach_id: uuid.UUID | None) -> bool:
@@ -1053,19 +1093,45 @@ async def list_plans(
     include_archived: bool = Query(False),
     include_all_creators: bool = Query(False),
     creator_id: uuid.UUID | None = Query(default=None),
+    branch_id: uuid.UUID | None = Query(default=None),
 ):
     """List plans visible to the user (Created by them OR Assigned to them)."""
     async with _customer_tenant_scope(db, current_user):
         plan_exercises = selectinload(WorkoutPlan.exercises).selectinload(WorkoutExercise.exercise)
-        if _is_admin_or_coach(current_user):
-            if current_user.role == Role.ADMIN and include_all_creators:
-                stmt = select(WorkoutPlan).options(plan_exercises)
-                if creator_id:
-                    stmt = stmt.where(WorkoutPlan.creator_id == creator_id)
+        plan_relations = selectinload(WorkoutPlan.creator), selectinload(WorkoutPlan.member)
+        if current_user.role in {Role.ADMIN, Role.MANAGER}:
+            branch_ids = await TenancyService.branch_scope_ids(
+                db,
+                current_user=current_user,
+                branch_id=branch_id,
+                allow_all_for_admin=current_user.role == Role.ADMIN,
+            )
+            stmt = select(WorkoutPlan).options(plan_exercises, *plan_relations)
+            if branch_id is not None:
+                stmt = stmt.where(
+                    or_(
+                        WorkoutPlan.creator.has(User.home_branch_id == branch_id),
+                        WorkoutPlan.member.has(User.home_branch_id == branch_id),
+                    )
+                )
             else:
-                stmt = select(WorkoutPlan).where(WorkoutPlan.creator_id == current_user.id).options(plan_exercises)
+                stmt = stmt.where(
+                    or_(
+                        WorkoutPlan.creator.has(User.home_branch_id.in_(branch_ids)),
+                        WorkoutPlan.member.has(User.home_branch_id.in_(branch_ids)),
+                    )
+                )
+            stmt = _apply_creator_scope(
+                stmt,
+                current_user=current_user,
+                include_all_creators=include_all_creators,
+                creator_id=creator_id,
+                creator_column=WorkoutPlan.creator_id,
+            )
+        elif _is_admin_or_coach(current_user):
+            stmt = select(WorkoutPlan).where(WorkoutPlan.creator_id == current_user.id).options(plan_exercises, *plan_relations)
         else:
-            stmt = select(WorkoutPlan).where(WorkoutPlan.member_id == current_user.id).options(plan_exercises)
+            stmt = select(WorkoutPlan).where(WorkoutPlan.member_id == current_user.id).options(plan_exercises, *plan_relations)
         if not include_archived:
             stmt = stmt.where(WorkoutPlan.status != "ARCHIVED")
 
@@ -1209,15 +1275,43 @@ async def list_plan_summaries(
     include_archived: bool = Query(False),
     include_all_creators: bool = Query(False),
     templates_only: bool = Query(False),
+    branch_id: uuid.UUID | None = Query(default=None),
 ):
     if not _is_admin_or_coach(current_user):
         raise HTTPException(status_code=403, detail="Only admin/manager/coach can access plan summaries")
-    stmt = (
-        select(WorkoutPlan)
-        .options(selectinload(WorkoutPlan.exercises).selectinload(WorkoutExercise.exercise))
-        .order_by(WorkoutPlan.name)
+    branch_ids = await TenancyService.branch_scope_ids(
+        db,
+        current_user=current_user,
+        branch_id=branch_id,
+        allow_all_for_admin=current_user.role == Role.ADMIN,
     )
-    if current_user.role not in {Role.ADMIN, Role.MANAGER} or not include_all_creators:
+    stmt = select(WorkoutPlan).options(
+        selectinload(WorkoutPlan.exercises).selectinload(WorkoutExercise.exercise),
+        selectinload(WorkoutPlan.creator),
+        selectinload(WorkoutPlan.member),
+    )
+    if current_user.role in {Role.ADMIN, Role.MANAGER}:
+        if branch_id is not None:
+            stmt = stmt.where(
+                or_(
+                    WorkoutPlan.creator.has(User.home_branch_id == branch_id),
+                    WorkoutPlan.member.has(User.home_branch_id == branch_id),
+                )
+            )
+        else:
+            stmt = stmt.where(
+                or_(
+                    WorkoutPlan.creator.has(User.home_branch_id.in_(branch_ids)),
+                    WorkoutPlan.member.has(User.home_branch_id.in_(branch_ids)),
+                )
+            )
+        stmt = _apply_creator_scope(
+            stmt,
+            current_user=current_user,
+            include_all_creators=include_all_creators,
+            creator_column=WorkoutPlan.creator_id,
+        )
+    else:
         stmt = stmt.where(WorkoutPlan.creator_id == current_user.id)
     if templates_only:
         stmt = stmt.where(WorkoutPlan.member_id.is_(None))
@@ -1232,7 +1326,7 @@ async def list_plan_summaries(
 async def bulk_assign_workout_plan(
     plan_id: uuid.UUID,
     payload: BulkAssignRequest,
-    current_user: Annotated[User, Depends(dependencies.RoleChecker([Role.ADMIN, Role.COACH]))],
+    current_user: Annotated[User, Depends(dependencies.RoleChecker([Role.ADMIN, Role.MANAGER, Role.COACH]))],
     db: Annotated[AsyncSession, Depends(get_db)],
 ):
     source_plan = await _get_workout_plan_or_404(db, plan_id, with_exercises=True)
@@ -1391,17 +1485,29 @@ async def fork_workout_plan_as_draft(
 
 @router.get("/plans/adherence", response_model=StandardResponse[List[PlanAdherenceRow]])
 async def get_plan_adherence_summary(
-    current_user: Annotated[User, Depends(dependencies.RoleChecker([Role.ADMIN, Role.COACH]))],
+    current_user: Annotated[User, Depends(dependencies.RoleChecker([Role.ADMIN, Role.MANAGER, Role.COACH]))],
     db: Annotated[AsyncSession, Depends(get_db)],
     window_days: int = Query(30, ge=7, le=180),
     threshold: float = Query(0.7, ge=0.1, le=1.0),
 ):
     from_dt = datetime.utcnow() - timedelta(days=window_days)
-    plan_stmt = select(WorkoutPlan).where(
-        WorkoutPlan.creator_id == current_user.id,
-        WorkoutPlan.member_id.is_not(None),
-        WorkoutPlan.status != "ARCHIVED",
+    creator_user = aliased(User)
+    member_user = aliased(User)
+    branch_ids = await TenancyService.branch_scope_ids(
+        db,
+        current_user=current_user,
+        allow_all_for_admin=current_user.role == Role.ADMIN,
     )
+    plan_stmt = (
+        select(WorkoutPlan)
+        .join(creator_user, creator_user.id == WorkoutPlan.creator_id)
+        .outerjoin(member_user, member_user.id == WorkoutPlan.member_id)
+        .where(WorkoutPlan.member_id.is_not(None), WorkoutPlan.status != "ARCHIVED")
+    )
+    if current_user.role in {Role.ADMIN, Role.MANAGER}:
+        plan_stmt = plan_stmt.where(_branch_scope_plan_clause(branch_ids=branch_ids, creator_user=creator_user, member_user=member_user))
+    else:
+        plan_stmt = plan_stmt.where(WorkoutPlan.creator_id == current_user.id)
     plan_res = await db.execute(plan_stmt)
     plans = plan_res.scalars().all()
     grouped: dict[str, dict[str, int | float | str | uuid.UUID]] = {}
@@ -1454,7 +1560,7 @@ async def get_plan_adherence_summary(
 @router.get("/plans/{plan_id}/adherence", response_model=StandardResponse[PlanAdherenceRow])
 async def get_single_plan_adherence(
     plan_id: uuid.UUID,
-    current_user: Annotated[User, Depends(dependencies.RoleChecker([Role.ADMIN, Role.COACH]))],
+    current_user: Annotated[User, Depends(dependencies.RoleChecker([Role.ADMIN, Role.MANAGER, Role.COACH]))],
     db: Annotated[AsyncSession, Depends(get_db)],
     window_days: int = Query(30, ge=7, le=180),
     threshold: float = Query(0.7, ge=0.1, le=1.0),
@@ -1463,11 +1569,23 @@ async def get_single_plan_adherence(
     _ensure_plan_owned_by_requester_or_admin(plan, current_user, action="view adherence for")
     root_id = plan.parent_plan_id or plan.id
     from_dt = datetime.utcnow() - timedelta(days=window_days)
-    family_stmt = select(WorkoutPlan).where(
-        WorkoutPlan.creator_id == current_user.id,
-        WorkoutPlan.status != "ARCHIVED",
-        ((WorkoutPlan.id == root_id) | (WorkoutPlan.parent_plan_id == root_id)),
+    creator_user = aliased(User)
+    member_user = aliased(User)
+    branch_ids = await TenancyService.branch_scope_ids(
+        db,
+        current_user=current_user,
+        allow_all_for_admin=current_user.role == Role.ADMIN,
     )
+    family_stmt = (
+        select(WorkoutPlan)
+        .join(creator_user, creator_user.id == WorkoutPlan.creator_id)
+        .outerjoin(member_user, member_user.id == WorkoutPlan.member_id)
+        .where(WorkoutPlan.status != "ARCHIVED", ((WorkoutPlan.id == root_id) | (WorkoutPlan.parent_plan_id == root_id)))
+    )
+    if current_user.role in {Role.ADMIN, Role.MANAGER}:
+        family_stmt = family_stmt.where(_branch_scope_plan_clause(branch_ids=branch_ids, creator_user=creator_user, member_user=member_user))
+    else:
+        family_stmt = family_stmt.where(WorkoutPlan.creator_id == current_user.id)
     family_plans = (await db.execute(family_stmt)).scalars().all()
     assigned_members = len([p for p in family_plans if p.member_id])
     adherent_members = 0
@@ -1867,21 +1985,43 @@ async def list_diet_plans(
     include_all_creators: bool = Query(False),
     creator_id: uuid.UUID | None = Query(default=None),
     templates_only: bool = Query(False),
+    branch_id: uuid.UUID | None = Query(default=None),
 ):
     """List diet plans visible to the user."""
     async with _customer_tenant_scope(db, current_user):
-        if _is_admin_or_coach(current_user):
-            if (
-                current_user.role == Role.ADMIN
-                and include_all_creators
-            ):
-                stmt = select(DietPlan)
-                if creator_id:
-                    stmt = stmt.where(DietPlan.creator_id == creator_id)
+        branch_ids = await TenancyService.branch_scope_ids(
+            db,
+            current_user=current_user,
+            branch_id=branch_id,
+            allow_all_for_admin=current_user.role == Role.ADMIN,
+        )
+        if current_user.role in {Role.ADMIN, Role.MANAGER}:
+            stmt = select(DietPlan).options(selectinload(DietPlan.creator), selectinload(DietPlan.member))
+            if branch_id is not None:
+                stmt = stmt.where(
+                    or_(
+                        DietPlan.creator.has(User.home_branch_id == branch_id),
+                        DietPlan.member.has(User.home_branch_id == branch_id),
+                    )
+                )
             else:
-                stmt = select(DietPlan).where(DietPlan.creator_id == current_user.id)
+                stmt = stmt.where(
+                    or_(
+                        DietPlan.creator.has(User.home_branch_id.in_(branch_ids)),
+                        DietPlan.member.has(User.home_branch_id.in_(branch_ids)),
+                    )
+                )
+            stmt = _apply_creator_scope(
+                stmt,
+                current_user=current_user,
+                include_all_creators=include_all_creators,
+                creator_id=creator_id,
+                creator_column=DietPlan.creator_id,
+            )
+        elif _is_admin_or_coach(current_user):
+            stmt = select(DietPlan).where(DietPlan.creator_id == current_user.id).options(selectinload(DietPlan.creator), selectinload(DietPlan.member))
         else:
-            stmt = select(DietPlan).where(DietPlan.member_id == current_user.id)
+            stmt = select(DietPlan).where(DietPlan.member_id == current_user.id).options(selectinload(DietPlan.creator), selectinload(DietPlan.member))
 
         if templates_only:
             stmt = stmt.where(DietPlan.member_id.is_(None))
@@ -2106,18 +2246,41 @@ async def list_diet_summaries(
     include_all_creators: bool = Query(False),
     creator_id: uuid.UUID | None = Query(default=None),
     templates_only: bool = Query(False),
+    branch_id: uuid.UUID | None = Query(default=None),
 ):
     if not _is_admin_or_coach(current_user):
         raise HTTPException(status_code=403, detail="Only admin/manager/coach can access diet summaries")
-    if (
-        current_user.role in {Role.ADMIN, Role.MANAGER}
-        and include_all_creators
-    ):
-        stmt = select(DietPlan).order_by(DietPlan.name)
-        if creator_id:
-            stmt = stmt.where(DietPlan.creator_id == creator_id)
+    branch_ids = await TenancyService.branch_scope_ids(
+        db,
+        current_user=current_user,
+        branch_id=branch_id,
+        allow_all_for_admin=current_user.role == Role.ADMIN,
+    )
+    if current_user.role in {Role.ADMIN, Role.MANAGER}:
+        stmt = select(DietPlan).options(selectinload(DietPlan.creator), selectinload(DietPlan.member))
+        if branch_id is not None:
+            stmt = stmt.where(
+                or_(
+                    DietPlan.creator.has(User.home_branch_id == branch_id),
+                    DietPlan.member.has(User.home_branch_id == branch_id),
+                )
+            )
+        else:
+            stmt = stmt.where(
+                or_(
+                    DietPlan.creator.has(User.home_branch_id.in_(branch_ids)),
+                    DietPlan.member.has(User.home_branch_id.in_(branch_ids)),
+                )
+            )
+        stmt = _apply_creator_scope(
+            stmt,
+            current_user=current_user,
+            include_all_creators=include_all_creators,
+            creator_id=creator_id,
+            creator_column=DietPlan.creator_id,
+        )
     else:
-        stmt = select(DietPlan).where(DietPlan.creator_id == current_user.id)
+        stmt = select(DietPlan).where(DietPlan.creator_id == current_user.id).options(selectinload(DietPlan.creator), selectinload(DietPlan.member))
     if templates_only:
         stmt = stmt.where(DietPlan.member_id.is_(None))
     if not include_archived:

@@ -11,6 +11,7 @@ from app.models.enums import Role
 from app.models.notification import MobileNotificationPreference
 from app.models.tenancy import Branch, Gym
 from app.models.user import User
+from app.services.role_access import is_branch_admin_role
 from app.services.subscription_status_service import SubscriptionAccessState, SubscriptionStatusService
 from app.services.tenancy_service import TenancyService
 
@@ -75,6 +76,7 @@ class MobileBootstrapService:
             "view_finance_summary",
             "use_pos",
             "manage_inventory",
+            "view_audit_summary",
             "handle_support_queue",
             "view_profile",
             "view_notifications",
@@ -97,6 +99,7 @@ class MobileBootstrapService:
             "view_support",
         ),
     }
+    _ROLE_CAPABILITIES[Role.MANAGER] = _ROLE_CAPABILITIES[Role.ADMIN]
 
     _ROLE_MODULES: dict[Role, tuple[schemas.EnabledModuleValue, ...]] = {
         Role.CUSTOMER: ("home", "qr", "plans", "progress", "support", "chat", "profile", "notifications"),
@@ -108,6 +111,7 @@ class MobileBootstrapService:
         Role.MANAGER: ("home", "members", "operations", "finance", "inventory", "support", "chat", "profile", "notifications"),
         Role.ADMIN: ("home", "members", "operations", "finance", "inventory", "audit", "support", "chat", "profile", "notifications"),
     }
+    _ROLE_MODULES[Role.MANAGER] = _ROLE_MODULES[Role.ADMIN]
 
     @classmethod
     async def build_bootstrap(
@@ -277,6 +281,20 @@ class MobileBootstrapService:
             block_reason=None,
         )
 
+    @classmethod
+    async def get_audit_summary(
+        cls,
+        *,
+        current_user: User,
+        db: AsyncSession,
+        branch_id=None,
+    ) -> dict[str, Any]:
+        if not is_branch_admin_role(current_user.role):
+            raise ValueError("Not allowed")
+        from app.services.mobile_admin_service import MobileAdminService
+
+        return await MobileAdminService.get_audit_summary(current_user=current_user, db=db, branch_id=branch_id)
+
     @staticmethod
     def _values_for_role(mapping: dict[Role, tuple[T, ...]], role: Role) -> Iterable[T]:
         return mapping.get(role, ())
@@ -302,7 +320,20 @@ class MobileBootstrapService:
         current_user: User,
         db: AsyncSession,
     ) -> schemas.BranchSummary | None:
-        if current_user.home_branch_id is None:
-            return None
-        branch = await db.get(Branch, current_user.home_branch_id)
+        if current_user.home_branch_id is not None:
+            branch = await db.get(Branch, current_user.home_branch_id)
+            if branch is not None:
+                return cls._branch_summary(branch)
+
+        fallback_branch_id = await TenancyService.resolve_user_attribution_branch_id(db, user=current_user)
+        if fallback_branch_id is None:
+            fallback_branch = None
+            accessible = await TenancyService.get_accessible_branches(db, user=current_user)
+            if accessible:
+                fallback_branch = accessible[0]
+            if fallback_branch is None:
+                return None
+            return cls._branch_summary(fallback_branch)
+
+        branch = await db.get(Branch, fallback_branch_id)
         return cls._branch_summary(branch) if branch else None

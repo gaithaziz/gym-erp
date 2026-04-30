@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useRef, useState } from 'react';
+import { useLayoutEffect, useRef, useState } from 'react';
 import { ResponsiveContainer } from 'recharts';
 
 type Size = {
@@ -22,7 +22,7 @@ export default function SafeResponsiveChart({
     const containerRef = useRef<HTMLDivElement | null>(null);
     const [size, setSize] = useState<Size>({ width: 0, height: 0 });
 
-    useEffect(() => {
+    useLayoutEffect(() => {
         const node = containerRef.current;
         if (!node) return;
 
@@ -55,7 +55,7 @@ export default function SafeResponsiveChart({
     const isReady = size.width >= minWidth && size.height >= minHeight;
 
     return (
-        <div ref={containerRef} className={className}>
+        <div ref={containerRef} className={className} style={{ minHeight, minWidth }}>
             {isReady ? (
                 <ResponsiveContainer width="100%" height="100%" minHeight={minHeight} minWidth={minWidth}>
                     {children}

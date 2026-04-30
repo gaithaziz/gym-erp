@@ -521,9 +521,9 @@ function AdminDashboard({ userName, userRole }: { userName: string; userRole: st
                 ))}
 
                 {/* Charts */}
-                <div key="chart-visits" className="kpi-card p-6 h-full relative group">
+                <div key="chart-visits" className="kpi-card p-6 h-full min-h-[22rem] relative group">
                     <h3 className="inline-flex rounded-md border border-orange-500/30 bg-orange-500/10 px-2 py-1 text-base font-extrabold text-orange-500 uppercase tracking-wider font-mono mb-6">{t('dashboard.home.visitsByHour')} ({t('dashboard.home.lastDays').replace('{{days}}', String(selectedDays))})</h3>
-                    <div className="h-[calc(100%-2rem)]">
+                    <div className="min-h-[16rem] h-[calc(100%-2rem)]">
                         {attendanceData.length > 0 ? (
                             <SafeResponsiveChart>
                                 <BarChart data={attendanceData}>
@@ -543,7 +543,7 @@ function AdminDashboard({ userName, userRole }: { userName: string; userRole: st
                     </div>
                 </div>
 
-                <div key="chart-revenue" className="kpi-card p-6 h-full relative group flex flex-col">
+                <div key="chart-revenue" className="kpi-card p-6 h-full min-h-[22rem] relative group flex flex-col">
                     <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
                         <h3 className="inline-flex rounded-md border border-orange-500/30 bg-orange-500/10 px-2 py-1 text-base font-extrabold text-orange-500 uppercase tracking-wider font-mono">{t('dashboard.home.revenueVsExpenses')} ({t('dashboard.home.lastDays').replace('{{days}}', String(selectedDays))})</h3>
                         <div className="flex items-center gap-1 border border-border bg-muted/20 p-1">
@@ -573,7 +573,7 @@ function AdminDashboard({ userName, userRole }: { userName: string; userRole: st
                             {t('dashboard.home.expenses')}
                         </div>
                     </div>
-                    <div className="mt-1 min-h-0 flex-1">
+                    <div className="mt-1 min-h-[16rem] flex-1">
                         {revenueChartData.length > 0 ? (
                             <SafeResponsiveChart>
                                 <BarChart
@@ -664,7 +664,7 @@ function AdminDashboard({ userName, userRole }: { userName: string; userRole: st
                 </div>
             </DashboardGrid>
 
-            <div className="kpi-card p-6">
+                <div className="kpi-card p-6">
                 <div className="flex items-center justify-between gap-3 mb-4">
                     <h3 className="inline-flex rounded-md border border-orange-500/30 bg-orange-500/10 px-2 py-1 text-base font-extrabold text-orange-500 uppercase tracking-wider font-mono">{adminTxt.dailyVisitorReport}</h3>
                     <button type="button" className="btn-ghost !py-1.5 !px-3 text-xs flex items-center gap-1" onClick={exportDailyVisitorsCsv}>
@@ -672,7 +672,7 @@ function AdminDashboard({ userName, userRole }: { userName: string; userRole: st
                         {adminTxt.exportCsv}
                     </button>
                 </div>
-                <div className="h-44 mb-4">
+                <div className="h-44 min-h-[11rem] mb-4">
                     {dailyVisitors.length > 0 ? (
                         <SafeResponsiveChart>
                             <LineChart data={dailyVisitors.map((row) => ({ label: row.date || row.week_start || '', unique_visitors: row.unique_visitors }))}>

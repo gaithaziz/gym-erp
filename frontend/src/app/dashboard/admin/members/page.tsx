@@ -4,7 +4,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { api } from '@/lib/api';
 import Image from 'next/image';
 import { useRouter } from 'next/navigation';
-import { Search, UserPlus, Save, Shield, Snowflake, RefreshCw, Pencil, Trash2, Eye, Dumbbell, Utensils, MessageCircle } from 'lucide-react';
+import { Search, UserPlus, Save, Shield, Snowflake, RefreshCw, Pencil, Trash2, Eye, EyeOff, Dumbbell, Utensils, MessageCircle } from 'lucide-react';
 import Modal from '@/components/Modal';
 import { useFeedback } from '@/components/FeedbackProvider';
 import TablePagination from '@/components/TablePagination';
@@ -22,6 +22,7 @@ interface Member {
     full_name: string;
     email: string;
     role: string;
+    home_branch_id?: string | null;
     profile_picture_url?: string;
     phone_number?: string;
     date_of_birth?: string;
@@ -116,7 +117,7 @@ const FIXED_SUBSCRIPTION_PLANS = [
 ] as const;
 
 type FixedPlan = (typeof FIXED_SUBSCRIPTION_PLANS)[number]['value'];
-type RenewalMode = 'fixed' | 'custom';
+type RenewalMode = 'period' | 'extend';
 type AssignableType = 'WORKOUT' | 'DIET';
 type MemberStatusFilter = 'ALL' | 'ACTIVE' | 'FROZEN' | 'EXPIRED' | 'NONE';
 type WorkoutPlanStatusFilter = 'ALL' | 'PUBLISHED' | 'DRAFT' | 'ARCHIVED';
@@ -132,6 +133,15 @@ const parseSetDetailsVolume = (setDetails?: WorkoutSessionEntry["set_details"] |
         if (!Number.isFinite(reps) || !Number.isFinite(weight)) return sum;
         return sum + Math.max(0, reps) * Math.max(0, weight);
     }, 0);
+};
+
+const todayDateInput = () => new Date().toISOString().split('T')[0];
+
+const addDaysToDateInput = (value: string, days: number) => {
+    const parsed = new Date(`${value}T00:00:00Z`);
+    if (Number.isNaN(parsed.getTime())) return value;
+    parsed.setUTCDate(parsed.getUTCDate() + days);
+    return parsed.toISOString().split('T')[0];
 };
 
 const getEntryVolume = (entry: WorkoutSessionEntry) => {
@@ -169,8 +179,9 @@ export default function MembersPage() {
     const router = useRouter();
     const { user } = useAuth();
     const { branches, selectedBranchId, setSelectedBranchId } = useBranch();
-    const canManageMembers = ['ADMIN', 'RECEPTION', 'FRONT_DESK'].includes(user?.role || '');
-    const canAssignPlans = ['ADMIN', 'COACH'].includes(user?.role || '');
+    const initialBranchId = selectedBranchId !== 'all' ? selectedBranchId : branches[0]?.id || '';
+    const canManageMembers = ['ADMIN', 'MANAGER', 'RECEPTION', 'FRONT_DESK'].includes(user?.role || '');
+    const canAssignPlans = ['ADMIN', 'MANAGER', 'COACH'].includes(user?.role || '');
     const canMessageClient = ['ADMIN', 'COACH'].includes(user?.role || '');
     const { showToast, confirm: confirmAction } = useFeedback();
     const [members, setMembers] = useState<Member[]>([]);
@@ -185,7 +196,15 @@ export default function MembersPage() {
 
     // Add Modal
     const [isAddOpen, setIsAddOpen] = useState(false);
-    const [addForm, setAddForm] = useState({ full_name: '', email: '', password: 'password123', role: 'CUSTOMER' });
+    const [addWizardStep, setAddWizardStep] = useState<1 | 2>(1);
+    const [showAddPassword, setShowAddPassword] = useState(false);
+    const [addForm, setAddForm] = useState({
+        full_name: '',
+        email: '',
+        password: 'password123',
+        role: 'CUSTOMER',
+        home_branch_id: initialBranchId,
+    });
 
     // Edit Modal
     const [isEditOpen, setIsEditOpen] = useState(false);
@@ -194,9 +213,11 @@ export default function MembersPage() {
     // Subscription Modal
     const [isManageOpen, setIsManageOpen] = useState(false);
     const [manageMember, setManageMember] = useState<Member | null>(null);
-    const [renewalMode, setRenewalMode] = useState<RenewalMode>('fixed');
+    const [renewalMode, setRenewalMode] = useState<RenewalMode>('period');
     const [subPlan, setSubPlan] = useState<FixedPlan>('Monthly');
-    const [subDays, setSubDays] = useState(30);
+    const [subStartDate, setSubStartDate] = useState(todayDateInput());
+    const [subEndDate, setSubEndDate] = useState(addDaysToDateInput(todayDateInput(), 30));
+    const [subExtendDays, setSubExtendDays] = useState(30);
     const [subAmountPaid, setSubAmountPaid] = useState('');
     const [subPaymentMethod, setSubPaymentMethod] = useState<'CASH' | 'CARD' | 'TRANSFER'>('CASH');
 
@@ -216,9 +237,21 @@ export default function MembersPage() {
     const [assignType, setAssignType] = useState<AssignableType>('WORKOUT');
     const [assignWorkoutStatusFilter, setAssignWorkoutStatusFilter] = useState<WorkoutPlanStatusFilter>('PUBLISHED');
     const [assignDietStatusFilter, setAssignDietStatusFilter] = useState<DietPlanStatusFilter>('PUBLISHED');
+    const selectedAddBranch = branches.find((branch) => branch.id === addForm.home_branch_id);
+    const selectedAddBranchLabel = [selectedAddBranch?.display_name || selectedAddBranch?.name, selectedAddBranch?.gym_name]
+        .filter(Boolean)
+        .join(' - ');
 
     const text = locale === 'ar'
         ? {
+            manager: 'مدير',
+            coach: 'مدرب',
+            reception: 'استقبال',
+            frontDesk: 'مكتب أمامي',
+            employee: 'موظف',
+            cashier: 'كاشير',
+            customer: 'عميل',
+            password: 'كلمة المرور',
             failedLoadWorkoutPlans: 'فشل في تحميل خطط التمرين.',
             failedLoadDietPlans: 'فشل في تحميل خطط التغذية.',
             failedRegisterMember: 'فشل في تسجيل العضو.',
@@ -226,7 +259,7 @@ export default function MembersPage() {
             deactivateMemberTitle: 'تعطيل العضو',
             deactivateMemberConfirm: 'تعطيل',
             failedDeactivateMember: 'فشل في تعطيل العضو.',
-            durationPositive: 'يجب أن تكون المدة عددًا موجبًا من الأيام.',
+            extendDaysPositive: 'يجب أن تكون أيام التمديد عددًا موجبًا.',
             amountPositive: 'يجب أن يكون المبلغ المدفوع أكبر من صفر.',
             failedCreateSubscription: 'فشل في إنشاء الاشتراك.',
             failedSubscriptionAction: 'فشل في تحديث حالة الاشتراك.',
@@ -250,6 +283,14 @@ export default function MembersPage() {
             addMemberModal: 'تسجيل عضو جديد',
             fullName: 'الاسم الكامل',
             email: 'البريد الإلكتروني',
+            role: 'الدور',
+            branch: 'الفرع',
+            branchStepIntro: 'اختر الفرع أولاً.',
+            branchRequired: 'يجب اختيار فرع قبل تسجيل العضو.',
+            branchLockedNote: 'الفرع مثبت وسيُربط الحساب به مباشرة.',
+            changeBranch: 'تغيير الفرع',
+            nextStep: 'التالي',
+            backStep: 'السابق',
             cancel: 'إلغاء',
             register: 'تسجيل',
             editMemberModal: 'تعديل بيانات العضو',
@@ -258,11 +299,12 @@ export default function MembersPage() {
             currentStatus: 'الحالة الحالية',
             noSubscription: 'بدون اشتراك',
             renewalMode: 'وضع التجديد',
-            fixedPlan: 'خطة ثابتة',
-            customDays: 'أيام مخصصة',
+            periodMode: 'فترة الاشتراك',
+            extendMode: 'تمديد الاشتراك',
             plan: 'الخطة',
-            durationDays: 'المدة (أيام)',
-            customDurationDays: 'مدة مخصصة (أيام)',
+            startDate: 'تاريخ البدء',
+            endDate: 'تاريخ الانتهاء',
+            extendDays: 'أيام التمديد',
             amountPaid: 'المبلغ المدفوع (JOD)',
             paymentMethod: 'طريقة الدفع',
             cash: 'نقدًا',
@@ -343,6 +385,14 @@ export default function MembersPage() {
             lineMuscleKg: 'العضلات (كجم)',
         }
         : {
+            manager: 'Manager',
+            coach: 'Coach',
+            reception: 'Reception',
+            frontDesk: 'Front Desk',
+            employee: 'Employee',
+            cashier: 'Cashier',
+            customer: 'Customer',
+            password: 'Password',
             failedLoadWorkoutPlans: 'Failed to load workout plans.',
             failedLoadDietPlans: 'Failed to load diet plans.',
             failedRegisterMember: 'Failed to register member.',
@@ -350,7 +400,7 @@ export default function MembersPage() {
             deactivateMemberTitle: 'Deactivate Member',
             deactivateMemberConfirm: 'Deactivate',
             failedDeactivateMember: 'Failed to deactivate member.',
-            durationPositive: 'Duration must be a positive number of days.',
+            extendDaysPositive: 'Extension days must be a positive number.',
             amountPositive: 'Paid amount must be greater than zero.',
             failedCreateSubscription: 'Failed to create subscription.',
             failedSubscriptionAction: 'Failed to update subscription status.',
@@ -374,6 +424,14 @@ export default function MembersPage() {
             addMemberModal: 'Register New Member',
             fullName: 'Full Name',
             email: 'Email',
+            role: 'Role',
+            branch: 'Branch',
+            branchStepIntro: 'Choose the branch first.',
+            branchRequired: 'You must choose a branch before registering the member.',
+            branchLockedNote: 'The branch is locked and the account will be created inside it.',
+            changeBranch: 'Change branch',
+            nextStep: 'Next',
+            backStep: 'Back',
             cancel: 'Cancel',
             register: 'Register',
             editMemberModal: 'Edit Member Details',
@@ -383,10 +441,12 @@ export default function MembersPage() {
             noSubscription: 'NO SUBSCRIPTION',
             renewalMode: 'Renewal Mode',
             fixedPlan: 'Fixed Plan',
-            customDays: 'Custom Days',
+            periodMode: 'Subscription Period',
+            extendMode: 'Extend Subscription',
             plan: 'Plan',
-            durationDays: 'Duration (days)',
-            customDurationDays: 'Custom Duration (days)',
+            startDate: 'Start Date',
+            endDate: 'End Date',
+            extendDays: 'Extension Days',
             amountPaid: 'Amount Paid (JOD)',
             paymentMethod: 'Payment Method',
             cash: 'Cash',
@@ -495,6 +555,8 @@ export default function MembersPage() {
         switch (role) {
             case 'ADMIN':
                 return locale === 'ar' ? 'مشرف' : 'Admin';
+            case 'MANAGER':
+                return locale === 'ar' ? 'مدير' : 'Manager';
             case 'COACH':
                 return locale === 'ar' ? 'مدرب' : 'Coach';
             case 'CUSTOMER':
@@ -525,8 +587,8 @@ export default function MembersPage() {
             const branchParams = getBranchParams(selectedBranchId);
             const [detailRes, biometricsRes, sessionsRes] = await Promise.all([
                 api.get(`/mobile/staff/members/${member.id}`, { params: branchParams }),
-                api.get(`/fitness/biometrics/member/${member.id}`, { params: { limit: 500 } }).catch(() => ({ data: { data: [] } })),
-                api.get(`/fitness/session-logs/member/${member.id}`, { params: { limit: 500 } }).catch(() => ({ data: { data: [] } })),
+                api.get(`/fitness/biometrics/member/${member.id}`, { params: { limit: 500, ...branchParams } }).catch(() => ({ data: { data: [] } })),
+                api.get(`/fitness/session-logs/member/${member.id}`, { params: { limit: 500, ...branchParams } }).catch(() => ({ data: { data: [] } })),
             ]);
             const detail = detailRes.data?.data as StaffMemberDetail | undefined;
             if (detail) {
@@ -706,6 +768,16 @@ export default function MembersPage() {
     }, [selectedBranchId]);
 
     useEffect(() => {
+        if (!isAddOpen) return;
+        setAddForm((current) => ({
+            ...current,
+            home_branch_id: current.home_branch_id && branches.some((branch) => branch.id === current.home_branch_id)
+                ? current.home_branch_id
+                : initialBranchId,
+        }));
+    }, [branches, initialBranchId, isAddOpen]);
+
+    useEffect(() => {
         const timer = setTimeout(() => {
             setDebouncedSearch(search.trim().toLowerCase());
         }, 250);
@@ -714,10 +786,19 @@ export default function MembersPage() {
 
     const handleAddMember = async (e: React.FormEvent) => {
         e.preventDefault();
+        if (!addForm.home_branch_id) {
+            showToast(text.branchRequired, 'error');
+            return;
+        }
         try {
-            await api.post('/auth/register', addForm);
-            setIsAddOpen(false);
-            setAddForm({ full_name: '', email: '', password: 'password123', role: 'CUSTOMER' });
+            await api.post('/auth/register', {
+                full_name: addForm.full_name,
+                email: addForm.email,
+                password: addForm.password,
+                role: 'CUSTOMER',
+                home_branch_id: addForm.home_branch_id,
+            });
+            closeAddMemberWizard();
             fetchMembers();
         } catch (err) {
             console.error(err);
@@ -764,9 +845,11 @@ export default function MembersPage() {
 
     const openManage = (member: Member) => {
         setManageMember(member);
-        setRenewalMode('fixed');
+        setRenewalMode('period');
         setSubPlan('Monthly');
-        setSubDays(30);
+        setSubStartDate(todayDateInput());
+        setSubEndDate(addDaysToDateInput(todayDateInput(), 30));
+        setSubExtendDays(30);
         setSubAmountPaid('');
         setSubPaymentMethod('CASH');
         setIsManageOpen(true);
@@ -774,24 +857,38 @@ export default function MembersPage() {
 
     const handleCreateSub = async () => {
         if (!manageMember) return;
-        const normalizedDays = Math.floor(Number(subDays));
-        if (!Number.isFinite(normalizedDays) || normalizedDays <= 0) {
-            showToast(text.durationPositive, 'error');
-            return;
-        }
         const amountPaid = Number(subAmountPaid);
         if (!Number.isFinite(amountPaid) || amountPaid <= 0) {
             showToast(text.amountPositive, 'error');
             return;
         }
+        if (renewalMode === 'extend') {
+            const normalizedExtendDays = Math.floor(Number(subExtendDays));
+            if (!Number.isFinite(normalizedExtendDays) || normalizedExtendDays <= 0) {
+                showToast(text.extendDaysPositive, 'error');
+                return;
+            }
+        }
         try {
-            await api.post('/hr/subscriptions', {
-                user_id: manageMember.id,
-                plan_name: renewalMode === 'fixed' ? subPlan : 'Custom',
-                duration_days: normalizedDays,
-                amount_paid: amountPaid,
-                payment_method: subPaymentMethod,
-            });
+            const payload = renewalMode === 'extend'
+                ? {
+                    user_id: manageMember.id,
+                    plan_name: subPlan,
+                    start_date: subStartDate,
+                    end_date: subEndDate,
+                    extend_days: Math.floor(Number(subExtendDays)),
+                    amount_paid: amountPaid,
+                    payment_method: subPaymentMethod,
+                }
+                : {
+                    user_id: manageMember.id,
+                    plan_name: subPlan,
+                    start_date: subStartDate,
+                    end_date: subEndDate,
+                    amount_paid: amountPaid,
+                    payment_method: subPaymentMethod,
+                };
+            await api.post('/hr/subscriptions', payload);
             setIsManageOpen(false);
             fetchMembers();
         } catch (err) {
@@ -810,6 +907,32 @@ export default function MembersPage() {
             console.error(err);
             showToast(text.failedSubscriptionAction, 'error');
         }
+    };
+
+    const openAddMemberWizard = () => {
+        setAddWizardStep(1);
+        setAddForm((current) => ({
+            ...current,
+            full_name: '',
+            email: '',
+            password: 'password123',
+            role: 'CUSTOMER',
+            home_branch_id: initialBranchId,
+        }));
+        setIsAddOpen(true);
+    };
+
+    const closeAddMemberWizard = () => {
+        setIsAddOpen(false);
+        setAddWizardStep(1);
+        setShowAddPassword(false);
+        setAddForm({
+            full_name: '',
+            email: '',
+            password: 'password123',
+            role: 'CUSTOMER',
+            home_branch_id: initialBranchId,
+        });
     };
 
     const statusBadge = (status?: string) => {
@@ -871,7 +994,10 @@ export default function MembersPage() {
 
     const handleMessageClient = async (memberId: string) => {
         try {
-            const response = await api.post('/chat/threads', { customer_id: memberId });
+            const response = await api.post('/chat/threads', {
+                customer_id: memberId,
+                ...getBranchParams(selectedBranchId),
+            });
             const threadId = response.data?.data?.id as string | undefined;
             if (!threadId) {
                 throw new Error('Missing thread id');
@@ -944,7 +1070,7 @@ export default function MembersPage() {
                         />
                     </div>
                     {canManageMembers && (
-                        <button onClick={() => setIsAddOpen(true)} className="btn-primary">
+                        <button onClick={openAddMemberWizard} className="btn-primary">
                             <UserPlus size={18} /> {t('members.addMember')}
                         </button>
                     )}
@@ -1183,20 +1309,111 @@ export default function MembersPage() {
             </div>
 
             {/* ===== ADD MEMBER MODAL ===== */}
-            <Modal isOpen={isAddOpen && canManageMembers} onClose={() => setIsAddOpen(false)} title={text.addMemberModal}>
-                <form onSubmit={handleAddMember} className="space-y-4">
-                    <div>
-                        <label className="block text-xs font-medium text-muted-foreground mb-1.5">{text.fullName}</label>
-                        <input type="text" required className="input-dark" value={addForm.full_name} onChange={e => setAddForm({ ...addForm, full_name: e.target.value })} />
+            <Modal isOpen={isAddOpen && canManageMembers} onClose={closeAddMemberWizard} title={text.addMemberModal} maxWidthClassName="max-w-2xl">
+                <form onSubmit={handleAddMember} className="space-y-5">
+                    <div className="flex items-center gap-2 text-[10px] font-bold uppercase tracking-widest text-muted-foreground">
+                        <span className={`rounded-full px-2 py-1 ${addWizardStep === 1 ? 'bg-primary text-primary-foreground' : 'bg-muted/40'}`}>1</span>
+                        <span>{text.branch}</span>
+                        <span className="h-px w-8 bg-border" />
+                        <span className={`rounded-full px-2 py-1 ${addWizardStep === 2 ? 'bg-primary text-primary-foreground' : 'bg-muted/40'}`}>2</span>
+                        <span>{text.register}</span>
                     </div>
-                    <div>
-                        <label className="block text-xs font-medium text-muted-foreground mb-1.5">{text.email}</label>
-                        <input type="email" required className="input-dark" value={addForm.email} onChange={e => setAddForm({ ...addForm, email: e.target.value })} />
-                    </div>
-                    <div className="flex justify-end gap-3 pt-4 border-t border-border">
-                        <button type="button" onClick={() => setIsAddOpen(false)} className="btn-ghost">{text.cancel}</button>
-                        <button type="submit" className="btn-primary"><Save size={16} /> {text.register}</button>
-                    </div>
+
+                    {addWizardStep === 1 ? (
+                        <div className="space-y-4">
+                            <div className="rounded-2xl border border-border bg-muted/20 p-4">
+                                <p className="text-xs uppercase tracking-[0.2em] text-muted-foreground">{text.branch}</p>
+                                <p className="mt-2 text-sm font-medium text-foreground">{text.branchStepIntro}</p>
+                            </div>
+                            <div className="rounded-2xl border border-border bg-card/50 p-4">
+                                <label className="block text-xs font-medium text-muted-foreground mb-2">{text.branch}</label>
+                                <select
+                                    className="input-dark"
+                                    value={addForm.home_branch_id}
+                                    onChange={e => setAddForm({ ...addForm, home_branch_id: e.target.value })}
+                                    required
+                                >
+                                    <option value="">{text.branch}</option>
+                                    {branches.map((branch) => (
+                                        <option key={branch.id} value={branch.id}>
+                                            {[branch.display_name || branch.name, branch.gym_name].filter(Boolean).join(' - ')}
+                                        </option>
+                                    ))}
+                                </select>
+                            </div>
+                            <div className="flex justify-end gap-3 pt-1">
+                                <button type="button" onClick={closeAddMemberWizard} className="btn-ghost">{text.cancel}</button>
+                                <button type="button" className="btn-primary" disabled={!addForm.home_branch_id} onClick={() => setAddWizardStep(2)}>
+                                    {text.nextStep}
+                                </button>
+                            </div>
+                        </div>
+                    ) : (
+                        <div className="space-y-4">
+                            <div className="rounded-2xl border border-border bg-card/60 p-4">
+                                <div className="flex flex-wrap items-start justify-between gap-3">
+                                    <div>
+                                        <p className="text-xs uppercase tracking-[0.2em] text-muted-foreground">{text.branch}</p>
+                                        <p className="mt-1 text-sm font-semibold text-foreground">{selectedAddBranchLabel || '--'}</p>
+                                    </div>
+                                    <button type="button" onClick={() => setAddWizardStep(1)} className="text-xs font-medium text-primary hover:underline">
+                                        {text.changeBranch}
+                                    </button>
+                                </div>
+                                <p className="mt-2 text-xs text-muted-foreground">
+                                    {text.branchLockedNote}
+                                </p>
+                            </div>
+
+                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                                <div>
+                                    <label className="block text-xs font-medium text-muted-foreground mb-1.5">{text.fullName}</label>
+                                    <input type="text" required className="input-dark" value={addForm.full_name} onChange={e => setAddForm({ ...addForm, full_name: e.target.value })} />
+                                </div>
+                                <div>
+                                    <label className="block text-xs font-medium text-muted-foreground mb-1.5">{text.email}</label>
+                                    <input type="email" required className="input-dark" value={addForm.email} onChange={e => setAddForm({ ...addForm, email: e.target.value })} />
+                                </div>
+                            </div>
+
+                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                                <div>
+                                    <label className="block text-xs font-medium text-muted-foreground mb-1.5">{text.password}</label>
+                                    <div className="relative">
+                                        <input
+                                            type={showAddPassword ? 'text' : 'password'}
+                                            required
+                                            className="input-dark pr-11"
+                                            value={addForm.password}
+                                            onChange={e => setAddForm({ ...addForm, password: e.target.value })}
+                                        />
+                                        <button
+                                            type="button"
+                                            onClick={() => setShowAddPassword((current) => !current)}
+                                            className="absolute inset-y-0 right-0 flex items-center px-3 text-muted-foreground hover:text-foreground"
+                                            aria-label={showAddPassword ? 'Hide password' : 'Show password'}
+                                        >
+                                            {showAddPassword ? <EyeOff size={16} /> : <Eye size={16} />}
+                                        </button>
+                                    </div>
+                                </div>
+                                <div>
+                                    <label className="block text-xs font-medium text-muted-foreground mb-1.5">{text.role}</label>
+                                    <div className="rounded-2xl border border-border bg-background px-3 py-3 text-sm font-medium text-foreground">
+                                        {text.customer}
+                                    </div>
+                                </div>
+                            </div>
+
+                            <div className="flex flex-col-reverse sm:flex-row sm:justify-between gap-3 pt-1 border-t border-border">
+                                <button type="button" onClick={() => setAddWizardStep(1)} className="btn-ghost">{text.backStep}</button>
+                                <div className="flex gap-3">
+                                    <button type="button" onClick={closeAddMemberWizard} className="btn-ghost">{text.cancel}</button>
+                                    <button type="submit" className="btn-primary" disabled={!addForm.home_branch_id}><Save size={16} /> {text.register}</button>
+                                </div>
+                            </div>
+                        </div>
+                    )}
                 </form>
             </Modal>
 
@@ -1246,69 +1463,91 @@ export default function MembersPage() {
                                 <button
                                     type="button"
                                     onClick={() => {
-                                        setRenewalMode('fixed');
+                                        setRenewalMode('period');
                                         const selectedPlan = FIXED_SUBSCRIPTION_PLANS.find(plan => plan.value === subPlan) ?? FIXED_SUBSCRIPTION_PLANS[0];
-                                        setSubDays(selectedPlan.days);
+                                        setSubEndDate(addDaysToDateInput(subStartDate, selectedPlan.days));
                                     }}
-                                    className={`py-2 px-3 text-sm rounded-sm border transition-colors ${renewalMode === 'fixed'
+                                    className={`py-2 px-3 text-sm rounded-sm border transition-colors ${renewalMode === 'period'
                                         ? 'border-primary text-primary bg-primary/10'
                                         : 'border-border text-muted-foreground hover:text-foreground hover:bg-white/5'
                                         }`}
                                 >
-                                    {text.fixedPlan}
+                                    {text.periodMode}
                                 </button>
                                 <button
                                     type="button"
-                                    onClick={() => setRenewalMode('custom')}
-                                    className={`py-2 px-3 text-sm rounded-sm border transition-colors ${renewalMode === 'custom'
+                                    onClick={() => setRenewalMode('extend')}
+                                    className={`py-2 px-3 text-sm rounded-sm border transition-colors ${renewalMode === 'extend'
                                         ? 'border-primary text-primary bg-primary/10'
                                         : 'border-border text-muted-foreground hover:text-foreground hover:bg-white/5'
                                         }`}
                                 >
-                                    {text.customDays}
+                                    {text.extendMode}
                                 </button>
                             </div>
                         </div>
 
-                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                            {renewalMode === 'fixed' ? (
-                                <>
-                                    <div>
-                                        <label className="block text-xs text-muted-foreground mb-1">{text.plan}</label>
-                                        <select
-                                            className="input-dark"
-                                            value={subPlan}
-                                            onChange={e => {
-                                                const nextPlan = e.target.value as FixedPlan;
-                                                const selectedPlan = FIXED_SUBSCRIPTION_PLANS.find(plan => plan.value === nextPlan) ?? FIXED_SUBSCRIPTION_PLANS[0];
-                                                setSubPlan(nextPlan);
-                                                setSubDays(selectedPlan.days);
-                                            }}
-                                        >
-                                            {FIXED_SUBSCRIPTION_PLANS.map(plan => (
-                                                <option key={plan.value} value={plan.value}>{fixedPlanLabelByValue[plan.value]}</option>
-                                            ))}
-                                        </select>
-                                    </div>
-                                    <div>
-                                        <label className="block text-xs text-muted-foreground mb-1">{text.durationDays}</label>
-                                        <input type="number" className="input-dark" value={subDays} disabled readOnly />
-                                    </div>
-                                </>
-                            ) : (
-                                <div className="sm:col-span-2">
-                                    <label className="block text-xs text-muted-foreground mb-1">{text.customDurationDays}</label>
-                                    <input
-                                        type="number"
-                                        min={1}
-                                        step={1}
+                        {renewalMode === 'period' ? (
+                            <div className="space-y-3">
+                                <div>
+                                    <label className="block text-xs text-muted-foreground mb-1">{text.plan}</label>
+                                    <select
                                         className="input-dark"
-                                        value={subDays}
-                                        onChange={e => setSubDays(Number(e.target.value))}
-                                    />
+                                        value={subPlan}
+                                        onChange={e => {
+                                            const nextPlan = e.target.value as FixedPlan;
+                                            const selectedPlan = FIXED_SUBSCRIPTION_PLANS.find(plan => plan.value === nextPlan) ?? FIXED_SUBSCRIPTION_PLANS[0];
+                                            setSubPlan(nextPlan);
+                                            setSubEndDate(addDaysToDateInput(subStartDate, selectedPlan.days));
+                                        }}
+                                    >
+                                        {FIXED_SUBSCRIPTION_PLANS.map(plan => (
+                                            <option key={plan.value} value={plan.value}>{fixedPlanLabelByValue[plan.value]}</option>
+                                        ))}
+                                    </select>
                                 </div>
-                            )}
-                        </div>
+                                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                                    <div>
+                                        <label className="block text-xs text-muted-foreground mb-1">{text.startDate}</label>
+                                        <input
+                                            type="date"
+                                            className="input-dark"
+                                            value={subStartDate}
+                                            onChange={e => {
+                                                const nextStart = e.target.value;
+                                                setSubStartDate(nextStart);
+                                                const selectedPlan = FIXED_SUBSCRIPTION_PLANS.find(plan => plan.value === subPlan) ?? FIXED_SUBSCRIPTION_PLANS[0];
+                                                setSubEndDate(addDaysToDateInput(nextStart, selectedPlan.days));
+                                            }}
+                                            required
+                                        />
+                                    </div>
+                                    <div>
+                                        <label className="block text-xs text-muted-foreground mb-1">{text.endDate}</label>
+                                        <input
+                                            type="date"
+                                            className="input-dark"
+                                            value={subEndDate}
+                                            min={subStartDate || undefined}
+                                            onChange={e => setSubEndDate(e.target.value)}
+                                            required
+                                        />
+                                    </div>
+                                </div>
+                            </div>
+                        ) : (
+                            <div>
+                                <label className="block text-xs text-muted-foreground mb-1">{text.extendDays}</label>
+                                <input
+                                    type="number"
+                                    min={1}
+                                    step={1}
+                                    className="input-dark"
+                                    value={subExtendDays}
+                                    onChange={e => setSubExtendDays(Number(e.target.value))}
+                                />
+                            </div>
+                        )}
                         <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                             <div>
                                 <label className="block text-xs text-muted-foreground mb-1">{text.amountPaid}</label>
@@ -1330,8 +1569,8 @@ export default function MembersPage() {
                                 </select>
                             </div>
                         </div>
-                        <button onClick={handleCreateSub} className="btn-primary w-full justify-center">
-                            <RefreshCw size={15} /> {manageMember?.subscription ? text.renewSubscription : text.activateSubscription}
+                        <button type="button" onClick={handleCreateSub} className="btn-primary w-full justify-center">
+                            <RefreshCw size={15} /> {renewalMode === 'extend' ? text.extendMode : (manageMember?.subscription ? text.renewSubscription : text.activateSubscription)}
                         </button>
                     </div>
 

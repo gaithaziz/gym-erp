@@ -16,6 +16,7 @@ from app.models.hr import Contract, ContractType, LeaveRequest, LeaveStatus, Lea
 from app.models.inventory import Product
 from app.models.support import SupportTicket, TicketCategory, TicketStatus
 from app.models.user import User
+from app.services.tenancy_service import TenancyService
 
 
 async def _auth_headers_for_role(client: AsyncClient, db_session, role: Role, email: str) -> dict[str, str]:
@@ -699,10 +700,11 @@ async def test_mobile_admin_manager_chat_is_read_only(client: AsyncClient, db_se
 @pytest.mark.asyncio
 async def test_mobile_admin_staff_operations_for_admin_manager_only(client: AsyncClient, db_session):
     hashed = get_password_hash("password")
-    admin = User(email="phase4-staffops-admin@test.com", hashed_password=hashed, full_name="Staff Ops Admin", role=Role.ADMIN, is_active=True)
-    manager = User(email="phase4-staffops-manager@test.com", hashed_password=hashed, full_name="Staff Ops Manager", role=Role.MANAGER, is_active=True)
-    employee = User(email="phase4-staffops-employee@test.com", hashed_password=hashed, full_name="Staff Ops Employee", role=Role.EMPLOYEE, is_active=True)
-    customer = User(email="phase4-staffops-customer@test.com", hashed_password=hashed, full_name="Staff Ops Customer", role=Role.CUSTOMER, is_active=True)
+    _, branch = await TenancyService.ensure_default_gym_and_branch(db_session)
+    admin = User(email="phase4-staffops-admin@test.com", hashed_password=hashed, full_name="Staff Ops Admin", role=Role.ADMIN, is_active=True, home_branch_id=branch.id)
+    manager = User(email="phase4-staffops-manager@test.com", hashed_password=hashed, full_name="Staff Ops Manager", role=Role.MANAGER, is_active=True, home_branch_id=branch.id)
+    employee = User(email="phase4-staffops-employee@test.com", hashed_password=hashed, full_name="Staff Ops Employee", role=Role.EMPLOYEE, is_active=True, home_branch_id=branch.id)
+    customer = User(email="phase4-staffops-customer@test.com", hashed_password=hashed, full_name="Staff Ops Customer", role=Role.CUSTOMER, is_active=True, home_branch_id=branch.id)
     db_session.add_all([admin, manager, employee, customer])
     await db_session.flush()
 
@@ -717,12 +719,13 @@ async def test_mobile_admin_staff_operations_for_admin_manager_only(client: Asyn
                 start_date=now.date(),
                 standard_hours=160,
             ),
-            AttendanceLog(
-                user_id=employee.id,
-                check_in_time=now - timedelta(hours=2),
-                check_out_time=None,
-                hours_worked=0,
-            ),
+                AttendanceLog(
+                    user_id=employee.id,
+                    check_in_time=now - timedelta(minutes=30),
+                    check_out_time=None,
+                    hours_worked=0,
+                    branch_id=branch.id,
+                ),
             LeaveRequest(
                 user_id=employee.id,
                 start_date=now.date(),

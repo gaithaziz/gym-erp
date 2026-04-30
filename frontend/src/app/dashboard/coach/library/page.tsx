@@ -7,6 +7,7 @@ import Modal from '@/components/Modal';
 import { Plus, Pencil, Trash2, Utensils, Dumbbell, Save } from 'lucide-react';
 import { useAuth } from '@/context/AuthContext';
 import { useLocale } from '@/context/LocaleContext';
+import { isBranchAdminRole, isGlobalAdminRole } from '@/lib/roles';
 
 type LibraryScope = 'all' | 'global' | 'mine';
 type ActiveTab = 'WORKOUT' | 'DIET';
@@ -176,7 +177,8 @@ export default function WorkoutDietLibraryPage() {
     const [workoutForm, setWorkoutForm] = useState(emptyWorkoutForm);
     const [dietForm, setDietForm] = useState(emptyDietForm);
 
-    const isAdmin = user?.role === 'ADMIN';
+    const isAdmin = isBranchAdminRole(user?.role);
+    const isGlobalAdmin = isGlobalAdminRole(user?.role);
 
     const fetchWorkoutItems = useCallback(async () => {
         const res = await api.get('/fitness/exercise-library', {
@@ -254,7 +256,7 @@ export default function WorkoutDietLibraryPage() {
                     .map(tag => tag.trim())
                     .filter(Boolean),
                 default_video_url: workoutForm.default_video_url || null,
-                is_global: isAdmin ? workoutForm.is_global : false,
+                is_global: isGlobalAdmin ? workoutForm.is_global : false,
             };
             if (workoutForm.id) {
                 await api.put(`/fitness/exercise-library/${workoutForm.id}`, payload);
@@ -277,7 +279,7 @@ export default function WorkoutDietLibraryPage() {
                 name: dietForm.name,
                 description: dietForm.description || null,
                 content: dietForm.content,
-                is_global: isAdmin ? dietForm.is_global : false,
+                is_global: isGlobalAdmin ? dietForm.is_global : false,
             };
             if (dietForm.id) {
                 await api.put(`/fitness/diet-library/${dietForm.id}`, payload);

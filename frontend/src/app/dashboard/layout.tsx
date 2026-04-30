@@ -31,11 +31,13 @@ import { LanguageToggle } from "@/components/LanguageToggle";
 import { BrandMark } from "@/components/BrandLogo";
 import { useEffect, useState } from 'react';
 import { resolveProfileImageUrl } from '@/lib/profileImage';
-import { setTokens } from '@/lib/tokenStorage';
+import { getAccessToken, setTokens } from '@/lib/tokenStorage';
 import ChatDrawer from '@/components/chat/ChatDrawer';
 import { api } from '@/lib/api';
 import { useChatThreads } from '@/hooks/useChatThreads';
 import { useLocale } from '@/context/LocaleContext';
+import { useBranch } from '@/context/BranchContext';
+import { BRANCH_ADMIN_ROLES } from '@/lib/roles';
 import type { TranslationKey } from '@/lib/i18n/types';
 
 const BLOCKED_ALLOWED_ROUTES = ['/dashboard/subscription', '/dashboard/blocked', '/dashboard/support', '/dashboard/lost-found'];
@@ -47,6 +49,7 @@ export default function DashboardLayout({
     children: React.ReactNode;
 }) {
     const { t, direction } = useLocale();
+    const { selectedBranchId } = useBranch();
     const { user, logout, isLoading } = useAuth();
     const router = useRouter();
     const pathname = usePathname();
@@ -60,13 +63,13 @@ export default function DashboardLayout({
         user?.role === 'CUSTOMER' &&
         (Boolean(user?.is_subscription_blocked) ||
             BLOCKED_SUBSCRIPTION_STATUSES.has(user?.subscription_status || 'NONE'));
-    const canUseChat = ['ADMIN', 'COACH', 'CUSTOMER'].includes(user?.role || '') && !isBlockedCustomer;
+    const canUseChat = [...BRANCH_ADMIN_ROLES, 'COACH', 'CUSTOMER'].includes(user?.role || '') && !isBlockedCustomer;
     const isBlockedRouteAllowed = BLOCKED_ALLOWED_ROUTES.some((route) => pathname.startsWith(route));
     const isSupportPage = pathname.startsWith('/dashboard/admin/support') || pathname.startsWith('/dashboard/support');
     const isLostFoundPage = pathname.startsWith('/dashboard/lost-found');
-    const canAccessSupportFeed = ['CUSTOMER', 'ADMIN', 'MANAGER', 'RECEPTION', 'FRONT_DESK'].includes(user?.role || '');
-    const canAccessLostFoundFeed = ['ADMIN', 'MANAGER', 'FRONT_DESK', 'RECEPTION', 'COACH', 'EMPLOYEE', 'CASHIER', 'CUSTOMER'].includes(user?.role || '');
-    const { threads: chatThreads, mutate: mutateChatThreads } = useChatThreads({ enabled: !!user && canUseChat, limit: 100 });
+    const canAccessSupportFeed = ['CUSTOMER', ...BRANCH_ADMIN_ROLES, 'RECEPTION', 'FRONT_DESK'].includes(user?.role || '');
+    const canAccessLostFoundFeed = [...BRANCH_ADMIN_ROLES, 'FRONT_DESK', 'RECEPTION', 'COACH', 'EMPLOYEE', 'CASHIER', 'CUSTOMER'].includes(user?.role || '');
+    const { threads: chatThreads, mutate: mutateChatThreads } = useChatThreads({ enabled: !!user && canUseChat, limit: 100, branchId: selectedBranchId });
     const chatNewConversations = canUseChat
         ? chatThreads.filter((t) => (t.unread_count || 0) > 0).length
         : 0;
@@ -98,6 +101,11 @@ export default function DashboardLayout({
 
     useEffect(() => {
         if (!user) return;
+        if (!getAccessToken()) {
+            setSupportHasNew(false);
+            setLostFoundHasNew(false);
+            return;
+        }
 
         const seenKeySupport = `last_seen_support_${user.id}`;
         const seenKeyLostFound = `last_seen_lost_found_${user.id}`;
@@ -206,28 +214,28 @@ export default function DashboardLayout({
         roles: string[];
         section: string;
     }> = [
-        { href: '/dashboard', labelKey: 'dashboard.nav.dashboard', icon: LayoutDashboard, roles: ['ADMIN', 'COACH', 'CUSTOMER', 'EMPLOYEE', 'CASHIER', 'RECEPTION', 'FRONT_DESK'], section: 'operations' },
-        { href: '/dashboard/admin/inventory', labelKey: 'dashboard.nav.inventory', icon: Package, roles: ['ADMIN'], section: 'operations' },
-        { href: '/dashboard/admin/pos', labelKey: 'dashboard.nav.cashierPos', icon: ShoppingCart, roles: ['ADMIN', 'CASHIER', 'EMPLOYEE'], section: 'operations' },
-        { href: '/dashboard/admin/notifications', labelKey: 'dashboard.nav.whatsappAutomation', icon: MessageSquare, roles: ['ADMIN', 'RECEPTION', 'FRONT_DESK'], section: 'operations' },
-        { href: '/dashboard/admin/entrance-qr', labelKey: 'dashboard.nav.entranceQr', icon: QrCode, roles: ['ADMIN'], section: 'operations' },
-        { href: '/dashboard/classes', labelKey: 'dashboard.nav.classes', icon: ClipboardList, roles: ['ADMIN', 'MANAGER'], section: 'operations' },
-        { href: '/dashboard/admin/support', labelKey: 'dashboard.nav.supportDesk', icon: LifeBuoy, roles: ['ADMIN', 'RECEPTION'], section: 'operations' },
-        { href: '/dashboard/lost-found', labelKey: 'dashboard.nav.lostFound', icon: MessageSquare, roles: ['ADMIN', 'MANAGER', 'FRONT_DESK', 'RECEPTION', 'COACH', 'EMPLOYEE', 'CASHIER', 'CUSTOMER'], section: 'operations' },
-        { href: '/dashboard/admin/audit', labelKey: 'dashboard.nav.auditLogs', icon: ShieldAlert, roles: ['ADMIN'], section: 'operations' },
-        { href: '/dashboard/admin/members', labelKey: 'dashboard.nav.receptionRegistration', icon: UserCheck, roles: ['ADMIN', 'COACH', 'RECEPTION', 'FRONT_DESK'], section: 'people' },
-        { href: '/dashboard/admin/staff', labelKey: 'dashboard.nav.staff', icon: Users, roles: ['ADMIN'], section: 'people' },
-        { href: '/dashboard/admin/staff/attendance', labelKey: 'dashboard.nav.attendance', icon: ClipboardList, roles: ['ADMIN'], section: 'people' },
-        { href: '/dashboard/admin/leaves', labelKey: 'dashboard.nav.hrLeaves', icon: ClipboardList, roles: ['ADMIN'], section: 'people' },
-        { href: '/dashboard/admin/finance', labelKey: 'dashboard.nav.financials', icon: Wallet, roles: ['ADMIN'], section: 'finance' },
-        { href: '/dashboard/coach/plans', labelKey: 'dashboard.nav.workoutPlans', icon: Dumbbell, roles: ['ADMIN', 'COACH'], section: 'coaching' },
-        { href: '/dashboard/coach/diets', labelKey: 'dashboard.nav.dietPlans', icon: Utensils, roles: ['ADMIN', 'COACH'], section: 'coaching' },
+        { href: '/dashboard', labelKey: 'dashboard.nav.dashboard', icon: LayoutDashboard, roles: [...BRANCH_ADMIN_ROLES, 'COACH', 'CUSTOMER', 'EMPLOYEE', 'CASHIER', 'RECEPTION', 'FRONT_DESK'], section: 'operations' },
+        { href: '/dashboard/admin/inventory', labelKey: 'dashboard.nav.inventory', icon: Package, roles: [...BRANCH_ADMIN_ROLES], section: 'operations' },
+        { href: '/dashboard/admin/pos', labelKey: 'dashboard.nav.cashierPos', icon: ShoppingCart, roles: [...BRANCH_ADMIN_ROLES, 'CASHIER', 'EMPLOYEE'], section: 'operations' },
+        { href: '/dashboard/admin/notifications', labelKey: 'dashboard.nav.whatsappAutomation', icon: MessageSquare, roles: [...BRANCH_ADMIN_ROLES, 'RECEPTION', 'FRONT_DESK'], section: 'operations' },
+        { href: '/dashboard/admin/entrance-qr', labelKey: 'dashboard.nav.entranceQr', icon: QrCode, roles: [...BRANCH_ADMIN_ROLES], section: 'operations' },
+        { href: '/dashboard/classes', labelKey: 'dashboard.nav.classes', icon: ClipboardList, roles: [...BRANCH_ADMIN_ROLES], section: 'operations' },
+        { href: '/dashboard/admin/support', labelKey: 'dashboard.nav.supportDesk', icon: LifeBuoy, roles: [...BRANCH_ADMIN_ROLES, 'RECEPTION'], section: 'operations' },
+        { href: '/dashboard/lost-found', labelKey: 'dashboard.nav.lostFound', icon: MessageSquare, roles: [...BRANCH_ADMIN_ROLES, 'FRONT_DESK', 'RECEPTION', 'COACH', 'EMPLOYEE', 'CASHIER', 'CUSTOMER'], section: 'operations' },
+        { href: '/dashboard/admin/audit', labelKey: 'dashboard.nav.auditLogs', icon: ShieldAlert, roles: [...BRANCH_ADMIN_ROLES], section: 'operations' },
+        { href: '/dashboard/admin/members', labelKey: 'dashboard.nav.receptionRegistration', icon: UserCheck, roles: [...BRANCH_ADMIN_ROLES, 'COACH', 'RECEPTION', 'FRONT_DESK'], section: 'people' },
+        { href: '/dashboard/admin/staff', labelKey: 'dashboard.nav.staff', icon: Users, roles: [...BRANCH_ADMIN_ROLES], section: 'people' },
+        { href: '/dashboard/admin/staff/attendance', labelKey: 'dashboard.nav.attendance', icon: ClipboardList, roles: [...BRANCH_ADMIN_ROLES], section: 'people' },
+        { href: '/dashboard/admin/leaves', labelKey: 'dashboard.nav.hrLeaves', icon: ClipboardList, roles: [...BRANCH_ADMIN_ROLES], section: 'people' },
+        { href: '/dashboard/admin/finance', labelKey: 'dashboard.nav.financials', icon: Wallet, roles: [...BRANCH_ADMIN_ROLES], section: 'finance' },
+        { href: '/dashboard/coach/plans', labelKey: 'dashboard.nav.workoutPlans', icon: Dumbbell, roles: [...BRANCH_ADMIN_ROLES, 'COACH'], section: 'coaching' },
+        { href: '/dashboard/coach/diets', labelKey: 'dashboard.nav.dietPlans', icon: Utensils, roles: [...BRANCH_ADMIN_ROLES, 'COACH'], section: 'coaching' },
         { href: '/dashboard/coach/classes', labelKey: 'dashboard.nav.classes', icon: ClipboardList, roles: ['COACH'], section: 'coaching' },
-        { href: '/dashboard/coach/library', labelKey: 'dashboard.nav.workoutDietLibrary', icon: Users, roles: ['ADMIN', 'COACH'], section: 'coaching' },
-        { href: '/dashboard/coach/feedback', labelKey: 'dashboard.nav.feedback', icon: MessageSquare, roles: ['ADMIN', 'MANAGER', 'COACH'], section: 'coaching' },
-        { href: '/dashboard/qr', labelKey: 'dashboard.nav.myQrCode', icon: QrCode, roles: ['CUSTOMER', 'COACH', 'ADMIN', 'EMPLOYEE', 'CASHIER', 'RECEPTION', 'FRONT_DESK'], section: 'account' },
-        { href: '/dashboard/leaves', labelKey: 'dashboard.nav.myLeaves', icon: ClipboardList, roles: ['ADMIN', 'COACH', 'EMPLOYEE', 'CASHIER', 'RECEPTION', 'FRONT_DESK'], section: 'account' },
-        { href: '/dashboard/profile', labelKey: 'dashboard.nav.myProfile', icon: UserCheck, roles: ['ADMIN', 'COACH', 'CUSTOMER', 'EMPLOYEE', 'CASHIER', 'RECEPTION', 'FRONT_DESK'], section: 'account' },
+        { href: '/dashboard/coach/library', labelKey: 'dashboard.nav.workoutDietLibrary', icon: Users, roles: [...BRANCH_ADMIN_ROLES, 'COACH'], section: 'coaching' },
+        { href: '/dashboard/coach/feedback', labelKey: 'dashboard.nav.feedback', icon: MessageSquare, roles: [...BRANCH_ADMIN_ROLES, 'COACH'], section: 'coaching' },
+        { href: '/dashboard/qr', labelKey: 'dashboard.nav.myQrCode', icon: QrCode, roles: ['CUSTOMER', 'COACH', ...BRANCH_ADMIN_ROLES, 'EMPLOYEE', 'CASHIER', 'RECEPTION', 'FRONT_DESK'], section: 'account' },
+        { href: '/dashboard/leaves', labelKey: 'dashboard.nav.myLeaves', icon: ClipboardList, roles: [...BRANCH_ADMIN_ROLES, 'COACH', 'EMPLOYEE', 'CASHIER', 'RECEPTION', 'FRONT_DESK'], section: 'account' },
+        { href: '/dashboard/profile', labelKey: 'dashboard.nav.myProfile', icon: UserCheck, roles: [...BRANCH_ADMIN_ROLES, 'COACH', 'CUSTOMER', 'EMPLOYEE', 'CASHIER', 'RECEPTION', 'FRONT_DESK'], section: 'account' },
         { href: '/dashboard/member/progress', labelKey: 'dashboard.nav.myProgress', icon: Activity, roles: ['CUSTOMER'], section: 'account' },
         { href: '/dashboard/member/plans', labelKey: 'dashboard.nav.myWorkoutPlans', icon: Dumbbell, roles: ['CUSTOMER'], section: 'account' },
         { href: '/dashboard/member/diets', labelKey: 'dashboard.nav.myDietPlans', icon: Utensils, roles: ['CUSTOMER'], section: 'account' },

@@ -29,6 +29,7 @@ class UserBase(BaseModel):
     full_name: Optional[str] = None
     is_active: Optional[bool] = True
     role: Role = Role.CUSTOMER
+    home_branch_id: Optional[uuid.UUID] = None
     profile_picture_url: Optional[str] = None
     phone_number: Optional[str] = None
     date_of_birth: Optional[date] = None

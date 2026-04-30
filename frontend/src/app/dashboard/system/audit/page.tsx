@@ -7,6 +7,7 @@ import { normalizeApiError, reportSystemTabError } from '@/lib/systemTelemetry';
 import { useEffect, useMemo, useState, useCallback } from 'react';
 import { ShieldAlert, Clock, User, Building2, Filter, RefreshCcw } from 'lucide-react';
 import { useLocale } from '@/context/LocaleContext';
+import { useBranch } from '@/context/BranchContext';
 import Modal from '@/components/Modal';
 import TablePagination from '@/components/TablePagination';
 import { SecurityAuditPanel } from '@/components/SecurityAuditPanel';
@@ -29,14 +30,6 @@ interface AuditLogRow {
 
 interface GymsLookup {
     id: string;
-    name: string;
-}
-
-interface BranchLookup {
-    id: string;
-    gym_id: string;
-    gym_name: string;
-    display_name: string | null;
     name: string;
 }
 
@@ -76,6 +69,7 @@ const PAGE_SIZE = 20;
 
 export default function GlobalAuditLogsPage() {
     const { user } = useAuth();
+    const { branches: scopedBranches, selectedBranchId, setSelectedBranchId } = useBranch();
     const { showToast } = useFeedback();
     const { formatDate, locale } = useLocale();
     const router = useRouter();
@@ -95,7 +89,6 @@ export default function GlobalAuditLogsPage() {
 
     const [logs, setLogs] = useState<AuditLogRow[]>([]);
     const [gyms, setGyms] = useState<GymsLookup[]>([]);
-    const [branches, setBranches] = useState<BranchLookup[]>([]);
     const [securityAudit, setSecurityAudit] = useState<SecurityAudit | null>(null);
     const [selectedLog, setSelectedLog] = useState<AuditLogRow | null>(null);
     const [loading, setLoading] = useState(true);
@@ -108,12 +101,16 @@ export default function GlobalAuditLogsPage() {
 
     const [actionFilter, setActionFilter] = useState(initialAction);
     const [gymFilter, setGymFilter] = useState(initialGym);
-    const [branchFilter, setBranchFilter] = useState(initialBranch);
     const [severityFilter, setSeverityFilter] = useState(initialSeverity);
     const [fromDate, setFromDate] = useState(initialFrom);
     const [toDate, setToDate] = useState(initialTo);
 
     const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
+    const branchFilter = selectedBranchId === 'all' ? '' : selectedBranchId;
+    const branches = useMemo(
+        () => (gymFilter ? scopedBranches.filter((branch) => branch.gym_id === gymFilter) : scopedBranches),
+        [gymFilter, scopedBranches]
+    );
 
     useEffect(() => {
         if (user?.role !== 'SUPER_ADMIN') return;
@@ -127,13 +124,12 @@ export default function GlobalAuditLogsPage() {
 
     useEffect(() => {
         if (user?.role !== 'SUPER_ADMIN') return;
-        api.get('/system/branches', { params: gymFilter ? { gym_id: gymFilter } : undefined })
-            .then((resp) => {
-                const items = Array.isArray(resp.data) ? resp.data : [];
-                setBranches(items);
-            })
-            .catch(() => setBranches([]));
-    }, [gymFilter, user]);
+        if (!initialBranch) return;
+        if (!scopedBranches.some((branch) => branch.id === initialBranch)) return;
+        if (selectedBranchId !== initialBranch) {
+            setSelectedBranchId(initialBranch);
+        }
+    }, [initialBranch, scopedBranches, selectedBranchId, setSelectedBranchId, user]);
 
     useEffect(() => {
         const params = new URLSearchParams();
@@ -147,6 +143,13 @@ export default function GlobalAuditLogsPage() {
         const qs = params.toString();
         router.replace(qs ? `${pathname}?${qs}` : pathname, { scroll: false });
     }, [actionFilter, branchFilter, fromDate, gymFilter, page, pathname, router, severityFilter, toDate]);
+
+    useEffect(() => {
+        if (selectedBranchId === 'all') return;
+        if (!branches.some((branch) => branch.id === selectedBranchId)) {
+            setSelectedBranchId('all');
+        }
+    }, [branches, selectedBranchId, setSelectedBranchId]);
 
     const fetchData = useCallback(async () => {
         setLoading(true);
@@ -344,6 +347,7 @@ export default function GlobalAuditLogsPage() {
                         onChange={(e) => {
                             setPage(1);
                             setGymFilter(e.target.value);
+                            setSelectedBranchId('all');
                         }}
                     >
                         <option value="">{locale === 'ar' ? 'الكل' : 'All'}</option>
@@ -359,7 +363,7 @@ export default function GlobalAuditLogsPage() {
                         value={branchFilter}
                         onChange={(e) => {
                             setPage(1);
-                            setBranchFilter(e.target.value);
+                            setSelectedBranchId(e.target.value || 'all');
                         }}
                     >
                         <option value="">{locale === 'ar' ? 'الكل' : 'All'}</option>

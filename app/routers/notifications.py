@@ -28,7 +28,7 @@ class WhatsAppAutomationRuleCreate(WhatsAppAutomationRuleUpdate):
 
 
 def _automation_manager_roles() -> list[Role]:
-    return [Role.ADMIN, Role.RECEPTION, Role.FRONT_DESK]
+    return [Role.ADMIN, Role.MANAGER, Role.RECEPTION, Role.FRONT_DESK]
 
 
 SYSTEM_EVENT_TYPES = {

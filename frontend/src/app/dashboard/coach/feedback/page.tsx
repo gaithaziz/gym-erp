@@ -94,8 +94,8 @@ export default function FeedbackPage() {
     const [tab, setTab] = useState<'FLAGGED' | 'WORKOUT' | 'DIET' | 'GYM'>('FLAGGED');
     const [minRating, setMinRating] = useState(1);
     const [loading, setLoading] = useState(true);
-    const canReviewSessions = user?.role === 'ADMIN' || user?.role === 'COACH';
-    const canAdjustPlans = user?.role === 'ADMIN' || user?.role === 'COACH';
+    const canReviewSessions = ['ADMIN', 'MANAGER', 'COACH'].includes(user?.role || '');
+    const canAdjustPlans = ['ADMIN', 'MANAGER', 'COACH'].includes(user?.role || '');
 
     useEffect(() => {
         const fetchPlans = async () => {
@@ -226,7 +226,7 @@ export default function FeedbackPage() {
                 <h1 className="text-2xl font-bold text-white">{locale === 'ar' ? 'ملاحظات المتدربين' : 'Trainee Feedback'}</h1>
                 <p className="text-sm text-[#6B6B6B] mt-1">{locale === 'ar' ? 'نظرة عامة على ملاحظات التدريب والتغذية وتجربة النادي' : 'Workout, diet, and full gym feedback overview'}</p>
                 {user?.role === 'MANAGER' ? (
-                    <p className="mt-2 text-xs font-mono uppercase text-muted-foreground">{locale === 'ar' ? 'عرض للمتابعة فقط' : 'Read-only manager overview'}</p>
+                    <p className="mt-2 text-xs font-mono uppercase text-muted-foreground">{locale === 'ar' ? 'عرض فرع المدير' : 'Branch manager overview'}</p>
                 ) : null}
             </div>
 

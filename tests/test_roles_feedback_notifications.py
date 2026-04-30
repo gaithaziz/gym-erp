@@ -15,20 +15,25 @@ from app.models.inventory import Product
 from app.models.notification import WhatsAppDeliveryLog
 from app.models.notification import WhatsAppAutomationRule
 from app.models.user import User
+from app.services.tenancy_service import TenancyService
 
 
 @pytest.mark.asyncio
 async def test_reception_can_register_member(client: AsyncClient, db_session: AsyncSession):
     password = "password123"
     hashed = get_password_hash(password)
+    _, branch = await TenancyService.ensure_default_gym_and_branch(db_session)
     reception = User(
         email="reception_register@gym.com",
         hashed_password=hashed,
         role=Role.RECEPTION,
         full_name="Reception",
         is_active=True,
+        home_branch_id=branch.id,
     )
     db_session.add(reception)
+    await db_session.commit()
+    await TenancyService.ensure_user_branch_access(db_session, user_id=reception.id, gym_id=reception.gym_id, branch_id=branch.id)
     await db_session.commit()
 
     login = await client.post(
@@ -45,6 +50,7 @@ async def test_reception_can_register_member(client: AsyncClient, db_session: As
             "password": "password123",
             "full_name": "New Member",
             "role": "CUSTOMER",
+            "home_branch_id": str(branch.id),
         },
         headers=headers,
     )

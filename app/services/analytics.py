@@ -166,6 +166,7 @@ class AnalyticsService:
         renewal_count = (await db.execute(renewal_stmt)).scalar() or 0
         leave_count = (await db.execute(leave_stmt)).scalar() or 0
         class_res_count = (await db.execute(class_res_stmt)).scalar() or 0
+
         pending_approvals = renewal_count + leave_count + class_res_count
 
         payload = {

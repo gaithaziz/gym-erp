@@ -11,6 +11,7 @@ import { useLocale } from '@/context/LocaleContext';
 import { useBranch } from '@/context/BranchContext';
 import { BranchSelector } from '@/components/BranchSelector';
 import { api } from '@/lib/api';
+import { isBranchAdminRole } from '@/lib/roles';
 
 type LostFoundStatus = 'REPORTED' | 'UNDER_REVIEW' | 'READY_FOR_PICKUP' | 'CLOSED' | 'REJECTED' | 'DISPOSED';
 type LostFoundCategory = 'LOST' | 'FOUND';
@@ -301,7 +302,7 @@ export default function LostFoundPage() {
         return category || txt.notAvailable;
     };
     const isHandler = handlerRoles.includes(user?.role || '');
-    const isAdmin = user?.role === 'ADMIN';
+    const isAdmin = isBranchAdminRole(user?.role);
     const [viewMode, setViewMode] = useState<'ACTIVE' | 'ARCHIVE'>('ACTIVE');
 
     const [loading, setLoading] = useState(true);
@@ -383,12 +384,14 @@ export default function LostFoundPage() {
     const fetchHandlers = useCallback(async () => {
         if (!isHandler) return;
         try {
-            const response = await api.get('/lost-found/handlers');
+            const params: Record<string, string> = {};
+            if (selectedBranchId && selectedBranchId !== 'all') params.branch_id = selectedBranchId;
+            const response = await api.get('/lost-found/handlers', { params });
             setHandlers(response.data?.data || []);
         } catch {
             setHandlers([]);
         }
-    }, [isHandler]);
+    }, [isHandler, selectedBranchId]);
 
     useEffect(() => {
         setLoading(true);

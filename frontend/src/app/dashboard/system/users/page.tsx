@@ -7,8 +7,9 @@ import { normalizeApiError, reportSystemTabError } from '@/lib/systemTelemetry';
 import { getAccessToken, getRefreshToken, setTokens } from '@/lib/tokenStorage';
 import { usePathname, useRouter, useSearchParams } from 'next/navigation';
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { Mail, RefreshCcw, Search, Shield, UserCog } from 'lucide-react';
+import { Mail, Search, UserCog } from 'lucide-react';
 import { useLocale } from '@/context/LocaleContext';
+import { useBranch } from '@/context/BranchContext';
 import TablePagination from '@/components/TablePagination';
 import Modal from '@/components/Modal';
 import { SystemAdminAccessDenied, SystemAdminShell } from '@/components/system-admin/SystemAdminShell';
@@ -43,16 +44,6 @@ interface GymOption {
     plan_tier: string;
 }
 
-interface BranchOption {
-    id: string;
-    gym_id: string;
-    gym_name: string;
-    name: string;
-    display_name: string | null;
-    code: string | null;
-    is_active: boolean;
-}
-
 const PAGE_SIZE = 20;
 const ROLE_OPTIONS = ['SUPER_ADMIN', 'ADMIN', 'MANAGER', 'COACH', 'RECEPTION', 'FRONT_DESK', 'EMPLOYEE', 'CASHIER', 'CUSTOMER'];
 const ACTIVITY_OPTIONS: Array<{ value: string; label: { en: string; ar: string } }> = [
@@ -64,6 +55,7 @@ const ACTIVITY_OPTIONS: Array<{ value: string; label: { en: string; ar: string }
 
 export default function GlobalUserSearchPage() {
     const { user } = useAuth();
+    const { branches: scopedBranches, selectedBranchId, setSelectedBranchId } = useBranch();
     const { showToast, confirm } = useFeedback();
     const { locale, formatDate } = useLocale();
     const router = useRouter();
@@ -85,7 +77,6 @@ export default function GlobalUserSearchPage() {
     const [page, setPage] = useState(initialPage);
     const [roleFilter, setRoleFilter] = useState(initialRole);
     const [gymFilter, setGymFilter] = useState(initialGym);
-    const [branchFilter, setBranchFilter] = useState(initialBranch);
     const [activityFilter, setActivityFilter] = useState(initialActivity);
 
     const [results, setResults] = useState<UserResult[]>([]);
@@ -95,11 +86,15 @@ export default function GlobalUserSearchPage() {
     const [error, setError] = useState<string | null>(null);
     const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
     const [gyms, setGyms] = useState<GymOption[]>([]);
-    const [branches, setBranches] = useState<BranchOption[]>([]);
     const [impersonationTarget, setImpersonationTarget] = useState<UserResult | null>(null);
     const [supportReason, setSupportReason] = useState('');
 
     const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
+    const branchFilter = selectedBranchId === 'all' ? '' : selectedBranchId;
+    const branches = useMemo(
+        () => (gymFilter ? scopedBranches.filter((branch) => branch.gym_id === gymFilter) : scopedBranches),
+        [gymFilter, scopedBranches]
+    );
 
     useEffect(() => {
         const timer = window.setTimeout(() => {
@@ -115,9 +110,17 @@ export default function GlobalUserSearchPage() {
         setPage(initialPage);
         setRoleFilter(initialRole);
         setGymFilter(initialGym);
-        setBranchFilter(initialBranch);
         setActivityFilter(initialActivity);
-    }, [initialActivity, initialBranch, initialGym, initialPage, initialQuery, initialRole]);
+    }, [initialActivity, initialGym, initialPage, initialQuery, initialRole]);
+
+    useEffect(() => {
+        if (user?.role !== 'SUPER_ADMIN') return;
+        if (!initialBranch) return;
+        if (!scopedBranches.some((branch) => branch.id === initialBranch)) return;
+        if (selectedBranchId !== initialBranch) {
+            setSelectedBranchId(initialBranch);
+        }
+    }, [initialBranch, scopedBranches, selectedBranchId, setSelectedBranchId, user]);
 
     useEffect(() => {
         const params = new URLSearchParams();
@@ -156,17 +159,6 @@ export default function GlobalUserSearchPage() {
             );
         } catch {
             setGyms([]);
-        }
-    }, []);
-
-    const fetchBranches = useCallback(async (gymId?: string) => {
-        try {
-            const resp = await api.get('/system/branches', {
-                params: gymId ? { gym_id: gymId } : undefined,
-            });
-            setBranches(Array.isArray(resp.data) ? resp.data : []);
-        } catch {
-            setBranches([]);
         }
     }, []);
 
@@ -231,12 +223,6 @@ export default function GlobalUserSearchPage() {
 
     useEffect(() => {
         if (user?.role === 'SUPER_ADMIN') {
-            void fetchBranches(gymFilter || undefined);
-        }
-    }, [fetchBranches, gymFilter, user]);
-
-    useEffect(() => {
-        if (user?.role === 'SUPER_ADMIN') {
             void fetchUsers();
         } else if (user) {
             setLoading(false);
@@ -244,10 +230,11 @@ export default function GlobalUserSearchPage() {
     }, [fetchUsers, user]);
 
     useEffect(() => {
-        if (branchFilter && branches.length > 0 && !branches.some((branch) => branch.id === branchFilter)) {
-            setBranchFilter('');
+        if (selectedBranchId === 'all') return;
+        if (!branches.some((branch) => branch.id === selectedBranchId)) {
+            setSelectedBranchId('all');
         }
-    }, [branchFilter, branches]);
+    }, [branches, selectedBranchId, setSelectedBranchId]);
 
     const openImpersonationModal = (target: UserResult) => {
         setImpersonationTarget(target);
@@ -333,7 +320,7 @@ export default function GlobalUserSearchPage() {
                             setPage(1);
                             setRoleFilter('');
                             setGymFilter('');
-                            setBranchFilter('');
+                            setSelectedBranchId('all');
                             setActivityFilter('');
                         }}
                         className="btn-ghost border border-border"
@@ -384,7 +371,7 @@ export default function GlobalUserSearchPage() {
                     </div>
                     <div>
                         <label className="text-xs font-semibold text-muted-foreground">{locale === 'ar' ? 'النادي' : 'Gym'}</label>
-                        <select className="input-dark w-full mt-1" value={gymFilter} onChange={(e) => { setPage(1); setGymFilter(e.target.value); setBranchFilter(''); }}>
+                        <select className="input-dark w-full mt-1" value={gymFilter} onChange={(e) => { setPage(1); setGymFilter(e.target.value); setSelectedBranchId('all'); }}>
                             <option value="">{locale === 'ar' ? 'الكل' : 'All gyms'}</option>
                             {gyms.map((gym) => (
                                 <option key={gym.id} value={gym.id}>
@@ -398,7 +385,7 @@ export default function GlobalUserSearchPage() {
                     </div>
                     <div>
                         <label className="text-xs font-semibold text-muted-foreground">{locale === 'ar' ? 'الفرع' : 'Branch'}</label>
-                        <select className="input-dark w-full mt-1" value={branchFilter} onChange={(e) => { setPage(1); setBranchFilter(e.target.value); }}>
+                        <select className="input-dark w-full mt-1" value={branchFilter} onChange={(e) => { setPage(1); setSelectedBranchId(e.target.value || 'all'); }}>
                             <option value="">{locale === 'ar' ? 'الكل' : 'All branches'}</option>
                             {branches.map((branch) => (
                                 <option key={branch.id} value={branch.id}>
@@ -446,7 +433,6 @@ export default function GlobalUserSearchPage() {
                         <tbody>
                             {results.length > 0 ? (
                                 results.map((row) => {
-                                    const isActiveStatus = row.activity_status === 'active';
                                     return (
                                         <tr key={row.id} className="hover:bg-muted/30 transition-colors align-top">
                                             <td className="py-4">

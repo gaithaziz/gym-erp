@@ -12,7 +12,7 @@ from jose import JWTError, jwt
 from pydantic import BaseModel
 from sqlalchemy import and_, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.orm import selectinload
+from sqlalchemy.orm import aliased, selectinload
 from PIL import Image, ImageOps
 
 from app.auth import dependencies
@@ -21,6 +21,7 @@ from app.core.responses import StandardResponse
 from app.database import AsyncSessionLocal, get_db, set_rls_context
 from app.models.chat import ChatMessage, ChatReadReceipt, ChatThread
 from app.models.enums import Role
+from app.models.roaming import MemberRoamingAccess
 from app.models.tenancy import UserBranchAccess
 from app.models.user import User
 from app.services.push_service import PushNotificationService
@@ -238,6 +239,102 @@ async def _ensure_sender_allowed(user: User, thread: ChatThread) -> None:
         raise HTTPException(status_code=403, detail="Admin and manager are read-only for chat")
 
 
+async def _resolve_requested_branch_scope(
+    db: AsyncSession,
+    current_user: User,
+    branch_id: uuid.UUID | None,
+) -> uuid.UUID | None:
+    if branch_id is None:
+        return None
+    await TenancyService.require_branch_access(
+        db,
+        current_user=current_user,
+        branch_id=branch_id,
+        allow_all_for_admin=True,
+    )
+    return branch_id
+
+
+def _branch_access_exists_for_user(*, user_id_column, gym_id: uuid.UUID | None, branch_id: uuid.UUID):
+    return (
+        select(UserBranchAccess.id)
+        .where(
+            UserBranchAccess.user_id == user_id_column,
+            UserBranchAccess.gym_id == gym_id,
+            UserBranchAccess.branch_id == branch_id,
+        )
+        .exists()
+    )
+
+
+def _user_matches_branch_clause(*, user_id_column, home_branch_column, gym_id: uuid.UUID | None, branch_id: uuid.UUID):
+    return or_(
+        home_branch_column == branch_id,
+        _branch_access_exists_for_user(user_id_column=user_id_column, gym_id=gym_id, branch_id=branch_id),
+    )
+
+
+def _member_roaming_access_exists(*, member_id_column, gym_id: uuid.UUID | None, branch_id: uuid.UUID):
+    now = datetime.now(timezone.utc)
+    return (
+        select(MemberRoamingAccess.id)
+        .where(
+            MemberRoamingAccess.member_id == member_id_column,
+            MemberRoamingAccess.gym_id == gym_id,
+            MemberRoamingAccess.branch_id == branch_id,
+            MemberRoamingAccess.revoked_at.is_(None),
+            MemberRoamingAccess.expires_at > now,
+        )
+        .exists()
+    )
+
+
+def _member_matches_branch_clause(*, member_id_column, home_branch_column, gym_id: uuid.UUID | None, branch_id: uuid.UUID):
+    return or_(
+        home_branch_column == branch_id,
+        _member_roaming_access_exists(member_id_column=member_id_column, gym_id=gym_id, branch_id=branch_id),
+    )
+
+
+async def _member_visible_at_branch(
+    db: AsyncSession,
+    *,
+    member: User,
+    gym_id: uuid.UUID | None,
+    branch_id: uuid.UUID,
+) -> bool:
+    if member.home_branch_id == branch_id:
+        return True
+
+    roaming_stmt = select(MemberRoamingAccess.id).where(
+        MemberRoamingAccess.member_id == member.id,
+        MemberRoamingAccess.gym_id == gym_id,
+        MemberRoamingAccess.branch_id == branch_id,
+        MemberRoamingAccess.revoked_at.is_(None),
+        MemberRoamingAccess.expires_at > datetime.now(timezone.utc),
+    )
+    roaming_result = await db.execute(roaming_stmt)
+    return roaming_result.scalar_one_or_none() is not None
+
+
+async def _ensure_thread_matches_branch_scope(
+    db: AsyncSession,
+    current_user: User,
+    thread: ChatThread,
+    branch_id: uuid.UUID | None,
+) -> None:
+    if branch_id is None or current_user.role not in [Role.ADMIN, Role.MANAGER]:
+        return
+    if await _member_visible_at_branch(
+        db,
+        member=thread.customer,
+        gym_id=current_user.gym_id,
+        branch_id=branch_id,
+    ):
+        return
+    raise HTTPException(status_code=404, detail="Thread not found")
+
+
 class WebSocketManager:
     def __init__(self) -> None:
         self.connections_by_user: dict[uuid.UUID, set[WebSocket]] = {}
@@ -417,13 +514,38 @@ async def _build_message_payload(db: AsyncSession, thread: ChatThread, message: 
 async def list_chat_contacts(
     current_user: Annotated[User, Depends(dependencies.require_active_customer_subscription)],
     db: Annotated[AsyncSession, Depends(get_db)],
+    branch_id: uuid.UUID | None = None,
 ):
     if not _is_chat_role(current_user.role):
         raise HTTPException(status_code=403, detail="Operation not permitted")
 
     async with _chat_tenant_scope(db, current_user):
+        scoped_branch_id = await _resolve_requested_branch_scope(db, current_user, branch_id)
         if current_user.role == Role.ADMIN:
             stmt = select(User).where(User.role.in_([Role.COACH, Role.CUSTOMER])).order_by(User.full_name)
+            if scoped_branch_id is not None:
+                stmt = stmt.where(
+                    or_(
+                        and_(
+                            User.role == Role.CUSTOMER,
+                            _member_matches_branch_clause(
+                                member_id_column=User.id,
+                                home_branch_column=User.home_branch_id,
+                                gym_id=current_user.gym_id,
+                                branch_id=scoped_branch_id,
+                            ),
+                        ),
+                        and_(
+                            User.role == Role.COACH,
+                            _user_matches_branch_clause(
+                                user_id_column=User.id,
+                                home_branch_column=User.home_branch_id,
+                                gym_id=current_user.gym_id,
+                                branch_id=scoped_branch_id,
+                            ),
+                        ),
+                    )
+                )
         elif current_user.role == Role.CUSTOMER:
             branch_id = current_user.home_branch_id
             if branch_id is None and current_user.gym_id is not None:
@@ -445,6 +567,32 @@ async def list_chat_contacts(
 
         result = await db.execute(stmt)
         users = result.scalars().all()
+        if current_user.role == Role.ADMIN and scoped_branch_id is not None:
+            users = [
+                user
+                for user in users
+                if (
+                    (
+                        user.role == Role.CUSTOMER
+                        and await _member_visible_at_branch(
+                            db,
+                            member=user,
+                            gym_id=current_user.gym_id,
+                            branch_id=scoped_branch_id,
+                        )
+                    )
+                    or (
+                        user.role == Role.COACH
+                        and (
+                            user.home_branch_id == scoped_branch_id
+                            or any(
+                                access.branch_id == scoped_branch_id and access.gym_id == current_user.gym_id
+                                for access in getattr(user, "branch_accesses", []) or []
+                            )
+                        )
+                    )
+                )
+            ]
         return StandardResponse(data=[_to_contact(user) for user in users])
 
 
@@ -518,18 +666,34 @@ async def list_threads(
     sort_order: Literal["asc", "desc"] = Query("desc"),
     coach_id: uuid.UUID | None = Query(None),
     customer_id: uuid.UUID | None = Query(None),
+    branch_id: uuid.UUID | None = Query(None),
 ):
     if not _is_chat_role(current_user.role):
         raise HTTPException(status_code=403, detail="Operation not permitted")
 
     async with _chat_tenant_scope(db, current_user):
-        stmt = select(ChatThread).options(selectinload(ChatThread.customer), selectinload(ChatThread.coach))
+        scoped_branch_id = await _resolve_requested_branch_scope(db, current_user, branch_id)
+        customer_user = aliased(User)
+        stmt = (
+            select(ChatThread)
+            .join(customer_user, customer_user.id == ChatThread.customer_id)
+            .options(selectinload(ChatThread.customer), selectinload(ChatThread.coach))
+        )
 
         if current_user.role in [Role.ADMIN, Role.MANAGER]:
             if coach_id:
                 stmt = stmt.where(ChatThread.coach_id == coach_id)
             if customer_id:
                 stmt = stmt.where(ChatThread.customer_id == customer_id)
+            if scoped_branch_id is not None:
+                stmt = stmt.where(
+                    _member_matches_branch_clause(
+                        member_id_column=customer_user.id,
+                        home_branch_column=customer_user.home_branch_id,
+                        gym_id=current_user.gym_id,
+                        branch_id=scoped_branch_id,
+                    )
+                )
         elif current_user.role == Role.CUSTOMER:
             stmt = stmt.where(ChatThread.customer_id == current_user.id)
         else:
@@ -553,13 +717,16 @@ async def list_thread_messages(
     db: Annotated[AsyncSession, Depends(get_db)],
     limit: int = Query(50, ge=1, le=100),
     before: datetime | None = Query(None),
+    branch_id: uuid.UUID | None = Query(None),
 ):
     if not _is_chat_role(current_user.role):
         raise HTTPException(status_code=403, detail="Operation not permitted")
 
     async with _chat_tenant_scope(db, current_user):
+        scoped_branch_id = await _resolve_requested_branch_scope(db, current_user, branch_id)
         thread = await _get_thread_or_404(db, thread_id)
         await _ensure_visible_thread(current_user, thread)
+        await _ensure_thread_matches_branch_scope(db, current_user, thread, scoped_branch_id)
 
         stmt = (
             select(ChatMessage)

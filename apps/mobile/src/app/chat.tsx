@@ -331,7 +331,7 @@ function ChatPhotoMessage({
 export default function ChatScreen() {
   const router = useRouter();
   const params = useLocalSearchParams<{ contactId?: string; memberId?: string }>();
-  const { authorizedRequest, bootstrap } = useSession();
+  const { authorizedRequest, bootstrap, selectedBranchId } = useSession();
   const { copy, direction, fontSet, isRTL, theme } = usePreferences();
   const insets = useSafeAreaInsets();
   const role = getCurrentRole(bootstrap);
@@ -359,14 +359,16 @@ export default function ChatScreen() {
   const recording = recorderState.isRecording;
   const recordSeconds = Math.round(recorderState.durationMillis / 1000);
 
+  const branchSuffix = selectedBranchId ? `?branch_id=${encodeURIComponent(selectedBranchId)}` : "";
+
   const contactsQuery = useQuery({
-    queryKey: ["mobile-chat-contacts"],
+    queryKey: ["mobile-chat-contacts", selectedBranchId ?? "all"],
     enabled: !readOnly,
     staleTime: 0,
     refetchOnMount: "always",
     refetchOnReconnect: true,
     refetchOnWindowFocus: true,
-    queryFn: async () => (await authorizedRequest<ChatContact[]>("/mobile/chat/contacts")).data,
+    queryFn: async () => (await authorizedRequest<ChatContact[]>(`/mobile/chat/contacts${branchSuffix}`)).data,
   });
   const contacts = useMemo(() => contactsQuery.data ?? [], [contactsQuery.data]);
 
@@ -403,8 +405,8 @@ export default function ChatScreen() {
   }, [contacts, deferredContactSearch]);
 
   const threadsQuery = useQuery({
-    queryKey: ["mobile-chat"],
-    queryFn: async () => (await authorizedRequest<Thread[]>("/mobile/chat/threads")).data,
+    queryKey: ["mobile-chat", selectedBranchId ?? "all"],
+    queryFn: async () => (await authorizedRequest<Thread[]>(`/mobile/chat/threads${branchSuffix}`)).data,
   });
   const threads = useMemo(() => threadsQuery.data ?? [], [threadsQuery.data]);
   const deferredThreadSearch = useDeferredValue(threadSearch);
@@ -446,9 +448,11 @@ export default function ChatScreen() {
   );
 
   const messagesQuery = useQuery({
-    queryKey: ["mobile-chat-messages", selectedThread?.id],
+    queryKey: ["mobile-chat-messages", selectedThread?.id, selectedBranchId ?? "all"],
     enabled: Boolean(selectedThread?.id),
-    queryFn: async () => (await authorizedRequest<ChatMessage[]>(`/mobile/chat/threads/${selectedThread?.id}/messages`)).data,
+    queryFn: async () => (
+      await authorizedRequest<ChatMessage[]>(`/mobile/chat/threads/${selectedThread?.id}/messages${branchSuffix}`)
+    ).data,
   });
 
   const markReadMutation = useMutation({

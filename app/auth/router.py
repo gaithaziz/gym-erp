@@ -109,7 +109,7 @@ async def _log_and_commit(
 async def register(
     user_in: schemas.UserCreate,
     db: Annotated[AsyncSession, Depends(get_db)],
-    current_user: Annotated[User, Depends(dependencies.RoleChecker([Role.ADMIN, Role.RECEPTION, Role.FRONT_DESK]))],
+    current_user: Annotated[User, Depends(dependencies.RoleChecker([Role.ADMIN, Role.MANAGER, Role.RECEPTION, Role.FRONT_DESK]))],
 ):
     if user_in.role == Role.ADMIN:
         raise HTTPException(
@@ -125,7 +125,19 @@ async def register(
         )
     
     # Create new user
-    home_branch_id = current_user.home_branch_id
+    home_branch_id = user_in.home_branch_id
+    if home_branch_id is None:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="home_branch_id is required.",
+        )
+
+    await TenancyService.require_branch_access(
+        db,
+        current_user=current_user,
+        branch_id=home_branch_id,
+        allow_all_for_admin=True,
+    )
     user = User(
         gym_id=current_user.gym_id,
         email=user_in.email,
@@ -138,14 +150,13 @@ async def register(
     db.add(user)
     await db.commit()
     await db.refresh(user)
-    if home_branch_id:
-        await TenancyService.ensure_user_branch_access(
-            db,
-            user_id=user.id,
-            gym_id=user.gym_id,
-            branch_id=home_branch_id,
-        )
-        await db.commit()
+    await TenancyService.ensure_user_branch_access(
+        db,
+        user_id=user.id,
+        gym_id=user.gym_id,
+        branch_id=home_branch_id,
+    )
+    await db.commit()
 
     await _log_and_commit(
         db,

@@ -84,6 +84,15 @@ async def _get_attendance_or_404(db: AsyncSession, *, current_user: User, attend
     return log
 
 
+def _date_to_utc_datetime(value: date) -> datetime:
+    return datetime(value.year, value.month, value.day, tzinfo=timezone.utc)
+
+
+def _utc_datetime_to_date(value: datetime) -> date:
+    aware_value = value if value.tzinfo else value.replace(tzinfo=timezone.utc)
+    return aware_value.astimezone(timezone.utc).date()
+
+
 def _pdf_bytes(title: str, lines: list[str]) -> bytes:
     buffer = io.BytesIO()
     pdf = canvas.Canvas(buffer, pagesize=A4)
@@ -287,7 +296,20 @@ class PayrollRequest(BaseModel):
     user_id: uuid.UUID
     month: int = Field(..., ge=1, le=12)
     year: int = Field(..., ge=2000, le=2100)
-    sales_volume: float = 0.0 # Input for commission calculation
+    manual_deductions: float = Field(default=0.0, ge=0.0)
+    from_last_paid: bool = False
+    calculation_mode: Literal["MONTHLY", "DAYS_WORKED"] = "MONTHLY"
+
+
+class PayrollEditRequest(BaseModel):
+    base_pay: float | None = Field(default=None, ge=0.0)
+    overtime_hours: float | None = Field(default=None, ge=0.0)
+    overtime_pay: float | None = Field(default=None, ge=0.0)
+    commission_pay: float | None = Field(default=None, ge=0.0)
+    bonus_pay: float | None = Field(default=None, ge=0.0)
+    manual_deductions: float | None = Field(default=None, ge=0.0)
+    period_start: datetime | None = None
+    period_end: datetime | None = None
 
 class LeaveRequestCreate(BaseModel):
     start_date: date
@@ -300,7 +322,7 @@ class LeaveRequestUpdate(BaseModel):
 
 
 class PayrollStatusUpdate(BaseModel):
-    status: Literal["DRAFT", "PAID"]
+    status: Literal["DRAFT", "APPROVED", "REJECTED", "PAID"]
 
 
 class PayrollSettingsUpdate(BaseModel):
@@ -325,13 +347,64 @@ def _money(value: float | Decimal) -> float:
 
 
 def _payroll_paid_amount(payroll: Payroll) -> float:
-    return _money(sum(float(p.amount) for p in getattr(payroll, "payments", [])))
+    payments = payroll.__dict__.get("payments") or []
+    return _money(sum(float(p.amount) for p in payments))
 
 
-def _serialize_payroll(payroll: Payroll, user: User) -> dict:
+def _normalize_datetime(value: datetime | None) -> datetime | None:
+    if value is None:
+        return None
+    return value if value.tzinfo else value.replace(tzinfo=timezone.utc)
+
+
+def _current_utc_datetime() -> datetime:
+    return datetime.now(timezone.utc)
+
+
+async def _resolve_catchup_period(
+    db: AsyncSession,
+    *,
+    current_user: User,
+    user_id: uuid.UUID,
+) -> tuple[datetime, datetime]:
+    contract_stmt = select(Contract).where(
+        Contract.user_id == user_id,
+        Contract.gym_id == current_user.gym_id,
+    )
+    contract = (await db.execute(contract_stmt)).scalar_one_or_none()
+    if contract is None:
+        raise HTTPException(status_code=404, detail="Contract not found")
+
+    latest_stmt = (
+        select(Payroll)
+        .where(
+            Payroll.user_id == user_id,
+            Payroll.gym_id == current_user.gym_id,
+            Payroll.status.in_([PayrollStatus.APPROVED, PayrollStatus.PARTIAL, PayrollStatus.PAID]),
+        )
+        .order_by(Payroll.period_end.desc().nullslast(), Payroll.approved_at.desc().nullslast(), Payroll.paid_at.desc().nullslast(), Payroll.year.desc(), Payroll.month.desc())
+    )
+    latest = (await db.execute(latest_stmt)).scalar_one_or_none()
+    if latest:
+        start = latest.period_end or latest.approved_at or latest.paid_at
+        normalized_start = _normalize_datetime(start)
+        if normalized_start is None:
+            normalized_start = datetime.combine(contract.start_date, datetime.min.time(), tzinfo=timezone.utc)
+    else:
+        normalized_start = datetime.combine(contract.start_date, datetime.min.time(), tzinfo=timezone.utc)
+
+    end = _current_utc_datetime()
+    if end <= normalized_start:
+        end = normalized_start + timedelta(minutes=1)
+    return normalized_start, end
+
+
+def _serialize_payroll(payroll: Payroll, user: User, *, worked_days: int | None = None) -> dict:
     paid_amount = _payroll_paid_amount(payroll)
     pending_amount = _money(max(float(payroll.total_pay) - paid_amount, 0.0))
-    payments = list(getattr(payroll, "payments", []))
+    payments = list(payroll.__dict__.get("payments") or [])
+    manual_deductions = _money(float(getattr(payroll, "manual_deductions", 0.0) or 0.0))
+    leave_deductions = _money(max(float(payroll.deductions) - manual_deductions, 0.0))
     def _normalized(dt: datetime | None) -> datetime:
         if dt is None:
             return datetime.min.replace(tzinfo=timezone.utc)
@@ -345,14 +418,20 @@ def _serialize_payroll(payroll: Payroll, user: User) -> dict:
         "user_email": user.email,
         "month": payroll.month,
         "year": payroll.year,
+        "period_start": payroll.period_start.isoformat() if payroll.period_start else None,
+        "period_end": payroll.period_end.isoformat() if payroll.period_end else None,
         "base_pay": payroll.base_pay,
         "overtime_hours": payroll.overtime_hours,
         "overtime_pay": payroll.overtime_pay,
         "commission_pay": payroll.commission_pay,
         "bonus_pay": payroll.bonus_pay,
+        "leave_deductions": leave_deductions,
+        "manual_deductions": manual_deductions,
         "deductions": payroll.deductions,
         "total_pay": payroll.total_pay,
         "status": payroll.status.value,
+        "approved_at": payroll.approved_at.isoformat() if payroll.approved_at else None,
+        "approved_by_user_id": str(payroll.approved_by_user_id) if payroll.approved_by_user_id else None,
         "paid_amount": paid_amount,
         "pending_amount": pending_amount,
         "payment_count": len(payments),
@@ -360,6 +439,7 @@ def _serialize_payroll(payroll: Payroll, user: User) -> dict:
         "paid_transaction_id": str(payroll.paid_transaction_id) if payroll.paid_transaction_id else None,
         "paid_at": payroll.paid_at.isoformat() if payroll.paid_at else None,
         "paid_by_user_id": str(payroll.paid_by_user_id) if payroll.paid_by_user_id else None,
+        "worked_days": worked_days,
         "payments": [
             {
                 "id": str(payment.id),
@@ -390,15 +470,25 @@ async def _best_effort_recalc_user_current_previous(db: AsyncSession, user_id: u
 @router.post("/contracts", response_model=StandardResponse)
 async def create_contract(
     contract_data: ContractCreate,
-    current_user: Annotated[User, Depends(dependencies.RoleChecker([Role.ADMIN]))],
+    current_user: Annotated[User, Depends(dependencies.RoleChecker([Role.ADMIN, Role.MANAGER]))],
     db: Annotated[AsyncSession, Depends(get_db)]
 ):
     # Check if user exists
-    await TenancyService.require_user_in_gym(
+    user = await TenancyService.require_user_in_gym(
         db,
         current_user=current_user,
         user_id=contract_data.user_id,
         detail="User not found",
+    )
+    if user.home_branch_id is None:
+        raise HTTPException(status_code=400, detail="User must have a home branch assigned")
+    if user.role == Role.CUSTOMER:
+        raise HTTPException(status_code=400, detail="Contracts cannot be created for customer accounts")
+    await TenancyService.require_branch_access(
+        db,
+        current_user=current_user,
+        branch_id=user.home_branch_id,
+        allow_all_for_admin=True,
     )
 
     # Check existing contract
@@ -441,29 +531,63 @@ async def create_contract(
 @router.post("/payroll/generate", response_model=StandardResponse)
 async def generate_payroll(
     request: PayrollRequest,
-    current_user: Annotated[User, Depends(dependencies.RoleChecker([Role.ADMIN]))],
+    current_user: Annotated[User, Depends(dependencies.RoleChecker([Role.ADMIN, Role.MANAGER]))],
     db: Annotated[AsyncSession, Depends(get_db)]
 ):
     try:
+        user = await TenancyService.require_user_in_gym(
+            db,
+            current_user=current_user,
+            user_id=request.user_id,
+        )
+        if user.home_branch_id is None:
+            raise HTTPException(status_code=400, detail="User must have a home branch assigned")
+        if user.role == Role.CUSTOMER:
+            raise HTTPException(status_code=400, detail="Payroll is only available for staff members")
+        if current_user.role != Role.ADMIN:
+            accessible_branch_ids = {
+                branch.id for branch in await TenancyService.get_accessible_branches(db, user=current_user)
+            }
+            if user.home_branch_id not in accessible_branch_ids:
+                raise HTTPException(status_code=403, detail="Not authorized for this branch")
+        period_start = None
+        period_end = None
+        if request.from_last_paid:
+            period_start, period_end = await _resolve_catchup_period(
+                db,
+                current_user=current_user,
+                user_id=request.user_id,
+            )
+            request_month = period_end.month
+            request_year = period_end.year
+        else:
+            request_month = request.month
+            request_year = request.year
         payroll = await PayrollService.calculate_payroll(
             request.user_id,
-            request.month,
-            request.year,
-            request.sales_volume,
+            request_month,
+            request_year,
             db,
+            period_start=period_start,
+            period_end=period_end,
+            manual_deductions=request.manual_deductions,
+            calculation_mode=request.calculation_mode,
             allow_paid_recalc=False,
         )
+        worked_days = None
+        if payroll.period_start and payroll.period_end:
+            worked_stmt = select(AttendanceLog.check_in_time).where(
+                AttendanceLog.user_id == request.user_id,
+                AttendanceLog.check_in_time >= payroll.period_start,
+                AttendanceLog.check_in_time < payroll.period_end,
+            )
+            worked_rows = (await db.execute(worked_stmt)).scalars().all()
+            worked_days = len(worked_rows)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc))
     return StandardResponse(
         message=f"Payroll generated for {request.month}/{request.year}",
-        data={
-            "id": str(payroll.id),
-            "user_id": str(payroll.user_id),
-            "base_pay": payroll.base_pay,
-            "overtime_pay": payroll.overtime_pay,
-            "total_pay": payroll.total_pay
-        }
+        data=_serialize_payroll(payroll, user, worked_days=worked_days),
     )
 
 @router.get("/payroll/{user_id}", response_model=StandardResponse)
@@ -493,7 +617,7 @@ async def get_payrolls(
 
 @router.get("/payrolls/settings", response_model=StandardResponse)
 async def get_payroll_settings(
-    current_user: Annotated[User, Depends(dependencies.RoleChecker([Role.ADMIN]))],
+    current_user: Annotated[User, Depends(dependencies.RoleChecker([Role.ADMIN, Role.MANAGER]))],
     db: Annotated[AsyncSession, Depends(get_db)],
 ):
     stmt = select(PayrollSettings).limit(1)
@@ -572,7 +696,7 @@ async def run_payroll_automation(
 
 @router.get("/payrolls/pending", response_model=StandardResponse)
 async def list_pending_payrolls(
-    current_user: Annotated[User, Depends(dependencies.RoleChecker([Role.ADMIN]))],
+    current_user: Annotated[User, Depends(dependencies.RoleChecker([Role.ADMIN, Role.MANAGER]))],
     db: Annotated[AsyncSession, Depends(get_db)],
     response: Response,
     month: Optional[int] = Query(None, ge=1, le=12),
@@ -634,7 +758,7 @@ async def list_pending_payrolls(
 async def create_payroll_payment(
     payroll_id: uuid.UUID,
     request: PayrollPaymentCreate,
-    current_user: Annotated[User, Depends(dependencies.RoleChecker([Role.ADMIN]))],
+    current_user: Annotated[User, Depends(dependencies.RoleChecker([Role.ADMIN, Role.MANAGER]))],
     db: Annotated[AsyncSession, Depends(get_db)],
 ):
     stmt = (
@@ -648,6 +772,8 @@ async def create_payroll_payment(
     if not row:
         raise HTTPException(status_code=404, detail="Payroll record not found")
     payroll, staff_user = row
+    if payroll.status not in {PayrollStatus.APPROVED, PayrollStatus.PARTIAL}:
+        raise HTTPException(status_code=400, detail="Approve payroll before recording payment")
 
     paid_amount = _payroll_paid_amount(payroll)
     pending_amount = _money(max(float(payroll.total_pay) - paid_amount, 0.0))
@@ -681,10 +807,16 @@ async def create_payroll_payment(
     db.add(payment)
     await db.flush()
 
-    payroll.status = PayrollStatus.PARTIAL
-    payroll.paid_transaction_id = None
-    payroll.paid_at = None
-    payroll.paid_by_user_id = None
+    remaining_amount = _money(max(pending_amount - request.amount, 0.0))
+    payroll.status = PayrollStatus.PAID if remaining_amount <= 0 else PayrollStatus.PARTIAL
+    if payroll.status == PayrollStatus.PAID:
+        payroll.paid_transaction_id = payment.transaction_id
+        payroll.paid_at = payment.paid_at
+        payroll.paid_by_user_id = current_user.id
+    else:
+        payroll.paid_transaction_id = None
+        payroll.paid_at = None
+        payroll.paid_by_user_id = None
 
     await db.commit()
 
@@ -704,11 +836,77 @@ async def create_payroll_payment(
     )
 
 
+@router.patch("/payrolls/{payroll_id}", response_model=StandardResponse)
+async def update_payroll(
+    payroll_id: uuid.UUID,
+    request: PayrollEditRequest,
+    current_user: Annotated[User, Depends(dependencies.RoleChecker([Role.ADMIN, Role.MANAGER]))],
+    db: Annotated[AsyncSession, Depends(get_db)],
+):
+    stmt = (
+        select(Payroll, User)
+        .join(User, User.id == Payroll.user_id)
+        .where(Payroll.id == payroll_id)
+        .options(selectinload(Payroll.payments))
+    )
+    result = await db.execute(stmt)
+    row = result.first()
+    if not row:
+        raise HTTPException(status_code=404, detail="Payroll record not found")
+    payroll, staff_user = row
+    if payroll.status != PayrollStatus.DRAFT:
+        raise HTTPException(status_code=400, detail="Only draft payrolls can be edited")
+
+    editable_fields = [
+        "base_pay",
+        "overtime_hours",
+        "overtime_pay",
+        "commission_pay",
+        "bonus_pay",
+        "manual_deductions",
+    ]
+    existing_manual_deductions = _money(float(payroll.manual_deductions or 0.0))
+    existing_leave_deductions = _money(max(float(payroll.deductions) - existing_manual_deductions, 0.0))
+    for field_name in editable_fields:
+        value = getattr(request, field_name)
+        if value is not None:
+            setattr(payroll, field_name, _money(value))
+
+    if request.period_start is not None:
+        payroll.period_start = request.period_start if request.period_start.tzinfo else request.period_start.replace(tzinfo=timezone.utc)
+    if request.period_end is not None:
+        payroll.period_end = request.period_end if request.period_end.tzinfo else request.period_end.replace(tzinfo=timezone.utc)
+    if payroll.period_start and payroll.period_end and payroll.period_end <= payroll.period_start:
+        raise HTTPException(status_code=400, detail="Payroll period end must be after the start")
+
+    manual_deductions = _money(float(payroll.manual_deductions or 0.0))
+    payroll.manual_deductions = manual_deductions
+    payroll.deductions = _money(existing_leave_deductions + manual_deductions)
+    payroll.total_pay = _money(
+        float(payroll.base_pay)
+        + float(payroll.overtime_pay)
+        + float(payroll.commission_pay)
+        + float(payroll.bonus_pay)
+        - float(payroll.deductions)
+    )
+    await db.commit()
+    await AuditService.log_action(
+        db=db,
+        user_id=current_user.id,
+        action="UPDATE_PAYROLL",
+        target_id=str(payroll.id),
+        details=f"Draft payroll edited for {staff_user.full_name}",
+    )
+    await db.commit()
+    await db.refresh(payroll, attribute_names=["payments"])
+    return StandardResponse(message="Payroll updated", data=_serialize_payroll(payroll, staff_user))
+
+
 @router.patch("/payrolls/{payroll_id}/status", response_model=StandardResponse)
 async def update_payroll_status(
     payroll_id: uuid.UUID,
     request: PayrollStatusUpdate,
-    current_user: Annotated[User, Depends(dependencies.RoleChecker([Role.ADMIN]))],
+    current_user: Annotated[User, Depends(dependencies.RoleChecker([Role.ADMIN, Role.MANAGER]))],
     db: Annotated[AsyncSession, Depends(get_db)],
 ):
     stmt = (
@@ -743,11 +941,25 @@ async def update_payroll_status(
     if target_status == PayrollStatus.PAID:
         if pending_amount > 0:
             raise HTTPException(status_code=400, detail="Cannot mark paid while pending amount is greater than zero")
+        if payroll.status == PayrollStatus.DRAFT:
+            raise HTTPException(status_code=400, detail="Approve payroll before marking it paid")
         payroll.status = PayrollStatus.PAID
         latest_payment = max(payroll.payments, key=lambda p: p.paid_at, default=None)
         payroll.paid_transaction_id = latest_payment.transaction_id if latest_payment else payroll.paid_transaction_id
         payroll.paid_at = latest_payment.paid_at if latest_payment else now
         payroll.paid_by_user_id = latest_payment.paid_by_user_id if latest_payment else current_user.id
+        payroll.approved_at = payroll.approved_at or now
+        payroll.approved_by_user_id = payroll.approved_by_user_id or current_user.id
+    elif target_status == PayrollStatus.APPROVED:
+        payroll.status = PayrollStatus.APPROVED
+        payroll.approved_at = now
+        payroll.approved_by_user_id = current_user.id
+    elif target_status == PayrollStatus.REJECTED:
+        if paid_amount > 0:
+            raise HTTPException(status_code=400, detail="Cannot reject a payroll that already has payments")
+        payroll.status = PayrollStatus.REJECTED
+        payroll.approved_at = None
+        payroll.approved_by_user_id = None
     else:
         if paid_amount > 0:
             tx_amount = _money(paid_amount)
@@ -766,6 +978,8 @@ async def update_payroll_status(
                 await db.delete(payment)
 
         payroll.status = PayrollStatus.DRAFT
+        payroll.approved_at = None
+        payroll.approved_by_user_id = None
         payroll.paid_transaction_id = None
         payroll.paid_at = None
         payroll.paid_by_user_id = None
@@ -813,12 +1027,17 @@ async def generate_payslip(
         "employee_name": u.full_name if u else "Unknown",
         "email": u.email if u else "Unknown",
         "period": f"{payroll.month:02d}/{payroll.year}",
+        "period_start": payroll.period_start.isoformat() if payroll.period_start else None,
+        "period_end": payroll.period_end.isoformat() if payroll.period_end else None,
         "base_pay": payroll.base_pay,
         "overtime_pay": payroll.overtime_pay,
         "bonus_pay": payroll.bonus_pay,
+        "leave_deductions": max(float(payroll.deductions) - float(payroll.manual_deductions or 0.0), 0.0),
+        "manual_deductions": payroll.manual_deductions,
         "deductions": payroll.deductions,
         "total_pay": payroll.total_pay,
         "status": payroll.status,
+        "approved_at": payroll.approved_at.isoformat() if payroll.approved_at else None,
         "contract_type": c.contract_type.value if c else "Unknown",
         "generated_on": datetime.now().isoformat()
     }
@@ -843,12 +1062,19 @@ async def generate_payslip_printable(
 
     payslip_id = str(payroll.id)[:8].upper()
     employee_name = user.full_name if user else "Unknown"
+    period_label = (
+        f"{payroll.period_start.astimezone(timezone.utc).date().isoformat()} → {payroll.period_end.astimezone(timezone.utc).date().isoformat()}"
+        if payroll.period_start and payroll.period_end
+        else f"{payroll.month:02d}/{payroll.year}"
+    )
     breakdown_rows = "".join(
         [
             f'<tr><th>Base Pay</th><td class="num">{escape(_format_money(payroll.base_pay))}</td></tr>',
             f'<tr><th>Overtime Pay</th><td class="num">{escape(_format_money(payroll.overtime_pay))}</td></tr>',
             f'<tr><th>Commission</th><td class="num">{escape(_format_money(payroll.commission_pay))}</td></tr>',
             f'<tr><th>Bonus</th><td class="num">{escape(_format_money(payroll.bonus_pay))}</td></tr>',
+            f'<tr><th>Automatic Deductions</th><td class="num">{escape(_format_money(max(float(payroll.deductions) - float(payroll.manual_deductions or 0.0), 0.0)))}</td></tr>',
+            f'<tr><th>Manual Deductions</th><td class="num">{escape(_format_money(payroll.manual_deductions))}</td></tr>',
             f'<tr><th>Deductions</th><td class="num">{escape(_format_money(payroll.deductions))}</td></tr>',
             f'<tr><th>Status</th><td>{escape(_enum_value(payroll.status))}</td></tr>',
         ]
@@ -861,7 +1087,8 @@ async def generate_payslip_printable(
         details_rows=[
             ("Payslip ID", payslip_id),
             ("Employee", employee_name),
-            ("Period", f"{payroll.month:02d}/{payroll.year}"),
+            ("Period", period_label),
+            ("Status", _enum_value(payroll.status)),
             ("Generated On", datetime.now(timezone.utc).isoformat()),
         ],
         sections=[
@@ -899,12 +1126,19 @@ async def export_payslip(
 
     payslip_id = str(payroll.id)[:8].upper()
     employee_name = user.full_name if user else "Unknown"
+    period_label = (
+        f"{payroll.period_start.astimezone(timezone.utc).date().isoformat()} -> {payroll.period_end.astimezone(timezone.utc).date().isoformat()}"
+        if payroll.period_start and payroll.period_end
+        else f"{payroll.month:02d}/{payroll.year}"
+    )
     breakdown_rows = "".join(
         [
             f'<tr><th>Base Pay</th><td class="num">{escape(_format_money(payroll.base_pay))}</td></tr>',
             f'<tr><th>Overtime Pay</th><td class="num">{escape(_format_money(payroll.overtime_pay))}</td></tr>',
             f'<tr><th>Commission</th><td class="num">{escape(_format_money(payroll.commission_pay))}</td></tr>',
             f'<tr><th>Bonus</th><td class="num">{escape(_format_money(payroll.bonus_pay))}</td></tr>',
+            f'<tr><th>Automatic Deductions</th><td class="num">{escape(_format_money(max(float(payroll.deductions) - float(payroll.manual_deductions or 0.0), 0.0)))}</td></tr>',
+            f'<tr><th>Manual Deductions</th><td class="num">{escape(_format_money(payroll.manual_deductions))}</td></tr>',
             f'<tr><th>Deductions</th><td class="num">{escape(_format_money(payroll.deductions))}</td></tr>',
             f'<tr><th>Status</th><td>{escape(_enum_value(payroll.status))}</td></tr>',
         ]
@@ -917,7 +1151,8 @@ async def export_payslip(
         details_rows=[
             ("Payslip ID", payslip_id),
             ("Employee", employee_name),
-            ("Period", f"{payroll.month:02d}/{payroll.year}"),
+            ("Period", period_label),
+            ("Status", _enum_value(payroll.status)),
             ("Generated On", datetime.now(timezone.utc).isoformat()),
         ],
         sections=[
@@ -957,14 +1192,23 @@ async def export_payslip_pdf(
     user_result = await db.execute(user_stmt)
     user = user_result.scalar_one_or_none()
 
+    period_label = (
+        f"{payroll.period_start.astimezone(timezone.utc).date().isoformat()} -> {payroll.period_end.astimezone(timezone.utc).date().isoformat()}"
+        if payroll.period_start and payroll.period_end
+        else f"{payroll.month:02d}/{payroll.year}"
+    )
+
     lines = [
         f"Payslip ID: {str(payroll.id)[:8].upper()}",
         f"Employee: {user.full_name if user else 'Unknown'}",
-        f"Period: {payroll.month:02d}/{payroll.year}",
+        f"Period: {period_label}",
+        f"Status: {_enum_value(payroll.status)}",
         f"Base Pay: {payroll.base_pay:.2f}",
         f"Overtime Pay: {payroll.overtime_pay:.2f}",
         f"Commission: {payroll.commission_pay:.2f}",
         f"Bonus: {payroll.bonus_pay:.2f}",
+        f"Automatic Deductions: {max(float(payroll.deductions) - float(payroll.manual_deductions or 0.0), 0.0):.2f}",
+        f"Manual Deductions: {float(payroll.manual_deductions or 0.0):.2f}",
         f"Deductions: {payroll.deductions:.2f}",
         f"Total Pay: {payroll.total_pay:.2f}",
     ]
@@ -985,7 +1229,7 @@ async def get_staff(
     stmt = (
         select(User, Contract)
         .outerjoin(Contract, Contract.user_id == User.id)
-        .where(User.role.in_([Role.COACH, Role.EMPLOYEE, Role.CASHIER, Role.RECEPTION, Role.FRONT_DESK]))
+        .where(User.role.in_([Role.COACH, Role.EMPLOYEE, Role.CASHIER, Role.RECEPTION, Role.FRONT_DESK, Role.MANAGER]))
     )
     branch_ids = await TenancyService.branch_scope_ids(
         db,
@@ -1007,6 +1251,7 @@ async def get_staff(
             "full_name": staff.full_name,
             "email": staff.email,
             "role": staff.role.value,
+            "home_branch_id": str(staff.home_branch_id) if staff.home_branch_id else None,
             "profile_picture_url": staff.profile_picture_url,
             "phone_number": staff.phone_number,
             "date_of_birth": staff.date_of_birth.isoformat() if staff.date_of_birth else None,
@@ -1032,7 +1277,7 @@ class AttendanceCorrection(BaseModel):
 
 @router.get("/attendance", response_model=StandardResponse)
 async def list_attendance(
-    current_user: Annotated[User, Depends(dependencies.RoleChecker([Role.ADMIN]))],
+    current_user: Annotated[User, Depends(dependencies.RoleChecker([Role.ADMIN, Role.MANAGER]))],
     db: Annotated[AsyncSession, Depends(get_db)],
     response: Response,
     user_id: Optional[uuid.UUID] = Query(None),
@@ -1098,7 +1343,7 @@ def _overlap_days(start_a: date, end_a: date, start_b: date, end_b: date) -> int
 @router.get("/staff/{user_id}/summary", response_model=StandardResponse)
 async def get_staff_summary(
     user_id: uuid.UUID,
-    current_user: Annotated[User, Depends(dependencies.RoleChecker([Role.ADMIN]))],
+    current_user: Annotated[User, Depends(dependencies.RoleChecker([Role.ADMIN, Role.MANAGER]))],
     db: Annotated[AsyncSession, Depends(get_db)],
     start_date: Optional[date] = Query(None),
     end_date: Optional[date] = Query(None),
@@ -1199,7 +1444,7 @@ async def get_staff_summary(
 @router.get("/staff/{user_id}/summary/print", response_class=HTMLResponse)
 async def print_staff_summary(
     user_id: uuid.UUID,
-    current_user: Annotated[User, Depends(dependencies.RoleChecker([Role.ADMIN]))],
+    current_user: Annotated[User, Depends(dependencies.RoleChecker([Role.ADMIN, Role.MANAGER]))],
     db: Annotated[AsyncSession, Depends(get_db)],
     start_date: Optional[date] = Query(None),
     end_date: Optional[date] = Query(None),
@@ -1346,7 +1591,7 @@ async def print_staff_summary(
 async def correct_attendance(
     attendance_id: uuid.UUID,
     correction: AttendanceCorrection,
-    current_user: Annotated[User, Depends(dependencies.RoleChecker([Role.ADMIN]))],
+    current_user: Annotated[User, Depends(dependencies.RoleChecker([Role.ADMIN, Role.MANAGER]))],
     db: Annotated[AsyncSession, Depends(get_db)]
 ):
     """Admin manually corrects an attendance record."""
@@ -1393,7 +1638,7 @@ async def correct_attendance(
 
 @router.get("/members", response_model=StandardResponse)
 async def list_members(
-    current_user: Annotated[User, Depends(dependencies.RoleChecker([Role.ADMIN, Role.COACH, Role.RECEPTION, Role.FRONT_DESK]))],
+    current_user: Annotated[User, Depends(dependencies.RoleChecker([Role.ADMIN, Role.MANAGER, Role.COACH, Role.RECEPTION, Role.FRONT_DESK]))],
     db: Annotated[AsyncSession, Depends(get_db)],
     branch_id: Optional[uuid.UUID] = Query(None),
 ):
@@ -1442,6 +1687,7 @@ async def list_members(
             "full_name": u.full_name,
             "email": u.email,
             "role": u.role.value,
+            "home_branch_id": str(u.home_branch_id) if u.home_branch_id else None,
             "profile_picture_url": u.profile_picture_url,
             "phone_number": u.phone_number,
             "date_of_birth": u.date_of_birth.isoformat() if u.date_of_birth else None,
@@ -1461,7 +1707,9 @@ async def list_members(
 class SubscriptionCreate(BaseModel):
     user_id: uuid.UUID
     plan_name: str = "Monthly"
-    duration_days: int = Field(default=30, ge=1)
+    start_date: date
+    end_date: date
+    extend_days: int | None = Field(default=None, ge=1)
     amount_paid: float = Field(..., gt=0)
     payment_method: PaymentMethod = PaymentMethod.CASH
 
@@ -1472,33 +1720,59 @@ class SubscriptionUpdate(BaseModel):
 @router.post("/subscriptions", response_model=StandardResponse)
 async def create_subscription(
     data: SubscriptionCreate,
-    current_user: Annotated[User, Depends(dependencies.RoleChecker([Role.ADMIN, Role.RECEPTION, Role.FRONT_DESK]))],
+    current_user: Annotated[User, Depends(dependencies.RoleChecker([Role.ADMIN, Role.MANAGER, Role.RECEPTION, Role.FRONT_DESK]))],
     db: Annotated[AsyncSession, Depends(get_db)]
 ):
     """Create or renew a subscription for a member."""
     from app.models.access import Subscription
     from app.models.subscription_enums import SubscriptionStatus
-    from datetime import timedelta, timezone
+    if data.end_date < data.start_date:
+        raise HTTPException(status_code=400, detail="end_date must be on or after start_date")
+
+    member = await TenancyService.require_user_in_gym(
+        db,
+        current_user=current_user,
+        user_id=data.user_id,
+        detail="Member not found",
+    )
+    if member.home_branch_id is None:
+        raise HTTPException(status_code=400, detail="Member must have a home branch assigned")
+    await TenancyService.require_branch_access(
+        db,
+        current_user=current_user,
+        branch_id=member.home_branch_id,
+        allow_all_for_admin=True,
+    )
 
     stmt = select(Subscription).where(Subscription.user_id == data.user_id)
     result = await db.execute(stmt)
     existing = result.scalar_one_or_none()
 
+    start_dt = _date_to_utc_datetime(data.start_date)
+    end_dt = _date_to_utc_datetime(data.end_date)
     now = datetime.now(timezone.utc)
-    end = now + timedelta(days=data.duration_days)
 
     if existing:
-        existing.plan_name = data.plan_name
-        existing.start_date = now
-        existing.end_date = end
-        existing.status = SubscriptionStatus.ACTIVE
-        msg = "Subscription renewed"
+        if data.extend_days is not None:
+            current_end_date = _utc_datetime_to_date(existing.end_date)
+            base_end_date = max(current_end_date, now.date())
+            new_end_date = base_end_date + timedelta(days=data.extend_days)
+            existing.plan_name = data.plan_name
+            existing.end_date = _date_to_utc_datetime(new_end_date)
+            existing.status = SubscriptionStatus.ACTIVE
+            msg = "Subscription extended"
+        else:
+            existing.plan_name = data.plan_name
+            existing.start_date = start_dt
+            existing.end_date = end_dt
+            existing.status = SubscriptionStatus.ACTIVE
+            msg = "Subscription renewed"
     else:
         sub = Subscription(
             user_id=data.user_id,
             plan_name=data.plan_name,
-            start_date=now,
-            end_date=end,
+            start_date=start_dt,
+            end_date=end_dt,
             status=SubscriptionStatus.ACTIVE
         )
         db.add(sub)
@@ -1509,37 +1783,45 @@ async def create_subscription(
         type=TransactionType.INCOME,
         category=TransactionCategory.SUBSCRIPTION,
         payment_method=data.payment_method,
-        description=f"Subscription {'renewal' if existing else 'activation'} - {data.plan_name}",
+        description=(
+            f"Subscription extension - {data.plan_name}"
+            if existing and data.extend_days is not None
+            else f"Subscription {'renewal' if existing else 'activation'} - {data.plan_name}"
+        ),
         user_id=data.user_id,
     )
     db.add(tx)
 
     await db.commit()
 
-    member = await TenancyService.get_user_in_gym(db, gym_id=current_user.gym_id, user_id=data.user_id)
     if member:
         await WhatsAppNotificationService.queue_and_send(
             db=db,
             user=member,
             phone_number=member.phone_number,
             template_key="subscription_updated",
-            event_type="SUBSCRIPTION_RENEWED" if existing else "SUBSCRIPTION_CREATED",
+            event_type="SUBSCRIPTION_EXTENDED" if existing and data.extend_days is not None else ("SUBSCRIPTION_RENEWED" if existing else "SUBSCRIPTION_CREATED"),
             event_ref=str(data.user_id),
             params={
                 "member_name": member.full_name,
                 "plan_name": data.plan_name,
-                "duration_days": data.duration_days,
+                "start_date": start_dt.date().isoformat(),
+                "end_date": (existing.end_date if existing and data.extend_days is not None else end_dt).date().isoformat(),
                 "status": "ACTIVE",
             },
-            idempotency_key=f"subscription-create:{data.user_id}:{end.date().isoformat()}",
+            idempotency_key=f"subscription-create:{data.user_id}:{(existing.end_date if existing and data.extend_days is not None else end_dt).date().isoformat()}",
         )
     
     await AuditService.log_action(
         db=db,
         user_id=current_user.id,
-        action="RENEW_SUBSCRIPTION" if existing else "CREATE_SUBSCRIPTION",
+        action="EXTEND_SUBSCRIPTION" if existing and data.extend_days is not None else ("RENEW_SUBSCRIPTION" if existing else "CREATE_SUBSCRIPTION"),
         target_id=str(data.user_id),
-        details=f"Plan: {data.plan_name}, Duration: {data.duration_days} days, Amount: {data.amount_paid} {data.payment_method.value}"
+        details=(
+            f"Plan: {data.plan_name}, Extend days: {data.extend_days}, Amount: {data.amount_paid} {data.payment_method.value}"
+            if existing and data.extend_days is not None
+            else f"Plan: {data.plan_name}, Start: {data.start_date.isoformat()}, End: {data.end_date.isoformat()}, Amount: {data.amount_paid} {data.payment_method.value}"
+        )
     )
     await db.commit()
 
@@ -1550,12 +1832,27 @@ async def create_subscription(
 async def update_subscription(
     user_id: uuid.UUID,
     data: SubscriptionUpdate,
-    current_user: Annotated[User, Depends(dependencies.RoleChecker([Role.ADMIN, Role.RECEPTION, Role.FRONT_DESK]))],
+    current_user: Annotated[User, Depends(dependencies.RoleChecker([Role.ADMIN, Role.MANAGER, Role.RECEPTION, Role.FRONT_DESK]))],
     db: Annotated[AsyncSession, Depends(get_db)]
 ):
     """Update subscription status: FREEZE or ACTIVATE (unfreeze)."""
     from app.models.access import Subscription
     from app.models.subscription_enums import SubscriptionStatus
+
+    member = await TenancyService.require_user_in_gym(
+        db,
+        current_user=current_user,
+        user_id=user_id,
+        detail="No subscription found",
+    )
+    if member.home_branch_id is None:
+        raise HTTPException(status_code=400, detail="Member must have a home branch assigned")
+    await TenancyService.require_branch_access(
+        db,
+        current_user=current_user,
+        branch_id=member.home_branch_id,
+        allow_all_for_admin=True,
+    )
 
     stmt = select(Subscription).where(Subscription.user_id == user_id)
     result = await db.execute(stmt)
@@ -1627,7 +1924,7 @@ async def create_leave_request(
 
 @router.get("/leaves", response_model=StandardResponse)
 async def get_all_leaves(
-    current_user: Annotated[User, Depends(dependencies.RoleChecker([Role.ADMIN]))],
+    current_user: Annotated[User, Depends(dependencies.RoleChecker([Role.ADMIN, Role.MANAGER]))],
     db: Annotated[AsyncSession, Depends(get_db)],
     status: Optional[LeaveStatus] = Query(None),
     leave_type: Optional[LeaveType] = Query(None),
@@ -1705,7 +2002,7 @@ async def get_my_leaves(
 async def update_leave_status(
     leave_id: uuid.UUID,
     request: LeaveRequestUpdate,
-    current_user: Annotated[User, Depends(dependencies.RoleChecker([Role.ADMIN]))],
+    current_user: Annotated[User, Depends(dependencies.RoleChecker([Role.ADMIN, Role.MANAGER]))],
     db: Annotated[AsyncSession, Depends(get_db)]
 ):
     """Admin updates leave status"""

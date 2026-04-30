@@ -3,6 +3,7 @@
 import React, { createContext, useContext, useState, useEffect, ReactNode } from 'react';
 import { api } from '@/lib/api';
 import { useAuth } from '@/context/AuthContext';
+import { isBranchAdminRole } from '@/lib/roles';
 
 interface Branch {
     id: string;
@@ -26,7 +27,8 @@ export function BranchProvider({ children }: { children: ReactNode }) {
     const [branches, setBranches] = useState<Branch[]>([]);
     const [selectedBranchId, setSelectedBranchId] = useState<string>('all');
     const [isLoading, setIsLoading] = useState(false);
-    const canUseBranchScope = Boolean(user && ['SUPER_ADMIN', 'ADMIN', 'MANAGER'].includes(user.role));
+    const canUseBranchScope = Boolean(user && (user.role === 'SUPER_ADMIN' || isBranchAdminRole(user.role)));
+    const shouldForceSpecificBranch = Boolean(user && isBranchAdminRole(user.role));
 
     useEffect(() => {
         if (!canUseBranchScope || !user) {
@@ -45,13 +47,17 @@ export function BranchProvider({ children }: { children: ReactNode }) {
                 
                 // Persistence: try to load from localStorage
                 const saved = localStorage.getItem(`selected_branch_${user.id}`);
-                if (saved && (saved === 'all' || branchData.some((b: Branch) => b.id === saved))) {
+                if (saved && saved !== 'all' && branchData.some((b: Branch) => b.id === saved)) {
                     setSelectedBranchId(saved);
+                } else if (shouldForceSpecificBranch && branchData.length > 0) {
+                    setSelectedBranchId(branchData[0].id);
+                } else if (saved === 'all' && user.role === 'SUPER_ADMIN') {
+                    setSelectedBranchId('all');
                 }
             })
             .catch(err => console.error("Failed to fetch branches", err))
             .finally(() => setIsLoading(false));
-    }, [canUseBranchScope, user]);
+    }, [canUseBranchScope, shouldForceSpecificBranch, user]);
 
     const handleSetBranch = (id: string) => {
         if (!canUseBranchScope) return;

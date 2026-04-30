@@ -7,6 +7,10 @@ import { api } from '@/lib/api';
 import { useAuth } from '@/context/AuthContext';
 import { useChatThreads } from '@/hooks/useChatThreads';
 import { useLocale } from '@/context/LocaleContext';
+import { useBranch } from '@/context/BranchContext';
+import { getBranchParams } from '@/lib/branch';
+import { BranchSelector } from '@/components/BranchSelector';
+import { isBranchAdminRole } from '@/lib/roles';
 
 interface ChatUser {
     id: string;
@@ -54,22 +58,24 @@ function getCounterpart(thread: ChatThread, meRole?: string) {
 export default function ChatDrawer({ isOpen, onClose }: ChatDrawerProps) {
     const { locale } = useLocale();
     const { user } = useAuth();
+    const { branches, selectedBranchId, setSelectedBranchId } = useBranch();
     const [contacts, setContacts] = useState<ChatUser[]>([]);
     const [newChatOpen, setNewChatOpen] = useState(false);
     const [contactSearch, setContactSearch] = useState('');
     const [creatingThread, setCreatingThread] = useState(false);
 
-    const isReadOnly = user?.role === 'ADMIN';
+    const isReadOnly = isBranchAdminRole(user?.role);
     const { threads: threadRows, isLoading: loading, mutate: mutateThreads } = useChatThreads({
         enabled: isOpen && !!user,
         limit: 30,
+        branchId: selectedBranchId,
     });
     const threads = threadRows as ChatThread[];
 
     const fetchContacts = async () => {
         if (!user || isReadOnly) return;
         try {
-            const response = await api.get('/chat/contacts');
+            const response = await api.get('/chat/contacts', { params: getBranchParams(selectedBranchId) });
             setContacts(response.data?.data || []);
         } catch {
             setContacts([]);
@@ -80,7 +86,10 @@ export default function ChatDrawer({ isOpen, onClose }: ChatDrawerProps) {
         if (!contactId || isReadOnly) return;
         setCreatingThread(true);
         try {
-            const payload = user?.role === 'CUSTOMER' ? { coach_id: contactId } : { customer_id: contactId };
+            const payload = {
+                ...(user?.role === 'CUSTOMER' ? { coach_id: contactId } : { customer_id: contactId }),
+                ...getBranchParams(selectedBranchId),
+            };
             const response = await api.post('/chat/threads', payload);
             const threadId = response.data?.data?.id as string | undefined;
             await mutateThreads();
@@ -101,7 +110,7 @@ export default function ChatDrawer({ isOpen, onClose }: ChatDrawerProps) {
         if (!isOpen) return;
         void mutateThreads();
         fetchContacts();
-    }, [isOpen, mutateThreads]); // eslint-disable-line react-hooks/exhaustive-deps
+    }, [isOpen, mutateThreads, selectedBranchId]); // eslint-disable-line react-hooks/exhaustive-deps
 
     const title = useMemo(
         () =>
@@ -137,6 +146,17 @@ export default function ChatDrawer({ isOpen, onClose }: ChatDrawerProps) {
                 </div>
 
                 <div className="p-3 h-[calc(100%-57px)] overflow-y-auto hide-scrollbar space-y-2">
+                    {branches.length > 0 && (
+                        <div className="border border-border rounded-sm p-2">
+                            <BranchSelector
+                                branches={branches}
+                                selectedBranchId={selectedBranchId}
+                                onSelect={setSelectedBranchId}
+                                className="w-full"
+                            />
+                        </div>
+                    )}
+
                     {!isReadOnly && (
                         <div className="border border-border rounded-sm p-2 space-y-2">
                             <button
@@ -214,7 +234,7 @@ export default function ChatDrawer({ isOpen, onClose }: ChatDrawerProps) {
                             >
                                 <div className="flex items-center justify-between gap-2">
                                     <p className="font-semibold text-sm text-foreground truncate min-w-0 flex-1">
-                                        {user?.role === 'ADMIN'
+                                        {isBranchAdminRole(user?.role)
                                             ? `${thread.customer.full_name || thread.customer.email} <-> ${thread.coach.full_name || thread.coach.email}`
                                             : (counterpart.full_name || counterpart.email)}
                                     </p>
@@ -236,5 +256,3 @@ export default function ChatDrawer({ isOpen, onClose }: ChatDrawerProps) {
         </>
     );
 }
-
-

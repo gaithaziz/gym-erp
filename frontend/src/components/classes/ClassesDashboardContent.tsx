@@ -545,7 +545,9 @@ export default function ClassesDashboardContent({ role }: { role: DashboardRole 
             try {
                 setSessionReservationsLoading(true);
                 setSessionReservationsError(null);
-                const response = await api.get(`/classes/sessions/${selectedSession.id}/reservations`);
+                const response = await api.get(`/classes/sessions/${selectedSession.id}/reservations`, {
+                    params: getBranchParams(selectedBranchId),
+                });
                 const reservations = unwrapData<SessionReservation[]>(response.data as SessionReservation[] | Envelope<SessionReservation[]>) || [];
                 if (!cancelled) {
                     setSessionReservations(reservations.filter((reservation) => isActiveEnrollment(reservation.status)));
@@ -568,7 +570,7 @@ export default function ClassesDashboardContent({ role }: { role: DashboardRole 
         return () => {
             cancelled = true;
         };
-    }, [isStaffView, selectedSession, sessionReservationsVersion, txt.attendeesFailed]);
+    }, [isStaffView, selectedBranchId, selectedSession, sessionReservationsVersion, txt.attendeesFailed]);
 
     async function handleReservationAction(reservationId: string, action: 'approve' | 'reject') {
         if (!selectedSession) return;

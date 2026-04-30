@@ -7,7 +7,7 @@ from sqlalchemy import select
 
 from app.config import settings
 from app.database import get_db, set_rls_context
-from app.models.tenancy import Gym
+from app.models.tenancy import Branch, Gym
 from app.models.user import User
 from app.auth.schemas import TokenPayload
 from app.models.enums import Role
@@ -22,8 +22,28 @@ def _coerce_role(value: Role | str) -> Role:
 
 async def ensure_gym_accessible(*, db: AsyncSession, current_user: User) -> None:
     current_user.role = _coerce_role(current_user.role)
-    if current_user.role == Role.SUPER_ADMIN or current_user.gym_id is None:
+    if current_user.role == Role.SUPER_ADMIN:
         return
+
+    if current_user.gym_id is None and current_user.home_branch_id is not None:
+        previous_user_id = db.info.get("rls_user_id", "")
+        previous_role = db.info.get("rls_user_role", "ANONYMOUS")
+        previous_gym_id = db.info.get("rls_gym_id", "")
+        previous_branch_id = db.info.get("rls_branch_id", "")
+        await set_rls_context(db, role=Role.SUPER_ADMIN.value)
+        branch = await db.get(Branch, current_user.home_branch_id)
+        await set_rls_context(
+            db,
+            user_id=previous_user_id,
+            role=previous_role,
+            gym_id=previous_gym_id,
+            branch_id=previous_branch_id,
+        )
+        if branch is not None:
+            current_user.gym_id = branch.gym_id
+
+    if current_user.gym_id is None:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Gym not assigned")
 
     await set_rls_context(db, role=Role.SUPER_ADMIN.value)
     gym = await db.get(Gym, current_user.gym_id)

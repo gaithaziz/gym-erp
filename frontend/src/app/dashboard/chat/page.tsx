@@ -10,6 +10,10 @@ import { useAuth } from '@/context/AuthContext';
 import { getAccessToken } from '@/lib/tokenStorage';
 import { useFeedback } from '@/components/FeedbackProvider';
 import { useLocale } from '@/context/LocaleContext';
+import { useBranch } from '@/context/BranchContext';
+import { getBranchParams } from '@/lib/branch';
+import { isBranchAdminRole } from '@/lib/roles';
+import { BranchSelector } from '@/components/BranchSelector';
 
 interface ChatUser {
     id: string;
@@ -171,13 +175,14 @@ function ChatAudioPlayer({
 
 export default function ChatPage() {
     const { user } = useAuth();
+    const { branches, selectedBranchId, setSelectedBranchId } = useBranch();
     const { locale, formatDate } = useLocale();
     const { showToast, confirm: confirmAction } = useFeedback();
     const searchParams = useSearchParams();
     const initialThread = searchParams.get('thread');
 
-    const isAdmin = user?.role === 'ADMIN';
-    const isAllowedRole = ['ADMIN', 'COACH', 'CUSTOMER'].includes(user?.role || '');
+    const isAdmin = isBranchAdminRole(user?.role);
+    const isAllowedRole = ['ADMIN', 'MANAGER', 'COACH', 'CUSTOMER'].includes(user?.role || '');
 
     const [threads, setThreads] = useState<ChatThread[]>([]);
     const [selectedThreadId, setSelectedThreadId] = useState<string | null>(initialThread);
@@ -230,7 +235,12 @@ export default function ChatPage() {
     const fetchThreads = async () => {
         if (!isAllowedRole) return;
         try {
-            const params: Record<string, string | number> = { limit: 50, sort_by: 'last_message_at', sort_order: 'desc' };
+            const params: Record<string, string | number> = {
+                limit: 50,
+                sort_by: 'last_message_at',
+                sort_order: 'desc',
+                ...getBranchParams(selectedBranchId),
+            };
             if (isAdmin && adminCoachFilter) params.coach_id = adminCoachFilter;
             if (isAdmin && adminCustomerFilter) params.customer_id = adminCustomerFilter;
             const response = await api.get('/chat/threads', { params });
@@ -252,7 +262,9 @@ export default function ChatPage() {
 
     const fetchMessages = async (threadId: string) => {
         try {
-            const response = await api.get(`/chat/threads/${threadId}/messages`, { params: { limit: 100 } });
+            const response = await api.get(`/chat/threads/${threadId}/messages`, {
+                params: { limit: 100, ...getBranchParams(selectedBranchId) },
+            });
             const rows = response.data?.data || [];
             setMessages(rows);
             if (!isAdmin) {
@@ -277,7 +289,7 @@ export default function ChatPage() {
     const fetchContacts = async () => {
         if (!isAllowedRole) return;
         try {
-            const response = await api.get('/chat/contacts');
+            const response = await api.get('/chat/contacts', { params: getBranchParams(selectedBranchId) });
             setContacts(response.data?.data || []);
         } catch {
             setContacts([]);
@@ -288,7 +300,10 @@ export default function ChatPage() {
         if (!contactId || isAdmin) return;
         setCreatingThread(true);
         try {
-            const payload = user?.role === 'CUSTOMER' ? { coach_id: contactId } : { customer_id: contactId };
+            const payload = {
+                ...(user?.role === 'CUSTOMER' ? { coach_id: contactId } : { customer_id: contactId }),
+                ...getBranchParams(selectedBranchId),
+            };
             const response = await api.post('/chat/threads', payload);
             const thread = response.data?.data as ChatThread;
             await fetchThreads();
@@ -460,7 +475,7 @@ export default function ChatPage() {
     useEffect(() => {
         fetchThreads();
         fetchContacts();
-    }, [adminCoachFilter, adminCustomerFilter]); // eslint-disable-line react-hooks/exhaustive-deps
+    }, [adminCoachFilter, adminCustomerFilter, selectedBranchId]); // eslint-disable-line react-hooks/exhaustive-deps
 
     useEffect(() => {
         window.scrollTo({ top: 0, behavior: 'auto' });
@@ -476,7 +491,7 @@ export default function ChatPage() {
             setMessages([]);
             setShowJumpToLatest(false);
         }
-    }, [selectedThreadId]); // eslint-disable-line react-hooks/exhaustive-deps
+    }, [selectedThreadId, selectedBranchId]); // eslint-disable-line react-hooks/exhaustive-deps
 
     useEffect(() => {
         if (wasNearBottomRef.current) {
@@ -678,6 +693,13 @@ export default function ChatPage() {
                         {isAdmin ? txt.adminMonitor : txt.directMessaging}
                     </p>
                 </div>
+                {branches.length > 0 && (
+                    <BranchSelector
+                        branches={branches}
+                        selectedBranchId={selectedBranchId}
+                        onSelect={setSelectedBranchId}
+                    />
+                )}
             </div>
 
             <div className="grid grid-cols-1 lg:grid-cols-[320px_1fr] gap-4">

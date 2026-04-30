@@ -2,12 +2,13 @@
 
 import { useCallback, useEffect, useState } from 'react';
 import { api } from '@/lib/api';
-import { Plus, ArrowUpCircle, ArrowDownCircle, Wallet, Printer, FileText, CircleDollarSign, RotateCcw, CheckCircle2, Search, Settings2 } from 'lucide-react';
+import { Plus, ArrowUpCircle, ArrowDownCircle, Wallet, Printer, FileText, CircleDollarSign, RotateCcw, CheckCircle2, Search, Settings2, Download } from 'lucide-react';
 import { useFeedback } from '@/components/FeedbackProvider';
 import { BranchSelector } from '@/components/BranchSelector';
 import { useBranch } from '@/context/BranchContext';
 import { useLocale } from '@/context/LocaleContext';
 import { getBranchParams } from '@/lib/branch';
+import { downloadBlob } from '@/lib/download';
 
 interface Transaction {
     id: string;
@@ -26,18 +27,24 @@ interface PayrollItem {
     user_email: string;
     month: number;
     year: number;
+    period_start: string | null;
+    period_end: string | null;
     base_pay: number;
     overtime_hours: number;
     overtime_pay: number;
     commission_pay: number;
     bonus_pay: number;
+    manual_deductions: number;
+    leave_deductions?: number;
     deductions: number;
     total_pay: number;
-    status: 'DRAFT' | 'PARTIAL' | 'PAID';
+    status: 'DRAFT' | 'APPROVED' | 'REJECTED' | 'PARTIAL' | 'PAID';
     paid_amount: number;
     pending_amount: number;
     payment_count: number;
     last_payment_at: string | null;
+    approved_at: string | null;
+    approved_by_user_id: string | null;
     paid_transaction_id: string | null;
     paid_at: string | null;
     paid_by_user_id: string | null;
@@ -79,9 +86,19 @@ export default function FinancePage() {
     const [activeSection, setActiveSection] = useState<'transactions' | 'salaries'>('transactions');
     const [typeFilter, setTypeFilter] = useState<'ALL' | 'INCOME' | 'EXPENSE'>('ALL');
     const [categoryFilter, setCategoryFilter] = useState<string>('ALL');
-    const [salaryStatusFilter, setSalaryStatusFilter] = useState<'ALL' | 'DRAFT' | 'PARTIAL' | 'PAID'>('ALL');
+    const [salaryStatusFilter, setSalaryStatusFilter] = useState<'ALL' | 'DRAFT' | 'APPROVED' | 'REJECTED' | 'PARTIAL' | 'PAID'>('ALL');
     const [salarySearch, setSalarySearch] = useState('');
     const [selectedPayroll, setSelectedPayroll] = useState<PayrollItem | null>(null);
+    const [draftReminderCount, setDraftReminderCount] = useState(0);
+    const [draftReminderLoading, setDraftReminderLoading] = useState(false);
+    const [reviewForm, setReviewForm] = useState({
+        base_pay: 0,
+        overtime_hours: 0,
+        overtime_pay: 0,
+        commission_pay: 0,
+        bonus_pay: 0,
+        manual_deductions: 0,
+    });
     const [updatingPayrollId, setUpdatingPayrollId] = useState<string | null>(null);
     const [payingPayrollId, setPayingPayrollId] = useState<string | null>(null);
     const [payAmount, setPayAmount] = useState('');
@@ -140,8 +157,14 @@ export default function FinancePage() {
             amountPlaceholder: 'المبلغ',
             notePlaceholder: 'ملاحظة (اختياري)',
             draft: 'مسودة',
+            approved: 'معتمد',
+            rejected: 'مرفوض',
+            approve: 'اعتماد',
             partial: 'جزئي',
             paid: 'مدفوع',
+            downloadSlip: 'تنزيل القسيمة',
+            reviewReady: 'مسودات الرواتب جاهزة للمراجعة',
+            reviewReadyDesc: 'توجد كشوف رواتب تحتاج مراجعة واعتمادًا قبل الدفع.',
         }
         : {
             categorySubscription: 'Subscription',
@@ -171,8 +194,14 @@ export default function FinancePage() {
             amountPlaceholder: 'Amount',
             notePlaceholder: 'Note (optional)',
             draft: 'Draft',
+            approved: 'Approved',
+            rejected: 'Rejected',
+            approve: 'Approve',
             partial: 'Partial',
             paid: 'Paid',
+            downloadSlip: 'Download Slip',
+            reviewReady: 'Payroll drafts ready for review',
+            reviewReadyDesc: 'There are payslips waiting for review and approval before payment.',
         };
     const jodCode = 'JOD';
     const paymentHistoryLabel = locale === 'ar' ? 'سجل المدفوعات' : 'Payment History';
@@ -201,8 +230,22 @@ export default function FinancePage() {
     const getPayrollStatusLabel = (status: PayrollItem['status']) => {
         if (status === 'PAID') return txt.paid;
         if (status === 'PARTIAL') return txt.partial;
+        if (status === 'APPROVED') return txt.approved;
+        if (status === 'REJECTED') return txt.rejected;
         return txt.draft;
     };
+
+    useEffect(() => {
+        if (!selectedPayroll) return;
+        setReviewForm({
+            base_pay: selectedPayroll.base_pay,
+            overtime_hours: selectedPayroll.overtime_hours,
+            overtime_pay: selectedPayroll.overtime_pay,
+            commission_pay: selectedPayroll.commission_pay,
+            bonus_pay: selectedPayroll.bonus_pay,
+            manual_deductions: selectedPayroll.manual_deductions ?? 0,
+        });
+    }, [selectedPayroll]);
 
     const fetchTransactions = useCallback(async () => {
         const params: Record<string, string | number> = {
@@ -248,11 +291,34 @@ export default function FinancePage() {
         setPayrollsTotal(Number(payrollRes.headers['x-total-count'] || 0));
     }, [PAGE_SIZE, payrollsPage, salarySearch, salaryStatusFilter, selectedBranchId]);
 
+    const fetchDraftReminder = useCallback(async () => {
+        setDraftReminderLoading(true);
+        try {
+            const res = await api.get('/hr/payrolls/pending', {
+                params: {
+                    status: 'DRAFT',
+                    limit: 1,
+                    ...getBranchParams(selectedBranchId),
+                },
+            });
+            setDraftReminderCount(Number(res.headers['x-total-count'] || 0));
+        } catch {
+            setDraftReminderCount(0);
+        } finally {
+            setDraftReminderLoading(false);
+        }
+    }, [selectedBranchId]);
+
     const fetchPayrollSettings = useCallback(async () => {
-        const settingsRes = await api.get('/hr/payrolls/settings');
-        const next = Number(settingsRes.data?.data?.salary_cutoff_day || 1);
-        setSalaryCutoffDay(next);
-        setSalaryCutoffInput(String(next));
+        try {
+            const settingsRes = await api.get('/hr/payrolls/settings');
+            const next = Number(settingsRes.data?.data?.salary_cutoff_day || 1);
+            setSalaryCutoffDay(next);
+            setSalaryCutoffInput(String(next));
+        } catch {
+            setSalaryCutoffDay(1);
+            setSalaryCutoffInput('1');
+        }
     }, []);
 
     const fetchData = useCallback(async () => {
@@ -262,12 +328,12 @@ export default function FinancePage() {
         }
         setLoading(true);
         try {
-            await Promise.all([fetchTransactions(), fetchSummary(), fetchPayrolls(), fetchPayrollSettings()]);
+            await Promise.all([fetchTransactions(), fetchSummary(), fetchPayrolls(), fetchPayrollSettings(), fetchDraftReminder()]);
         } catch {
             showToast(t('finance.loadingError'), 'error');
         }
         setLoading(false);
-    }, [endDate, fetchPayrollSettings, fetchPayrolls, fetchSummary, fetchTransactions, showToast, startDate, t]);
+    }, [endDate, fetchDraftReminder, fetchPayrollSettings, fetchPayrolls, fetchSummary, fetchTransactions, showToast, startDate, t]);
 
     useEffect(() => { setTimeout(() => fetchData(), 0); }, [fetchData]);
 
@@ -344,18 +410,98 @@ export default function FinancePage() {
         }
     };
 
-    const updatePayrollStatus = async (item: PayrollItem, status: 'PAID' | 'DRAFT') => {
+    const savePayrollReview = async () => {
+        if (!selectedPayroll) return;
         try {
-            setUpdatingPayrollId(item.id);
-            await api.patch(`/hr/payrolls/${item.id}/status`, { status });
-            showToast(status === 'PAID' ? t('finance.markPaid') : t('finance.reopen'), 'success');
-            await Promise.all([fetchPayrolls(), fetchTransactions()]);
+            setUpdatingPayrollId(selectedPayroll.id);
+            const res = await api.patch(`/hr/payrolls/${selectedPayroll.id}`, {
+                base_pay: Number(reviewForm.base_pay),
+                overtime_hours: Number(reviewForm.overtime_hours),
+                overtime_pay: Number(reviewForm.overtime_pay),
+                commission_pay: Number(reviewForm.commission_pay),
+                bonus_pay: Number(reviewForm.bonus_pay),
+                manual_deductions: Number(reviewForm.manual_deductions),
+            });
+            setSelectedPayroll(res.data.data);
+            showToast(locale === 'ar' ? 'تم حفظ مسودة مسير الرواتب.' : 'Payroll draft saved.', 'success');
+            await Promise.all([fetchPayrolls(), fetchDraftReminder()]);
         } catch (err) {
             showToast((err as { response?: { data?: { detail?: string } } })?.response?.data?.detail || t('finance.updatePayrollError'), 'error');
         } finally {
             setUpdatingPayrollId(null);
         }
     };
+
+    const approveCurrentDraft = async () => {
+        if (!selectedPayroll) return;
+        await savePayrollReview();
+        await approvePayroll(selectedPayroll);
+    };
+
+    const rejectPayroll = async (item: PayrollItem) => {
+        try {
+            setUpdatingPayrollId(item.id);
+            const res = await api.patch(`/hr/payrolls/${item.id}/status`, { status: 'REJECTED' });
+            setSelectedPayroll(res.data.data);
+            showToast(locale === 'ar' ? 'تم رفض مسير الرواتب.' : 'Payroll rejected.', 'success');
+            await Promise.all([fetchPayrolls(), fetchTransactions(), fetchDraftReminder()]);
+        } catch (err) {
+            showToast((err as { response?: { data?: { detail?: string } } })?.response?.data?.detail || t('finance.updatePayrollError'), 'error');
+        } finally {
+            setUpdatingPayrollId(null);
+        }
+    };
+
+    const rejectCurrentDraft = async () => {
+        if (!selectedPayroll) return;
+        await rejectPayroll(selectedPayroll);
+    };
+
+    const approvePayroll = async (item: PayrollItem) => {
+        try {
+            setUpdatingPayrollId(item.id);
+            const res = await api.patch(`/hr/payrolls/${item.id}/status`, { status: 'APPROVED' });
+            setSelectedPayroll(res.data.data);
+            showToast(locale === 'ar' ? 'تم اعتماد مسير الرواتب.' : 'Payroll approved.', 'success');
+            await Promise.all([fetchPayrolls(), fetchTransactions(), fetchDraftReminder()]);
+            setPayAmount(String(res.data.data.pending_amount > 0 ? res.data.data.pending_amount : ''));
+        } catch (err) {
+            showToast((err as { response?: { data?: { detail?: string } } })?.response?.data?.detail || t('finance.updatePayrollError'), 'error');
+        } finally {
+            setUpdatingPayrollId(null);
+        }
+    };
+
+    const reopenPayroll = async (item: PayrollItem) => {
+        try {
+            setUpdatingPayrollId(item.id);
+            const res = await api.patch(`/hr/payrolls/${item.id}/status`, { status: 'DRAFT' });
+            setSelectedPayroll(res.data.data);
+            showToast(t('finance.reopen'), 'success');
+            await Promise.all([fetchPayrolls(), fetchTransactions(), fetchDraftReminder()]);
+        } catch (err) {
+            showToast((err as { response?: { data?: { detail?: string } } })?.response?.data?.detail || t('finance.updatePayrollError'), 'error');
+        } finally {
+            setUpdatingPayrollId(null);
+        }
+    };
+
+    const handlePrintPayslip = async (payrollId: string) => {
+        try {
+            const res = await api.get(`/hr/payroll/${payrollId}/payslip/export-pdf`, { responseType: 'blob' });
+            downloadBlob(res.data as Blob, `payslip_${payrollId.slice(0, 8).toUpperCase()}.pdf`);
+        } catch {
+            showToast(locale === 'ar' ? 'فشل تنزيل القسيمة' : 'Failed to download payslip', 'error');
+        }
+    };
+
+    const reviewNetPay =
+        Number(reviewForm.base_pay || 0)
+        + Number(reviewForm.overtime_pay || 0)
+        + Number(reviewForm.commission_pay || 0)
+        + Number(reviewForm.bonus_pay || 0)
+        - Number(reviewForm.manual_deductions || 0)
+        - Number(selectedPayroll?.leave_deductions || 0);
 
     const saveCutoffDay = async () => {
         const value = Number(salaryCutoffInput);
@@ -527,11 +673,26 @@ export default function FinancePage() {
 
             {activeSection === 'salaries' && (
                 <div className="space-y-4">
+                    <div className={`rounded-2xl border px-4 py-3 ${draftReminderCount > 0 ? 'border-amber-500/30 bg-amber-500/10' : 'border-border bg-card/60'}`}>
+                        <div className="flex items-center justify-between gap-3">
+                            <div>
+                                <p className="text-sm font-semibold text-foreground">{txt.reviewReady}</p>
+                                <p className="text-xs text-muted-foreground">
+                                    {draftReminderLoading ? t('common.loading') : txt.reviewReadyDesc}
+                                </p>
+                            </div>
+                            <div className="rounded-full border border-border bg-background px-3 py-1 text-xs font-semibold text-foreground">
+                                {draftReminderCount}
+                            </div>
+                        </div>
+                    </div>
                     <div className="chart-card p-4 border border-border space-y-3">
                         <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">{t('finance.salaryFilters')}</p>
                         <div className="flex flex-wrap gap-2">
                             <button onClick={() => setSalaryStatusFilter('ALL')} className={`px-3 py-1.5 text-xs border rounded-sm transition-colors ${salaryStatusFilter === 'ALL' ? 'bg-primary text-primary-foreground border-primary' : 'border-border text-muted-foreground hover:text-foreground'}`}>{t('finance.all')}</button>
                             <button onClick={() => setSalaryStatusFilter('DRAFT')} className={`px-3 py-1.5 text-xs border rounded-sm transition-colors ${salaryStatusFilter === 'DRAFT' ? 'bg-primary text-primary-foreground border-primary' : 'border-border text-muted-foreground hover:text-foreground'}`}>{t('finance.draft')}</button>
+                            <button onClick={() => setSalaryStatusFilter('APPROVED')} className={`px-3 py-1.5 text-xs border rounded-sm transition-colors ${salaryStatusFilter === 'APPROVED' ? 'bg-primary text-primary-foreground border-primary' : 'border-border text-muted-foreground hover:text-foreground'}`}>{txt.approved}</button>
+                            <button onClick={() => setSalaryStatusFilter('REJECTED')} className={`px-3 py-1.5 text-xs border rounded-sm transition-colors ${salaryStatusFilter === 'REJECTED' ? 'bg-primary text-primary-foreground border-primary' : 'border-border text-muted-foreground hover:text-foreground'}`}>{txt.rejected}</button>
                             <button onClick={() => setSalaryStatusFilter('PARTIAL')} className={`px-3 py-1.5 text-xs border rounded-sm transition-colors ${salaryStatusFilter === 'PARTIAL' ? 'bg-primary text-primary-foreground border-primary' : 'border-border text-muted-foreground hover:text-foreground'}`}>{t('finance.partial')}</button>
                             <button onClick={() => setSalaryStatusFilter('PAID')} className={`px-3 py-1.5 text-xs border rounded-sm transition-colors ${salaryStatusFilter === 'PAID' ? 'bg-primary text-primary-foreground border-primary' : 'border-border text-muted-foreground hover:text-foreground'}`}>{t('finance.paid')}</button>
                         </div>
@@ -559,12 +720,12 @@ export default function FinancePage() {
                                         <tr key={item.id}>
                                             <td><p className="text-foreground font-medium">{item.user_name}</p><p className="text-xs text-muted-foreground">{item.user_email}</p></td>
                                             <td>{String(item.month).padStart(2, '0')}/{item.year}</td>
-                                            <td><span className={`badge ${item.status === 'PAID' ? 'badge-green' : item.status === 'PARTIAL' ? 'badge-blue' : 'badge-amber'}`}>{getPayrollStatusLabel(item.status)}</span></td>
+                                            <td><span className={`badge ${item.status === 'PAID' ? 'badge-green' : item.status === 'PARTIAL' ? 'badge-blue' : item.status === 'APPROVED' ? 'badge-violet' : item.status === 'REJECTED' ? 'badge-red' : 'badge-amber'}`}>{getPayrollStatusLabel(item.status)}</span></td>
                                             <td className="text-end font-mono text-foreground">{formatCurrency(item.total_pay, 'JOD', { currencyDisplay: 'code' })}</td>
                                             <td className="text-end font-mono text-foreground">{formatCurrency(item.paid_amount, 'JOD', { currencyDisplay: 'code' })}</td>
                                             <td className={`text-end font-mono ${item.pending_amount > 0 ? 'text-amber-400' : 'text-emerald-400'}`}>{formatCurrency(item.pending_amount, 'JOD', { currencyDisplay: 'code' })}</td>
                                             <td className="text-xs text-muted-foreground">{item.paid_at ? formatDate(item.paid_at, { year: 'numeric', month: '2-digit', day: '2-digit', hour: 'numeric', minute: '2-digit' }) : '-'}</td>
-                                            <td><div className="flex items-center justify-end gap-2"><button className="btn-ghost !px-2 !py-1 text-xs" onClick={() => { setSelectedPayroll(item); setPayAmount(item.pending_amount > 0 ? String(item.pending_amount) : ''); setPayMethod('CASH'); setPayNote(''); }}>{t('finance.details')}</button>{item.status !== 'PAID' ? (<button className="btn-primary !px-2 !py-1 text-xs" onClick={() => updatePayrollStatus(item, 'PAID')} disabled={updatingPayrollId === item.id || item.pending_amount > 0}><CheckCircle2 size={14} /> {t('finance.markPaid')}</button>) : (<button className="btn-ghost !px-2 !py-1 text-xs text-amber-400" onClick={() => updatePayrollStatus(item, 'DRAFT')} disabled={updatingPayrollId === item.id}><RotateCcw size={14} /> {t('finance.reopen')}</button>)}</div></td>
+                                            <td><div className="flex items-center justify-end gap-2"><button className="btn-ghost !px-2 !py-1 text-xs" onClick={() => { setSelectedPayroll(item); setPayAmount(item.pending_amount > 0 ? String(item.pending_amount) : ''); setPayMethod('CASH'); setPayNote(''); }}>{t('finance.details')}</button>{item.status === 'DRAFT' ? (<><button className="btn-primary !px-2 !py-1 text-xs" onClick={() => approvePayroll(item)} disabled={updatingPayrollId === item.id}><CheckCircle2 size={14} /> {txt.approve}</button><button className="btn-ghost !px-2 !py-1 text-xs text-red-400" onClick={() => rejectPayroll(item)} disabled={updatingPayrollId === item.id}><span className="inline-block">✕</span> {locale === 'ar' ? 'رفض' : 'Reject'}</button></>) : item.status === 'APPROVED' || item.status === 'REJECTED' ? (<button className="btn-ghost !px-2 !py-1 text-xs text-amber-400" onClick={() => reopenPayroll(item)} disabled={updatingPayrollId === item.id}><RotateCcw size={14} /> {t('finance.reopen')}</button>) : null}</div></td>
                                         </tr>
                                     ))}
                                 </tbody>
@@ -610,50 +771,141 @@ export default function FinancePage() {
             )}
 
             {selectedPayroll && (
-                <div className="fixed inset-0 bg-background/80 backdrop-blur-sm flex items-center justify-center p-4 z-50">
-                    <div className="rounded-sm p-6 w-full max-w-lg shadow-2xl bg-card border border-border space-y-4">
-                        <div className="flex items-start justify-between gap-4"><div><h2 className="text-lg font-bold text-foreground flex items-center gap-2"><CircleDollarSign size={18} /> {t('finance.details')}</h2><p className="text-sm text-muted-foreground">{selectedPayroll.user_name} - {String(selectedPayroll.month).padStart(2, '0')}/{selectedPayroll.year} - {getPayrollStatusLabel(selectedPayroll.status)}</p></div><button className="btn-ghost !px-2 !py-1 text-xs" onClick={() => setSelectedPayroll(null)}>{t('finance.close')}</button></div>
-                        <div className="grid grid-cols-2 gap-3 text-sm">
-                            <div className="rounded-lg p-3 bg-card border border-border"><p className="text-xs text-muted-foreground">{txt.basePay}</p><p className="font-mono font-semibold text-foreground">{selectedPayroll.base_pay.toFixed(2)} JOD</p></div>
-                            <div className="rounded-lg p-3 bg-card border border-border"><p className="text-xs text-muted-foreground">{txt.overtimePay}</p><p className="font-mono font-semibold text-foreground">{selectedPayroll.overtime_pay.toFixed(2)} JOD</p></div>
-                            <div className="rounded-lg p-3 bg-card border border-border"><p className="text-xs text-muted-foreground">{txt.overtimeHours}</p><p className="font-mono font-semibold text-foreground">{selectedPayroll.overtime_hours.toFixed(2)} h</p></div>
-                            <div className="rounded-lg p-3 bg-card border border-border"><p className="text-xs text-muted-foreground">{txt.commission}</p><p className="font-mono font-semibold text-foreground">{selectedPayroll.commission_pay.toFixed(2)} JOD</p></div>
-                            <div className="rounded-lg p-3 bg-card border border-border"><p className="text-xs text-muted-foreground">{txt.bonus}</p><p className="font-mono font-semibold text-foreground">{selectedPayroll.bonus_pay.toFixed(2)} JOD</p></div>
-                            <div className="rounded-lg p-3 bg-card border border-border"><p className="text-xs text-muted-foreground">{txt.deductions}</p><p className="font-mono font-semibold text-red-400">-{selectedPayroll.deductions.toFixed(2)} JOD</p></div>
+                <div className="fixed inset-0 bg-background/80 backdrop-blur-sm flex items-center justify-center p-3 sm:p-4 z-50">
+                    <div className="rounded-2xl p-4 sm:p-5 w-full max-w-xl max-h-[88vh] overflow-y-auto shadow-2xl bg-card border border-border space-y-4">
+                        <div className="flex items-start justify-between gap-4">
+                            <div>
+                                <h2 className="text-lg font-bold text-foreground flex items-center gap-2"><CircleDollarSign size={18} /> {t('finance.details')}</h2>
+                                <p className="text-sm text-muted-foreground">
+                                    {selectedPayroll.user_name} - {selectedPayroll.period_start && selectedPayroll.period_end
+                                        ? `${selectedPayroll.period_start.slice(0, 10)} → ${selectedPayroll.period_end.slice(0, 10)}`
+                                        : `${String(selectedPayroll.month).padStart(2, '0')}/${selectedPayroll.year}`} - {getPayrollStatusLabel(selectedPayroll.status)}
+                                </p>
+                            </div>
+                            <button className="btn-ghost !px-2 !py-1 text-xs" onClick={() => setSelectedPayroll(null)}>{t('finance.close')}</button>
                         </div>
-                        <div className="grid grid-cols-3 gap-3 text-sm">
-                            <div className="rounded-lg p-3 bg-card border border-border"><p className="text-xs text-muted-foreground">{txt.netTotal}</p><p className="font-mono font-semibold text-foreground">{selectedPayroll.total_pay.toFixed(2)} JOD</p></div>
-                            <div className="rounded-lg p-3 bg-card border border-border"><p className="text-xs text-muted-foreground">{t('finance.paid')}</p><p className="font-mono font-semibold text-foreground">{selectedPayroll.paid_amount.toFixed(2)} JOD</p></div>
-                            <div className="rounded-lg p-3 bg-card border border-border"><p className="text-xs text-muted-foreground">{t('finance.pending')}</p><p className={`font-mono font-semibold ${selectedPayroll.pending_amount > 0 ? 'text-amber-400' : 'text-emerald-400'}`}>{selectedPayroll.pending_amount.toFixed(2)} JOD</p></div>
-                        </div>
-                        {selectedPayroll.pending_amount > 0 && (
-                            <div className="space-y-3 rounded-lg p-3 bg-card border border-border">
-                                <p className="text-xs text-muted-foreground uppercase tracking-wide">{t('finance.recordPayment')}</p>
-                                <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
-                                    <input type="number" min={0.01} step="0.01" max={selectedPayroll.pending_amount} className="input-dark" placeholder={txt.amountPlaceholder} value={payAmount} onChange={(e) => setPayAmount(e.target.value)} />
-                                    <select className="input-dark" value={payMethod} onChange={(e) => setPayMethod(e.target.value as 'CASH' | 'CARD' | 'TRANSFER')}>
-                                        <option value="CASH">{txt.cash}</option>
-                                        <option value="CARD">{txt.card}</option>
-                                        <option value="TRANSFER">{txt.transfer}</option>
-                                    </select>
-                                    <button className="btn-primary" onClick={submitPayrollPayment} disabled={payingPayrollId === selectedPayroll.id}>{t('finance.recordPayment')}</button>
+
+                        <div className="rounded-2xl border border-border bg-background p-3 sm:p-4">
+                            <div className="flex flex-wrap items-center justify-between gap-3">
+                                <div>
+                                    <p className="text-xs uppercase tracking-[0.2em] text-muted-foreground">{txt.netTotal}</p>
+                                    <p className="mt-1 text-3xl font-bold text-foreground">{selectedPayroll.total_pay.toFixed(2)} JOD</p>
                                 </div>
-                                <input type="text" className="input-dark" placeholder={txt.notePlaceholder} value={payNote} onChange={(e) => setPayNote(e.target.value)} />
+                                <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
+                                    {selectedPayroll.approved_at && (
+                                        <span className="rounded-full border border-border bg-card px-3 py-1">
+                                            {locale === 'ar' ? 'اعتمد في' : 'Approved'} {formatDate(selectedPayroll.approved_at, { year: 'numeric', month: '2-digit', day: '2-digit' })}
+                                        </span>
+                                    )}
+                                    <span className="rounded-full border border-border bg-card px-3 py-1">{selectedPayroll.payment_count} {locale === 'ar' ? 'دفعات' : 'payments'}</span>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-sm">
+                            <div className="rounded-xl p-3 bg-card border border-border"><p className="text-xs text-muted-foreground">{txt.basePay}</p><p className="font-mono font-semibold text-foreground">{reviewForm.base_pay.toFixed(2)} JOD</p></div>
+                            <div className="rounded-xl p-3 bg-card border border-border"><p className="text-xs text-muted-foreground">{txt.overtimePay}</p><p className="font-mono font-semibold text-foreground">{reviewForm.overtime_pay.toFixed(2)} JOD</p></div>
+                            <div className="rounded-xl p-3 bg-card border border-border"><p className="text-xs text-muted-foreground">{txt.overtimeHours}</p><p className="font-mono font-semibold text-foreground">{selectedPayroll.overtime_hours.toFixed(2)} h</p></div>
+                            <div className="rounded-xl p-3 bg-card border border-border"><p className="text-xs text-muted-foreground">{txt.commission}</p><p className="font-mono font-semibold text-foreground">{reviewForm.commission_pay.toFixed(2)} JOD</p></div>
+                            <div className="rounded-xl p-3 bg-card border border-border"><p className="text-xs text-muted-foreground">{txt.bonus}</p><p className="font-mono font-semibold text-foreground">{reviewForm.bonus_pay.toFixed(2)} JOD</p></div>
+                            <div className="rounded-xl p-3 bg-card border border-border"><p className="text-xs text-muted-foreground">{txt.deductions}</p><p className="font-mono font-semibold text-red-400">-{selectedPayroll.deductions.toFixed(2)} JOD</p></div>
+                        </div>
+
+                        {selectedPayroll.status === 'DRAFT' ? (
+                            <div className="space-y-3 rounded-2xl p-3 sm:p-4 bg-card border border-border">
+                                <div className="flex items-center justify-between gap-3">
+                                    <p className="text-xs uppercase tracking-wide text-muted-foreground">{locale === 'ar' ? 'مراجعة المسير' : 'Review payroll'}</p>
+                                    <p className="text-xs text-muted-foreground">{locale === 'ar' ? 'عدّل القيم ثم اعتمد' : 'Edit values before approval'}</p>
+                                </div>
+                                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                                    <div>
+                                        <label className="block text-xs font-medium text-muted-foreground mb-1">{txt.basePay}</label>
+                                        <input className="input-dark" type="number" min="0" step="0.01" value={reviewForm.base_pay} onChange={(e) => setReviewForm((current) => ({ ...current, base_pay: Number(e.target.value) }))} />
+                                    </div>
+                                    <div>
+                                        <label className="block text-xs font-medium text-muted-foreground mb-1">{txt.overtimePay}</label>
+                                        <input className="input-dark" type="number" min="0" step="0.01" value={reviewForm.overtime_pay} onChange={(e) => setReviewForm((current) => ({ ...current, overtime_pay: Number(e.target.value) }))} />
+                                    </div>
+                                    <div>
+                                        <label className="block text-xs font-medium text-muted-foreground mb-1">{txt.commission}</label>
+                                        <input className="input-dark" type="number" min="0" step="0.01" value={reviewForm.commission_pay} onChange={(e) => setReviewForm((current) => ({ ...current, commission_pay: Number(e.target.value) }))} />
+                                    </div>
+                                    <div>
+                                        <label className="block text-xs font-medium text-muted-foreground mb-1">{txt.bonus}</label>
+                                        <input className="input-dark" type="number" min="0" step="0.01" value={reviewForm.bonus_pay} onChange={(e) => setReviewForm((current) => ({ ...current, bonus_pay: Number(e.target.value) }))} />
+                                    </div>
+                                    <div className="sm:col-span-2">
+                                        <label className="block text-xs font-medium text-muted-foreground mb-1">{txt.deductions}</label>
+                                        <input className="input-dark" type="number" min="0" step="0.01" value={reviewForm.manual_deductions} onChange={(e) => setReviewForm((current) => ({ ...current, manual_deductions: Number(e.target.value) }))} />
+                                    </div>
+                                </div>
+                                <div className="rounded-xl border border-border bg-background px-3 py-3 flex items-center justify-between gap-3">
+                                    <div>
+                                        <p className="text-xs text-muted-foreground">{txt.netTotal}</p>
+                                        <p className="font-mono text-2xl font-semibold text-foreground">{reviewNetPay.toFixed(2)} JOD</p>
+                                    </div>
+                                    <div className="text-xs text-muted-foreground text-end">
+                                        <p>{locale === 'ar' ? 'خصومات الإجازات تُحسب تلقائياً' : 'Leave deductions stay automatic'}</p>
+                                        <p>{locale === 'ar' ? 'هذه التعديلات قبل الاعتماد' : 'These changes apply before approval'}</p>
+                                    </div>
+                                </div>
+                                <div className="flex flex-col-reverse sm:flex-row gap-2 sm:justify-between">
+                                    <button type="button" className="btn-ghost" onClick={() => setSelectedPayroll(null)}>{t('finance.close')}</button>
+                                    <div className="flex gap-3">
+                                        <button type="button" className="btn-ghost" onClick={() => savePayrollReview()} disabled={updatingPayrollId === selectedPayroll.id}>{locale === 'ar' ? 'حفظ' : 'Save Draft'}</button>
+                                        <button type="button" className="btn-primary" onClick={approveCurrentDraft} disabled={updatingPayrollId === selectedPayroll.id}><CheckCircle2 size={14} /> {txt.approve}</button>
+                                        <button type="button" className="btn-ghost text-red-400" onClick={rejectCurrentDraft} disabled={updatingPayrollId === selectedPayroll.id}>{locale === 'ar' ? 'رفض' : 'Reject'}</button>
+                                    </div>
+                                </div>
+                            </div>
+                        ) : (
+                            <div className="space-y-3 rounded-2xl p-3 sm:p-4 bg-card border border-border">
+                                <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 text-sm">
+                                    <div className="rounded-lg p-3 bg-background border border-border"><p className="text-xs text-muted-foreground">{t('finance.paid')}</p><p className="font-mono font-semibold text-foreground">{selectedPayroll.paid_amount.toFixed(2)} JOD</p></div>
+                                    <div className="rounded-lg p-3 bg-background border border-border"><p className="text-xs text-muted-foreground">{t('finance.pending')}</p><p className={`font-mono font-semibold ${selectedPayroll.pending_amount > 0 ? 'text-amber-400' : 'text-emerald-400'}`}>{selectedPayroll.pending_amount.toFixed(2)} JOD</p></div>
+                                    <div className="rounded-lg p-3 bg-background border border-border"><p className="text-xs text-muted-foreground">{selectedPayroll.status === 'APPROVED' ? (locale === 'ar' ? 'جاهز للدفع' : 'Ready to pay') : selectedPayroll.status === 'REJECTED' ? (locale === 'ar' ? 'مرفوض' : 'Rejected') : t('finance.status')}</p><p className="font-mono font-semibold text-foreground">{getPayrollStatusLabel(selectedPayroll.status)}</p></div>
+                                </div>
+                                {selectedPayroll.pending_amount > 0 && (
+                                    <div className="space-y-3 rounded-lg p-3 bg-background border border-border">
+                                        <p className="text-xs text-muted-foreground uppercase tracking-wide">{t('finance.recordPayment')}</p>
+                                        <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+                                            <input type="number" min={0.01} step="0.01" max={selectedPayroll.pending_amount} className="input-dark" placeholder={txt.amountPlaceholder} value={payAmount} onChange={(e) => setPayAmount(e.target.value)} />
+                                            <select className="input-dark" value={payMethod} onChange={(e) => setPayMethod(e.target.value as 'CASH' | 'CARD' | 'TRANSFER')}>
+                                                <option value="CASH">{txt.cash}</option>
+                                                <option value="CARD">{txt.card}</option>
+                                                <option value="TRANSFER">{txt.transfer}</option>
+                                            </select>
+                                            <button className="btn-primary" onClick={submitPayrollPayment} disabled={payingPayrollId === selectedPayroll.id}>{t('finance.recordPayment')}</button>
+                                        </div>
+                                        <input type="text" className="input-dark" placeholder={txt.notePlaceholder} value={payNote} onChange={(e) => setPayNote(e.target.value)} />
+                                    </div>
+                                )}
+                                <div className="rounded-lg p-3 bg-background border border-border space-y-2">
+                                    <p className="text-xs text-muted-foreground uppercase tracking-wide">{paymentHistoryLabel}</p>
+                                    {(selectedPayroll.payments || []).length === 0 && <p className="text-xs text-muted-foreground">{noPaymentsRecordedLabel}</p>}
+                                    {(selectedPayroll.payments || []).map((payment) => (
+                                        <div key={payment.id} className="flex items-center justify-between text-xs border-b border-border/60 pb-1 last:border-0 last:pb-0">
+                                            <div>
+                                                <p className="text-foreground font-medium">{`${payment.amount.toFixed(2)} ${jodCode} - ${getPaymentMethodLabel(payment.payment_method)}`}</p>
+                                                <p className="text-muted-foreground">{payment.description || salaryPaymentDefault}</p>
+                                            </div>
+                                            <p className="text-muted-foreground">{formatDate(payment.paid_at, { year: 'numeric', month: '2-digit', day: '2-digit', hour: 'numeric', minute: '2-digit' })}</p>
+                                        </div>
+                                    ))}
+                                </div>
+                                <div className="flex justify-between gap-2 pt-1">
+                                    <button className="btn-ghost" onClick={() => setSelectedPayroll(null)}>{t('finance.close')}</button>
+                                    <div className="flex gap-3">
+                                        {(selectedPayroll.status === 'APPROVED' || selectedPayroll.status === 'REJECTED') && (
+                                            <button className="btn-ghost" onClick={() => reopenPayroll(selectedPayroll)} disabled={updatingPayrollId === selectedPayroll.id}><RotateCcw size={14} /> {t('finance.reopen')}</button>
+                                        )}
+                                        <button onClick={() => handlePrintPayslip(selectedPayroll.id)} className="btn-primary flex items-center justify-center gap-2">
+                                            <Download size={16} /> {txt.downloadSlip}
+                                        </button>
+                                    </div>
+                                </div>
                             </div>
                         )}
-                        <div className="rounded-lg p-3 bg-card border border-border space-y-2">
-                            <p className="text-xs text-muted-foreground uppercase tracking-wide">{paymentHistoryLabel}</p>
-                            {(selectedPayroll.payments || []).length === 0 && <p className="text-xs text-muted-foreground">{noPaymentsRecordedLabel}</p>}
-                            {(selectedPayroll.payments || []).map((payment) => (
-                                <div key={payment.id} className="flex items-center justify-between text-xs border-b border-border/60 pb-1 last:border-0 last:pb-0">
-                                    <div>
-                                        <p className="text-foreground font-medium">{`${payment.amount.toFixed(2)} ${jodCode} - ${getPaymentMethodLabel(payment.payment_method)}`}</p>
-                                        <p className="text-muted-foreground">{payment.description || salaryPaymentDefault}</p>
-                                    </div>
-                                    <p className="text-muted-foreground">{formatDate(payment.paid_at, { year: 'numeric', month: '2-digit', day: '2-digit', hour: 'numeric', minute: '2-digit' })}</p>
-                                </div>
-                            ))}
-                        </div>
                     </div>
                 </div>
             )}

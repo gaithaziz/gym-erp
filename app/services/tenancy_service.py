@@ -12,6 +12,7 @@ from app.config import settings
 from app.models.enums import Role
 from app.models.tenancy import Branch, Gym, UserBranchAccess
 from app.models.user import User
+from app.services.role_access import is_branch_admin_role
 
 
 def _slugify(value: str, *, fallback: str) -> str:
@@ -21,6 +22,31 @@ def _slugify(value: str, *, fallback: str) -> str:
 
 class TenancyService:
     DEFAULT_BRANCH_CODE = "HQ"
+
+    @classmethod
+    async def _fallback_branch_for_branch_admin(cls, db: AsyncSession, *, gym_id: uuid.UUID) -> Branch | None:
+        branch = (
+            await db.execute(
+                select(Branch)
+                .where(
+                    Branch.gym_id == gym_id,
+                    Branch.is_active.is_(True),
+                )
+                .order_by(Branch.created_at.asc())
+                .limit(1)
+            )
+        ).scalar_one_or_none()
+        if branch is not None:
+            return branch
+
+        return (
+            await db.execute(
+                select(Branch)
+                .where(Branch.gym_id == gym_id)
+                .order_by(Branch.created_at.asc())
+                .limit(1)
+            )
+        ).scalar_one_or_none()
 
     @classmethod
     async def ensure_default_gym_and_branch(cls, db: AsyncSession) -> tuple[Gym, Branch]:
@@ -108,6 +134,10 @@ class TenancyService:
             home_branch = await db.get(Branch, user.home_branch_id)
             if home_branch is not None:
                 branches.insert(0, home_branch)
+        if not branches and is_branch_admin_role(user.role):
+            fallback_branch = await cls._fallback_branch_for_branch_admin(db, gym_id=user.gym_id)
+            if fallback_branch is not None:
+                branches = [fallback_branch]
         return branches
 
     @classmethod
@@ -208,6 +238,10 @@ class TenancyService:
             return [item.id for item in accessible_branches]
         if current_user.home_branch_id is not None:
             return [current_user.home_branch_id]
+        if is_branch_admin_role(current_user.role):
+            fallback_branch = await cls._fallback_branch_for_branch_admin(db, gym_id=current_user.gym_id)
+            if fallback_branch is not None:
+                return [fallback_branch.id]
         return []
 
     @classmethod
@@ -243,4 +277,10 @@ class TenancyService:
                 .limit(1)
             )
         ).scalar_one_or_none()
-        return fallback_branch_id
+        if fallback_branch_id is not None:
+            return fallback_branch_id
+        if is_branch_admin_role(user.role):
+            fallback_branch = await cls._fallback_branch_for_branch_admin(db, gym_id=user.gym_id)
+            if fallback_branch is not None:
+                return fallback_branch.id
+        return None

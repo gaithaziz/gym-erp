@@ -11,7 +11,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import settings
 from app.models.audit import AuditLog
-from app.models.hr import Contract, Payroll, PayrollStatus
+from app.models.hr import Contract, ContractType, Payroll, PayrollStatus
+from app.models.user import User
+from app.models.enums import Role
 from app.services.payroll_service import PayrollService
 
 logger = logging.getLogger(__name__)
@@ -118,7 +120,7 @@ class PayrollAutomationService:
                 Payroll.year == year,
             )
             existing = (await db.execute(existing_stmt)).scalar_one_or_none()
-            if existing and existing.status == PayrollStatus.PAID:
+            if existing and existing.status in {PayrollStatus.APPROVED, PayrollStatus.PARTIAL, PayrollStatus.PAID}:
                 skipped_paid += 1
                 continue
 
@@ -134,8 +136,9 @@ class PayrollAutomationService:
                     user_id=user_id,
                     month=month,
                     year=year,
-                    sales_volume=0.0,
                     db=db,
+                    manual_deductions=0.0,
+                    calculation_mode="MONTHLY",
                     allow_paid_recalc=False,
                 )
                 if existing:
@@ -172,7 +175,14 @@ class PayrollAutomationService:
         if user_id is not None:
             target_user_ids = [user_id]
         else:
-            users_stmt = select(Contract.user_id)
+            users_stmt = (
+                select(Contract.user_id)
+                .join(User, User.id == Contract.user_id)
+                .where(
+                    Contract.contract_type == ContractType.FULL_TIME,
+                    User.role != Role.CUSTOMER,
+                )
+            )
             users_res = await db.execute(users_stmt)
             target_user_ids = list(dict.fromkeys(users_res.scalars().all()))
 

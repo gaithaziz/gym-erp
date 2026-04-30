@@ -148,7 +148,12 @@ class MobileStaffService:
             )
             return branch_id
         if current_user.role in {Role.ADMIN, Role.MANAGER}:
-            # Treat an omitted branch as "all accessible branches" for mobile admin filters.
+            fallback_branch_id = await TenancyService.resolve_user_attribution_branch_id(db, user=current_user)
+            if fallback_branch_id is not None:
+                return fallback_branch_id
+            accessible_branches = await TenancyService.get_accessible_branches(db, user=current_user)
+            if accessible_branches:
+                return accessible_branches[0].id
             return None
         return current_user.home_branch_id
 

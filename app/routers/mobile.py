@@ -860,15 +860,17 @@ async def update_my_notification_settings(
 async def read_chat_contacts(
     current_user: Annotated[User, Depends(dependencies.get_current_active_user)],
     db: Annotated[AsyncSession, Depends(get_db)],
+    branch_id: uuid.UUID | None = Query(None),
 ):
     _ensure_mobile_chat_participant(current_user)
-    return await list_chat_contacts(current_user=current_user, db=db)
+    return await list_chat_contacts(current_user=current_user, db=db, branch_id=branch_id)
 
 
 @router.get("/chat/threads", response_model=StandardResponse)
 async def read_chat_threads(
     current_user: Annotated[User, Depends(dependencies.get_current_active_user)],
     db: Annotated[AsyncSession, Depends(get_db)],
+    branch_id: uuid.UUID | None = Query(None),
 ):
     _ensure_mobile_chat_read(current_user)
     return await list_chat_threads(
@@ -880,6 +882,7 @@ async def read_chat_threads(
         sort_order="desc",
         coach_id=None,
         customer_id=None,
+        branch_id=branch_id,
     )
 
 
@@ -899,9 +902,17 @@ async def read_chat_messages(
     current_user: Annotated[User, Depends(dependencies.get_current_active_user)],
     db: Annotated[AsyncSession, Depends(get_db)],
     limit: int = Query(50, ge=1, le=100),
+    branch_id: uuid.UUID | None = Query(None),
 ):
     _ensure_mobile_chat_read(current_user)
-    return await list_chat_thread_messages(thread_id=thread_id, current_user=current_user, db=db, limit=limit, before=None)
+    return await list_chat_thread_messages(
+        thread_id=thread_id,
+        current_user=current_user,
+        db=db,
+        limit=limit,
+        before=None,
+        branch_id=branch_id,
+    )
 
 
 @router.post("/chat/threads/{thread_id}/messages", response_model=StandardResponse)

@@ -16,6 +16,8 @@ from app.models.hr import (
     PayrollSettings,
     PayrollStatus,
 )
+from app.models.user import User
+from app.models.enums import Role
 
 
 def _round_money(value: float | Decimal) -> float:
@@ -45,6 +47,21 @@ def _resolve_cutoff(year: int, month: int, cutoff_day: int) -> tuple[datetime, d
     return start, end
 
 
+def _month_period_end(year: int, month: int, cutoff_day: int) -> datetime:
+    if cutoff_day == 1:
+        if month == 12:
+            return datetime(year + 1, 1, 1, tzinfo=timezone.utc)
+        return datetime(year, month + 1, 1, tzinfo=timezone.utc)
+
+    _, end = _resolve_cutoff(year, month, cutoff_day)
+    return end
+
+
+def _calculate_days_worked_base_pay(contract: Contract, *, days_worked: int) -> float:
+    daily_rate = float(contract.base_salary) / 30.0
+    return daily_rate * max(days_worked, 0)
+
+
 class PayrollService:
     @staticmethod
     async def _get_cutoff_day(db: AsyncSession) -> int:
@@ -63,19 +80,38 @@ class PayrollService:
         user_id: uuid.UUID,
         month: int,
         year: int,
-        sales_volume: float,
         db: AsyncSession,
         *,
+        period_start: datetime | None = None,
+        period_end: datetime | None = None,
+        manual_deductions: float = 0.0,
+        calculation_mode: str = "MONTHLY",
         allow_paid_recalc: bool = False,
+        allow_approved_recalc: bool = False,
     ) -> Payroll:
         stmt = select(Contract).where(Contract.user_id == user_id)
         result = await db.execute(stmt)
         contract = result.scalar_one_or_none()
         if not contract:
             raise ValueError("No active contract found for user")
+        if contract.contract_type != ContractType.FULL_TIME:
+            raise ValueError("Payroll is only available for full-time employees")
+        user_stmt = select(User).where(User.id == user_id)
+        user_result = await db.execute(user_stmt)
+        user = user_result.scalar_one_or_none()
+        if user is None:
+            raise ValueError("User not found")
+        if user.role == Role.CUSTOMER:
+            raise ValueError("Payroll is only available for staff members")
 
         cutoff_day = await PayrollService._get_cutoff_day(db)
-        start_date, end_date = _resolve_cutoff(year, month, cutoff_day)
+        if period_start is None or period_end is None:
+            start_date, end_date = _resolve_cutoff(year, month, cutoff_day)
+        else:
+            start_date = period_start.astimezone(timezone.utc) if period_start.tzinfo else period_start.replace(tzinfo=timezone.utc)
+            end_date = period_end.astimezone(timezone.utc) if period_end.tzinfo else period_end.replace(tzinfo=timezone.utc)
+            if end_date <= start_date:
+                raise ValueError("Payroll period end must be after the start")
 
         stmt_logs = select(AttendanceLog).where(
             AttendanceLog.user_id == user_id,
@@ -86,26 +122,21 @@ class PayrollService:
         logs = result_logs.scalars().all()
 
         total_hours = sum(float(log.hours_worked or 0.0) for log in logs)
+        worked_days = len({log.check_in_time.date() for log in logs if log.check_in_time})
 
-        base_pay = 0.0
         overtime_pay = 0.0
         overtime_hours = 0.0
         commission_pay = 0.0
         bonus_pay = 0.0
-        deductions = 0.0
+        automatic_deductions = 0.0
 
-        if contract.contract_type == ContractType.FULL_TIME:
-            base_pay = float(contract.base_salary)
-            hourly_rate = (float(contract.base_salary) / contract.standard_hours) if contract.standard_hours > 0 else 0.0
-            if total_hours > contract.standard_hours:
-                overtime_hours = total_hours - contract.standard_hours
-                overtime_pay = overtime_hours * hourly_rate * 1.5
-        elif contract.contract_type in (ContractType.PART_TIME, ContractType.CONTRACTOR):
-            hourly_rate = float(contract.base_salary)
-            base_pay = total_hours * hourly_rate
-        elif contract.contract_type == ContractType.HYBRID:
-            base_pay = float(contract.base_salary)
-            commission_pay = sales_volume * float(contract.commission_rate or 0.0)
+        base_pay = float(contract.base_salary)
+        if calculation_mode == "DAYS_WORKED":
+            base_pay = _calculate_days_worked_base_pay(contract, days_worked=worked_days)
+        hourly_rate = (float(contract.base_salary) / contract.standard_hours) if contract.standard_hours > 0 else 0.0
+        if total_hours > contract.standard_hours:
+            overtime_hours = total_hours - contract.standard_hours
+            overtime_pay = overtime_hours * hourly_rate * 1.5
 
         stmt_leave = select(LeaveRequest).where(
             LeaveRequest.user_id == user_id,
@@ -123,10 +154,12 @@ class PayrollService:
             if l_end >= l_start:
                 leave_days += (l_end - l_start).days + 1
 
-        if leave_days > 0 and contract.contract_type in (ContractType.FULL_TIME, ContractType.HYBRID):
+        if leave_days > 0:
             daily_rate = float(contract.base_salary) / 30.0
-            deductions = leave_days * daily_rate
+            automatic_deductions = leave_days * daily_rate
 
+        manual_deductions = max(float(manual_deductions or 0.0), 0.0)
+        deductions = automatic_deductions + manual_deductions
         total_pay = base_pay + overtime_pay + commission_pay + bonus_pay - deductions
 
         stmt_payroll = select(Payroll).where(
@@ -138,14 +171,17 @@ class PayrollService:
         existing = result_payroll.scalar_one_or_none()
 
         if existing:
-            if existing.status == PayrollStatus.PAID and not allow_paid_recalc:
-                raise ValueError("Payroll is locked because it is marked as PAID. Reopen it first.")
+            if existing.status in {PayrollStatus.APPROVED, PayrollStatus.PARTIAL, PayrollStatus.PAID} and not (allow_paid_recalc or allow_approved_recalc):
+                raise ValueError("Payroll is locked because it has already been approved. Reopen it first.")
             payroll = existing
+            payroll.period_start = start_date
+            payroll.period_end = end_date
             payroll.base_pay = _round_money(base_pay)
             payroll.overtime_hours = _round_money(overtime_hours)
             payroll.overtime_pay = _round_money(overtime_pay)
             payroll.commission_pay = _round_money(commission_pay)
             payroll.bonus_pay = _round_money(bonus_pay)
+            payroll.manual_deductions = _round_money(manual_deductions)
             payroll.deductions = _round_money(deductions)
             payroll.total_pay = _round_money(total_pay)
         else:
@@ -153,11 +189,14 @@ class PayrollService:
                 user_id=user_id,
                 month=month,
                 year=year,
+                period_start=start_date,
+                period_end=end_date,
                 base_pay=_round_money(base_pay),
                 overtime_hours=_round_money(overtime_hours),
                 overtime_pay=_round_money(overtime_pay),
                 commission_pay=_round_money(commission_pay),
                 bonus_pay=_round_money(bonus_pay),
+                manual_deductions=_round_money(manual_deductions),
                 deductions=_round_money(deductions),
                 total_pay=_round_money(total_pay),
                 status=PayrollStatus.DRAFT,

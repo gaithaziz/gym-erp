@@ -4,7 +4,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { api } from '@/lib/api';
 import Image from 'next/image';
 import { useRouter } from 'next/navigation';
-import { Pencil, Calculator, Save, Plus, Download, Eye } from 'lucide-react';
+import { Pencil, Calculator, Save, Plus, Download, Eye, EyeOff } from 'lucide-react';
 import Modal from '@/components/Modal';
 import { useFeedback } from '@/components/FeedbackProvider';
 import TablePagination from '@/components/TablePagination';
@@ -14,6 +14,13 @@ import { downloadBlob } from '@/lib/download';
 import { useBranch } from '@/context/BranchContext';
 import { useLocale } from '@/context/LocaleContext';
 import { getBranchParams } from '@/lib/branch';
+
+interface BranchOption {
+    id: string;
+    name: string;
+    display_name?: string | null;
+    gym_name?: string;
+}
 
 interface StaffMember {
     id: string;
@@ -35,20 +42,23 @@ interface StaffMember {
     } | null;
 }
 
-type StaffRole = 'COACH' | 'EMPLOYEE' | 'CASHIER' | 'RECEPTION' | 'FRONT_DESK';
+type StaffRole = 'MANAGER' | 'COACH' | 'EMPLOYEE' | 'CASHIER' | 'RECEPTION' | 'FRONT_DESK';
 type StaffRoleFilter = 'ALL' | StaffRole;
 
-const STAFF_ROLES: StaffRole[] = ['COACH', 'EMPLOYEE', 'CASHIER', 'RECEPTION', 'FRONT_DESK'];
+const STAFF_ROLES: StaffRole[] = ['MANAGER', 'COACH', 'EMPLOYEE', 'CASHIER', 'RECEPTION', 'FRONT_DESK'];
 
 const todayDateInput = () => new Date().toISOString().split('T')[0];
 
-const defaultAddForm = {
+const getDefaultAddForm = (branchId = '') => ({
     full_name: '',
     email: '',
     password: 'password123',
     role: 'COACH',
+    home_branch_id: branchId,
     base_salary: 0,
-};
+    start_date: todayDateInput(),
+    end_date: '',
+});
 
 const defaultEditForm = {
     start_date: todayDateInput(),
@@ -59,27 +69,35 @@ const defaultEditForm = {
 const STAFF_PAGE_SIZE = 10;
 
 export default function StaffPage() {
-    const { locale, formatDate, formatNumber } = useLocale();
+    const { locale, formatNumber } = useLocale();
     const { showToast } = useFeedback();
     const router = useRouter();
     const { branches, selectedBranchId, setSelectedBranchId } = useBranch();
+    const initialBranchId = selectedBranchId !== 'all' ? selectedBranchId : branches[0]?.id || '';
     const [staff, setStaff] = useState<StaffMember[]>([]);
     const [loading, setLoading] = useState(true);
     const [isAddOpen, setIsAddOpen] = useState(false);
-    const [addForm, setAddForm] = useState(defaultAddForm);
+    const [addWizardStep, setAddWizardStep] = useState<1 | 2>(1);
+    const [addForm, setAddForm] = useState(() => getDefaultAddForm(initialBranchId));
+    const [showAddPassword, setShowAddPassword] = useState(false);
     const [isEditOpen, setIsEditOpen] = useState(false);
     const [editTarget, setEditTarget] = useState<StaffMember | null>(null);
     const [editForm, setEditForm] = useState(defaultEditForm);
     const [roleFilter, setRoleFilter] = useState<StaffRoleFilter>('ALL');
     const [isPayrollOpen, setIsPayrollOpen] = useState(false);
     const [payrollTarget, setPayrollTarget] = useState<StaffMember | null>(null);
-    const [payrollForm, setPayrollForm] = useState({ month: new Date().getMonth() + 1, year: new Date().getFullYear(), sales_volume: 0 });
+    const [payrollForm, setPayrollForm] = useState({ manual_deductions: 0 });
     const [payrollResult, setPayrollResult] = useState<any>(null); // eslint-disable-line @typescript-eslint/no-explicit-any
 
     const [failedImageUrls, setFailedImageUrls] = useState<Record<string, true>>({});
     const [staffPage, setStaffPage] = useState(1);
+    const selectedAddBranch = branches.find((branch) => branch.id === addForm.home_branch_id);
+    const selectedPayrollBranch = selectedBranchId !== 'all'
+        ? branches.find((branch) => branch.id === selectedBranchId)
+        : null;
     const txt = locale === 'ar'
         ? {
+            manager: 'مدير',
             coach: 'مدرب',
             employee: 'موظف',
             cashier: 'كاشير',
@@ -89,6 +107,10 @@ export default function StaffPage() {
             failedUpdate: 'فشل في تحديث العقد.',
             failedGeneratePayroll: 'فشل في إنشاء مسير الرواتب.',
             failedPayslip: 'فشل في تنزيل قسيمة الراتب',
+            fullTimeOnlyPayroll: 'يمكن إنشاء مسير الرواتب للدوام الكامل فقط.',
+            automaticDeductions: 'الخصومات التلقائية',
+            manualDeductions: 'خصومات اختيارية',
+            optionalDeductionsNote: 'اختياري. يضاف هذا المبلغ إلى الخصومات التلقائية.',
             title: 'إدارة الموظفين',
             subtitle: 'موظفون',
             of: 'من',
@@ -108,26 +130,35 @@ export default function StaffPage() {
             addModal: 'إضافة موظف جديد',
             fullName: 'الاسم الكامل',
             email: 'البريد الإلكتروني',
+            password: 'كلمة المرور',
+            branch: 'الفرع',
             contractType: 'نوع العقد',
             fullTime: 'دوام كامل',
             baseSalary: 'الراتب الأساسي (JOD)',
+            contractStartDate: 'تاريخ بدء العقد',
+            contractEndDate: 'تاريخ انتهاء العقد (اختياري)',
+            branchRequired: 'يجب اختيار فرع قبل حفظ الموظف.',
             cancel: 'إلغاء',
             saveStaff: 'حفظ الموظف',
             editContract: 'تعديل العقد - ',
             fullTimeInfo: 'دوام كامل',
-            fullTimeInfoDesc: 'قم بضبط تفاصيل عقد الدوام الكامل باستخدام التاريخ والأجر بالساعة.',
+            fullTimeInfoDesc: 'اضبط العقد بالترتيب الزمني والأجر الشهري.',
             startDate: 'تاريخ البدء',
             endDateOptional: 'تاريخ الانتهاء (اختياري)',
             moneyPerHour: 'الأجر لكل ساعة (JOD)',
             standardHours: 'الساعات القياسية / شهر',
             updateContract: 'تحديث العقد',
-            generatePayroll: 'إنشاء مسير الرواتب - ',
-            month: 'الشهر',
-            year: 'السنة',
-            salesVolume: 'حجم المبيعات (JOD)',
-            salesPlaceholder: 'أدخل حجم المبيعات...',
+            generatePayroll: 'تشغيل مسير الرواتب',
+            payrollFor: 'الموظف',
+            payrollBranch: 'الفرع',
+            catchUpNote: 'يُحسب اعتمادًا على أيام الحضور منذ آخر مسير معتمد/مدفوع.',
+            catchUpSummary: 'الحساب اليدوي',
+            periodRange: 'فترة المسير',
+            workedDays: 'أيام العمل',
             generate: 'إنشاء',
             payrollGenerated: 'تم إنشاء مسير الرواتب بنجاح',
+            payrollSummary: 'نظرة عامة',
+            payrollBreakdown: 'تفاصيل المسير',
             basePay: 'الأجر الأساسي',
             overtimePay: 'أجر العمل الإضافي',
             deductions: 'الخصومات',
@@ -138,6 +169,7 @@ export default function StaffPage() {
             fullTimeContract: 'دوام كامل',
         }
         : {
+            manager: 'Manager',
             coach: 'Coach',
             employee: 'Employee',
             cashier: 'Cashier',
@@ -147,6 +179,10 @@ export default function StaffPage() {
             failedUpdate: 'Failed to update contract.',
             failedGeneratePayroll: 'Failed to generate payroll.',
             failedPayslip: 'Failed to download payslip',
+            fullTimeOnlyPayroll: 'Payroll can only be generated for full-time employees.',
+            automaticDeductions: 'Automatic Deductions',
+            manualDeductions: 'Optional Deductions',
+            optionalDeductionsNote: 'Optional. This amount is added to the automatic deductions.',
             title: 'Staff Management',
             subtitle: 'staff members',
             of: 'of',
@@ -166,26 +202,35 @@ export default function StaffPage() {
             addModal: 'Add New Staff Member',
             fullName: 'Full Name',
             email: 'Email',
+            password: 'Password',
+            branch: 'Branch',
             contractType: 'Contract',
             fullTime: 'Full Time',
             baseSalary: 'Base Salary (JOD)',
+            contractStartDate: 'Contract Start Date',
+            contractEndDate: 'Contract End Date (Optional)',
+            branchRequired: 'You must choose a branch before saving the staff member.',
             cancel: 'Cancel',
             saveStaff: 'Save Staff',
             editContract: 'Edit Contract - ',
             fullTimeInfo: 'Full Time',
-            fullTimeInfoDesc: 'Configure full-time contract details using date and hourly pay.',
+            fullTimeInfoDesc: 'Set up the contract dates and monthly pay.',
             startDate: 'Start Date',
             endDateOptional: 'End Date (Optional)',
             moneyPerHour: 'Money Per Hour (JOD)',
             standardHours: 'Standard Hours / Month',
             updateContract: 'Update Contract',
-            generatePayroll: 'Generate Payroll — ',
-            month: 'Month',
-            year: 'Year',
-            salesVolume: 'Sales Volume (JOD)',
-            salesPlaceholder: 'Enter sales volume...',
+            generatePayroll: 'Run Payroll',
+            payrollFor: 'Employee',
+            payrollBranch: 'Branch',
+            catchUpNote: 'Calculates from attendance days since the last approved/paid payroll.',
+            catchUpSummary: 'Manual calculation',
+            periodRange: 'Period range',
+            workedDays: 'Worked days',
             generate: 'Generate',
             payrollGenerated: 'Payroll Generated Successfully',
+            payrollSummary: 'Overview',
+            payrollBreakdown: 'Payroll Breakdown',
             basePay: 'Base Pay',
             overtimePay: 'Overtime Pay',
             deductions: 'Deductions',
@@ -197,6 +242,7 @@ export default function StaffPage() {
         };
 
     const roleLabelsLocalized: Record<StaffRole, string> = {
+        MANAGER: txt.manager,
         COACH: txt.coach,
         EMPLOYEE: txt.employee,
         CASHIER: txt.cashier,
@@ -213,6 +259,8 @@ export default function StaffPage() {
 
     const getRoleBadgeClass = (role: string) => {
         switch (role) {
+            case 'MANAGER':
+                return 'badge-violet';
             case 'COACH':
                 return 'badge-orange';
             case 'EMPLOYEE':
@@ -267,21 +315,47 @@ export default function StaffPage() {
 
     useEffect(() => { setTimeout(() => fetchStaff(), 0); }, [fetchStaff]);
 
+    useEffect(() => {
+        if (!isAddOpen) return;
+        setAddForm((current) => {
+            if (current.home_branch_id && branches.some((branch) => branch.id === current.home_branch_id)) {
+                return current;
+            }
+            return {
+                ...current,
+                home_branch_id: initialBranchId,
+            };
+        });
+    }, [branches, initialBranchId, isAddOpen]);
+
+    const closeAddWizard = () => {
+        setIsAddOpen(false);
+        setAddWizardStep(1);
+        setShowAddPassword(false);
+        setAddForm(getDefaultAddForm(initialBranchId));
+    };
+
     const handleAdd = async (e: React.FormEvent) => {
         e.preventDefault();
+        if (!addForm.home_branch_id) {
+            showToast(txt.branchRequired, 'error');
+            return;
+        }
         try {
             const userRes = await api.post('/auth/register', {
                 email: addForm.email, password: addForm.password,
-                full_name: addForm.full_name, role: addForm.role
+                full_name: addForm.full_name, role: addForm.role,
+                home_branch_id: addForm.home_branch_id,
             });
             const userId = userRes.data.data.id;
             await api.post('/hr/contracts', {
                 user_id: userId, contract_type: 'FULL_TIME',
                 base_salary: Number(addForm.base_salary), commission_rate: 0,
-                start_date: new Date().toISOString().split('T')[0], standard_hours: 160
+                start_date: addForm.start_date,
+                end_date: addForm.end_date || null,
+                standard_hours: 160,
             });
-            setIsAddOpen(false);
-            setAddForm(defaultAddForm);
+            closeAddWizard();
             fetchStaff();
         } catch (err) {
             console.error(err);
@@ -331,9 +405,13 @@ export default function StaffPage() {
     };
 
     const openPayroll = (member: StaffMember) => {
+        if (member.contract?.type !== 'FULL_TIME') {
+            showToast(txt.fullTimeOnlyPayroll, 'error');
+            return;
+        }
         setPayrollTarget(member);
         setPayrollResult(null);
-        setPayrollForm({ month: new Date().getMonth() + 1, year: new Date().getFullYear(), sales_volume: 0 });
+        setPayrollForm({ manual_deductions: 0 });
         setIsPayrollOpen(true);
     };
 
@@ -342,8 +420,12 @@ export default function StaffPage() {
         if (!payrollTarget) return;
         try {
             const res = await api.post('/hr/payroll/generate', {
-                user_id: payrollTarget.id, month: payrollForm.month,
-                year: payrollForm.year, sales_volume: Number(payrollForm.sales_volume)
+                user_id: payrollTarget.id,
+                month: new Date().getMonth() + 1,
+                year: new Date().getFullYear(),
+                manual_deductions: Number(payrollForm.manual_deductions),
+                from_last_paid: true,
+                calculation_mode: 'DAYS_WORKED',
             });
             setPayrollResult(res.data.data);
         } catch (err) {
@@ -386,7 +468,11 @@ export default function StaffPage() {
                             <option key={role} value={role}>{roleLabelsLocalized[role]}</option>
                         ))}
                     </select>
-                    <button onClick={() => setIsAddOpen(true)} className="btn-primary whitespace-nowrap">
+                    <button onClick={() => {
+                        setAddWizardStep(1);
+                        setAddForm(getDefaultAddForm(initialBranchId));
+                        setIsAddOpen(true);
+                    }} className="btn-primary whitespace-nowrap">
                         <Plus size={18} /> {txt.addNew}
                     </button>
                 </div>
@@ -454,7 +540,11 @@ export default function StaffPage() {
                                             <button onClick={() => openEdit(member)} className="flex items-center gap-1 text-primary hover:text-primary/80 text-xs font-medium px-2 py-1 rounded-lg hover:bg-primary/10 transition-colors">
                                                 <Pencil size={13} /> {txt.edit}
                                             </button>
-                                            <button onClick={() => openPayroll(member)} className="flex items-center gap-1 text-emerald-500 hover:text-emerald-400 text-xs font-medium px-2 py-1 rounded-lg hover:bg-emerald-500/10 transition-colors">
+                                            <button
+                                                onClick={() => openPayroll(member)}
+                                                disabled={member.contract?.type !== 'FULL_TIME'}
+                                                className="flex items-center gap-1 text-emerald-500 hover:text-emerald-400 text-xs font-medium px-2 py-1 rounded-lg hover:bg-emerald-500/10 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+                                            >
                                                 <Calculator size={13} /> {txt.payroll}
                                             </button>
                                         </div>
@@ -519,7 +609,11 @@ export default function StaffPage() {
                                 <button onClick={() => openEdit(member)} className="btn-ghost !px-2 !py-2 h-auto text-xs text-primary hover:text-primary/80 justify-center">
                                     <Pencil size={13} /> {txt.edit}
                                 </button>
-                                <button onClick={() => openPayroll(member)} className="btn-ghost !px-2 !py-2 h-auto text-xs text-emerald-500 hover:text-emerald-400 justify-center">
+                                <button
+                                    onClick={() => openPayroll(member)}
+                                    disabled={member.contract?.type !== 'FULL_TIME'}
+                                    className="btn-ghost !px-2 !py-2 h-auto text-xs text-emerald-500 hover:text-emerald-400 justify-center disabled:opacity-40 disabled:cursor-not-allowed"
+                                >
                                     <Calculator size={13} /> {txt.payroll}
                                 </button>
                             </div>
@@ -535,38 +629,129 @@ export default function StaffPage() {
             </div>
 
             {/* ADD MODAL */}
-            <Modal isOpen={isAddOpen} onClose={() => setIsAddOpen(false)} title={txt.addModal}>
+            <Modal isOpen={isAddOpen} onClose={closeAddWizard} title={txt.addModal} maxWidthClassName="max-w-2xl">
                 <form onSubmit={handleAdd} className="space-y-4">
-                    <div>
-                        <label className="block text-xs font-medium text-muted-foreground mb-1.5">{txt.fullName}</label>
-                        <input type="text" required className="input-dark" value={addForm.full_name} onChange={e => setAddForm({ ...addForm, full_name: e.target.value })} />
+                    <div className="flex items-center gap-2 text-[10px] font-bold uppercase tracking-widest text-muted-foreground">
+                        <span className={`rounded-full px-2 py-1 ${addWizardStep === 1 ? 'bg-primary text-primary-foreground' : 'bg-muted/40'}`}>1</span>
+                        <span>{txt.branch}</span>
+                        <span className="h-px w-8 bg-border" />
+                        <span className={`rounded-full px-2 py-1 ${addWizardStep === 2 ? 'bg-primary text-primary-foreground' : 'bg-muted/40'}`}>2</span>
+                        <span>{txt.saveStaff}</span>
                     </div>
-                    <div>
-                        <label className="block text-xs font-medium text-muted-foreground mb-1.5">{txt.email}</label>
-                        <input type="email" required className="input-dark" value={addForm.email} onChange={e => setAddForm({ ...addForm, email: e.target.value })} />
-                    </div>
-                    <div className="grid grid-cols-2 gap-4">
-                        <div>
-                            <label className="block text-xs font-medium text-muted-foreground mb-1.5">{txt.role}</label>
-                            <select className="input-dark" value={addForm.role} onChange={e => setAddForm({ ...addForm, role: e.target.value })}>
-                                {STAFF_ROLES.map((role) => (
-                                    <option key={role} value={role}>{roleLabelsLocalized[role]}</option>
-                                ))}
-                            </select>
+
+                    {addWizardStep === 1 ? (
+                        <div className="space-y-4">
+                            <div className="rounded-xl border border-border bg-muted/20 p-4">
+                                <p className="text-sm font-semibold text-foreground">{txt.branch}</p>
+                                <p className="text-xs text-muted-foreground mt-1">{txt.branchRequired}</p>
+                            </div>
+                            <div>
+                                <label className="block text-xs font-medium text-muted-foreground mb-1.5">{txt.branch}</label>
+                                <select
+                                    className="input-dark"
+                                    value={addForm.home_branch_id}
+                                    onChange={e => setAddForm({ ...addForm, home_branch_id: e.target.value })}
+                                    required
+                                >
+                                    <option value="">{txt.branch}</option>
+                                    {branches.map((branch) => (
+                                        <option key={branch.id} value={branch.id}>
+                                            {[branch.display_name || branch.name, branch.gym_name].filter(Boolean).join(' - ')}
+                                        </option>
+                                    ))}
+                                </select>
+                            </div>
+                            <div className="flex justify-end gap-3 pt-2">
+                                <button type="button" onClick={closeAddWizard} className="btn-ghost">{txt.cancel}</button>
+                                <button type="button" className="btn-primary" disabled={!addForm.home_branch_id} onClick={() => setAddWizardStep(2)}>
+                                    {locale === 'ar' ? 'التالي' : 'Next'}
+                                </button>
+                            </div>
                         </div>
-                        <div>
-                            <label className="block text-xs font-medium text-muted-foreground mb-1.5">{txt.contractType}</label>
-                            <input type="text" className="input-dark" value={txt.fullTime} readOnly />
+                    ) : (
+                        <div className="space-y-4">
+                            <div className="rounded-xl border border-border bg-muted/20 p-4">
+                                <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">{txt.branch}</p>
+                                <p className="mt-1 text-sm font-medium text-foreground">
+                                    {[selectedAddBranch?.display_name || selectedAddBranch?.name, selectedAddBranch?.gym_name].filter(Boolean).join(' - ')}
+                                </p>
+                                <p className="mt-1 text-xs text-muted-foreground">
+                                    {locale === 'ar' ? 'يمكنك الرجوع لتغيير الفرع قبل الحفظ.' : 'Go back if you need to change the branch before saving.'}
+                                </p>
+                            </div>
+                            <div>
+                                <label className="block text-xs font-medium text-muted-foreground mb-1.5">{txt.fullName}</label>
+                                <input type="text" required className="input-dark" value={addForm.full_name} onChange={e => setAddForm({ ...addForm, full_name: e.target.value })} />
+                            </div>
+                            <div>
+                                <label className="block text-xs font-medium text-muted-foreground mb-1.5">{txt.email}</label>
+                                <input type="email" required className="input-dark" value={addForm.email} onChange={e => setAddForm({ ...addForm, email: e.target.value })} />
+                            </div>
+                            <div>
+                                <label className="block text-xs font-medium text-muted-foreground mb-1.5">{txt.password}</label>
+                                <div className="relative">
+                                    <input
+                                        type={showAddPassword ? 'text' : 'password'}
+                                        required
+                                        className="input-dark pr-11"
+                                        value={addForm.password}
+                                        onChange={e => setAddForm({ ...addForm, password: e.target.value })}
+                                    />
+                                    <button
+                                        type="button"
+                                        onClick={() => setShowAddPassword((current) => !current)}
+                                        className="absolute inset-y-0 right-0 flex items-center px-3 text-muted-foreground hover:text-foreground"
+                                        aria-label={showAddPassword ? 'Hide password' : 'Show password'}
+                                    >
+                                        {showAddPassword ? <EyeOff size={16} /> : <Eye size={16} />}
+                                    </button>
+                                </div>
+                            </div>
+                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                                <div>
+                                    <label className="block text-xs font-medium text-muted-foreground mb-1.5">{txt.role}</label>
+                                    <select className="input-dark" value={addForm.role} onChange={e => setAddForm({ ...addForm, role: e.target.value })}>
+                                        {STAFF_ROLES.map((role) => (
+                                            <option key={role} value={role}>{roleLabelsLocalized[role]}</option>
+                                        ))}
+                                    </select>
+                                </div>
+                                <div>
+                                    <label className="block text-xs font-medium text-muted-foreground mb-1.5">{txt.baseSalary}</label>
+                                    <input type="number" className="input-dark" value={addForm.base_salary} onChange={e => setAddForm({ ...addForm, base_salary: Number(e.target.value) })} />
+                                </div>
+                            </div>
+                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                                <div>
+                                    <label className="block text-xs font-medium text-muted-foreground mb-1.5">{txt.contractStartDate}</label>
+                                    <input
+                                        type="date"
+                                        className="input-dark"
+                                        value={addForm.start_date}
+                                        onChange={e => setAddForm({ ...addForm, start_date: e.target.value })}
+                                        required
+                                    />
+                                </div>
+                                <div>
+                                    <label className="block text-xs font-medium text-muted-foreground mb-1.5">{txt.contractEndDate}</label>
+                                    <input
+                                        type="date"
+                                        className="input-dark"
+                                        value={addForm.end_date}
+                                        min={addForm.start_date || undefined}
+                                        onChange={e => setAddForm({ ...addForm, end_date: e.target.value })}
+                                    />
+                                </div>
+                            </div>
+                            <div className="flex justify-between gap-3 pt-4 border-t border-border">
+                                <button type="button" onClick={() => setAddWizardStep(1)} className="btn-ghost">{locale === 'ar' ? 'السابق' : 'Back'}</button>
+                                <div className="flex gap-3">
+                                    <button type="button" onClick={closeAddWizard} className="btn-ghost">{txt.cancel}</button>
+                                    <button type="submit" className="btn-primary" disabled={!addForm.home_branch_id}><Save size={16} /> {txt.saveStaff}</button>
+                                </div>
+                            </div>
                         </div>
-                    </div>
-                    <div>
-                        <label className="block text-xs font-medium text-muted-foreground mb-1.5">{txt.baseSalary}</label>
-                        <input type="number" className="input-dark" value={addForm.base_salary} onChange={e => setAddForm({ ...addForm, base_salary: Number(e.target.value) })} />
-                    </div>
-                    <div className="flex justify-end gap-3 pt-4 border-t border-border">
-                        <button type="button" onClick={() => setIsAddOpen(false)} className="btn-ghost">{txt.cancel}</button>
-                        <button type="submit" className="btn-primary"><Save size={16} /> {txt.saveStaff}</button>
-                    </div>
+                    )}
                 </form>
             </Modal>
 
@@ -630,53 +815,110 @@ export default function StaffPage() {
                 </form>
             </Modal>
             {/* PAYROLL MODAL */}
-            <Modal isOpen={isPayrollOpen} onClose={() => { setIsPayrollOpen(false); setPayrollResult(null); }} title={`${txt.generatePayroll}${payrollTarget?.full_name || ''}`}>
+            <Modal
+                isOpen={isPayrollOpen}
+                onClose={() => { setIsPayrollOpen(false); setPayrollResult(null); }}
+                title={txt.generatePayroll}
+            >
                 {!payrollResult ? (
-                    <form onSubmit={handlePayroll} className="space-y-4">
-                        <div className="grid grid-cols-2 gap-4">
-                            <div>
-                                <label className="block text-xs font-medium text-muted-foreground mb-1.5">{txt.month}</label>
-                                <select className="input-dark" value={payrollForm.month} onChange={e => setPayrollForm({ ...payrollForm, month: Number(e.target.value) })}>
-                                    {[...Array(12)].map((_, i) => (
-                                        <option key={i + 1} value={i + 1}>{formatDate(new Date(2024, i, 1), { month: 'long' })}</option>
-                                    ))}
-                                </select>
-                            </div>
-                            <div>
-                                <label className="block text-xs font-medium text-muted-foreground mb-1.5">{txt.year}</label>
-                                <input type="number" className="input-dark" value={payrollForm.year} onChange={e => setPayrollForm({ ...payrollForm, year: Number(e.target.value) })} />
+                    <form onSubmit={handlePayroll} className="space-y-5">
+                        <div className="rounded-2xl border border-border bg-card/60 p-4">
+                            <div className="flex flex-wrap items-center justify-between gap-3">
+                                <div>
+                                    <p className="text-xs uppercase tracking-[0.2em] text-muted-foreground">{txt.payrollFor}</p>
+                                    <p className="mt-1 text-lg font-semibold text-foreground">{payrollTarget?.full_name || '--'}</p>
+                                </div>
+                                <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
+                                    <span className="rounded-full border border-border bg-background px-3 py-1">{txt.payrollBranch}: {selectedPayrollBranch?.display_name || selectedPayrollBranch?.name || '--'}</span>
+                                    <span className="rounded-full border border-border bg-background px-3 py-1">{txt.fullTimeContract}</span>
+                                </div>
                             </div>
                         </div>
-                        <div className="flex justify-end gap-3 pt-4 border-t border-border">
+
+                        <div className="rounded-2xl border border-amber-500/20 bg-amber-500/5 p-4">
+                            <p className="text-xs font-semibold uppercase tracking-[0.2em] text-amber-400">{txt.catchUpSummary}</p>
+                            <p className="mt-2 text-sm text-muted-foreground">{txt.catchUpNote}</p>
+                        </div>
+
+                        <div className="rounded-2xl border border-border bg-card/50 p-4 space-y-3">
+                            <div>
+                                <label className="block text-xs font-medium text-muted-foreground mb-2">{txt.manualDeductions}</label>
+                                <input
+                                    type="number"
+                                    min="0"
+                                    step="0.01"
+                                    className="input-dark"
+                                    value={payrollForm.manual_deductions}
+                                    onChange={e => setPayrollForm({ ...payrollForm, manual_deductions: Number(e.target.value) })}
+                                />
+                            </div>
+                            <p className="text-xs leading-5 text-muted-foreground">
+                                {txt.optionalDeductionsNote}
+                            </p>
+                        </div>
+                        <div className="flex items-center justify-between gap-3 rounded-2xl border border-border bg-background px-4 py-3 text-xs text-muted-foreground">
+                            <span>{txt.fullTimeOnlyPayroll}</span>
+                            <span className="font-medium text-foreground">{txt.fullTimeContract}</span>
+                        </div>
+
+                        <div className="flex justify-end gap-3 pt-1">
                             <button type="button" onClick={() => setIsPayrollOpen(false)} className="btn-ghost">{txt.cancel}</button>
                             <button type="submit" className="btn-primary"><Calculator size={16} /> {txt.generate}</button>
                         </div>
                     </form>
                 ) : (
-                    <div className="space-y-4">
-                        <div className="rounded-xl p-4 text-center bg-emerald-500/10 border border-emerald-500/20">
+                    <div className="space-y-5">
+                        <div className="rounded-2xl p-5 text-center bg-emerald-500/10 border border-emerald-500/20 shadow-sm">
                             <p className="text-sm text-emerald-500 font-medium mb-1">{txt.payrollGenerated}</p>
                             <p className="text-3xl font-bold text-emerald-500">{payrollResult.total_pay?.toFixed(2)} {txt.currency}</p>
                         </div>
-                        <div className="grid grid-cols-2 gap-3 text-sm">
-                            <div className="rounded-lg p-3 bg-card border border-border">
-                                <p className="text-xs text-muted-foreground">{txt.basePay}</p>
-                                <p className="font-mono font-semibold text-foreground">{payrollResult.base_pay?.toFixed(2)} {txt.currency}</p>
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-sm">
+                            <div className="rounded-xl p-4 bg-card border border-border">
+                                <p className="text-xs text-muted-foreground">{txt.periodRange}</p>
+                                <p className="mt-1 font-mono text-sm font-semibold text-foreground">
+                                    {payrollResult.period_start && payrollResult.period_end
+                                        ? `${String(payrollResult.period_start).slice(0, 10)} → ${String(payrollResult.period_end).slice(0, 10)}`
+                                        : `${new Date().toISOString().slice(0, 10)}`
+                                    }
+                                </p>
                             </div>
-                            <div className="rounded-lg p-3 bg-card border border-border">
-                                <p className="text-xs text-muted-foreground">{txt.overtimePay}</p>
-                                <p className="font-mono font-semibold text-foreground">{payrollResult.overtime_pay?.toFixed(2)} {txt.currency}</p>
+                            <div className="rounded-xl p-4 bg-card border border-border">
+                                <p className="text-xs text-muted-foreground">{txt.workedDays}</p>
+                                <p className="mt-1 font-mono text-sm font-semibold text-foreground">{Number(payrollResult.worked_days || 0).toFixed(0)}</p>
                             </div>
-                            <div className="rounded-lg p-3 bg-card border border-border">
-                                <p className="text-xs text-muted-foreground">{txt.deductions}</p>
-                                <p className="font-mono font-semibold text-red-400">-{Number(payrollResult.deductions || 0).toFixed(2)} {txt.currency}</p>
-                            </div>
-                            <div className="rounded-lg p-3 bg-card border border-border">
-                                <p className="text-xs text-muted-foreground">{txt.netPay}</p>
-                                <p className="font-mono font-semibold text-foreground">{Number(payrollResult.total_pay || 0).toFixed(2)} {txt.currency}</p>
+                            <div className="rounded-xl p-4 bg-card border border-border">
+                                <p className="text-xs text-muted-foreground">{txt.payrollSummary}</p>
+                                <p className="mt-1 font-mono text-sm font-semibold text-foreground">{payrollResult.status || txt.fullTimeContract}</p>
                             </div>
                         </div>
-                        <div className="grid grid-cols-2 gap-3 mt-4">
+                        <div className="space-y-3">
+                            <h3 className="text-sm font-semibold text-foreground">{txt.payrollBreakdown}</h3>
+                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-sm">
+                                <div className="rounded-xl p-4 bg-card border border-border">
+                                    <p className="text-xs text-muted-foreground">{txt.basePay}</p>
+                                    <p className="mt-1 font-mono text-lg font-semibold text-foreground">{payrollResult.base_pay?.toFixed(2)} {txt.currency}</p>
+                                </div>
+                                <div className="rounded-xl p-4 bg-card border border-border">
+                                    <p className="text-xs text-muted-foreground">{txt.overtimePay}</p>
+                                    <p className="mt-1 font-mono text-lg font-semibold text-foreground">{payrollResult.overtime_pay?.toFixed(2)} {txt.currency}</p>
+                                </div>
+                                <div className="rounded-xl p-4 bg-card border border-border">
+                                    <p className="text-xs text-muted-foreground">{txt.automaticDeductions}</p>
+                                    <p className="mt-1 font-mono text-lg font-semibold text-red-400">-{Number(payrollResult.leave_deductions || 0).toFixed(2)} {txt.currency}</p>
+                                </div>
+                                <div className="rounded-xl p-4 bg-card border border-border">
+                                    <p className="text-xs text-muted-foreground">{txt.manualDeductions}</p>
+                                    <p className="mt-1 font-mono text-lg font-semibold text-red-400">-{Number(payrollResult.manual_deductions || 0).toFixed(2)} {txt.currency}</p>
+                                </div>
+                            </div>
+                            <div className="rounded-xl border border-border bg-background p-4">
+                                <div className="flex items-center justify-between gap-4">
+                                    <p className="text-xs text-muted-foreground">{txt.netPay}</p>
+                                    <p className="font-mono text-2xl font-semibold text-foreground">{Number(payrollResult.total_pay || 0).toFixed(2)} {txt.currency}</p>
+                                </div>
+                            </div>
+                        </div>
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-1">
                             <button onClick={() => { setIsPayrollOpen(false); setPayrollResult(null); }} className="btn-ghost w-full">{txt.close}</button>
                             <button onClick={() => handlePrintPayslip(payrollResult.id)} className="btn-primary w-full flex items-center justify-center gap-2">
                                 <Download size={16} /> {txt.downloadSlip}

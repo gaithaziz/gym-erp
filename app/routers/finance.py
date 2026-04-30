@@ -587,7 +587,7 @@ class TransactionResponse(TransactionCreate):
 @router.post("/transactions", response_model=StandardResponse)
 async def create_transaction(
     data: TransactionCreate,
-    current_user: Annotated[User, Depends(dependencies.RoleChecker([Role.ADMIN]))],
+    current_user: Annotated[User, Depends(dependencies.RoleChecker([Role.ADMIN, Role.MANAGER]))],
     db: Annotated[AsyncSession, Depends(get_db)]
 ):
     """Log a manual transaction (Bill, One-off Income, etc)."""
@@ -618,7 +618,7 @@ async def create_transaction(
 
 @router.get("/transactions", response_model=StandardResponse)
 async def list_transactions(
-    current_user: Annotated[User, Depends(dependencies.RoleChecker([Role.ADMIN]))],
+    current_user: Annotated[User, Depends(dependencies.RoleChecker([Role.ADMIN, Role.MANAGER]))],
     db: Annotated[AsyncSession, Depends(get_db)],
     response: Response,
     limit: int = Query(50, ge=1, le=500),
@@ -683,7 +683,7 @@ async def list_transactions(
 
 @router.get("/summary", response_model=StandardResponse)
 async def get_financial_summary(
-    current_user: Annotated[User, Depends(dependencies.RoleChecker([Role.ADMIN]))],
+    current_user: Annotated[User, Depends(dependencies.RoleChecker([Role.ADMIN, Role.MANAGER]))],
     db: Annotated[AsyncSession, Depends(get_db)],
     month: Optional[int] = Query(None, ge=1, le=12),
     year: Optional[int] = Query(None, ge=2000, le=2100),
@@ -912,7 +912,7 @@ async def export_receipt(
 
 @router.get("/transactions/report.csv")
 async def export_transactions_report_csv(
-    current_user: Annotated[User, Depends(dependencies.RoleChecker([Role.ADMIN]))],
+    current_user: Annotated[User, Depends(dependencies.RoleChecker([Role.ADMIN, Role.MANAGER]))],
     db: Annotated[AsyncSession, Depends(get_db)],
     month: Optional[int] = Query(None, ge=1, le=12),
     year: Optional[int] = Query(None, ge=2000, le=2100),
@@ -981,7 +981,7 @@ async def export_transactions_report_csv(
 
 @router.get("/transactions/report/print", response_class=HTMLResponse)
 async def print_transactions_report(
-    current_user: Annotated[User, Depends(dependencies.RoleChecker([Role.ADMIN]))],
+    current_user: Annotated[User, Depends(dependencies.RoleChecker([Role.ADMIN, Role.MANAGER]))],
     db: Annotated[AsyncSession, Depends(get_db)],
     month: Optional[int] = Query(None, ge=1, le=12),
     year: Optional[int] = Query(None, ge=2000, le=2100),
@@ -1164,7 +1164,7 @@ async def export_receipt_pdf(
 
 @router.get("/transactions/report.pdf")
 async def export_transactions_report_pdf(
-    current_user: Annotated[User, Depends(dependencies.RoleChecker([Role.ADMIN]))],
+    current_user: Annotated[User, Depends(dependencies.RoleChecker([Role.ADMIN, Role.MANAGER]))],
     db: Annotated[AsyncSession, Depends(get_db)],
     month: Optional[int] = Query(None, ge=1, le=12),
     year: Optional[int] = Query(None, ge=2000, le=2100),

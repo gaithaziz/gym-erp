@@ -23,6 +23,7 @@ import { useSupportTickets } from '@/features/support/useSupportTickets';
 import { useLocale } from '@/context/LocaleContext';
 import { useBranch } from '@/context/BranchContext';
 import { BranchSelector } from '@/components/BranchSelector';
+import { getBranchParams } from '@/lib/branch';
 
 export default function AdminSupportPage() {
     const {} = useAuth();
@@ -65,7 +66,7 @@ export default function AdminSupportPage() {
 
     const fetchTicketDetails = useCallback(async (id: string) => {
         try {
-            const response = await api.get(`/support/tickets/${id}`);
+            const response = await api.get(`/support/tickets/${id}`, { params: getBranchParams(selectedBranchId) });
             setTicketDetails(response.data?.data);
             setTimeout(() => {
                 if (messageListRef.current) {
@@ -75,7 +76,7 @@ export default function AdminSupportPage() {
         } catch {
             showToast(t('support.admin.failedFetchDetails'), 'error');
         }
-    }, [showToast, t]);
+    }, [selectedBranchId, showToast, t]);
 
     useEffect(() => {
         if (selectedTicketId) {
@@ -488,4 +489,3 @@ export default function AdminSupportPage() {
         </div>
     );
 }
-

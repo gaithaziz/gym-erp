@@ -152,7 +152,7 @@ class LowStockRestockTargetRequest(BaseModel):
 @router.post("/products", response_model=StandardResponse[ProductResponse])
 async def create_product(
     data: ProductCreate,
-    current_user: Annotated[User, Depends(dependencies.RoleChecker([Role.ADMIN]))],
+    current_user: Annotated[User, Depends(dependencies.RoleChecker([Role.ADMIN, Role.MANAGER]))],
     db: Annotated[AsyncSession, Depends(get_db)]
 ):
     """Create a new product in inventory."""
@@ -183,7 +183,7 @@ async def create_product(
 
 @router.get("/products", response_model=StandardResponse[list[ProductResponse]])
 async def list_products(
-    current_user: Annotated[User, Depends(dependencies.RoleChecker([Role.ADMIN, Role.EMPLOYEE, Role.CASHIER]))],
+    current_user: Annotated[User, Depends(dependencies.RoleChecker([Role.ADMIN, Role.MANAGER, Role.EMPLOYEE, Role.CASHIER]))],
     db: Annotated[AsyncSession, Depends(get_db)],
     search: Optional[str] = Query(None),
     category: Optional[ProductCategory] = Query(None),
@@ -217,7 +217,7 @@ async def list_products(
 
 @router.get("/products/low-stock", response_model=StandardResponse[list[ProductResponse]])
 async def get_low_stock_products(
-    current_user: Annotated[User, Depends(dependencies.RoleChecker([Role.SUPER_ADMIN, Role.ADMIN, Role.EMPLOYEE, Role.CASHIER]))],
+    current_user: Annotated[User, Depends(dependencies.RoleChecker([Role.SUPER_ADMIN, Role.ADMIN, Role.MANAGER, Role.EMPLOYEE, Role.CASHIER]))],
     db: Annotated[AsyncSession, Depends(get_db)],
     gym_id: uuid.UUID | None = Query(None),
     branch_id: uuid.UUID | None = Query(None),
@@ -263,7 +263,7 @@ async def get_low_stock_products(
 @router.post("/products/{product_id}/low-stock/ack", response_model=StandardResponse[ProductResponse])
 async def acknowledge_low_stock(
     product_id: uuid.UUID,
-    current_user: Annotated[User, Depends(dependencies.RoleChecker([Role.ADMIN, Role.EMPLOYEE, Role.CASHIER]))],
+    current_user: Annotated[User, Depends(dependencies.RoleChecker([Role.ADMIN, Role.MANAGER, Role.EMPLOYEE, Role.CASHIER]))],
     db: Annotated[AsyncSession, Depends(get_db)],
 ):
     product = await _get_product_or_404(db, current_user=current_user, product_id=product_id)
@@ -287,7 +287,7 @@ async def acknowledge_low_stock(
 async def snooze_low_stock(
     product_id: uuid.UUID,
     request: LowStockSnoozeRequest,
-    current_user: Annotated[User, Depends(dependencies.RoleChecker([Role.ADMIN, Role.EMPLOYEE, Role.CASHIER]))],
+    current_user: Annotated[User, Depends(dependencies.RoleChecker([Role.ADMIN, Role.MANAGER, Role.EMPLOYEE, Role.CASHIER]))],
     db: Annotated[AsyncSession, Depends(get_db)],
 ):
     product = await _get_product_or_404(db, current_user=current_user, product_id=product_id)
@@ -311,7 +311,7 @@ async def snooze_low_stock(
 async def set_low_stock_restock_target(
     product_id: uuid.UUID,
     request: LowStockRestockTargetRequest,
-    current_user: Annotated[User, Depends(dependencies.RoleChecker([Role.ADMIN, Role.EMPLOYEE, Role.CASHIER]))],
+    current_user: Annotated[User, Depends(dependencies.RoleChecker([Role.ADMIN, Role.MANAGER, Role.EMPLOYEE, Role.CASHIER]))],
     db: Annotated[AsyncSession, Depends(get_db)],
 ):
     product = await _get_product_or_404(db, current_user=current_user, product_id=product_id)
@@ -335,7 +335,7 @@ async def set_low_stock_restock_target(
 async def update_product(
     product_id: uuid.UUID,
     data: ProductUpdate,
-    current_user: Annotated[User, Depends(dependencies.RoleChecker([Role.ADMIN]))],
+    current_user: Annotated[User, Depends(dependencies.RoleChecker([Role.ADMIN, Role.MANAGER]))],
     db: Annotated[AsyncSession, Depends(get_db)]
 ):
     """Update a product's details or stock."""
@@ -362,7 +362,7 @@ async def update_product(
 @router.delete("/products/{product_id}", response_model=StandardResponse)
 async def delete_product(
     product_id: uuid.UUID,
-    current_user: Annotated[User, Depends(dependencies.RoleChecker([Role.ADMIN]))],
+    current_user: Annotated[User, Depends(dependencies.RoleChecker([Role.ADMIN, Role.MANAGER]))],
     db: Annotated[AsyncSession, Depends(get_db)]
 ):
     """Soft-delete a product (set is_active=False)."""
