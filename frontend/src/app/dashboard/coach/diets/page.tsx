@@ -418,12 +418,15 @@ export default function DietPlansPage() {
     }, [fetchData]);
 
     useEffect(() => {
-        setExpandedTemplatePlanId(null);
-        setExpandedAssignedPlanId(null);
-        setAssignModalOpen(false);
-        setAssigningPlan(null);
-        setBulkAssignMemberIds([]);
-        setMemberSearch('');
+        const timeoutId = window.setTimeout(() => {
+            setExpandedTemplatePlanId(null);
+            setExpandedAssignedPlanId(null);
+            setAssignModalOpen(false);
+            setAssigningPlan(null);
+            setBulkAssignMemberIds([]);
+            setMemberSearch('');
+        }, 0);
+        return () => window.clearTimeout(timeoutId);
     }, [selectedBranchId]);
 
     const resetForm = () => {

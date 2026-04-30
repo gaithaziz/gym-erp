@@ -65,7 +65,10 @@ export function FeedbackProvider({ children }: { children: React.ReactNode }) {
 
         sessionStorage.removeItem('pending_toast_message');
         sessionStorage.removeItem('pending_toast_kind');
-        showToast(message, kind === 'success' || kind === 'error' ? kind : 'info');
+        const timeoutId = window.setTimeout(() => {
+            showToast(message, kind === 'success' || kind === 'error' ? kind : 'info');
+        }, 0);
+        return () => window.clearTimeout(timeoutId);
     }, [showToast]);
 
     const closeConfirm = useCallback((value: boolean) => {

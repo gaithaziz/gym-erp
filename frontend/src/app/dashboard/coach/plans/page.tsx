@@ -525,13 +525,16 @@ export default function WorkoutPlansPage() {
     };
 
     useEffect(() => {
-        setExpandedTemplatePlanId(null);
-        setExpandedAssignedPlanId(null);
-        setAssignModalOpen(false);
-        setAssigningPlan(null);
-        setBulkAssignMemberIds([]);
-        setMemberSearch('');
-        setLastBulkAssignSnapshot(null);
+        const timeoutId = window.setTimeout(() => {
+            setExpandedTemplatePlanId(null);
+            setExpandedAssignedPlanId(null);
+            setAssignModalOpen(false);
+            setAssigningPlan(null);
+            setBulkAssignMemberIds([]);
+            setMemberSearch('');
+            setLastBulkAssignSnapshot(null);
+        }, 0);
+        return () => window.clearTimeout(timeoutId);
     }, [selectedBranchId]);
 
     const addSection = () => {

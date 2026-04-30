@@ -232,7 +232,10 @@ function AdminDashboard({ userName, userRole }: { userName: string; userRole: st
 
     useEffect(() => {
         if (user?.gym_id && !selectedGymId) {
-            setSelectedGymId(user.gym_id);
+            const timeoutId = window.setTimeout(() => {
+                setSelectedGymId(user.gym_id);
+            }, 0);
+            return () => window.clearTimeout(timeoutId);
         }
     }, [selectedGymId, user?.gym_id]);
 

@@ -102,9 +102,11 @@ export default function DashboardLayout({
     useEffect(() => {
         if (!user) return;
         if (!getAccessToken()) {
-            setSupportHasNew(false);
-            setLostFoundHasNew(false);
-            return;
+            const timeoutId = window.setTimeout(() => {
+                setSupportHasNew(false);
+                setLostFoundHasNew(false);
+            }, 0);
+            return () => window.clearTimeout(timeoutId);
         }
 
         const seenKeySupport = `last_seen_support_${user.id}`;

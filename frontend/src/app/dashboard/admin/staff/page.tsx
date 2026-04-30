@@ -317,15 +317,18 @@ export default function StaffPage() {
 
     useEffect(() => {
         if (!isAddOpen) return;
-        setAddForm((current) => {
-            if (current.home_branch_id && branches.some((branch) => branch.id === current.home_branch_id)) {
-                return current;
-            }
-            return {
-                ...current,
-                home_branch_id: initialBranchId,
-            };
-        });
+        const timeoutId = window.setTimeout(() => {
+            setAddForm((current) => {
+                if (current.home_branch_id && branches.some((branch) => branch.id === current.home_branch_id)) {
+                    return current;
+                }
+                return {
+                    ...current,
+                    home_branch_id: initialBranchId,
+                };
+            });
+        }, 0);
+        return () => window.clearTimeout(timeoutId);
     }, [branches, initialBranchId, isAddOpen]);
 
     const closeAddWizard = () => {
