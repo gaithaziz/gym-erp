@@ -603,12 +603,13 @@ class MobileAdminService:
     async def get_audit_summary(cls, *, current_user: User, db: AsyncSession, branch_id=None) -> dict[str, Any]:
         cls._ensure_audit_allowed(current_user)
         branch_ids = await cls._branch_scope_ids(current_user=current_user, db=db, branch_id=branch_id)
+        audit_scope = or_(AuditLog.branch_id.is_(None), AuditLog.branch_id.in_(branch_ids)) if branch_ids else AuditLog.branch_id.is_(None)
 
         recent_events = (
             await db.execute(
                 select(AuditLog, User.full_name)
                 .outerjoin(User, User.id == AuditLog.user_id)
-                .where(AuditLog.branch_id.in_(branch_ids) if branch_ids else false())
+                .where(AuditLog.gym_id == current_user.gym_id, audit_scope)
                 .order_by(AuditLog.timestamp.desc())
                 .limit(10)
             )
@@ -616,7 +617,7 @@ class MobileAdminService:
         action_rows = (
             await db.execute(
                 select(AuditLog.action, func.count(AuditLog.id))
-                .where(AuditLog.branch_id.in_(branch_ids) if branch_ids else false())
+                .where(AuditLog.gym_id == current_user.gym_id, audit_scope)
                 .group_by(AuditLog.action)
                 .order_by(func.count(AuditLog.id).desc())
                 .limit(6)
@@ -624,7 +625,10 @@ class MobileAdminService:
         ).all()
 
         return {
-            "total_events": await cls._count(db, select(func.count(AuditLog.id)).where(AuditLog.branch_id.in_(branch_ids) if branch_ids else false())),
+            "total_events": await cls._count(
+                db,
+                select(func.count(AuditLog.id)).where(AuditLog.gym_id == current_user.gym_id, audit_scope),
+            ),
             "action_counts": [
                 {"id": action, "label": action.replace("_", " ").title(), "value": int(count or 0)}
                 for action, count in action_rows
