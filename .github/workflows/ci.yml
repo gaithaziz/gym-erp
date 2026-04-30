@@ -86,7 +86,7 @@ jobs:
         run: npm run typecheck:web
 
       - name: Run frontend i18n verification
-        run: npm run i18n:verify:strict --workspace frontend
+        run: npm run i18n:check:strict --workspace frontend
 
       - name: Run frontend production build
         run: npm run build --workspace frontend
