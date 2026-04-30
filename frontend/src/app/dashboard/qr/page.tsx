@@ -6,6 +6,7 @@ import { useAuth } from '@/context/AuthContext';
 import { Camera, CameraOff, CheckCircle, RefreshCw, ScanLine, XCircle } from 'lucide-react';
 import jsQR from 'jsqr';
 import { useLocale } from '@/context/LocaleContext';
+import Modal from '@/components/Modal';
 
 const KIOSK_ID_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._:-]*$/;
 const STAFF_ROLES = new Set(['ADMIN', 'COACH', 'EMPLOYEE', 'CASHIER', 'RECEPTION', 'FRONT_DESK']);
@@ -19,8 +20,11 @@ type ParsedQrPayload = {
 
 type ScanResult = {
     status: string;
+    kind?: ScanKind;
     user_name?: string;
     reason?: string | null;
+    kiosk_id?: string | null;
+    scan_time?: string | null;
 };
 
 const parseQrPayload = (rawValue: string): ParsedQrPayload | null => {
@@ -68,10 +72,16 @@ export default function QRCodePage() {
         processing: 'جارٍ المعالجة...',
         confirmDetected: 'تأكيد الإجراء المكتشف',
         supportedPayloads: 'المدخلات المدعومة: kiosk_id خام، gymerp://kiosk/{id}، أو JSON typed.',
+        scanResult: 'نتيجة المسح',
+        shiftStarted: 'بدء الدوام',
+        shiftEnded: 'إنهاء الدوام',
+        contractEnded: 'انتهى العقد',
+        contractEndedHint: 'انتهى عقدك الوظيفي. تواصل مع الموارد البشرية أو الإدارة.',
         manualFallback: 'إدخال يدوي بديل',
         enterKioskManually: 'أدخل معرف الكشك يدويًا',
         submitManual: 'إرسال الإجراء اليدوي',
         actionRecorded: 'تم تسجيل الإجراء.',
+        scanAgain: 'Scan Again',
         clientEntry: 'دخول عميل',
         staffIn: 'تسجيل حضور موظف',
         staffOut: 'تسجيل انصراف موظف',
@@ -85,10 +95,16 @@ export default function QRCodePage() {
         processing: 'Processing...',
         confirmDetected: 'Confirm Detected Action',
         supportedPayloads: 'Supported payloads: raw kiosk_id, gymerp://kiosk/{id}, or typed JSON.',
+        scanResult: 'Scan Result',
+        shiftStarted: 'Shift Started',
+        shiftEnded: 'Shift Ended',
+        contractEnded: 'Contract Ended',
+        contractEndedHint: 'Your contract has ended. Please contact HR or management.',
         manualFallback: 'Manual Fallback',
         enterKioskManually: 'Enter kiosk ID manually',
         submitManual: 'Submit Manual Action',
         actionRecorded: 'Action recorded.',
+        scanAgain: 'Scan Again',
         clientEntry: 'client_entry',
         staffIn: 'staff_check_in',
         staffOut: 'staff_check_out',
@@ -269,17 +285,17 @@ export default function QRCodePage() {
         try {
             if (payload.kind === 'client_entry') {
                 const res = await api.post('/access/scan-session', { kiosk_id: payload.kioskId });
-                setScanResult(res.data.data as ScanResult);
+                setScanResult({ ...(res.data.data as ScanResult), kind: payload.kind });
             } else if (payload.kind === 'staff_check_in') {
                 const res = await api.post('/access/check-in');
-                setScanResult({ status: 'GRANTED', reason: res.data?.message || ui.checkInSuccess });
+                setScanResult({ status: 'GRANTED', kind: payload.kind, reason: res.data?.message || ui.checkInSuccess });
             } else {
                 const res = await api.post('/access/check-out');
-                setScanResult({ status: 'GRANTED', reason: res.data?.message || ui.checkOutSuccess });
+                setScanResult({ status: 'GRANTED', kind: payload.kind, reason: res.data?.message || ui.checkOutSuccess });
             }
         } catch (error: unknown) {
             const detail = (error as { response?: { data?: { detail?: string } } })?.response?.data?.detail;
-            setScanResult({ status: 'DENIED', reason: detail || ui.actionFailed });
+            setScanResult({ status: 'DENIED', kind: payload.kind, reason: detail || ui.actionFailed });
         } finally {
             setSubmitting(false);
         }
@@ -303,6 +319,38 @@ export default function QRCodePage() {
             : scanResult?.status === 'ALREADY_SCANNED'
                 ? ui.alreadyScanned
                 : ui.denied;
+    const scanDialogOpen = Boolean(scanResult);
+    const scanDialogTone = scanResult?.status === 'GRANTED' || scanResult?.status === 'ALREADY_SCANNED'
+        ? 'border-primary text-primary'
+        : 'border-destructive text-destructive';
+    const isContractDenial = scanResult?.reason === 'CONTRACT_EXPIRED' || scanResult?.reason === 'NO_ACTIVE_CONTRACT';
+    const scanDialogReason = isContractDenial ? txt.contractEndedHint : scanResult?.reason || txt.actionRecorded;
+    const scanDialogTitle = scanResult
+        ? isContractDenial
+            ? txt.contractEnded
+            : scanResult.kind === 'staff_check_in'
+                ? txt.shiftStarted
+                : scanResult.kind === 'staff_check_out'
+                    ? txt.shiftEnded
+                    : scanStatusLabel
+        : txt.scanResult;
+    const scanDialogMeta = [
+        scanResult?.user_name
+            ? { label: locale === 'ar' ? 'المستخدم' : 'User', value: scanResult.user_name }
+            : null,
+        scanResult?.kiosk_id
+            ? { label: locale === 'ar' ? 'الكشك' : 'Kiosk', value: scanResult.kiosk_id }
+            : null,
+        scanResult?.scan_time
+            ? { label: locale === 'ar' ? 'وقت المسح' : 'Scan Time', value: new Date(scanResult.scan_time).toLocaleString(locale) }
+            : null,
+    ].filter((item): item is { label: string; value: string } => Boolean(item));
+
+    const closeScanDialog = () => {
+        setScanResult(null);
+        setDetectedScan(null);
+        void startScanner();
+    };
 
     return (
         <div className="max-w-xl mx-auto space-y-6 py-8">
@@ -394,24 +442,41 @@ export default function QRCodePage() {
                 </button>
             </div>
 
-            {scanResult && (
-                <div className={`kpi-card p-4 ltr:border-l-4 rtl:border-r-4 ${scanResult.status === 'GRANTED' || scanResult.status === 'ALREADY_SCANNED' ? 'ltr:border-l-primary rtl:border-r-primary' : 'ltr:border-l-destructive rtl:border-r-destructive'}`}>
-                    <div className="flex items-start gap-3">
-                        {scanResult.status === 'GRANTED' || scanResult.status === 'ALREADY_SCANNED' ? (
-                            <CheckCircle className="h-6 w-6 text-primary mt-0.5" />
-                        ) : (
-                            <XCircle className="h-6 w-6 text-destructive mt-0.5" />
-                        )}
-                        <div>
-                            <p className="text-sm font-bold text-foreground">{scanStatusLabel}</p>
-                            <p className="text-sm text-muted-foreground">{scanResult.reason || txt.actionRecorded}</p>
-                            {scanResult.user_name && (
-                                <p className="text-sm text-foreground mt-1">{scanResult.user_name}</p>
+            <Modal
+                isOpen={scanDialogOpen}
+                onClose={closeScanDialog}
+                title={scanDialogTitle}
+                maxWidthClassName="max-w-lg"
+            >
+                <div className="space-y-5">
+                    <div className={`rounded-sm border p-4 ${scanDialogTone} bg-muted/20`}>
+                        <div className="flex items-start gap-3">
+                            {scanResult?.status === 'GRANTED' || scanResult?.status === 'ALREADY_SCANNED' ? (
+                                <CheckCircle className="h-6 w-6 text-primary mt-0.5" />
+                            ) : (
+                                <XCircle className="h-6 w-6 text-destructive mt-0.5" />
                             )}
+                            <div className="space-y-1">
+                                <p className="text-sm font-bold text-foreground">{scanStatusLabel}</p>
+                                <p className="text-sm text-muted-foreground">{scanDialogReason}</p>
+                            </div>
                         </div>
                     </div>
+
+                    <div className="grid gap-3 sm:grid-cols-2">
+                        {scanDialogMeta.map((item) => (
+                            <div key={item.label} className="rounded-sm border border-border bg-background p-3">
+                                <p className="text-[11px] uppercase tracking-wider text-muted-foreground font-mono">{item.label}</p>
+                                <p className="text-sm text-foreground mt-1 break-words">{item.value}</p>
+                            </div>
+                        ))}
+                    </div>
+
+                    <button type="button" onClick={closeScanDialog} className="btn-primary w-full">
+                        {txt.scanAgain}
+                    </button>
                 </div>
-            )}
+            </Modal>
         </div>
     );
 }

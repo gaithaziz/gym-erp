@@ -9,6 +9,8 @@ import uuid
 from app.config import settings
 from app.models.user import User
 from app.models.access import AccessLog, AttendanceLog, Subscription, SubscriptionStatus
+from app.models.enums import Role
+from app.models.hr import Contract
 from app.models.roaming import MemberRoamingAccess
 from app.services import gamification_service
 from app.services.tenancy_service import TenancyService
@@ -76,6 +78,25 @@ class AccessService:
         return None
 
     @staticmethod
+    async def _get_contract_denial_reason(user_id: uuid.UUID, now: datetime, db: AsyncSession) -> str | None:
+        """Return denial reason when a staff contract is no longer active, otherwise None."""
+        stmt_contract = select(Contract).where(Contract.user_id == user_id)
+        result_contract = await db.execute(stmt_contract)
+        contract = result_contract.scalar_one_or_none()
+
+        if not contract:
+            return "CONTRACT_EXPIRED"
+
+        today = now.date()
+        if contract.start_date and contract.start_date > today:
+            return "CONTRACT_EXPIRED"
+
+        if contract.end_date and contract.end_date < today:
+            return "CONTRACT_EXPIRED"
+
+        return None
+
+    @staticmethod
     async def process_scan(token: str, kiosk_id: str, db: AsyncSession) -> dict:
         """Validates QR token and user subscription status."""
         prev_ctx = await AccessService._with_super_admin_context(db)
@@ -124,30 +145,38 @@ class AccessService:
 
         # Duplicate scan protection: check if user scanned within the last 60 seconds
         now = datetime.now(timezone.utc)
-        cooldown = now - timedelta(seconds=60)
-        stmt_recent = select(AccessLog).where(
-            AccessLog.user_id == user.id,
-            AccessLog.scan_time >= cooldown,
-            AccessLog.status == "GRANTED"
-        )
-        result_recent = await db.execute(stmt_recent)
-        recent_scan = result_recent.scalar_one_or_none()
-        if recent_scan:
-            return {
-                "status": "ALREADY_SCANNED",
-                "user_name": user.full_name,
-                "reason": "Scanned within the last 60 seconds",
-                "kiosk_id": kiosk_id,
-                "scan_time": now.isoformat(),
-            }
+        contract_denial_reason = None
+        if user.role not in {Role.ADMIN, Role.MANAGER}:
+            contract_denial_reason = await AccessService._get_contract_denial_reason(user.id, now, db)
 
         status_decision = "GRANTED"
         reason = None
-
-        denial_reason = await AccessService._get_subscription_denial_reason(user.id, now, db)
-        if denial_reason:
+        if contract_denial_reason:
             status_decision = "DENIED"
-            reason = denial_reason
+            reason = contract_denial_reason
+
+        cooldown = now - timedelta(seconds=60)
+        if status_decision == "GRANTED":
+            stmt_recent = select(AccessLog).where(
+                AccessLog.user_id == user.id,
+                AccessLog.scan_time >= cooldown,
+                AccessLog.status == "GRANTED"
+            )
+            result_recent = await db.execute(stmt_recent)
+            recent_scan = result_recent.scalar_one_or_none()
+            if recent_scan:
+                return {
+                    "status": "ALREADY_SCANNED",
+                    "user_name": user.full_name,
+                    "reason": "Scanned within the last 60 seconds",
+                    "kiosk_id": kiosk_id,
+                    "scan_time": now.isoformat(),
+                }
+
+            denial_reason = await AccessService._get_subscription_denial_reason(user.id, now, db)
+            if denial_reason:
+                status_decision = "DENIED"
+                reason = denial_reason
 
         # Log Access
         access_log = AccessLog(

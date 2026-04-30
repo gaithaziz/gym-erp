@@ -218,7 +218,7 @@ export default function DashboardLayout({
         { href: '/dashboard/admin/inventory', labelKey: 'dashboard.nav.inventory', icon: Package, roles: [...BRANCH_ADMIN_ROLES], section: 'operations' },
         { href: '/dashboard/admin/pos', labelKey: 'dashboard.nav.cashierPos', icon: ShoppingCart, roles: [...BRANCH_ADMIN_ROLES, 'CASHIER', 'EMPLOYEE'], section: 'operations' },
         { href: '/dashboard/admin/notifications', labelKey: 'dashboard.nav.whatsappAutomation', icon: MessageSquare, roles: [...BRANCH_ADMIN_ROLES, 'RECEPTION', 'FRONT_DESK'], section: 'operations' },
-        { href: '/dashboard/admin/entrance-qr', labelKey: 'dashboard.nav.entranceQr', icon: QrCode, roles: [...BRANCH_ADMIN_ROLES], section: 'operations' },
+        { href: '/dashboard/admin/entrance-qr', labelKey: 'dashboard.nav.entranceQr', icon: QrCode, roles: [...BRANCH_ADMIN_ROLES, 'RECEPTION', 'FRONT_DESK'], section: 'operations' },
         { href: '/dashboard/classes', labelKey: 'dashboard.nav.classes', icon: ClipboardList, roles: [...BRANCH_ADMIN_ROLES], section: 'operations' },
         { href: '/dashboard/admin/support', labelKey: 'dashboard.nav.supportDesk', icon: LifeBuoy, roles: [...BRANCH_ADMIN_ROLES, 'RECEPTION'], section: 'operations' },
         { href: '/dashboard/lost-found', labelKey: 'dashboard.nav.lostFound', icon: MessageSquare, roles: [...BRANCH_ADMIN_ROLES, 'FRONT_DESK', 'RECEPTION', 'COACH', 'EMPLOYEE', 'CASHIER', 'CUSTOMER'], section: 'operations' },

@@ -2,7 +2,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { CameraView, useCameraPermissions, type BarcodeScanningResult } from "expo-camera";
 import { useLocalSearchParams } from "expo-router";
 import { useMemo, useState } from "react";
-import { Pressable, StyleSheet, Text, View } from "react-native";
+import { Modal, Pressable, StyleSheet, Text, View } from "react-native";
 
 import { Card, Input, MutedText, PrimaryButton, QueryState, Screen, SectionTitle, SkeletonBlock, ValueText } from "@/components/ui";
 import { parseCheckInLookupEnvelope, parseCheckInResultEnvelope, parseStaffMemberDetailEnvelope, type AccessScanResult } from "@/lib/api";
@@ -33,6 +33,10 @@ function CustomerQrTab() {
     () => localizeSubscriptionStatus(bootstrap?.subscription?.status, isRTL),
     [bootstrap?.subscription?.status, isRTL],
   );
+  const scanDialogVisible = Boolean(scanResult || scanError);
+  const scanDialogIsSuccess = scanResult?.status === "GRANTED" || scanResult?.status === "ALREADY_SCANNED";
+  const scanDialogStatus = scanResult ? localizeAccessStatus(scanResult.status, isRTL) : copy.qr.scanResult;
+  const scanDialogReason = scanResult?.reason || scanError || copy.common.errorTryAgain;
 
   const scanMutation = useMutation({
     mutationFn: async (kioskId: string) =>
@@ -76,6 +80,7 @@ function CustomerQrTab() {
     setLastScanRaw(null);
     setScanResult(null);
     setScanError(null);
+    scanMutation.reset();
   }
 
   return (
@@ -123,101 +128,99 @@ function CustomerQrTab() {
             {scanMutation.isPending ? <MutedText>{copy.qr.scanning}</MutedText> : null}
           </Card>
 
-          {scanResult ? (
-            <Card>
-              <SectionTitle>{copy.qr.scanResult}</SectionTitle>
-              <ValueText>{localizeAccessStatus(scanResult.status, isRTL)}</ValueText>
-              <View style={styles.metaGroup}>
-                <MutedText>{copy.qr.scanStatus}</MutedText>
-                <Text
-                  style={[
-                    styles.scanValue,
-                    {
-                      color: theme.foreground,
-                      fontFamily: fontSet.mono,
-                      textAlign: isRTL ? "right" : "left",
-                      writingDirection: direction,
-                    },
-                  ]}
-                >
-                  {localizeAccessStatus(scanResult.status, isRTL)}
-                </Text>
-              </View>
-              <View style={styles.metaGroup}>
-                <MutedText>{copy.qr.scanReason}</MutedText>
-                <Text
-                  style={[
-                    styles.scanValue,
-                    {
-                      color: theme.foreground,
-                      fontFamily: fontSet.body,
-                      textAlign: isRTL ? "right" : "left",
-                      writingDirection: direction,
-                    },
-                  ]}
-                >
-                  {localizeAccessReason(scanResult.reason, isRTL)}
-                </Text>
-              </View>
-              <View style={styles.metaGroup}>
-                <MutedText>{copy.qr.scanKiosk}</MutedText>
-                <CodeValue value={scanResult.kiosk_id || "--"} />
-              </View>
-              <View style={styles.metaGroup}>
-                <MutedText>{copy.qr.scanTime}</MutedText>
-                <Text
-                  style={[
-                    styles.scanValue,
-                    {
-                      color: theme.foreground,
-                      fontFamily: fontSet.body,
-                      textAlign: isRTL ? "right" : "left",
-                      writingDirection: direction,
-                    },
-                  ]}
-                >
-                  {scanResult.scan_time ? new Date(scanResult.scan_time).toLocaleString(locale) : "--"}
-                </Text>
-              </View>
-              {lastScanRaw ? (
-                <View style={styles.metaGroup}>
-                  <MutedText>{copy.qr.lastScan}</MutedText>
-                  <CodeValue value={lastScanRaw} />
+          <Modal visible={scanDialogVisible} transparent animationType="fade" onRequestClose={resetScanner}>
+            <View style={styles.modalBackdrop}>
+              <Pressable style={StyleSheet.absoluteFill} onPress={resetScanner} />
+              <View style={[styles.modalCard, { backgroundColor: theme.card, borderColor: theme.border }]}>
+                <View style={styles.modalHeader}>
+                  <View style={[styles.modalBadge, { borderColor: scanDialogIsSuccess ? theme.primary : "#A53A22" }]}>
+                    <Text
+                      style={[
+                        styles.modalBadgeText,
+                        {
+                          color: scanDialogIsSuccess ? theme.primary : "#A53A22",
+                          fontFamily: fontSet.body,
+                          textAlign: isRTL ? "right" : "left",
+                          writingDirection: direction,
+                        },
+                      ]}
+                    >
+                      {scanDialogStatus}
+                    </Text>
+                  </View>
+                  <SectionTitle>{copy.qr.scanResult}</SectionTitle>
                 </View>
-              ) : null}
-              <Pressable onPress={resetScanner} style={[styles.scanAgainButton, { backgroundColor: theme.primary }]}>
-                <Text style={[styles.scanAgainText, { fontFamily: fontSet.body }]}>{copy.qr.scanAgain}</Text>
-              </Pressable>
-            </Card>
-          ) : null}
 
-          {scanError ? (
-            <Card>
-              <SectionTitle>{copy.qr.scanResult}</SectionTitle>
-              <Text
-                style={[
-                  styles.scanValue,
-                  {
-                    color: "#A53A22",
-                    fontFamily: fontSet.body,
-                    textAlign: isRTL ? "right" : "left",
-                    writingDirection: direction,
-                  },
-                ]}
-              >
-                {scanError}
-              </Text>
-              {lastScanRaw ? (
-                <View style={styles.metaGroup}>
-                  <MutedText>{copy.qr.lastScan}</MutedText>
-                  <CodeValue value={lastScanRaw} />
-                </View>
-              ) : null}
-              <Pressable onPress={resetScanner} style={[styles.scanAgainButton, { backgroundColor: theme.primary }]}>
-                <Text style={[styles.scanAgainText, { fontFamily: fontSet.body }]}>{copy.qr.scanAgain}</Text>
-              </Pressable>
-            </Card>
-          ) : null}
+                <MutedText>{scanDialogReason}</MutedText>
+
+                {scanResult ? (
+                  <>
+                    <View style={styles.metaGroup}>
+                      <MutedText>{copy.qr.scanStatus}</MutedText>
+                      <Text
+                        style={[
+                          styles.scanValue,
+                          {
+                            color: theme.foreground,
+                            fontFamily: fontSet.mono,
+                            textAlign: isRTL ? "right" : "left",
+                            writingDirection: direction,
+                          },
+                        ]}
+                      >
+                        {localizeAccessStatus(scanResult.status, isRTL)}
+                      </Text>
+                    </View>
+                    <View style={styles.metaGroup}>
+                      <MutedText>{copy.qr.scanReason}</MutedText>
+                      <Text
+                        style={[
+                          styles.scanValue,
+                          {
+                            color: theme.foreground,
+                            fontFamily: fontSet.body,
+                            textAlign: isRTL ? "right" : "left",
+                            writingDirection: direction,
+                          },
+                        ]}
+                      >
+                        {localizeAccessReason(scanResult.reason, isRTL)}
+                      </Text>
+                    </View>
+                    <View style={styles.metaGroup}>
+                      <MutedText>{copy.qr.scanKiosk}</MutedText>
+                      <CodeValue value={scanResult.kiosk_id || "--"} />
+                    </View>
+                    <View style={styles.metaGroup}>
+                      <MutedText>{copy.qr.scanTime}</MutedText>
+                      <Text
+                        style={[
+                          styles.scanValue,
+                          {
+                            color: theme.foreground,
+                            fontFamily: fontSet.body,
+                            textAlign: isRTL ? "right" : "left",
+                            writingDirection: direction,
+                          },
+                        ]}
+                      >
+                        {scanResult.scan_time ? new Date(scanResult.scan_time).toLocaleString(locale) : "--"}
+                      </Text>
+                    </View>
+                  </>
+                ) : null}
+
+                {lastScanRaw ? (
+                  <View style={styles.metaGroup}>
+                    <MutedText>{copy.qr.lastScan}</MutedText>
+                    <CodeValue value={lastScanRaw} />
+                  </View>
+                ) : null}
+
+                <PrimaryButton onPress={resetScanner}>{copy.qr.scanAgain}</PrimaryButton>
+              </View>
+            </View>
+          </Modal>
         </>
       ) : (
         <Card>
@@ -295,6 +298,19 @@ function StaffQrTab() {
       setShiftError(error instanceof Error ? error.message : copy.common.errorTryAgain);
     },
   });
+  const shiftDialogVisible = Boolean(shiftMutation.data || shiftError);
+  const shiftDialogIsSuccess = shiftMutation.data?.kind === "staff_check_in" || shiftMutation.data?.kind === "staff_check_out";
+  const shiftDialogIsContractEnded = shiftError === "CONTRACT_EXPIRED" || shiftError === "NO_ACTIVE_CONTRACT";
+  const shiftDialogTitle = shiftDialogIsContractEnded
+    ? copy.qr.contractEnded
+    : shiftMutation.data?.kind === "staff_check_in"
+      ? copy.qr.shiftStarted
+      : shiftMutation.data?.kind === "staff_check_out"
+        ? copy.qr.shiftEnded
+        : copy.qr.staffShiftResult;
+  const shiftDialogReason = shiftDialogIsContractEnded
+    ? copy.qr.contractEndedHint
+    : shiftMutation.data?.message || shiftError || copy.qr.noReason;
 
   function handleStaffScan(result: BarcodeScanningResult) {
     if (shiftMutation.isPending || shiftScan) {
@@ -363,33 +379,74 @@ function StaffQrTab() {
             </PrimaryButton>
           </>
         ) : null}
-        {shiftMutation.data ? (
-          <View style={styles.metaGroup}>
-            <SectionTitle>{copy.qr.staffShiftResult}</SectionTitle>
-            <MutedText>{shiftMutation.data.message}</MutedText>
-          </View>
-        ) : null}
-        {shiftError ? (
-          <Text
-            style={[
-              styles.scanValue,
-              {
-                color: "#A53A22",
-                fontFamily: fontSet.body,
-                textAlign: isRTL ? "right" : "left",
-                writingDirection: direction,
-              },
-            ]}
-          >
-            {shiftError}
-          </Text>
-        ) : null}
-        {shiftScan || shiftError || shiftMutation.data ? (
-          <Pressable onPress={resetShiftScanner} style={[styles.scanAgainButton, { backgroundColor: theme.primary }]}>
-            <Text style={[styles.scanAgainText, { fontFamily: fontSet.body }]}>{copy.qr.scanAgain}</Text>
-          </Pressable>
-        ) : null}
       </Card>
+
+      <Modal visible={shiftDialogVisible} transparent animationType="fade" onRequestClose={resetShiftScanner}>
+        <View style={styles.modalBackdrop}>
+          <Pressable style={StyleSheet.absoluteFill} onPress={resetShiftScanner} />
+          <View style={[styles.modalCard, { backgroundColor: theme.card, borderColor: theme.border }]}>
+            <View style={styles.modalHeader}>
+              <View style={[styles.modalBadge, { borderColor: shiftDialogIsSuccess ? theme.primary : "#A53A22" }]}>
+                <Text
+                  style={[
+                    styles.modalBadgeText,
+                    {
+                      color: shiftDialogIsSuccess ? theme.primary : "#A53A22",
+                      fontFamily: fontSet.body,
+                      textAlign: isRTL ? "right" : "left",
+                      writingDirection: direction,
+                    },
+                  ]}
+                >
+                  {shiftDialogTitle}
+                </Text>
+              </View>
+              <SectionTitle>{copy.qr.staffShiftResult}</SectionTitle>
+            </View>
+
+            <MutedText>{shiftDialogReason}</MutedText>
+
+            {shiftMutation.data ? (
+              <>
+                <View style={styles.metaGroup}>
+                  <MutedText>{copy.qr.scanStatus}</MutedText>
+                  <Text
+                    style={[
+                      styles.scanValue,
+                      {
+                        color: theme.foreground,
+                        fontFamily: fontSet.mono,
+                        textAlign: isRTL ? "right" : "left",
+                        writingDirection: direction,
+                      },
+                    ]}
+                  >
+                    {shiftMutation.data.kind === "staff_check_in" ? copy.qr.shiftStarted : copy.qr.shiftEnded}
+                  </Text>
+                </View>
+                <View style={styles.metaGroup}>
+                  <MutedText>{copy.qr.scanReason}</MutedText>
+                  <Text
+                    style={[
+                      styles.scanValue,
+                      {
+                        color: theme.foreground,
+                        fontFamily: fontSet.body,
+                        textAlign: isRTL ? "right" : "left",
+                        writingDirection: direction,
+                      },
+                    ]}
+                  >
+                    {shiftMutation.data.message || copy.qr.noReason}
+                  </Text>
+                </View>
+              </>
+            ) : null}
+
+            <PrimaryButton onPress={resetShiftScanner}>{copy.qr.scanAgain}</PrimaryButton>
+          </View>
+        </View>
+      </Modal>
 
       {canCheckIn ? (
         <>
@@ -538,6 +595,38 @@ const styles = StyleSheet.create({
     color: "#FFFFFF",
     fontSize: 15,
     fontWeight: "700",
+  },
+  modalBackdrop: {
+    flex: 1,
+    backgroundColor: "rgba(0,0,0,0.55)",
+    alignItems: "center",
+    justifyContent: "center",
+    padding: 16,
+  },
+  modalCard: {
+    width: "100%",
+    maxWidth: 520,
+    borderRadius: 24,
+    borderWidth: 1,
+    padding: 20,
+    gap: 12,
+  },
+  modalHeader: {
+    gap: 10,
+  },
+  modalBadge: {
+    alignSelf: "flex-start",
+    borderWidth: 1,
+    borderRadius: 999,
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    backgroundColor: "rgba(255,255,255,0.04)",
+  },
+  modalBadgeText: {
+    fontSize: 12,
+    fontWeight: "700",
+    textTransform: "uppercase",
+    letterSpacing: 0.8,
   },
   permissionButton: {
     marginTop: 8,
