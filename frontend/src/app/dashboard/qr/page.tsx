@@ -10,6 +10,7 @@ import Modal from '@/components/Modal';
 
 const KIOSK_ID_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._:-]*$/;
 const STAFF_ROLES = new Set(['ADMIN', 'COACH', 'EMPLOYEE', 'CASHIER', 'RECEPTION', 'FRONT_DESK']);
+const RECEPTION_ROLES = new Set(['RECEPTION', 'FRONT_DESK']);
 
 type ScanKind = 'client_entry' | 'staff_check_in' | 'staff_check_out';
 
@@ -57,6 +58,20 @@ const parseQrPayload = (rawValue: string): ParsedQrPayload | null => {
     }
 
     return null;
+};
+
+const resolveManualPayload = (rawValue: string, fallbackKind: ScanKind): ParsedQrPayload | null => {
+    const trimmed = rawValue.trim();
+    if (!trimmed) return null;
+
+    const parsed = parseQrPayload(trimmed);
+    if (!parsed) return null;
+
+    if (trimmed.startsWith('{') || trimmed.startsWith('gymerp://kiosk/')) {
+        return parsed;
+    }
+
+    return { kind: fallbackKind, kioskId: parsed.kioskId };
 };
 
 export default function QRCodePage() {
@@ -165,7 +180,11 @@ export default function QRCodePage() {
     const [submitting, setSubmitting] = useState(false);
 
     useEffect(() => {
-        setManualMode(user?.role === 'CUSTOMER' ? 'client_entry' : 'staff_check_in');
+        if (user?.role === 'CUSTOMER' || (user?.role && RECEPTION_ROLES.has(user.role))) {
+            setManualMode('client_entry');
+            return;
+        }
+        setManualMode('staff_check_in');
     }, [user?.role]);
 
     const stopScanner = useCallback(() => {
@@ -259,7 +278,7 @@ export default function QRCodePage() {
         if (role === 'CUSTOMER' && kind !== 'client_entry') {
             return ui.staffOnlyQr;
         }
-        if (role !== 'CUSTOMER' && kind === 'client_entry') {
+        if (role !== 'CUSTOMER' && !RECEPTION_ROLES.has(role) && kind === 'client_entry') {
             return ui.staffModeHint;
         }
         if (kind !== 'client_entry' && !STAFF_ROLES.has(role)) {
@@ -434,7 +453,14 @@ export default function QRCodePage() {
                 </div>
                 <button
                     type="button"
-                    onClick={() => submitAction({ kind: manualMode, kioskId: manualKioskId.trim() })}
+                    onClick={() => {
+                        const parsed = resolveManualPayload(manualKioskId, manualMode);
+                        if (!parsed) {
+                            setScanResult({ status: 'DENIED', reason: txt.invalidQr });
+                            return;
+                        }
+                        void submitAction(parsed);
+                    }}
                     disabled={!manualKioskId.trim() || submitting}
                     className="btn-ghost w-full"
                 >
