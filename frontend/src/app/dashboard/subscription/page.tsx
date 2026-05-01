@@ -5,6 +5,8 @@ import { useRouter } from 'next/navigation';
 import { CalendarClock, ShieldAlert, Snowflake, Lock, ArrowRightCircle } from 'lucide-react';
 import { useAuth } from '@/context/AuthContext';
 import { useLocale } from '@/context/LocaleContext';
+import { api } from '@/lib/api';
+import { POLICY_VERSION, getPolicySignatureKey, type PolicySignature } from '@/lib/gymPolicy';
 
 type SubscriptionStatus = 'ACTIVE' | 'FROZEN' | 'EXPIRED' | 'NONE';
 
@@ -139,6 +141,8 @@ export default function CustomerSubscriptionPage() {
         return Number(localStorage.getItem(lockKey) || 0);
     }, [lockKey]);
     const [nowTs, setNowTs] = useState(0);
+    const [signatureRefreshKey, setSignatureRefreshKey] = useState(0);
+    const [contractSignature, setContractSignature] = useState<PolicySignature | null>(null);
 
     useEffect(() => {
         const tick = () => setNowTs(Date.now());
@@ -150,11 +154,66 @@ export default function CustomerSubscriptionPage() {
         };
     }, []);
 
+    useEffect(() => {
+        if (!user?.id) return;
+        const signatureKey = getPolicySignatureKey(user.id);
+        const handleStorage = (event: StorageEvent) => {
+            if (event.key === signatureKey) {
+                setSignatureRefreshKey((current) => current + 1);
+            }
+        };
+        window.addEventListener('storage', handleStorage);
+        return () => window.removeEventListener('storage', handleStorage);
+    }, [user?.id]);
+
+    useEffect(() => {
+        const timeoutId = window.setTimeout(() => {
+            if (!user?.id) {
+                setContractSignature(null);
+                return;
+            }
+            api.get('/membership/policy/signature/me', { params: { locale: locale === 'ar' ? 'ar' : 'en' } })
+                .then((response) => {
+                    const signatureData = response.data?.data as PolicySignature | null | undefined;
+                    if (signatureData) {
+                        setContractSignature(signatureData);
+                        localStorage.setItem(getPolicySignatureKey(user.id), JSON.stringify(signatureData));
+                        return;
+                    }
+                    const raw = localStorage.getItem(getPolicySignatureKey(user.id));
+                    if (!raw) {
+                        setContractSignature(null);
+                        return;
+                    }
+                    try {
+                        setContractSignature(JSON.parse(raw) as PolicySignature);
+                    } catch {
+                        setContractSignature(null);
+                    }
+                })
+                .catch(() => {
+                    const raw = localStorage.getItem(getPolicySignatureKey(user.id));
+                    if (!raw) {
+                        setContractSignature(null);
+                        return;
+                    }
+                    try {
+                        setContractSignature(JSON.parse(raw) as PolicySignature);
+                    } catch {
+                        setContractSignature(null);
+                    }
+                });
+        }, 0);
+
+        return () => window.clearTimeout(timeoutId);
+    }, [signatureRefreshKey, user?.id, locale]);
+
     const isRequestLocked = nowTs < lockUntilTs;
     const lockHoursRemaining = isRequestLocked ? Math.ceil((lockUntilTs - nowTs) / (1000 * 60 * 60)) : 0;
+    const isContractSigned = contractSignature?.accepted && contractSignature.version === POLICY_VERSION;
 
     const openRequest = (type: 'renewal' | 'unfreeze' | 'freeze' | 'extend') => {
-        if (isRequestLocked) return;
+        if (isRequestLocked || !isContractSigned) return;
         router.push(`/dashboard/support?type=${type}`);
     };
 
@@ -196,6 +255,52 @@ export default function CustomerSubscriptionPage() {
             </div>
 
             <div className="kpi-card p-6">
+                <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-3">
+                    <div>
+                        <p className="text-xs uppercase tracking-wider text-muted-foreground">
+                            {locale === 'ar' ? 'العقد والسياسة' : 'Contract & Policy'}
+                        </p>
+                        <p className="mt-1 text-sm text-muted-foreground">
+                            {locale === 'ar'
+                                ? 'يجب توقيع عقد العضوية الحالي قبل إكمال الدفع أو متابعة تغييرات الاشتراك.'
+                                : 'The current membership contract must be signed before payment completion or subscription changes.'}
+                        </p>
+                    </div>
+                    <button type="button" onClick={() => router.push('/dashboard/policy')} className="btn-secondary justify-center">
+                        <Lock size={16} />
+                        {locale === 'ar' ? 'فتح السياسة' : 'Open Policy'}
+                    </button>
+                </div>
+
+                <div className="mt-4 grid gap-3 sm:grid-cols-2">
+                    <div className="rounded-sm border border-border bg-card/40 p-3">
+                        <p className="text-[11px] uppercase tracking-wider text-muted-foreground">
+                            {locale === 'ar' ? 'حالة التوقيع' : 'Signature Status'}
+                        </p>
+                        <p className="mt-1 text-sm font-semibold text-foreground">
+                            {isContractSigned
+                                ? (locale === 'ar' ? 'موقّع' : 'Signed')
+                                : (locale === 'ar' ? 'غير موقّع' : 'Unsigned')}
+                        </p>
+                    </div>
+                    <div className="rounded-sm border border-border bg-card/40 p-3">
+                        <p className="text-[11px] uppercase tracking-wider text-muted-foreground">
+                            {locale === 'ar' ? 'نسخة العقد' : 'Contract Version'}
+                        </p>
+                        <p className="mt-1 text-sm font-semibold text-foreground">{POLICY_VERSION}</p>
+                    </div>
+                </div>
+
+                {!isContractSigned && (
+                    <p className="mt-3 text-xs text-amber-300">
+                        {locale === 'ar'
+                            ? 'لن تعمل طلبات الاشتراك حتى يتم توقيع العقد.'
+                            : 'Subscription requests stay locked until the contract is signed.'}
+                    </p>
+                )}
+            </div>
+
+            <div className="kpi-card p-6">
                 <p className="section-chip mb-4">{txt.requests}</p>
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                     {status === 'ACTIVE' && (
@@ -204,7 +309,7 @@ export default function CustomerSubscriptionPage() {
                                 type="button"
                                 onClick={() => openRequest('renewal')}
                                 className="btn-primary justify-center"
-                                disabled={isRequestLocked}
+                                disabled={isRequestLocked || !isContractSigned}
                             >
                                 <ArrowRightCircle size={16} />
                                 {txt.requestRenewal}
@@ -213,7 +318,7 @@ export default function CustomerSubscriptionPage() {
                                 type="button"
                                 onClick={() => openRequest('freeze')}
                                 className="btn-secondary justify-center"
-                                disabled={isRequestLocked}
+                                disabled={isRequestLocked || !isContractSigned}
                             >
                                 <Snowflake size={16} />
                                 {txt.requestFreeze}
@@ -227,7 +332,7 @@ export default function CustomerSubscriptionPage() {
                                 type="button"
                                 onClick={() => openRequest('unfreeze')}
                                 className="btn-primary justify-center"
-                                disabled={isRequestLocked}
+                                disabled={isRequestLocked || !isContractSigned}
                             >
                                 <ArrowRightCircle size={16} />
                                 {txt.requestUnfreeze}
@@ -248,7 +353,7 @@ export default function CustomerSubscriptionPage() {
                                 type="button"
                                 onClick={() => openRequest('renewal')}
                                 className="btn-primary justify-center"
-                                disabled={isRequestLocked}
+                                disabled={isRequestLocked || !isContractSigned}
                             >
                                 <ArrowRightCircle size={16} />
                                 {txt.requestRenewal}
@@ -257,7 +362,7 @@ export default function CustomerSubscriptionPage() {
                                 type="button"
                                 onClick={() => openRequest('extend')}
                                 className="btn-secondary justify-center"
-                                disabled={isRequestLocked}
+                                disabled={isRequestLocked || !isContractSigned}
                             >
                                 {txt.requestExtension}
                             </button>
@@ -270,7 +375,7 @@ export default function CustomerSubscriptionPage() {
                                 type="button"
                                 onClick={() => openRequest('extend')}
                                 className="btn-primary justify-center"
-                                disabled={isRequestLocked}
+                                disabled={isRequestLocked || !isContractSigned}
                             >
                                 <Lock size={16} />
                                 {txt.requestActivationExtend}

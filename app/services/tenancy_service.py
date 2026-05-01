@@ -6,6 +6,7 @@ from collections.abc import Sequence
 
 from fastapi import HTTPException
 from sqlalchemy import select
+from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import settings
@@ -52,8 +53,9 @@ class TenancyService:
     async def ensure_default_gym_and_branch(cls, db: AsyncSession) -> tuple[Gym, Branch]:
         gym = (await db.execute(select(Gym).order_by(Gym.created_at.asc()).limit(1))).scalar_one_or_none()
         if gym is None:
-            gym = Gym(
-                slug=_slugify(settings.GYM_NAME or settings.PROJECT_NAME, fallback="default-gym"),
+            gym_slug = _slugify(settings.GYM_NAME or settings.PROJECT_NAME, fallback="default-gym")
+            gym_values = dict(
+                slug=gym_slug,
                 name=settings.GYM_NAME or settings.PROJECT_NAME,
                 brand_name=settings.GYM_NAME or settings.PROJECT_NAME,
                 logo_url=settings.GYM_LOGO_URL,
@@ -63,8 +65,26 @@ class TenancyService:
                 support_phone=settings.GYM_SUPPORT_PHONE,
                 timezone=settings.GYM_TIMEZONE,
             )
-            db.add(gym)
-            await db.flush()
+            gym_stmt = (
+                pg_insert(Gym)
+                .values(**gym_values)
+                .on_conflict_do_nothing(index_elements=["slug"])
+                .returning(Gym.id)
+            )
+            gym_id = await db.scalar(gym_stmt)
+            if gym_id is not None:
+                gym = await db.get(Gym, gym_id)
+            else:
+                gym = (
+                    await db.execute(
+                        select(Gym)
+                        .where(Gym.slug == gym_slug)
+                        .order_by(Gym.created_at.asc())
+                        .limit(1)
+                    )
+                ).scalar_one_or_none()
+            if gym is None:
+                raise RuntimeError("Unable to initialize default gym")
 
         branch = (
             await db.execute(
@@ -75,7 +95,7 @@ class TenancyService:
             )
         ).scalar_one_or_none()
         if branch is None:
-            branch = Branch(
+            branch_values = dict(
                 gym_id=gym.id,
                 slug="hq",
                 code=cls.DEFAULT_BRANCH_CODE,
@@ -85,8 +105,26 @@ class TenancyService:
                 phone=gym.support_phone,
                 email=gym.support_email,
             )
-            db.add(branch)
-            await db.flush()
+            branch_stmt = (
+                pg_insert(Branch)
+                .values(**branch_values)
+                .on_conflict_do_nothing(index_elements=["gym_id", "slug"])
+                .returning(Branch.id)
+            )
+            branch_id = await db.scalar(branch_stmt)
+            if branch_id is not None:
+                branch = await db.get(Branch, branch_id)
+            else:
+                branch = (
+                    await db.execute(
+                        select(Branch)
+                        .where(Branch.gym_id == gym.id, Branch.slug == "hq")
+                        .order_by(Branch.created_at.asc())
+                        .limit(1)
+                    )
+                ).scalar_one_or_none()
+            if branch is None:
+                raise RuntimeError("Unable to initialize default branch")
 
         return gym, branch
 

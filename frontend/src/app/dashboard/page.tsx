@@ -22,6 +22,7 @@ import { BranchSelector } from '@/components/BranchSelector';
 import { GymSelector } from '@/components/GymSelector';
 import { useBranch } from '@/context/BranchContext';
 import { getBranchParams } from '@/lib/branch';
+import { downloadBlob } from '@/lib/download';
 
 // ======================== ADMIN DASHBOARD ========================
 
@@ -33,6 +34,21 @@ interface DashboardStats {
     monthly_expenses: number;
     pending_salaries: number;
     pending_approvals: number;
+    expiring_subscriptions_7d: number;
+    expiring_subscriptions_30d: number;
+    active_debt_accounts: number;
+    outstanding_staff_debt: number;
+    expiring_subscriptions: Array<{
+        user_id: string;
+        full_name: string;
+        email: string;
+        plan_name: string;
+        end_date: string | null;
+    }>;
+    top_bundles: Array<{
+        plan_name: string;
+        count: number;
+    }>;
 }
 
 interface DailyVisitorRow {
@@ -177,6 +193,19 @@ function AdminDashboard({ userName, userRole }: { userName: string; userRole: st
             visitorsToday: 'زوار اليوم',
             lowStockAlerts: 'تنبيهات مخزون',
             branchRanking: 'ترتيب الفروع',
+            reportingTitle: 'التقارير السريعة',
+            reportingSubtitle: 'تنبيهات عملية للباقات والديون والاشتراكات.',
+            exportExpiring: 'تصدير الاشتراكات',
+            exportBundles: 'تصدير الباقات',
+            exportExpiringPdf: 'PDF',
+            exportBundlesPdf: 'PDF',
+            openDebtLedger: 'سجل الديون',
+            expiring7d: 'تنتهي خلال 7 أيام',
+            expiring30d: 'تنتهي خلال 30 يومًا',
+            debtAccounts: 'حسابات الديون',
+            outstandingDebt: 'الرصيد المستحق',
+            topBundles: 'أقوى الباقات',
+            expiringList: 'الاشتراكات القريبة من الانتهاء',
         }
         : {
             justNow: 'Just now',
@@ -201,6 +230,19 @@ function AdminDashboard({ userName, userRole }: { userName: string; userRole: st
             visitorsToday: 'Visitors Today',
             lowStockAlerts: 'Low Stock Alerts',
             branchRanking: 'Branch Ranking',
+            reportingTitle: 'Quick Reports',
+            reportingSubtitle: 'Actionable alerts for bundles, debt, and subscriptions.',
+            exportExpiring: 'Export subscriptions',
+            exportBundles: 'Export bundles',
+            exportExpiringPdf: 'PDF',
+            exportBundlesPdf: 'PDF',
+            openDebtLedger: 'Open debt ledger',
+            expiring7d: 'Expiring in 7 days',
+            expiring30d: 'Expiring in 30 days',
+            debtAccounts: 'Debt accounts',
+            outstandingDebt: 'Outstanding debt',
+            topBundles: 'Top bundles',
+            expiringList: 'Subscriptions expiring soon',
         };
     const [stats, setStats] = useState<DashboardStats | null>(null);
     const [attendanceData, setAttendanceData] = useState<AttendanceData[]>([]);
@@ -391,6 +433,13 @@ function AdminDashboard({ userName, userRole }: { userName: string; userRole: st
         { title: t('dashboard.home.lowStockAlerts'), value: lowStockItems.length, subtitle: t('dashboard.home.lowStockAlertsSubtitle'), icon: TrendingUp, badge: 'badge-destructive', isAlert: lowStockItems.length > 0 },
     ];
 
+    const reportCards = [
+        { title: adminTxt.expiring7d, value: stats?.expiring_subscriptions_7d ?? 0, icon: Clock },
+        { title: adminTxt.expiring30d, value: stats?.expiring_subscriptions_30d ?? 0, icon: Users },
+        { title: adminTxt.debtAccounts, value: stats?.active_debt_accounts ?? 0, icon: DollarSign },
+        { title: adminTxt.outstandingDebt, value: stats ? formatCurrency(stats.outstanding_staff_debt || 0, 'JOD', { currencyDisplay: 'code' }) : '--', icon: TrendingUp },
+    ];
+
     const exportDailyVisitorsCsv = async () => {
         const from = dateRange?.from ? dateRange.from.toISOString().split('T')[0] : '';
         const to = dateRange?.to ? dateRange.to.toISOString().split('T')[0] : '';
@@ -420,6 +469,98 @@ function AdminDashboard({ userName, userRole }: { userName: string; userRole: st
             window.URL.revokeObjectURL(url);
         } catch {
             console.error('Failed to export visitor report');
+        }
+    };
+
+    const exportExpiringSubscriptionsCsv = async () => {
+        const params = new URLSearchParams();
+        const branchParams = getBranchParams(selectedBranchId);
+        if (userRole === 'SUPER_ADMIN' && selectedGymId) {
+            branchParams.gym_id = selectedGymId;
+        }
+        if (branchParams.branch_id) params.set('branch_id', branchParams.branch_id);
+        if (branchParams.gym_id) params.set('gym_id', branchParams.gym_id);
+        const from = dateRange?.from ? dateRange.from.toISOString().split('T')[0] : '';
+        const to = dateRange?.to ? dateRange.to.toISOString().split('T')[0] : '';
+        if (from) params.set('from', from);
+        if (to) params.set('to', to);
+
+        try {
+            const response = await api.get(`/analytics/reports/expiring-subscriptions?${params.toString()}`, {
+                responseType: 'blob',
+            });
+            downloadBlob(response.data as Blob, 'expiring_subscriptions_report.csv');
+        } catch {
+            console.error('Failed to export expiring subscriptions');
+        }
+    };
+
+    const exportExpiringSubscriptionsPdf = async () => {
+        const params = new URLSearchParams();
+        const branchParams = getBranchParams(selectedBranchId);
+        if (userRole === 'SUPER_ADMIN' && selectedGymId) {
+            branchParams.gym_id = selectedGymId;
+        }
+        if (branchParams.branch_id) params.set('branch_id', branchParams.branch_id);
+        if (branchParams.gym_id) params.set('gym_id', branchParams.gym_id);
+        const from = dateRange?.from ? dateRange.from.toISOString().split('T')[0] : '';
+        const to = dateRange?.to ? dateRange.to.toISOString().split('T')[0] : '';
+        if (from) params.set('from', from);
+        if (to) params.set('to', to);
+
+        try {
+            const response = await api.get(`/analytics/reports/expiring-subscriptions.pdf?${params.toString()}`, {
+                responseType: 'blob',
+            });
+            downloadBlob(response.data as Blob, 'expiring_subscriptions_report.pdf');
+        } catch {
+            console.error('Failed to export expiring subscriptions PDF');
+        }
+    };
+
+    const exportTopBundlesCsv = async () => {
+        const params = new URLSearchParams();
+        const branchParams = getBranchParams(selectedBranchId);
+        if (userRole === 'SUPER_ADMIN' && selectedGymId) {
+            branchParams.gym_id = selectedGymId;
+        }
+        if (branchParams.branch_id) params.set('branch_id', branchParams.branch_id);
+        if (branchParams.gym_id) params.set('gym_id', branchParams.gym_id);
+        const from = dateRange?.from ? dateRange.from.toISOString().split('T')[0] : '';
+        const to = dateRange?.to ? dateRange.to.toISOString().split('T')[0] : '';
+        if (from) params.set('from', from);
+        if (to) params.set('to', to);
+
+        try {
+            const response = await api.get(`/analytics/reports/top-bundles?${params.toString()}`, {
+                responseType: 'blob',
+            });
+            downloadBlob(response.data as Blob, 'top_bundles_report.csv');
+        } catch {
+            console.error('Failed to export top bundles');
+        }
+    };
+
+    const exportTopBundlesPdf = async () => {
+        const params = new URLSearchParams();
+        const branchParams = getBranchParams(selectedBranchId);
+        if (userRole === 'SUPER_ADMIN' && selectedGymId) {
+            branchParams.gym_id = selectedGymId;
+        }
+        if (branchParams.branch_id) params.set('branch_id', branchParams.branch_id);
+        if (branchParams.gym_id) params.set('gym_id', branchParams.gym_id);
+        const from = dateRange?.from ? dateRange.from.toISOString().split('T')[0] : '';
+        const to = dateRange?.to ? dateRange.to.toISOString().split('T')[0] : '';
+        if (from) params.set('from', from);
+        if (to) params.set('to', to);
+
+        try {
+            const response = await api.get(`/analytics/reports/top-bundles.pdf?${params.toString()}`, {
+                responseType: 'blob',
+            });
+            downloadBlob(response.data as Blob, 'top_bundles_report.pdf');
+        } catch {
+            console.error('Failed to export top bundles PDF');
         }
     };
 
@@ -522,6 +663,114 @@ function AdminDashboard({ userName, userRole }: { userName: string; userRole: st
                         </div>
                     </div>
                 ))}
+
+                <div key="reporting" className="kpi-card p-6 h-full min-h-[18rem] relative group md:col-span-6 xl:col-span-12">
+                    <div className="flex flex-wrap items-end justify-between gap-3 mb-5">
+                        <div>
+                            <h3 className="inline-flex rounded-md border border-orange-500/30 bg-orange-500/10 px-2 py-1 text-base font-extrabold text-orange-500 uppercase tracking-wider font-mono">{adminTxt.reportingTitle}</h3>
+                            <p className="text-xs text-muted-foreground mt-2">{adminTxt.reportingSubtitle}</p>
+                        </div>
+                        <div className="flex flex-wrap items-center gap-2">
+                            <button
+                                type="button"
+                                onClick={exportExpiringSubscriptionsCsv}
+                                className="inline-flex items-center gap-2 rounded-md border border-border bg-background px-3 py-2 text-xs font-semibold uppercase tracking-wider text-foreground transition-colors hover:bg-muted/40"
+                            >
+                                <Download size={14} />
+                                {adminTxt.exportExpiring}
+                            </button>
+                            <button
+                                type="button"
+                                onClick={exportExpiringSubscriptionsPdf}
+                                className="inline-flex items-center gap-2 rounded-md border border-border bg-background px-3 py-2 text-xs font-semibold uppercase tracking-wider text-foreground transition-colors hover:bg-muted/40"
+                            >
+                                <Download size={14} />
+                                {adminTxt.exportExpiringPdf}
+                            </button>
+                            <button
+                                type="button"
+                                onClick={exportTopBundlesCsv}
+                                className="inline-flex items-center gap-2 rounded-md border border-border bg-background px-3 py-2 text-xs font-semibold uppercase tracking-wider text-foreground transition-colors hover:bg-muted/40"
+                            >
+                                <Download size={14} />
+                                {adminTxt.exportBundles}
+                            </button>
+                            <button
+                                type="button"
+                                onClick={exportTopBundlesPdf}
+                                className="inline-flex items-center gap-2 rounded-md border border-border bg-background px-3 py-2 text-xs font-semibold uppercase tracking-wider text-foreground transition-colors hover:bg-muted/40"
+                            >
+                                <Download size={14} />
+                                {adminTxt.exportBundlesPdf}
+                            </button>
+                            <Link
+                                href="/dashboard/admin/staff-debt"
+                                className="inline-flex items-center gap-2 rounded-md border border-border bg-background px-3 py-2 text-xs font-semibold uppercase tracking-wider text-foreground transition-colors hover:bg-muted/40"
+                            >
+                                <Download size={14} />
+                                {adminTxt.openDebtLedger}
+                            </Link>
+                        </div>
+                    </div>
+                    <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+                        {reportCards.map((card) => (
+                            <div key={card.title} className="rounded-xl border border-border bg-muted/10 p-4">
+                                <div className="flex items-center justify-between gap-3">
+                                    <div>
+                                        <p className="text-xs font-bold uppercase tracking-wider text-muted-foreground">{card.title}</p>
+                                        <p className="mt-2 text-2xl font-bold text-foreground font-mono">{card.value}</p>
+                                    </div>
+                                    <div className="h-10 w-10 flex items-center justify-center border border-border bg-background">
+                                        <card.icon size={16} className="text-foreground" />
+                                    </div>
+                                </div>
+                            </div>
+                        ))}
+                    </div>
+                    <div className="mt-5 grid gap-4 xl:grid-cols-2">
+                        <div className="rounded-xl border border-border bg-muted/10 p-4">
+                            <div className="flex items-center justify-between gap-3">
+                                <h4 className="text-sm font-semibold text-foreground">{adminTxt.topBundles}</h4>
+                                <span className="text-xs text-muted-foreground">{stats?.top_bundles?.length || 0}</span>
+                            </div>
+                            <div className="mt-3 space-y-2">
+                                {(stats?.top_bundles || []).length ? stats!.top_bundles.map((bundle) => (
+                                    <div key={bundle.plan_name} className="flex items-center justify-between gap-3 rounded-lg border border-border bg-background px-3 py-2">
+                                        <span className="truncate text-sm text-foreground">{bundle.plan_name}</span>
+                                        <span className="font-mono text-sm text-muted-foreground">{bundle.count}</span>
+                                    </div>
+                                )) : (
+                                    <p className="text-sm text-muted-foreground">{locale === 'ar' ? 'لا توجد باقات مسجلة بعد.' : 'No bundle data yet.'}</p>
+                                )}
+                            </div>
+                        </div>
+                        <div className="rounded-xl border border-border bg-muted/10 p-4">
+                            <div className="flex items-center justify-between gap-3">
+                                <h4 className="text-sm font-semibold text-foreground">{adminTxt.expiringList}</h4>
+                                <span className="text-xs text-muted-foreground">{stats?.expiring_subscriptions?.length || 0}</span>
+                            </div>
+                            <div className="mt-3 space-y-2">
+                                {(stats?.expiring_subscriptions || []).length ? stats!.expiring_subscriptions.map((item) => (
+                                    <div key={item.user_id} className="rounded-lg border border-border bg-background px-3 py-2">
+                                        <div className="flex items-center justify-between gap-3">
+                                            <div className="min-w-0">
+                                                <p className="truncate text-sm font-medium text-foreground">{item.full_name}</p>
+                                                <p className="truncate text-xs text-muted-foreground">{item.plan_name} - {item.email}</p>
+                                            </div>
+                                            <div className="text-right">
+                                                <p className="text-xs text-muted-foreground">
+                                                    {item.end_date ? formatDate(new Date(item.end_date), { month: 'short', day: 'numeric' }) : '--'}
+                                                </p>
+                                            </div>
+                                        </div>
+                                    </div>
+                                )) : (
+                                    <p className="text-sm text-muted-foreground">{locale === 'ar' ? 'لا توجد اشتراكات تنتهي قريبًا.' : 'No subscriptions expiring soon.'}</p>
+                                )}
+                            </div>
+                        </div>
+                    </div>
+                </div>
 
                 {/* Charts */}
                 <div key="chart-visits" className="kpi-card p-6 h-full min-h-[22rem] relative group">

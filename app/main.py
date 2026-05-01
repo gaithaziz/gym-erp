@@ -24,6 +24,11 @@ from app.routers.notifications import router as notifications_router
 from app.routers.chat import router as chat_router
 from app.routers.lost_found import router as lost_found_router
 from app.routers.support import router as support_router
+from app.routers.membership import router as membership_router
+from app.routers.coaching import router as coaching_router
+from app.routers.announcements import router as announcements_router
+from app.routers.facility import router as facility_router
+from app.routers.staff_debt import router as staff_debt_router
 from app.routers.mobile import router as mobile_router
 from app.routers.classes import router as classes_router
 from app.routers.system_admin import router as system_admin_router
@@ -108,6 +113,11 @@ app.include_router(notifications_router, prefix=f"{settings.API_V1_STR}/admin/no
 app.include_router(chat_router, prefix=f"{settings.API_V1_STR}/chat", tags=["Chat"])
 app.include_router(lost_found_router, prefix=f"{settings.API_V1_STR}/lost-found", tags=["LostFound"])
 app.include_router(support_router, prefix=f"{settings.API_V1_STR}/support", tags=["Support"])
+app.include_router(membership_router, prefix=f"{settings.API_V1_STR}/membership", tags=["Membership"])
+app.include_router(coaching_router, prefix=f"{settings.API_V1_STR}/coaching", tags=["Coaching"])
+app.include_router(announcements_router, prefix=f"{settings.API_V1_STR}", tags=["Announcements"])
+app.include_router(facility_router, prefix=f"{settings.API_V1_STR}/facility", tags=["Facility"])
+app.include_router(staff_debt_router, prefix=f"{settings.API_V1_STR}/hr", tags=["HR"])
 app.include_router(mobile_router, prefix=f"{settings.API_V1_STR}/mobile", tags=["Mobile"])
 app.include_router(classes_router, prefix=f"{settings.API_V1_STR}/classes", tags=["Classes"])
 

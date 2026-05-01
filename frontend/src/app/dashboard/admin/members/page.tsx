@@ -31,7 +31,9 @@ interface Member {
     subscription: {
         status: string;
         end_date: string | null;
+        plan_name?: string | null;
     } | null;
+    subscription_plan_name?: string | null;
 }
 
 interface WorkoutPlan {
@@ -124,6 +126,12 @@ type WorkoutPlanStatusFilter = 'ALL' | 'PUBLISHED' | 'DRAFT' | 'ARCHIVED';
 type DietPlanStatusFilter = 'ALL' | 'PUBLISHED' | 'DRAFT' | 'ARCHIVED';
 type ChartRange = '7d' | '30d' | '90d' | 'all';
 const MEMBERS_PAGE_SIZE = 10;
+const NO_BUNDLE_KEY = '__no_subscription__';
+
+const getBundleKey = (member: Member) => {
+    const rawName = member.subscription?.plan_name?.trim() || member.subscription_plan_name?.trim();
+    return rawName || NO_BUNDLE_KEY;
+};
 
 const parseSetDetailsVolume = (setDetails?: WorkoutSessionEntry["set_details"] | null) => {
     if (!setDetails?.length) return 0;
@@ -191,8 +199,10 @@ export default function MembersPage() {
     const [search, setSearch] = useState('');
     const [debouncedSearch, setDebouncedSearch] = useState('');
     const [statusFilter, setStatusFilter] = useState<MemberStatusFilter>('ALL');
+    const [bundleFilter, setBundleFilter] = useState<string>('ALL');
     const [failedImageUrls, setFailedImageUrls] = useState<Record<string, true>>({});
     const [membersPage, setMembersPage] = useState(1);
+    const filterStorageKey = user?.id ? `gym-erp-members-filters-${user.id}` : null;
 
     // Add Modal
     const [isAddOpen, setIsAddOpen] = useState(false);
@@ -364,6 +374,15 @@ export default function MembersPage() {
             loadingMemberData: 'جارٍ تحميل تفاصيل العضو...',
             deactivateDescriptionPrefix: 'هل أنت متأكد من تعطيل',
             deactivateDescriptionSuffix: '؟ هذا الإجراء قد لا يمكن التراجع عنه بسهولة.',
+            allSubscribers: 'جميع المشتركين',
+            totalSubscribers: 'إجمالي المشتركين',
+            activeSubscribers: 'الفعّالون',
+            frozenSubscribers: 'المجمّدون',
+            expiredSubscribers: 'المنتهون',
+            noSubscriptionSubscribers: 'بدون اشتراك',
+            bundleFilter: 'فلتر الباقة',
+            allBundles: 'كل الباقات',
+            bundleSubscribers: 'مشتركون',
             monthly30d: 'شهري (30 يوماً)',
             quarterly90d: 'ربع سنوي (90 يوماً)',
             annual365d: 'سنوي (365 يوماً)',
@@ -506,6 +525,15 @@ export default function MembersPage() {
             loadingMemberData: 'Loading member details...',
             deactivateDescriptionPrefix: 'Are you sure you want to deactivate',
             deactivateDescriptionSuffix: '? This action cannot be easily undone.',
+            allSubscribers: 'All Subscribers',
+            totalSubscribers: 'Total Subscribers',
+            activeSubscribers: 'Active',
+            frozenSubscribers: 'Frozen',
+            expiredSubscribers: 'Expired',
+            noSubscriptionSubscribers: 'No Subscription',
+            bundleFilter: 'Bundle Filter',
+            allBundles: 'All Bundles',
+            bundleSubscribers: 'Subscribers',
             monthly30d: 'Monthly (30d)',
             quarterly90d: 'Quarterly (90d)',
             annual365d: 'Annual (365d)',
@@ -549,6 +577,47 @@ export default function MembersPage() {
                 return text.archived;
             default:
                 return text.none;
+        }
+    };
+    const bundleLabel = (bundleKey: string) => {
+        return bundleKey === NO_BUNDLE_KEY ? text.noSubscriptionSubscribers : bundleKey;
+    };
+    const hasSavedMemberFilters = Boolean(search.trim() || statusFilter !== 'ALL' || bundleFilter !== 'ALL');
+
+    useEffect(() => {
+        if (!filterStorageKey || typeof window === 'undefined') return;
+        const raw = window.localStorage.getItem(filterStorageKey);
+        if (!raw) return;
+        try {
+            const parsed = JSON.parse(raw) as Partial<{
+                search: string;
+                statusFilter: MemberStatusFilter;
+                bundleFilter: string;
+            }>;
+            if (typeof parsed.search === 'string') setSearch(parsed.search);
+            if (parsed.statusFilter) setStatusFilter(parsed.statusFilter);
+            if (typeof parsed.bundleFilter === 'string') setBundleFilter(parsed.bundleFilter);
+        } catch {
+            // Ignore malformed saved state.
+        }
+    }, [filterStorageKey]);
+
+    useEffect(() => {
+        if (!filterStorageKey || typeof window === 'undefined') return;
+        window.localStorage.setItem(filterStorageKey, JSON.stringify({
+            search,
+            statusFilter,
+            bundleFilter,
+        }));
+    }, [bundleFilter, filterStorageKey, search, statusFilter]);
+
+    const resetSavedFilters = () => {
+        setSearch('');
+        setStatusFilter('ALL');
+        setBundleFilter('ALL');
+        setMembersPage(1);
+        if (filterStorageKey && typeof window !== 'undefined') {
+            window.localStorage.removeItem(filterStorageKey);
         }
     };
     const roleLabel = (role?: string | null) => {
@@ -618,6 +687,45 @@ export default function MembersPage() {
         if (!url) return;
         setFailedImageUrls(prev => ({ ...prev, [url]: true }));
     };
+
+    const subscriberStats = useMemo(() => {
+        const stats = {
+            totalMembers: members.length,
+            totalSubscribers: 0,
+            active: 0,
+            frozen: 0,
+            expired: 0,
+            noSubscription: 0,
+        };
+
+        members.forEach((member) => {
+            const status = member.subscription?.status || 'NONE';
+            if (status === 'NONE') {
+                stats.noSubscription += 1;
+                return;
+            }
+
+            stats.totalSubscribers += 1;
+            if (status === 'ACTIVE') stats.active += 1;
+            if (status === 'FROZEN') stats.frozen += 1;
+            if (status === 'EXPIRED') stats.expired += 1;
+        });
+
+        return stats;
+    }, [members]);
+
+    const bundleCounts = useMemo(() => {
+        const map = new Map<string, number>();
+        members.forEach((member) => {
+            const key = getBundleKey(member);
+            map.set(key, (map.get(key) || 0) + 1);
+        });
+        return Array.from(map.entries()).sort((a, b) => {
+            if (a[0] === NO_BUNDLE_KEY) return 1;
+            if (b[0] === NO_BUNDLE_KEY) return -1;
+            return b[1] - a[1] || a[0].localeCompare(b[0]);
+        });
+    }, [members]);
 
     const workoutChartData = useMemo(() => {
         const selectedDays = CHART_RANGE_OPTIONS.find((option) => option.value === chartRange)?.days ?? null;
@@ -1020,15 +1128,24 @@ export default function MembersPage() {
                 m.email.toLowerCase().includes(debouncedSearch);
             const memberStatus = m.subscription?.status || 'NONE';
             const matchesStatus = statusFilter === 'ALL' || memberStatus === statusFilter;
-            return matchesSearch && matchesStatus;
+            const matchesBundle = bundleFilter === 'ALL' || getBundleKey(m) === bundleFilter;
+            return matchesSearch && matchesStatus && matchesBundle;
         });
-    }, [members, debouncedSearch, statusFilter]);
+    }, [members, debouncedSearch, statusFilter, bundleFilter]);
     const totalMemberPages = Math.max(1, Math.ceil(filtered.length / MEMBERS_PAGE_SIZE));
     const visibleMembers = filtered.slice((membersPage - 1) * MEMBERS_PAGE_SIZE, membersPage * MEMBERS_PAGE_SIZE);
 
     useEffect(() => {
         setMembersPage(1);
     }, [filtered.length]);
+
+    useEffect(() => {
+        if (bundleFilter === 'ALL') return;
+        const bundleExists = bundleCounts.some(([bundleKey]) => bundleKey === bundleFilter);
+        if (!bundleExists) {
+            setBundleFilter('ALL');
+        }
+    }, [bundleCounts, bundleFilter]);
 
     const filteredAssignableWorkoutPlans = useMemo(() => {
         if (assignWorkoutStatusFilter === 'ALL') return plans;
@@ -1051,7 +1168,11 @@ export default function MembersPage() {
             <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
                 <div>
                     <h1 className="text-2xl font-bold text-foreground">{canManageMembers ? t('members.titleMembers') : t('members.titleClients')}</h1>
-                    <p className="text-sm text-muted-foreground mt-1">{members.length} {canManageMembers ? t('members.registeredMembers') : t('members.registeredClients')}</p>
+                    <p className="text-sm text-muted-foreground mt-1">
+                        {subscriberStats.totalMembers} {canManageMembers ? t('members.registeredMembers') : t('members.registeredClients')}
+                        {' · '}
+                        {subscriberStats.totalSubscribers} {text.totalSubscribers}
+                    </p>
                 </div>
                 <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3 w-full sm:w-auto">
                     <BranchSelector
@@ -1074,6 +1195,71 @@ export default function MembersPage() {
                             <UserPlus size={18} /> {t('members.addMember')}
                         </button>
                     )}
+                </div>
+            </div>
+
+            <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
+                {[
+                    { label: text.allSubscribers, value: subscriberStats.totalSubscribers, tone: 'border-primary/30 bg-primary/10 text-primary' },
+                    { label: text.activeSubscribers, value: subscriberStats.active, tone: 'border-emerald-500/30 bg-emerald-500/10 text-emerald-400' },
+                    { label: text.frozenSubscribers, value: subscriberStats.frozen, tone: 'border-sky-500/30 bg-sky-500/10 text-sky-400' },
+                    { label: text.expiredSubscribers, value: subscriberStats.expired, tone: 'border-rose-500/30 bg-rose-500/10 text-rose-400' },
+                    { label: text.noSubscriptionSubscribers, value: subscriberStats.noSubscription, tone: 'border-border bg-muted/30 text-muted-foreground' },
+                ].map((card) => (
+                    <div key={card.label} className={`kpi-card p-4 border ${card.tone}`}>
+                        <p className="text-xs uppercase tracking-wider text-muted-foreground">{card.label}</p>
+                        <p className="mt-2 text-2xl font-bold text-foreground">{card.value}</p>
+                    </div>
+                ))}
+            </div>
+
+            <div className="space-y-3">
+                <div className="flex items-center justify-between gap-3">
+                    <div className="flex items-center gap-2">
+                        <p className="text-xs font-bold uppercase tracking-[0.2em] text-muted-foreground">{text.bundleFilter}</p>
+                        {hasSavedMemberFilters && (
+                            <span
+                                title={locale === 'ar' ? 'الفلاتر محفوظة في هذا المتصفح' : 'Filters are saved in this browser'}
+                                className="inline-flex items-center rounded-full border border-emerald-500/30 bg-emerald-500/10 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider text-emerald-400"
+                            >
+                                {locale === 'ar' ? 'محفوظ' : 'Saved'}
+                            </span>
+                        )}
+                    </div>
+                    <div className="flex items-center gap-2">
+                        <button
+                            type="button"
+                            onClick={() => setBundleFilter('ALL')}
+                            className={`text-xs font-medium transition-colors ${bundleFilter === 'ALL' ? 'text-primary' : 'text-muted-foreground hover:text-foreground'}`}
+                        >
+                            {text.allBundles}
+                        </button>
+                        <button
+                            type="button"
+                            onClick={resetSavedFilters}
+                            className="text-xs font-medium text-muted-foreground transition-colors hover:text-foreground"
+                        >
+                            {locale === 'ar' ? 'إعادة ضبط الفلاتر' : 'Reset filters'}
+                        </button>
+                    </div>
+                </div>
+                <div className="flex flex-wrap items-center gap-2">
+                    {bundleCounts.map(([bundleKey, count]) => {
+                        const isActive = bundleFilter === bundleKey;
+                        return (
+                            <button
+                                key={bundleKey}
+                                type="button"
+                                onClick={() => setBundleFilter(bundleKey)}
+                                className={`px-3 py-1.5 text-xs rounded-sm border transition-colors ${isActive
+                                    ? 'border-primary text-primary bg-primary/10'
+                                    : 'border-border text-muted-foreground hover:text-foreground hover:bg-white/5'
+                                    }`}
+                            >
+                                {bundleLabel(bundleKey)} <span className="opacity-70">({count})</span>
+                            </button>
+                        );
+                    })}
                 </div>
             </div>
 
@@ -1108,13 +1294,14 @@ export default function MembersPage() {
                                 <th>{t('members.name')}</th>
                                 <th>{t('members.email')}</th>
                                 <th>{t('members.subscription')}</th>
+                                <th>{text.bundleFilter}</th>
                                 <th>{t('members.expires')}</th>
                                 <th className="text-end ltr:pr-6 rtl:pl-6">{t('members.actions')}</th>
                             </tr>
                         </thead>
                         <tbody>
                             {filtered.length === 0 && (
-                                <tr><td colSpan={5} className="text-center py-8 text-muted-foreground text-sm">{t('members.noMembers')}</td></tr>
+                                <tr><td colSpan={6} className="text-center py-8 text-muted-foreground text-sm">{t('members.noMembers')}</td></tr>
                             )}
                             {visibleMembers.map(m => (
                                 <tr key={m.id}>
@@ -1139,6 +1326,11 @@ export default function MembersPage() {
                                     <td>
                                         <span className={`badge ${statusBadge(m.subscription?.status)}`}>
                                             {statusLabel(m.subscription?.status)}
+                                        </span>
+                                    </td>
+                                    <td>
+                                        <span className="badge badge-gray">
+                                            {bundleLabel(getBundleKey(m))}
                                         </span>
                                     </td>
                                     <td>
@@ -1240,6 +1432,13 @@ export default function MembersPage() {
                                 <span className="text-muted-foreground">{text.expires}</span>
                                 <span className="text-foreground font-medium">
                                     {m.subscription?.end_date ? formatDate(m.subscription.end_date, { year: 'numeric', month: '2-digit', day: '2-digit' }) : '--'}
+                                </span>
+                            </div>
+
+                            <div className="mt-3 flex items-center justify-between text-xs">
+                                <span className="text-muted-foreground">{text.bundleFilter}</span>
+                                <span className="badge badge-gray">
+                                    {bundleLabel(getBundleKey(m))}
                                 </span>
                             </div>
 

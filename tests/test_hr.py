@@ -10,6 +10,7 @@ from datetime import date, datetime, timedelta, timezone
 from app.models.access import AttendanceLog
 from app.models.hr import Payroll, PayrollStatus, LeaveRequest, LeaveStatus, LeaveType, PayrollPayment
 from app.models.hr import Contract, ContractType
+from app.models.staff_debt import StaffDebtAccount, StaffDebtMonthlyBalance
 from app.models.fitness import WorkoutPlan, DietPlan
 from app.models.finance import Transaction, TransactionType, TransactionCategory
 from app.models.access import Subscription
@@ -66,8 +67,8 @@ async def test_hr_flow(client: AsyncClient, db_session: AsyncSession):
     # 170 Hours
     log = AttendanceLog(
         user_id=user.id,
-        check_in_time=now - timedelta(days=5),
-        check_out_time=now - timedelta(days=5) + timedelta(hours=170),
+        check_in_time=now - timedelta(hours=1),
+        check_out_time=now,
         hours_worked=170.0
     )
     db_session.add(log)
@@ -1388,3 +1389,86 @@ async def test_payroll_automation_run_and_status_endpoints(client: AsyncClient, 
     assert "enabled" in status_data
     assert "schedule" in status_data
     assert "last_summary" in status_data
+
+
+@pytest.mark.asyncio
+async def test_staff_debt_ledger_records_entries_and_monthly_balances(client: AsyncClient, db_session: AsyncSession):
+    password = "password123"
+    hashed = get_password_hash(password)
+    _, branch = await TenancyService.ensure_default_gym_and_branch(db_session)
+    admin = User(email="admin_staff_debt@gym.com", hashed_password=hashed, role="ADMIN", full_name="Debt Admin", home_branch_id=branch.id)
+    employee = User(email="employee_staff_debt@gym.com", hashed_password=hashed, role="EMPLOYEE", full_name="Debt Employee", home_branch_id=branch.id)
+    db_session.add_all([admin, employee])
+    await db_session.flush()
+    await db_session.commit()
+
+    login_resp = await client.post(
+        f"{settings.API_V1_STR}/auth/login",
+        json={"email": admin.email, "password": password},
+    )
+    assert login_resp.status_code == 200
+    headers = {"Authorization": f"Bearer {login_resp.json()['data']['access_token']}"}
+
+    now = datetime.now(timezone.utc)
+    advance_resp = await client.post(
+        f"{settings.API_V1_STR}/hr/staff-debt/staff/{employee.id}/entries",
+        json={
+            "entry_type": "ADVANCE",
+            "amount": 250.0,
+            "month": now.month,
+            "year": now.year,
+            "notes": "Opening advance",
+            "branch_id": str(branch.id),
+        },
+        headers=headers,
+    )
+    assert advance_resp.status_code == 200
+    advance_data = advance_resp.json()["data"]
+    assert advance_data["account"]["current_balance"] == 250.0
+    assert len(advance_data["entries"]) == 1
+    assert len(advance_data["monthly_balances"]) == 1
+    assert advance_data["monthly_balances"][0]["closing_balance"] == 250.0
+
+    repayment_resp = await client.post(
+        f"{settings.API_V1_STR}/hr/staff-debt/staff/{employee.id}/entries",
+        json={
+            "entry_type": "REPAYMENT",
+            "amount": 75.0,
+            "month": now.month,
+            "year": now.year,
+            "notes": "Partial repayment",
+            "branch_id": str(branch.id),
+        },
+        headers=headers,
+    )
+    assert repayment_resp.status_code == 200
+    repayment_data = repayment_resp.json()["data"]
+    assert repayment_data["account"]["current_balance"] == 175.0
+    assert len(repayment_data["entries"]) == 2
+    assert repayment_data["monthly_balances"][0]["entry_count"] == 2
+    assert repayment_data["monthly_balances"][0]["repayments_total"] == 75.0
+
+    list_resp = await client.get(
+        f"{settings.API_V1_STR}/hr/staff-debt",
+        params={"branch_id": str(branch.id)},
+        headers=headers,
+    )
+    assert list_resp.status_code == 200
+    list_data = list_resp.json()["data"]
+    assert list_data["summary"]["staff_count"] >= 1
+    assert any(item["user_id"] == str(employee.id) and item["current_balance"] == 175.0 for item in list_data["items"])
+
+    account_stmt = select(StaffDebtAccount).where(StaffDebtAccount.user_id == employee.id)
+    account_result = await db_session.execute(account_stmt)
+    account = account_result.scalar_one()
+    assert float(account.current_balance) == 175.0
+
+    monthly_stmt = select(StaffDebtMonthlyBalance).where(
+        StaffDebtMonthlyBalance.account_id == account.id,
+        StaffDebtMonthlyBalance.month == now.month,
+        StaffDebtMonthlyBalance.year == now.year,
+    )
+    monthly_result = await db_session.execute(monthly_stmt)
+    monthly = monthly_result.scalar_one()
+    assert float(monthly.closing_balance) == 175.0
+    assert monthly.entry_count == 2

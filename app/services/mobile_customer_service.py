@@ -16,6 +16,7 @@ from app.config import settings
 from app.database import set_rls_context
 from app.models.access import AccessLog
 from app.models.chat import ChatMessage, ChatReadReceipt, ChatThread
+from app.models.announcement import Announcement
 from app.models.finance import Transaction
 from app.models.fitness import BiometricLog, DietPlan, WorkoutPlan
 from app.models.enums import Role
@@ -778,6 +779,17 @@ class MobileCustomerService:
                     .limit(limit)
                 )
             ).scalars().all()
+            announcement_rows = (
+                await db.execute(
+                    select(Announcement)
+                    .where(
+                        Announcement.gym_id == current_user.gym_id,
+                        Announcement.is_published.is_(True),
+                    )
+                    .order_by(Announcement.published_at.desc().nullslast(), Announcement.updated_at.desc())
+                    .limit(limit)
+                )
+            ).scalars().all()
             items = [
                 {
                     "id": str(log.id),
@@ -799,6 +811,20 @@ class MobileCustomerService:
                     "created_at": log.created_at.isoformat() if log.created_at else None,
                 }
                 for log in push_logs
+            )
+            items.extend(
+                {
+                    "id": str(row.id),
+                    "title": row.title,
+                    "body": row.body,
+                    "event_type": f"ANNOUNCEMENT_{row.audience}",
+                    "status": "PUBLISHED",
+                    "created_at": row.published_at.isoformat() if row.published_at else row.updated_at.isoformat() if row.updated_at else None,
+                }
+                for row in announcement_rows
+                if row.audience == "ALL" or (
+                    row.audience == "CUSTOMERS" and current_user.role == Role.CUSTOMER
+                )
             )
             items.sort(key=lambda item: item["created_at"] or "", reverse=True)
             return items[:limit]

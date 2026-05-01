@@ -6,6 +6,7 @@ from sqlalchemy import case, false, select, true, func
 from app.config import settings
 from app.models.access import AccessLog, AttendanceLog, Subscription, SubscriptionStatus, SubscriptionRenewalRequest, RenewalRequestStatus
 from app.models.hr import Payroll, PayrollStatus, LeaveRequest, LeaveStatus
+from app.models.staff_debt import StaffDebtAccount
 from app.models.classes import ClassReservation, ClassReservationStatus, ClassSession
 from app.models.user import User
 from app.models.tenancy import Branch
@@ -169,6 +170,74 @@ class AnalyticsService:
 
         pending_approvals = renewal_count + leave_count + class_res_count
 
+        branch_scope_filter = true() if branch_ids is None else (User.home_branch_id.in_(branch_ids) if branch_ids else false())
+        expiring_7d_cutoff = now + timedelta(days=7)
+        expiring_30d_cutoff = now + timedelta(days=30)
+
+        expiring_7d_stmt = select(func.count(Subscription.id)).join(User, User.id == Subscription.user_id).where(
+            Subscription.gym_id == gym_id,
+            Subscription.status == SubscriptionStatus.ACTIVE,
+            Subscription.end_date >= now,
+            Subscription.end_date < expiring_7d_cutoff,
+            branch_scope_filter,
+        )
+        expiring_30d_stmt = select(func.count(Subscription.id)).join(User, User.id == Subscription.user_id).where(
+            Subscription.gym_id == gym_id,
+            Subscription.status == SubscriptionStatus.ACTIVE,
+            Subscription.end_date >= now,
+            Subscription.end_date < expiring_30d_cutoff,
+            branch_scope_filter,
+        )
+
+        debt_stmt = select(
+            func.count(StaffDebtAccount.id),
+            func.coalesce(func.sum(StaffDebtAccount.current_balance), 0),
+        ).join(User, User.id == StaffDebtAccount.user_id).where(
+            StaffDebtAccount.gym_id == gym_id,
+            StaffDebtAccount.current_balance > 0,
+            branch_scope_filter,
+        )
+        expiring_rows_stmt = (
+            select(
+                User.id.label("user_id"),
+                User.full_name.label("full_name"),
+                User.email.label("email"),
+                Subscription.plan_name.label("plan_name"),
+                Subscription.end_date.label("end_date"),
+            )
+            .join(User, User.id == Subscription.user_id)
+            .where(
+                Subscription.gym_id == gym_id,
+                Subscription.status == SubscriptionStatus.ACTIVE,
+                Subscription.end_date >= now,
+                Subscription.end_date < expiring_30d_cutoff,
+                branch_scope_filter,
+            )
+            .order_by(Subscription.end_date.asc(), User.full_name.asc().nullslast(), User.email.asc())
+            .limit(5)
+        )
+        bundle_stmt = (
+            select(
+                Subscription.plan_name.label("plan_name"),
+                func.count(Subscription.id).label("count"),
+            )
+            .join(User, User.id == Subscription.user_id)
+            .where(
+                Subscription.gym_id == gym_id,
+                Subscription.status == SubscriptionStatus.ACTIVE,
+                branch_scope_filter,
+            )
+            .group_by(Subscription.plan_name)
+            .order_by(func.count(Subscription.id).desc(), Subscription.plan_name.asc())
+            .limit(5)
+        )
+
+        expiring_7d = (await db.execute(expiring_7d_stmt)).scalar() or 0
+        expiring_30d = (await db.execute(expiring_30d_stmt)).scalar() or 0
+        debt_count, debt_total = (await db.execute(debt_stmt)).one()
+        expiring_rows = (await db.execute(expiring_rows_stmt)).all()
+        bundle_rows = (await db.execute(bundle_stmt)).all()
+
         payload = {
             "live_headcount": live_headcount,
             "today_visitors": today_visitors,
@@ -178,6 +247,27 @@ class AnalyticsService:
             "monthly_expenses": monthly_expenses,
             "pending_salaries": pending_salaries,
             "pending_approvals": pending_approvals,
+            "expiring_subscriptions_7d": int(expiring_7d or 0),
+            "expiring_subscriptions_30d": int(expiring_30d or 0),
+            "active_debt_accounts": int(debt_count or 0),
+            "outstanding_staff_debt": float(debt_total or 0.0),
+            "expiring_subscriptions": [
+                {
+                    "user_id": str(row.user_id),
+                    "full_name": row.full_name,
+                    "email": row.email,
+                    "plan_name": row.plan_name,
+                    "end_date": row.end_date.isoformat() if row.end_date else None,
+                }
+                for row in expiring_rows
+            ],
+            "top_bundles": [
+                {
+                    "plan_name": row.plan_name,
+                    "count": int(row.count or 0),
+                }
+                for row in bundle_rows
+            ],
         }
         if use_cache:
             AnalyticsService._dashboard_cache[cache_key] = (

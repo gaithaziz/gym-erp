@@ -3,10 +3,22 @@ from datetime import date
 import csv
 import io
 import uuid
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, Query, Response
 from fastapi.responses import StreamingResponse
 from sqlalchemy import false, select
 from sqlalchemy.ext.asyncio import AsyncSession
+from reportlab.lib import colors
+from reportlab.lib.enums import TA_LEFT
+from reportlab.lib.pagesizes import A4
+from reportlab.lib.styles import ParagraphStyle, getSampleStyleSheet
+from reportlab.lib.units import mm
+from reportlab.pdfbase import pdfmetrics
+from reportlab.pdfbase.ttfonts import TTFont
+from reportlab.platypus import Paragraph, SimpleDocTemplate, Spacer, Table, TableStyle
+from pathlib import Path
+from reportlab.lib.enums import TA_RIGHT
+import arabic_reshaper
+from bidi.algorithm import get_display
 
 from app.database import get_db
 from app.auth import dependencies
@@ -18,6 +30,118 @@ from app.services.tenancy_service import TenancyService
 from app.core.responses import StandardResponse
 
 router = APIRouter()
+
+_PDF_FONT_NAME = "AnalyticsPdfFont"
+_PDF_FONT_BOLD_NAME = "AnalyticsPdfFontBold"
+_PDF_FONT_REGISTERED = False
+
+
+def _register_pdf_fonts() -> tuple[str, str]:
+    global _PDF_FONT_REGISTERED
+    if _PDF_FONT_REGISTERED:
+        return _PDF_FONT_NAME, _PDF_FONT_BOLD_NAME
+
+    candidates = [
+        ("/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf", _PDF_FONT_NAME),
+        ("/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", _PDF_FONT_BOLD_NAME),
+        ("C:/Windows/Fonts/arial.ttf", _PDF_FONT_NAME),
+        ("C:/Windows/Fonts/arialbd.ttf", _PDF_FONT_BOLD_NAME),
+    ]
+    for font_path, font_name in candidates:
+        path = Path(font_path)
+        if path.exists():
+            pdfmetrics.registerFont(TTFont(font_name, str(path)))
+    if _PDF_FONT_NAME in pdfmetrics.getRegisteredFontNames() and _PDF_FONT_BOLD_NAME in pdfmetrics.getRegisteredFontNames():
+        pdfmetrics.registerFontFamily(_PDF_FONT_NAME, normal=_PDF_FONT_NAME, bold=_PDF_FONT_BOLD_NAME)
+    _PDF_FONT_REGISTERED = True
+    registered = set(pdfmetrics.getRegisteredFontNames())
+    regular = _PDF_FONT_NAME if _PDF_FONT_NAME in registered else "Helvetica"
+    bold = _PDF_FONT_BOLD_NAME if _PDF_FONT_BOLD_NAME in registered else "Helvetica-Bold"
+    return regular, bold
+
+
+def _shape_pdf_text(text: str, locale: str | None) -> str:
+    if (locale or "en").lower().startswith("ar"):
+        return get_display(arabic_reshaper.reshape(text))
+    return text
+
+
+def _pdf_table_bytes(title: str, subtitle: str, rows: list[list[str]], headers: list[str], locale: str | None = "en") -> bytes:
+    buffer = io.BytesIO()
+    styles = getSampleStyleSheet()
+    direction = "rtl" if (locale or "en").lower().startswith("ar") else "ltr"
+    alignment = TA_RIGHT if direction == "rtl" else TA_LEFT
+    title_style = ParagraphStyle(
+        "AnalyticsPdfTitle",
+        parent=styles["Heading1"],
+        fontName="Helvetica-Bold",
+        fontSize=16,
+        leading=19,
+        alignment=alignment,
+        textColor=colors.HexColor("#1f2937"),
+    )
+    subtitle_style = ParagraphStyle(
+        "AnalyticsPdfSubtitle",
+        parent=styles["BodyText"],
+        fontName="Helvetica",
+        fontSize=10,
+        leading=13,
+        alignment=alignment,
+        textColor=colors.HexColor("#4b5563"),
+    )
+    cell_style = ParagraphStyle(
+        "AnalyticsPdfCell",
+        parent=styles["BodyText"],
+        fontName="Helvetica",
+        fontSize=9,
+        leading=11,
+        alignment=alignment,
+    )
+    header_style = ParagraphStyle(
+        "AnalyticsPdfHeader",
+        parent=styles["BodyText"],
+        fontName="Helvetica-Bold",
+        fontSize=9,
+        leading=11,
+        alignment=alignment,
+        textColor=colors.white,
+    )
+
+    doc = SimpleDocTemplate(
+        buffer,
+        pagesize=A4,
+        leftMargin=14 * mm,
+        rightMargin=14 * mm,
+        topMargin=14 * mm,
+        bottomMargin=14 * mm,
+    )
+    elements = [
+        Paragraph(_shape_pdf_text(title, locale), title_style),
+        Spacer(1, 4 * mm),
+        Paragraph(_shape_pdf_text(subtitle, locale), subtitle_style),
+        Spacer(1, 6 * mm),
+    ]
+
+    table_data = [[Paragraph(_shape_pdf_text(header, locale), header_style) for header in headers]]
+    for row in rows:
+        table_data.append([Paragraph(_shape_pdf_text(str(cell), locale), cell_style) for cell in row])
+
+    table = Table(table_data, repeatRows=1)
+    table.setStyle(TableStyle([
+        ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#111827")),
+        ("TEXTCOLOR", (0, 0), (-1, 0), colors.white),
+        ("GRID", (0, 0), (-1, -1), 0.5, colors.HexColor("#d1d5db")),
+        ("BOX", (0, 0), (-1, -1), 0.75, colors.HexColor("#9ca3af")),
+        ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+        ("ALIGN", (0, 0), (-1, -1), "RIGHT" if direction == "rtl" else "LEFT"),
+        ("LEFTPADDING", (0, 0), (-1, -1), 6),
+        ("RIGHTPADDING", (0, 0), (-1, -1), 6),
+        ("TOPPADDING", (0, 0), (-1, -1), 5),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 5),
+    ]))
+    elements.append(table)
+    doc.build(elements)
+    return buffer.getvalue()
 
 async def _resolve_scope(
     *,
@@ -61,6 +185,140 @@ async def get_dashboard(
         branch_ids=branch_ids,
     )
     return StandardResponse(data=stats)
+
+
+@router.get("/reports/expiring-subscriptions")
+async def export_expiring_subscriptions(
+    current_user: Annotated[User, Depends(dependencies.RoleChecker([Role.SUPER_ADMIN, Role.ADMIN, Role.MANAGER]))],
+    db: Annotated[AsyncSession, Depends(get_db)],
+    from_date: date | None = Query(None, alias="from"),
+    to_date: date | None = Query(None, alias="to"),
+    gym_id: uuid.UUID | None = Query(None),
+    branch_id: uuid.UUID | None = Query(None),
+):
+    scoped_gym_id, branch_ids = await _resolve_scope(db=db, current_user=current_user, gym_id=gym_id, branch_id=branch_id)
+    stats = await AnalyticsService.get_dashboard_stats(
+        db,
+        gym_id=scoped_gym_id,
+        from_date=from_date,
+        to_date=to_date,
+        branch_ids=branch_ids,
+    )
+
+    output = io.StringIO()
+    writer = csv.DictWriter(output, fieldnames=["user_id", "full_name", "email", "plan_name", "end_date"])
+    writer.writeheader()
+    writer.writerows(stats.get("expiring_subscriptions", []))
+    output.seek(0)
+    return StreamingResponse(
+        iter([output.getvalue()]),
+        media_type="text/csv",
+        headers={"Content-Disposition": "attachment; filename=expiring_subscriptions_report.csv"},
+    )
+
+
+@router.get("/reports/expiring-subscriptions.pdf")
+async def export_expiring_subscriptions_pdf(
+    current_user: Annotated[User, Depends(dependencies.RoleChecker([Role.SUPER_ADMIN, Role.ADMIN, Role.MANAGER]))],
+    db: Annotated[AsyncSession, Depends(get_db)],
+    from_date: date | None = Query(None, alias="from"),
+    to_date: date | None = Query(None, alias="to"),
+    gym_id: uuid.UUID | None = Query(None),
+    branch_id: uuid.UUID | None = Query(None),
+    locale: str = Query("en"),
+):
+    scoped_gym_id, branch_ids = await _resolve_scope(db=db, current_user=current_user, gym_id=gym_id, branch_id=branch_id)
+    stats = await AnalyticsService.get_dashboard_stats(
+        db,
+        gym_id=scoped_gym_id,
+        from_date=from_date,
+        to_date=to_date,
+        branch_ids=branch_ids,
+    )
+    rows = [
+        [
+            item.get("full_name", ""),
+            item.get("email", ""),
+            item.get("plan_name", ""),
+            item.get("end_date") or "",
+        ]
+        for item in stats.get("expiring_subscriptions", [])
+    ]
+    content = _pdf_table_bytes(
+        title="Expiring Subscriptions Report",
+        subtitle=f"Rows: {len(rows)}",
+        rows=rows or [["-", "-", "-", "-"]],
+        headers=["Member", "Email", "Plan", "End Date"],
+        locale=locale,
+    )
+    return Response(
+        content=content,
+        media_type="application/pdf",
+        headers={"Content-Disposition": "attachment; filename=expiring_subscriptions_report.pdf"},
+    )
+
+
+@router.get("/reports/top-bundles")
+async def export_top_bundles(
+    current_user: Annotated[User, Depends(dependencies.RoleChecker([Role.SUPER_ADMIN, Role.ADMIN, Role.MANAGER]))],
+    db: Annotated[AsyncSession, Depends(get_db)],
+    from_date: date | None = Query(None, alias="from"),
+    to_date: date | None = Query(None, alias="to"),
+    gym_id: uuid.UUID | None = Query(None),
+    branch_id: uuid.UUID | None = Query(None),
+):
+    scoped_gym_id, branch_ids = await _resolve_scope(db=db, current_user=current_user, gym_id=gym_id, branch_id=branch_id)
+    stats = await AnalyticsService.get_dashboard_stats(
+        db,
+        gym_id=scoped_gym_id,
+        from_date=from_date,
+        to_date=to_date,
+        branch_ids=branch_ids,
+    )
+
+    output = io.StringIO()
+    writer = csv.DictWriter(output, fieldnames=["plan_name", "count"])
+    writer.writeheader()
+    writer.writerows(stats.get("top_bundles", []))
+    output.seek(0)
+    return StreamingResponse(
+        iter([output.getvalue()]),
+        media_type="text/csv",
+        headers={"Content-Disposition": "attachment; filename=top_bundles_report.csv"},
+    )
+
+
+@router.get("/reports/top-bundles.pdf")
+async def export_top_bundles_pdf(
+    current_user: Annotated[User, Depends(dependencies.RoleChecker([Role.SUPER_ADMIN, Role.ADMIN, Role.MANAGER]))],
+    db: Annotated[AsyncSession, Depends(get_db)],
+    from_date: date | None = Query(None, alias="from"),
+    to_date: date | None = Query(None, alias="to"),
+    gym_id: uuid.UUID | None = Query(None),
+    branch_id: uuid.UUID | None = Query(None),
+    locale: str = Query("en"),
+):
+    scoped_gym_id, branch_ids = await _resolve_scope(db=db, current_user=current_user, gym_id=gym_id, branch_id=branch_id)
+    stats = await AnalyticsService.get_dashboard_stats(
+        db,
+        gym_id=scoped_gym_id,
+        from_date=from_date,
+        to_date=to_date,
+        branch_ids=branch_ids,
+    )
+    rows = [[item.get("plan_name", ""), str(item.get("count", 0))] for item in stats.get("top_bundles", [])]
+    content = _pdf_table_bytes(
+        title="Top Bundles Report",
+        subtitle=f"Rows: {len(rows)}",
+        rows=rows or [["-", "0"]],
+        headers=["Plan", "Count"],
+        locale=locale,
+    )
+    return Response(
+        content=content,
+        media_type="application/pdf",
+        headers={"Content-Disposition": "attachment; filename=top_bundles_report.pdf"},
+    )
 
 
 @router.get("/attendance", response_model=StandardResponse)

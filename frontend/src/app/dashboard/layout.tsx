@@ -23,6 +23,8 @@ import {
     ShieldAlert,
     LifeBuoy,
     Activity,
+    BadgeCheck,
+    Wrench,
     type LucideIcon
 } from "lucide-react";
 import { MessageCircle } from "lucide-react";
@@ -40,7 +42,7 @@ import { useBranch } from '@/context/BranchContext';
 import { BRANCH_ADMIN_ROLES } from '@/lib/roles';
 import type { TranslationKey } from '@/lib/i18n/types';
 
-const BLOCKED_ALLOWED_ROUTES = ['/dashboard/subscription', '/dashboard/blocked', '/dashboard/support', '/dashboard/lost-found'];
+const BLOCKED_ALLOWED_ROUTES = ['/dashboard/subscription', '/dashboard/policy', '/dashboard/perks', '/dashboard/announcements', '/dashboard/blocked', '/dashboard/support', '/dashboard/lost-found'];
 const BLOCKED_SUBSCRIPTION_STATUSES = new Set(['EXPIRED', 'FROZEN', 'NONE']);
 
 export default function DashboardLayout({
@@ -48,7 +50,7 @@ export default function DashboardLayout({
 }: {
     children: React.ReactNode;
 }) {
-    const { t, direction } = useLocale();
+    const { t, direction, locale } = useLocale();
     const { selectedBranchId } = useBranch();
     const { user, logout, isLoading } = useAuth();
     const router = useRouter();
@@ -230,6 +232,12 @@ export default function DashboardLayout({
         { href: '/dashboard/admin/staff/attendance', labelKey: 'dashboard.nav.attendance', icon: ClipboardList, roles: [...BRANCH_ADMIN_ROLES], section: 'people' },
         { href: '/dashboard/admin/leaves', labelKey: 'dashboard.nav.hrLeaves', icon: ClipboardList, roles: [...BRANCH_ADMIN_ROLES], section: 'people' },
         { href: '/dashboard/admin/finance', labelKey: 'dashboard.nav.financials', icon: Wallet, roles: [...BRANCH_ADMIN_ROLES], section: 'finance' },
+        { href: '/dashboard/admin/staff-debt', labelKey: 'dashboard.nav.financials', labelOverride: locale === 'ar' ? 'ديون الموظفين' : 'Employee Debt', icon: Wallet, roles: [...BRANCH_ADMIN_ROLES], section: 'finance' },
+        { href: '/dashboard/policy', labelKey: 'dashboard.nav.subscription', labelOverride: locale === 'ar' ? 'السياسة والعقد' : 'Policy & Contract', icon: ClipboardList, roles: [...BRANCH_ADMIN_ROLES, 'COACH', 'CUSTOMER', 'EMPLOYEE', 'CASHIER', 'RECEPTION', 'FRONT_DESK'], section: 'account' },
+        { href: '/dashboard/announcements', labelKey: 'dashboard.nav.support', labelOverride: locale === 'ar' ? 'الإعلانات' : 'Announcements', icon: MessageSquare, roles: [...BRANCH_ADMIN_ROLES, 'COACH', 'CUSTOMER', 'EMPLOYEE', 'CASHIER', 'RECEPTION', 'FRONT_DESK'], section: 'account' },
+        { href: '/dashboard/packages', labelKey: 'dashboard.nav.subscription', labelOverride: locale === 'ar' ? 'الباقات الخاصة' : 'Private Packages', icon: BadgeCheck, roles: [...BRANCH_ADMIN_ROLES, 'COACH', 'CUSTOMER'], section: 'account' },
+        { href: '/dashboard/admin/announcements', labelKey: 'dashboard.nav.supportDesk', labelOverride: locale === 'ar' ? 'إدارة الإعلانات' : 'Announcements Admin', icon: MessageSquare, roles: [...BRANCH_ADMIN_ROLES], section: 'operations' },
+        { href: '/dashboard/admin/facility', labelKey: 'dashboard.nav.inventory', labelOverride: locale === 'ar' ? 'المرافق والأجهزة' : 'Facilities & Machines', icon: Wrench, roles: [...BRANCH_ADMIN_ROLES], section: 'operations' },
         { href: '/dashboard/coach/plans', labelKey: 'dashboard.nav.workoutPlans', icon: Dumbbell, roles: [...BRANCH_ADMIN_ROLES, 'COACH'], section: 'coaching' },
         { href: '/dashboard/coach/diets', labelKey: 'dashboard.nav.dietPlans', icon: Utensils, roles: [...BRANCH_ADMIN_ROLES, 'COACH'], section: 'coaching' },
         { href: '/dashboard/coach/classes', labelKey: 'dashboard.nav.classes', icon: ClipboardList, roles: ['COACH'], section: 'coaching' },
@@ -246,6 +254,8 @@ export default function DashboardLayout({
         { href: '/dashboard/member/history', labelKey: 'dashboard.nav.history', icon: ClipboardList, roles: ['CUSTOMER'], section: 'account' },
         { href: '/dashboard/member/achievements', labelKey: 'dashboard.nav.achievements', icon: Trophy, roles: ['CUSTOMER'], section: 'account' },
         { href: '/dashboard/subscription', labelKey: 'dashboard.nav.subscription', icon: ShieldAlert, roles: ['CUSTOMER'], section: 'account' },
+        { href: '/dashboard/perks', labelKey: 'dashboard.nav.subscription', labelOverride: locale === 'ar' ? 'المزايا والعدادات' : 'Perks & Counters', icon: BadgeCheck, roles: ['CUSTOMER', 'COACH', ...BRANCH_ADMIN_ROLES], section: 'account' },
+        { href: '/dashboard/admin/policy', labelKey: 'dashboard.nav.subscription', labelOverride: locale === 'ar' ? 'سياسة النادي' : 'Gym Policy', icon: ClipboardList, roles: [...BRANCH_ADMIN_ROLES], section: 'operations' },
         { href: '/dashboard/support', labelKey: 'dashboard.nav.support', icon: MessageSquare, roles: ['CUSTOMER'], section: 'account' },
         { href: '/dashboard/system/stats', labelKey: 'dashboard.nav.globalStats', icon: Activity, roles: ['SUPER_ADMIN'], section: 'systemAdmin' },
         { href: '/dashboard/system/gyms', labelKey: 'dashboard.nav.gymManagement', icon: LayoutDashboard, roles: ['SUPER_ADMIN'], section: 'systemAdmin' },

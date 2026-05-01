@@ -5,9 +5,11 @@ from app.config import settings
 from app.models.user import User
 from app.models.access import AccessLog, Subscription, SubscriptionStatus, AttendanceLog
 from app.models.hr import Payroll
+from app.models.staff_debt import StaffDebtAccount
 from app.auth.security import get_password_hash
 from datetime import datetime, timedelta, timezone
 from app.models.finance import Transaction, TransactionType, TransactionCategory
+from app.services.tenancy_service import TenancyService
 
 @pytest.mark.asyncio
 async def test_analytics_dashboard(client: AsyncClient, db_session: AsyncSession):
@@ -227,6 +229,102 @@ async def test_dashboard_returns_today_visitors_unique_granted_count(client: Asy
 
 
 @pytest.mark.asyncio
+async def test_dashboard_reports_expiring_subscriptions_and_staff_debt(client: AsyncClient, db_session: AsyncSession):
+    password = "password123"
+    hashed = get_password_hash(password)
+    gym, branch = await TenancyService.ensure_default_gym_and_branch(db_session)
+    admin = User(
+        email="admin_reporting@gym.com",
+        hashed_password=hashed,
+        role="ADMIN",
+        full_name="Admin Reporting",
+        gym_id=gym.id,
+        home_branch_id=branch.id,
+    )
+    customer_a = User(
+        email="report_customer_a@gym.com",
+        hashed_password=hashed,
+        role="CUSTOMER",
+        full_name="Report Customer A",
+        gym_id=gym.id,
+        home_branch_id=branch.id,
+    )
+    customer_b = User(
+        email="report_customer_b@gym.com",
+        hashed_password=hashed,
+        role="CUSTOMER",
+        full_name="Report Customer B",
+        gym_id=gym.id,
+        home_branch_id=branch.id,
+    )
+    staff = User(
+        email="report_staff@gym.com",
+        hashed_password=hashed,
+        role="EMPLOYEE",
+        full_name="Report Staff",
+        gym_id=gym.id,
+        home_branch_id=branch.id,
+    )
+    db_session.add_all([admin, customer_a, customer_b, staff])
+    await db_session.flush()
+
+    now = datetime.now(timezone.utc)
+    db_session.add_all([
+        Subscription(
+            gym_id=gym.id,
+            user_id=customer_a.id,
+            plan_name="Gold",
+            start_date=now - timedelta(days=20),
+            end_date=now + timedelta(days=5),
+            status=SubscriptionStatus.ACTIVE,
+        ),
+        Subscription(
+            gym_id=gym.id,
+            user_id=customer_b.id,
+            plan_name="Gold",
+            start_date=now - timedelta(days=10),
+            end_date=now + timedelta(days=18),
+            status=SubscriptionStatus.ACTIVE,
+        ),
+        Subscription(
+            gym_id=gym.id,
+            user_id=admin.id,
+            plan_name="Platinum",
+            start_date=now - timedelta(days=40),
+            end_date=now + timedelta(days=40),
+            status=SubscriptionStatus.ACTIVE,
+        ),
+        StaffDebtAccount(
+            gym_id=gym.id,
+            branch_id=branch.id,
+            user_id=staff.id,
+            current_balance=125.0,
+            notes="Opening balance",
+            updated_by_user_id=admin.id,
+        ),
+    ])
+    await db_session.commit()
+
+    token = await client.post(
+        f"{settings.API_V1_STR}/auth/login",
+        json={"email": admin.email, "password": password},
+    )
+    headers = {"Authorization": f"Bearer {token.json()['data']['access_token']}"}
+
+    resp = await client.get(f"{settings.API_V1_STR}/analytics/dashboard", headers=headers)
+    assert resp.status_code == 200
+    data = resp.json()["data"]
+
+    assert data["expiring_subscriptions_7d"] == 1
+    assert data["expiring_subscriptions_30d"] == 2
+    assert data["active_debt_accounts"] == 1
+    assert data["outstanding_staff_debt"] == 125.0
+    assert data["top_bundles"][0]["plan_name"] == "Gold"
+    assert data["top_bundles"][0]["count"] == 2
+    assert any(item["full_name"] == "Report Customer A" for item in data["expiring_subscriptions"])
+
+
+@pytest.mark.asyncio
 async def test_daily_visitors_report_json_and_csv(client: AsyncClient, db_session: AsyncSession):
     password = "password123"
     hashed = get_password_hash(password)
@@ -261,3 +359,116 @@ async def test_daily_visitors_report_json_and_csv(client: AsyncClient, db_sessio
     )
     assert csv_resp.status_code == 200
     assert "text/csv" in csv_resp.headers.get("content-type", "")
+
+
+@pytest.mark.asyncio
+async def test_analytics_report_exports_and_staff_debt_csv(client: AsyncClient, db_session: AsyncSession):
+    import csv
+    from io import StringIO
+
+    password = "password123"
+    hashed = get_password_hash(password)
+    gym, branch = await TenancyService.ensure_default_gym_and_branch(db_session)
+    admin = User(
+        email="admin_exports@gym.com",
+        hashed_password=hashed,
+        role="ADMIN",
+        full_name="Admin Exports",
+        gym_id=gym.id,
+        home_branch_id=branch.id,
+    )
+    customer_a = User(
+        email="export_customer_a@gym.com",
+        hashed_password=hashed,
+        role="CUSTOMER",
+        full_name="Export Customer A",
+        gym_id=gym.id,
+        home_branch_id=branch.id,
+    )
+    customer_b = User(
+        email="export_customer_b@gym.com",
+        hashed_password=hashed,
+        role="CUSTOMER",
+        full_name="Export Customer B",
+        gym_id=gym.id,
+        home_branch_id=branch.id,
+    )
+    staff = User(
+        email="export_staff@gym.com",
+        hashed_password=hashed,
+        role="EMPLOYEE",
+        full_name="Export Staff",
+        gym_id=gym.id,
+        home_branch_id=branch.id,
+    )
+    db_session.add_all([admin, customer_a, customer_b, staff])
+    await db_session.flush()
+
+    now = datetime.now(timezone.utc)
+    db_session.add_all([
+        Subscription(
+            gym_id=gym.id,
+            user_id=customer_a.id,
+            plan_name="Silver",
+            start_date=now - timedelta(days=10),
+            end_date=now + timedelta(days=3),
+            status=SubscriptionStatus.ACTIVE,
+        ),
+        Subscription(
+            gym_id=gym.id,
+            user_id=customer_b.id,
+            plan_name="Bronze",
+            start_date=now - timedelta(days=15),
+            end_date=now + timedelta(days=12),
+            status=SubscriptionStatus.ACTIVE,
+        ),
+        StaffDebtAccount(
+            gym_id=gym.id,
+            branch_id=branch.id,
+            user_id=staff.id,
+            current_balance=210.0,
+            notes=None,
+            updated_by_user_id=admin.id,
+        ),
+    ])
+    await db_session.commit()
+
+    token = await client.post(
+        f"{settings.API_V1_STR}/auth/login",
+        json={"email": admin.email, "password": password},
+    )
+    headers = {"Authorization": f"Bearer {token.json()['data']['access_token']}"}
+
+    expiring_resp = await client.get(f"{settings.API_V1_STR}/analytics/reports/expiring-subscriptions", headers=headers)
+    assert expiring_resp.status_code == 200
+    assert "text/csv" in expiring_resp.headers.get("content-type", "")
+    expiring_rows = list(csv.DictReader(StringIO(expiring_resp.text)))
+    assert expiring_rows[0]["full_name"] == "Export Customer A"
+    assert expiring_rows[0]["plan_name"] == "Silver"
+
+    expiring_pdf_resp = await client.get(f"{settings.API_V1_STR}/analytics/reports/expiring-subscriptions.pdf", headers=headers)
+    assert expiring_pdf_resp.status_code == 200
+    assert "application/pdf" in expiring_pdf_resp.headers.get("content-type", "")
+    assert expiring_pdf_resp.content.startswith(b"%PDF")
+
+    bundles_resp = await client.get(f"{settings.API_V1_STR}/analytics/reports/top-bundles", headers=headers)
+    assert bundles_resp.status_code == 200
+    bundle_rows = list(csv.DictReader(StringIO(bundles_resp.text)))
+    assert {row["plan_name"] for row in bundle_rows} == {"Bronze", "Silver"}
+    assert sum(int(row["count"]) for row in bundle_rows) == 2
+
+    bundles_pdf_resp = await client.get(f"{settings.API_V1_STR}/analytics/reports/top-bundles.pdf", headers=headers)
+    assert bundles_pdf_resp.status_code == 200
+    assert bundles_pdf_resp.content.startswith(b"%PDF")
+
+    debt_resp = await client.get(f"{settings.API_V1_STR}/hr/staff-debt/export", headers=headers)
+    assert debt_resp.status_code == 200
+    assert "text/csv" in debt_resp.headers.get("content-type", "")
+    debt_rows = list(csv.DictReader(StringIO(debt_resp.text)))
+    assert any(row["full_name"] == "Export Staff" for row in debt_rows)
+    assert any(row["current_balance"] == "210.0" or row["current_balance"] == "210.00" for row in debt_rows)
+
+    debt_pdf_resp = await client.get(f"{settings.API_V1_STR}/hr/staff-debt/export-pdf", headers=headers)
+    assert debt_pdf_resp.status_code == 200
+    assert "application/pdf" in debt_pdf_resp.headers.get("content-type", "")
+    assert debt_pdf_resp.content.startswith(b"%PDF")

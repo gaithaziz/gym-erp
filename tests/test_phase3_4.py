@@ -1,5 +1,6 @@
 from datetime import datetime, timedelta, timezone
 from decimal import Decimal
+import uuid
 
 import pytest
 from httpx import AsyncClient
@@ -9,12 +10,16 @@ from app.auth.security import get_password_hash
 from app.database import set_rls_context
 from app.models.access import AttendanceLog, RenewalRequestStatus, Subscription, SubscriptionRenewalRequest
 from app.models.audit import AuditLog
+from app.models.announcement import Announcement
+from app.models.coaching import CoachingPackage
+from app.models.facility import FacilityMachine, FacilitySection
 from app.models.chat import ChatMessage, ChatThread
 from app.models.enums import Role
 from app.models.finance import Transaction, TransactionCategory, TransactionType
 from app.models.hr import Contract, ContractType, LeaveRequest, LeaveStatus, LeaveType, Payroll, PayrollStatus
 from app.models.inventory import Product
 from app.models.support import SupportTicket, TicketCategory, TicketStatus
+from app.models.notification import PushDeliveryLog
 from app.models.user import User
 from app.services.tenancy_service import TenancyService
 
@@ -772,6 +777,213 @@ async def test_mobile_admin_staff_operations_for_admin_manager_only(client: Asyn
 
     forbidden_detail = await client.get(f"/api/v1/mobile/admin/staff/{employee.id}", headers=customer_headers)
     assert forbidden_detail.status_code == 403
+
+
+@pytest.mark.asyncio
+async def test_private_coaching_packages_create_use_and_adjust_flow(client: AsyncClient, db_session):
+    admin = User(
+        email="phase4-coach-admin@test.com",
+        hashed_password=get_password_hash("password"),
+        full_name="Phase 4 Coach Admin",
+        role=Role.ADMIN,
+        is_active=True,
+    )
+    coach = User(
+        email="phase4-coach-user@test.com",
+        hashed_password=get_password_hash("password"),
+        full_name="Phase 4 Coach",
+        role=Role.COACH,
+        is_active=True,
+    )
+    customer = User(
+        email="phase4-package-customer@test.com",
+        hashed_password=get_password_hash("password"),
+        full_name="Phase 4 Package Customer",
+        role=Role.CUSTOMER,
+        is_active=True,
+    )
+    db_session.add_all([admin, coach, customer])
+    await db_session.commit()
+
+    admin_headers = await _login(client, admin.email)
+    coach_headers = await _login(client, coach.email)
+    customer_headers = await _login(client, customer.email)
+
+    create_res = await client.post(
+        "/api/v1/coaching/packages",
+        headers=admin_headers,
+        json={
+            "user_id": str(customer.id),
+            "coach_id": str(coach.id),
+            "package_key": "PT-8",
+            "package_label": "Private PT 8",
+            "total_sessions": 8,
+            "note": "Phase 4 coaching pack",
+        },
+    )
+    assert create_res.status_code == 200
+    package_id = create_res.json()["data"]["id"]
+
+    coach_list_res = await client.get(
+        "/api/v1/coaching/packages",
+        headers=coach_headers,
+        params={"coach_id": str(coach.id)},
+    )
+    assert coach_list_res.status_code == 200
+    coach_data = coach_list_res.json()["data"]
+    assert coach_data["summary"]["total_packages"] == 1
+    assert coach_data["packages"][0]["remaining_sessions"] == 8
+
+    customer_list_res = await client.get(
+        "/api/v1/coaching/packages",
+        headers=customer_headers,
+    )
+    assert customer_list_res.status_code == 200
+    customer_data = customer_list_res.json()["data"]
+    assert customer_data["summary"]["total_packages"] == 1
+    assert customer_data["packages"][0]["coach_id"] == str(coach.id)
+
+    use_res = await client.post(
+        f"/api/v1/coaching/packages/{package_id}/use",
+        headers=customer_headers,
+        json={"used_sessions": 1, "note": "Completed one private session"},
+    )
+    assert use_res.status_code == 200
+    assert use_res.json()["data"]["remaining_sessions"] == 7
+
+    ledger_res = await client.get(
+        f"/api/v1/coaching/packages/{package_id}/ledger",
+        headers=customer_headers,
+    )
+    assert ledger_res.status_code == 200
+    ledger = ledger_res.json()["data"]
+    assert ledger["entries"][0]["session_delta"] == -1
+
+    adjust_res = await client.patch(
+        f"/api/v1/coaching/packages/{package_id}",
+        headers=admin_headers,
+        json={"total_sessions": 10},
+    )
+    assert adjust_res.status_code == 200
+    assert adjust_res.json()["data"]["remaining_sessions"] == 9
+
+    stored = await db_session.get(CoachingPackage, uuid.UUID(package_id))
+    assert stored is not None
+    assert stored.total_sessions == 10
+
+
+@pytest.mark.asyncio
+async def test_announcements_publish_and_show_in_customer_feed(client: AsyncClient, db_session):
+    admin = User(
+        email="phase5-ann-admin@test.com",
+        hashed_password=get_password_hash("password"),
+        full_name="Phase 5 Ann Admin",
+        role=Role.ADMIN,
+        is_active=True,
+    )
+    customer = User(
+        email="phase5-ann-customer@test.com",
+        hashed_password=get_password_hash("password"),
+        full_name="Phase 5 Ann Customer",
+        role=Role.CUSTOMER,
+        is_active=True,
+    )
+    db_session.add_all([admin, customer])
+    await db_session.commit()
+
+    admin_headers = await _login(client, admin.email)
+    customer_headers = await _login(client, customer.email)
+
+    create_res = await client.post(
+        "/api/v1/admin/announcements",
+        headers=admin_headers,
+        json={
+            "title": "Holiday Hours",
+            "body": "We will close early tomorrow at 8 PM.",
+            "audience": "ALL",
+            "push_enabled": True,
+        },
+    )
+    assert create_res.status_code == 200
+    announcement_id = create_res.json()["data"]["id"]
+
+    announcement = await db_session.get(Announcement, uuid.UUID(announcement_id))
+    assert announcement is not None
+    assert announcement.is_published is True
+
+    list_res = await client.get("/api/v1/announcements", headers=customer_headers)
+    assert list_res.status_code == 200
+    feed = list_res.json()["data"]
+    assert any(item["id"] == announcement_id for item in feed)
+
+    notifications_res = await client.get("/api/v1/mobile/customer/notifications", headers=customer_headers)
+    assert notifications_res.status_code == 200
+    notifications = notifications_res.json()["data"]["items"]
+    assert any(item["id"] == announcement_id for item in notifications)
+
+    push_log = (
+        await db_session.execute(
+            select(PushDeliveryLog).where(PushDeliveryLog.event_type == "ANNOUNCEMENT_PUBLISHED")
+        )
+    ).scalars().first()
+    assert push_log is not None
+
+
+@pytest.mark.asyncio
+async def test_facility_machines_and_sections_are_branch_scoped(client: AsyncClient, db_session):
+    admin_headers = await _auth_headers_for_role(client, db_session, Role.ADMIN, "phase6-facility-admin@test.com")
+    _, branch = await TenancyService.ensure_default_gym_and_branch(db_session)
+
+    machine_res = await client.post(
+        "/api/v1/facility/machines",
+        headers=admin_headers,
+        params={"branch_id": str(branch.id)},
+        json={
+            "machine_name": "Treadmill A1",
+            "accessories_summary": "Power cord, safety clip, cup holder",
+            "condition_notes": "Working well",
+            "maintenance_notes": "Lubricate belt next week",
+            "is_active": True,
+        },
+    )
+    assert machine_res.status_code == 200
+    machine_id = machine_res.json()["data"]["id"]
+
+    section_res = await client.post(
+        "/api/v1/facility/sections",
+        headers=admin_headers,
+        params={"branch_id": str(branch.id)},
+        json={
+            "section_key": "OPENING_HOURS",
+            "title": "Opening Hours",
+            "body": "Sat-Thu 6:00 AM - 11:00 PM",
+            "sort_order": 1,
+            "is_active": True,
+        },
+    )
+    assert section_res.status_code == 200
+    section_id = section_res.json()["data"]["id"]
+
+    list_machine_res = await client.get(
+        "/api/v1/facility/machines",
+        headers=admin_headers,
+        params={"branch_id": str(branch.id)},
+    )
+    assert list_machine_res.status_code == 200
+    assert list_machine_res.json()["data"][0]["id"] == machine_id
+
+    list_section_res = await client.get(
+        "/api/v1/facility/sections",
+        headers=admin_headers,
+        params={"branch_id": str(branch.id)},
+    )
+    assert list_section_res.status_code == 200
+    assert list_section_res.json()["data"][0]["id"] == section_id
+
+    stored_machine = await db_session.get(FacilityMachine, uuid.UUID(machine_id))
+    stored_section = await db_session.get(FacilitySection, uuid.UUID(section_id))
+    assert stored_machine is not None and stored_machine.branch_id == branch.id
+    assert stored_section is not None and stored_section.branch_id == branch.id
 
 
 async def _login(client: AsyncClient, email: str) -> dict[str, str]:

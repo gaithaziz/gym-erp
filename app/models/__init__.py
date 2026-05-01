@@ -8,6 +8,11 @@ from app.models.classes import ClassTemplate, ClassSession, ClassReservation, Cl
 from app.models.tenancy import Gym, Branch, UserBranchAccess
 from app.models.system import SystemConfig
 from app.models.audit import AuditLog
+from app.models.announcement import Announcement
+from app.models.coaching import CoachingPackage, CoachingPackageLedger
+from app.models.facility import FacilityMachine, FacilitySection
+from app.models.membership import PolicyDocument, PolicySignature, PerkAccount, PerkUsage
+from app.models.staff_debt import StaffDebtAccount, StaffDebtEntry, StaffDebtEntryType, StaffDebtMonthlyBalance
 from app.models.user import User
 from app.models.finance import Transaction, POSTransactionItem
 from app.models.inventory import Product
@@ -40,6 +45,19 @@ __all__ = [
     "ClassReservationStatus",
     "SystemConfig",
     "AuditLog",
+    "Announcement",
+    "CoachingPackage",
+    "CoachingPackageLedger",
+    "FacilityMachine",
+    "FacilitySection",
+    "PolicyDocument",
+    "PolicySignature",
+    "PerkAccount",
+    "PerkUsage",
+    "StaffDebtAccount",
+    "StaffDebtEntry",
+    "StaffDebtEntryType",
+    "StaffDebtMonthlyBalance",
     "User",
     "Transaction",
     "POSTransactionItem",
