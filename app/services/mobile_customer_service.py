@@ -17,9 +17,12 @@ from app.database import set_rls_context
 from app.models.access import AccessLog
 from app.models.chat import ChatMessage, ChatReadReceipt, ChatThread
 from app.models.announcement import Announcement
+from app.models.branch_hours import BranchOperatingHour
 from app.models.finance import Transaction
+from app.models.membership import PerkAccount, PolicyDocument, PolicySignature
 from app.models.fitness import BiometricLog, DietPlan, WorkoutPlan
 from app.models.enums import Role
+from app.models.tenancy import Branch
 from app.models.support import SupportTicket, TicketStatus
 from app.models.user import User
 from app.models.notification import MobileNotificationPreference, PushDeliveryLog, WhatsAppDeliveryLog
@@ -28,6 +31,8 @@ from app.models.workout_log import WorkoutSession, WorkoutSessionEntry
 from app.models.classes import ClassReservation, ClassReservationStatus, ClassSession, ClassTemplate
 from app.models.workout_log import DietFeedback, GymFeedback, WorkoutLog
 from app.services.mobile_bootstrap_service import MobileBootstrapService
+from app.services.branch_hours_service import serialize_branch_hours
+from app.services.policy_versions import get_gym_policy_version
 
 logger = logging.getLogger(__name__)
 
@@ -131,6 +136,20 @@ def _parse_progress_date_range(date_from: str | None, date_to: str | None) -> tu
     if date_to:
         end = datetime.combine(date.fromisoformat(date_to), time.min) + timedelta(days=1)
     return start, end
+
+
+def _announcement_visible_to_user(announcement: Announcement, user: User) -> bool:
+    if announcement.audience == "CUSTOMERS" and user.role != Role.CUSTOMER:
+        return False
+    if announcement.audience == "COACHES" and user.role != Role.COACH:
+        return False
+    if announcement.audience == "STAFF" and user.role == Role.CUSTOMER:
+        return False
+    if announcement.target_scope == "ALL_BRANCHES":
+        return True
+    if announcement.target_scope == "BRANCH":
+        return announcement.branch_id is not None and announcement.branch_id == user.home_branch_id
+    return True
 
 
 class MobileCustomerService:
@@ -247,6 +266,36 @@ class MobileCustomerService:
     async def get_home_summary(*, current_user: User, db: AsyncSession) -> dict:
         async with MobileCustomerService._customer_tenant_scope(current_user=current_user, db=db):
             subscription = await MobileBootstrapService.get_subscription_snapshot(current_user=current_user, db=db)
+            policy_rows = (
+                await db.execute(
+                    select(PolicyDocument)
+                    .where(PolicyDocument.gym_id == current_user.gym_id)
+                    .order_by(PolicyDocument.updated_at.desc())
+                )
+            ).scalars().all()
+            signature_rows = (
+                await db.execute(
+                    select(PolicySignature)
+                    .where(
+                        PolicySignature.gym_id == current_user.gym_id,
+                        PolicySignature.user_id == current_user.id,
+                    )
+                    .order_by(PolicySignature.updated_at.desc())
+                )
+            ).scalars().all()
+            perk_rows = (
+                await db.execute(
+                    select(PerkAccount)
+                    .where(
+                        PerkAccount.gym_id == current_user.gym_id,
+                        PerkAccount.user_id == current_user.id,
+                        PerkAccount.is_active.is_(True),
+                    )
+                    .order_by(PerkAccount.updated_at.desc())
+                )
+            ).scalars().all()
+            current_policy_version = await get_gym_policy_version(db, current_user.gym_id)
+            policy_signed = any(sig.policy_version == current_policy_version and sig.accepted for sig in signature_rows)
 
             active_workout_plans = int(
                 (
@@ -308,6 +357,19 @@ class MobileCustomerService:
 
             recent_receipts = await MobileCustomerService.list_receipts(current_user=current_user, db=db, limit=3)
 
+            branch_hours = None
+            if current_user.home_branch_id is not None:
+                home_branch = await db.get(Branch, current_user.home_branch_id)
+                if home_branch is not None:
+                    branch_hour_rows = (
+                        await db.execute(
+                            select(BranchOperatingHour)
+                            .where(BranchOperatingHour.branch_id == home_branch.id)
+                            .order_by(BranchOperatingHour.weekday.asc())
+                        )
+                    ).scalars().all()
+                    branch_hours = serialize_branch_hours(home_branch, branch_hour_rows)
+
             # Upcoming classes in next 48h
             upcoming_classes = (
                 await db.execute(
@@ -341,8 +403,126 @@ class MobileCustomerService:
                     "coach_name": coach_name,
                 }
 
+            announcement_rows = (
+                await db.execute(
+                    select(Announcement).options(selectinload(Announcement.branch))
+                    .where(
+                        Announcement.gym_id == current_user.gym_id,
+                        Announcement.is_published.is_(True),
+                    )
+                    .where(
+                        (Announcement.target_scope == "ALL_BRANCHES")
+                        | (Announcement.branch_id == current_user.home_branch_id)
+                    )
+                    .order_by(Announcement.published_at.desc().nullslast(), Announcement.updated_at.desc())
+                    .limit(5)
+                )
+            ).scalars().all()
+            recent_announcements = [
+                {
+                    "id": str(row.id),
+                    "title": row.title,
+                    "body": row.body,
+                    "target_scope": row.target_scope,
+                    "branch_id": str(row.branch_id) if row.branch_id else None,
+                    "branch_name": (row.branch.display_name or row.branch.name) if row.branch else None,
+                    "published_at": row.published_at.isoformat() if row.published_at else None,
+                }
+                for row in announcement_rows
+                if _announcement_visible_to_user(row, current_user)
+            ][:3]
+
+            quick_actions: list[dict[str, Any]] = [
+                {
+                    "id": "policy",
+                    "label": "Review contract",
+                    "href": "/dashboard/policy",
+                    "kind": "policy",
+                    "badge": "Sign now" if not policy_signed else "Signed",
+                },
+                {
+                    "id": "bundle",
+                    "label": "View bundle",
+                    "href": "/billing",
+                    "kind": "subscription",
+                    "badge": f"{len(perk_rows)} benefits" if perk_rows else "No bundle benefits",
+                },
+            ]
+            if next_class is not None:
+                quick_actions.append(
+                    {
+                        "id": "next_class",
+                        "label": "Next class",
+                        "href": "/dashboard/classes",
+                        "kind": "class",
+                        "badge": next_class["name"],
+                    }
+                )
+            if recent_announcements:
+                quick_actions.append(
+                    {
+                        "id": "announcements",
+                        "label": "Announcements",
+                        "href": "/dashboard/announcements",
+                        "kind": "announcement",
+                        "badge": f"{len(recent_announcements)} new",
+                    }
+                )
+            if subscription.is_blocked:
+                quick_actions.append(
+                    {
+                        "id": "renew",
+                        "label": "Renew membership",
+                        "href": "/dashboard/subscription",
+                        "kind": "billing",
+                        "badge": "Required",
+                    }
+                )
+
             return {
                 "subscription": subscription.model_dump(mode="json"),
+                "policy": {
+                    "current_policy_version": current_policy_version,
+                    "requires_signature": not policy_signed,
+                    "current_versions": [
+                        {
+                            "locale": row.locale,
+                            "version": row.version,
+                            "updated_at": row.updated_at.isoformat() if row.updated_at else None,
+                            "title": row.title,
+                        }
+                        for row in policy_rows[:2]
+                    ],
+                    "signatures": [
+                        {
+                            "locale": sig.locale,
+                            "policy_version": sig.policy_version,
+                            "signed_at": sig.signed_at.isoformat() if sig.signed_at else None,
+                            "signer_name": sig.signer_name,
+                            "accepted": sig.accepted,
+                        }
+                        for sig in signature_rows[:3]
+                    ],
+                },
+                "perk_summary": {
+                    "total_accounts": len(perk_rows),
+                    "active_accounts": sum(1 for perk in perk_rows if perk.is_active),
+                    "total_remaining": sum(max(0, int(perk.total_allowance) - int(perk.used_allowance)) for perk in perk_rows),
+                    "total_used": sum(int(perk.used_allowance) for perk in perk_rows),
+                    "accounts": [
+                        {
+                            "id": str(perk.id),
+                            "perk_key": perk.perk_key,
+                            "perk_label": perk.perk_label,
+                            "remaining_allowance": max(0, int(perk.total_allowance) - int(perk.used_allowance)),
+                            "total_allowance": int(perk.total_allowance),
+                            "period_type": perk.period_type,
+                            "contract_ends_at": perk.contract_ends_at.isoformat() if perk.contract_ends_at else None,
+                        }
+                        for perk in perk_rows[:5]
+                    ],
+                },
+                "quick_actions": quick_actions,
                 "quick_stats": {
                     "active_workout_plans": active_workout_plans,
                     "active_diet_plans": active_diet_plans,
@@ -353,6 +533,8 @@ class MobileCustomerService:
                 "latest_biometric": MobileCustomerService._serialize_biometric(latest_biometric) if latest_biometric else None,
                 "recent_receipts": recent_receipts,
                 "next_class": next_class,
+                "recent_announcements": recent_announcements,
+                "branch_hours": branch_hours,
             }
 
     @staticmethod
@@ -781,10 +963,14 @@ class MobileCustomerService:
             ).scalars().all()
             announcement_rows = (
                 await db.execute(
-                    select(Announcement)
+                    select(Announcement).options(selectinload(Announcement.branch))
                     .where(
                         Announcement.gym_id == current_user.gym_id,
                         Announcement.is_published.is_(True),
+                    )
+                    .where(
+                        (Announcement.target_scope == "ALL_BRANCHES")
+                        | (Announcement.branch_id == current_user.home_branch_id)
                     )
                     .order_by(Announcement.published_at.desc().nullslast(), Announcement.updated_at.desc())
                     .limit(limit)
@@ -797,6 +983,7 @@ class MobileCustomerService:
                     "body": log.template_key.replace("_", " ").title(),
                     "event_type": log.event_type,
                     "status": log.status,
+                    "source": "whatsapp",
                     "created_at": log.created_at.isoformat() if log.created_at else None,
                 }
                 for log in whatsapp_logs
@@ -808,6 +995,7 @@ class MobileCustomerService:
                     "body": log.body,
                     "event_type": log.event_type,
                     "status": log.status,
+                    "source": "push",
                     "created_at": log.created_at.isoformat() if log.created_at else None,
                 }
                 for log in push_logs
@@ -819,12 +1007,14 @@ class MobileCustomerService:
                     "body": row.body,
                     "event_type": f"ANNOUNCEMENT_{row.audience}",
                     "status": "PUBLISHED",
+                    "source": "announcement",
                     "created_at": row.published_at.isoformat() if row.published_at else row.updated_at.isoformat() if row.updated_at else None,
+                    "target_scope": row.target_scope,
+                    "branch_id": str(row.branch_id) if row.branch_id else None,
+                    "branch_name": (row.branch.display_name or row.branch.name) if row.branch else None,
                 }
                 for row in announcement_rows
-                if row.audience == "ALL" or (
-                    row.audience == "CUSTOMERS" and current_user.role == Role.CUSTOMER
-                )
+                if _announcement_visible_to_user(row, current_user)
             )
             items.sort(key=lambda item: item["created_at"] or "", reverse=True)
             return items[:limit]

@@ -75,9 +75,15 @@ def _ensure_mobile_chat_participant(current_user: User) -> None:
 
 class MobileCustomerHomeResponse(BaseModel):
     subscription: dict[str, Any]
+    policy: dict[str, Any]
+    branch_hours: dict[str, Any] | None = None
+    perk_summary: dict[str, Any]
+    quick_actions: list[dict[str, Any]]
     quick_stats: dict[str, int]
     latest_biometric: dict[str, Any] | None = None
     recent_receipts: list[dict[str, Any]]
+    next_class: dict[str, Any] | None = None
+    recent_announcements: list[dict[str, Any]] = Field(default_factory=list)
 
 
 class MobileCustomerBillingResponse(BaseModel):
@@ -237,6 +243,14 @@ class MobileCoachFeedbackResponse(BaseModel):
 class MobileCoachPlansResponse(BaseModel):
     workouts: list[dict[str, Any]]
     diets: list[dict[str, Any]]
+
+
+class MobileCoachSessionsResponse(BaseModel):
+    stats: dict[str, int]
+    quick_actions: list[dict[str, Any]]
+    upcoming_sessions: list[dict[str, Any]]
+    pending_reservations: list[dict[str, Any]]
+    check_in_sessions: list[dict[str, Any]]
 
 
 class MobileDeviceRegistrationRequest(BaseModel):
@@ -1583,6 +1597,19 @@ async def read_coach_plans_summary(
 ):
     data = await MobileStaffService.get_coach_plans_summary(current_user=current_user, db=db, branch_id=branch_id)
     return StandardResponse(data=MobileCoachPlansResponse(**data))
+
+
+@router.get("/staff/coach/sessions", response_model=StandardResponse[MobileCoachSessionsResponse])
+async def read_coach_sessions_summary(
+    current_user: Annotated[
+        User,
+        Depends(dependencies.RoleChecker([schemas.Role.ADMIN, schemas.Role.MANAGER, schemas.Role.COACH])),
+    ],
+    db: Annotated[AsyncSession, Depends(get_db)],
+    branch_id: uuid.UUID | None = Query(None),
+):
+    data = await MobileStaffService.get_coach_sessions_summary(current_user=current_user, db=db, branch_id=branch_id)
+    return StandardResponse(data=MobileCoachSessionsResponse(**data))
 
 
 @router.post("/devices/register", response_model=StandardResponse[MobileDeviceRegistrationResponse])

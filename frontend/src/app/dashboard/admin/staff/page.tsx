@@ -4,9 +4,10 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { api } from '@/lib/api';
 import Image from 'next/image';
 import { useRouter } from 'next/navigation';
-import { Pencil, Calculator, Save, Plus, Download, Eye, EyeOff } from 'lucide-react';
+import { Pencil, Calculator, Save, Plus, Download, Eye, EyeOff, UserX, UserCheck } from 'lucide-react';
 import Modal from '@/components/Modal';
 import { useFeedback } from '@/components/FeedbackProvider';
+import { useAuth } from '@/context/AuthContext';
 import TablePagination from '@/components/TablePagination';
 import { BranchSelector } from '@/components/BranchSelector';
 import { resolveProfileImageUrl } from '@/lib/profileImage';
@@ -27,6 +28,7 @@ interface StaffMember {
     full_name: string;
     email: string;
     role: string;
+    is_active?: boolean;
     profile_picture_url?: string;
     phone_number?: string;
     date_of_birth?: string;
@@ -70,9 +72,11 @@ const STAFF_PAGE_SIZE = 10;
 
 export default function StaffPage() {
     const { locale, formatNumber } = useLocale();
-    const { showToast } = useFeedback();
+    const { showToast, confirm } = useFeedback();
+    const { user } = useAuth();
     const router = useRouter();
     const { branches, selectedBranchId, setSelectedBranchId } = useBranch();
+    const isAdmin = user?.role === 'ADMIN';
     const initialBranchId = selectedBranchId !== 'all' ? selectedBranchId : branches[0]?.id || '';
     const [staff, setStaff] = useState<StaffMember[]>([]);
     const [loading, setLoading] = useState(true);
@@ -127,6 +131,15 @@ export default function StaffPage() {
             view: 'عرض',
             edit: 'تعديل',
             payroll: 'الرواتب',
+            active: 'نشط',
+            inactive: 'غير نشط',
+            deactivate: 'تعطيل',
+            activate: 'تفعيل',
+            confirmDeactivateTitle: 'تأكيد التعطيل',
+            confirmDeactivateDesc: 'سيتم تعطيل حساب الموظف ومنعه من الدخول إلى النظام.',
+            confirmActivateTitle: 'تأكيد التفعيل',
+            confirmActivateDesc: 'سيتم إعادة تفعيل حساب الموظف وإرجاع صلاحية الدخول.',
+            adminOnly: 'للمدير فقط',
             addModal: 'إضافة موظف جديد',
             fullName: 'الاسم الكامل',
             email: 'البريد الإلكتروني',
@@ -199,6 +212,15 @@ export default function StaffPage() {
             view: 'View',
             edit: 'Edit',
             payroll: 'Payroll',
+            active: 'Active',
+            inactive: 'Inactive',
+            deactivate: 'Deactivate',
+            activate: 'Reactivate',
+            confirmDeactivateTitle: 'Confirm deactivation',
+            confirmDeactivateDesc: 'This will deactivate the employee account and prevent access to the system.',
+            confirmActivateTitle: 'Confirm reactivation',
+            confirmActivateDesc: 'This will reactivate the employee account and restore access.',
+            adminOnly: 'Admin only',
             addModal: 'Add New Staff Member',
             fullName: 'Full Name',
             email: 'Email',
@@ -437,6 +459,33 @@ export default function StaffPage() {
         }
     };
 
+    const toggleStaffActive = async (member: StaffMember) => {
+        if (!isAdmin) {
+            showToast(txt.adminOnly, 'error');
+            return;
+        }
+        const shouldDeactivate = member.is_active !== false;
+        const accepted = await confirm({
+            title: shouldDeactivate ? txt.confirmDeactivateTitle : txt.confirmActivateTitle,
+            description: shouldDeactivate ? txt.confirmDeactivateDesc : txt.confirmActivateDesc,
+            confirmText: shouldDeactivate ? txt.deactivate : txt.activate,
+            destructive: shouldDeactivate,
+        });
+        if (!accepted) return;
+        try {
+            if (shouldDeactivate) {
+                await api.delete(`/users/${member.id}`);
+            } else {
+                await api.put(`/users/${member.id}`, { is_active: true });
+            }
+            showToast(shouldDeactivate ? (locale === 'ar' ? 'تم تعطيل الموظف.' : 'Staff deactivated.') : (locale === 'ar' ? 'تم تفعيل الموظف.' : 'Staff reactivated.'), 'success');
+            await fetchStaff();
+        } catch (err) {
+            console.error(err);
+            showToast(locale === 'ar' ? 'فشل تحديث حالة الموظف.' : 'Failed to update staff status.', 'error');
+        }
+    };
+
     const handlePrintPayslip = async (payrollId: string) => {
         try {
             const res = await api.get(`/hr/payroll/${payrollId}/payslip/export-pdf`, { responseType: 'blob' });
@@ -491,12 +540,13 @@ export default function StaffPage() {
                                 <th>{txt.role}</th>
                                 <th>{txt.contract}</th>
                                 <th>{txt.salary}</th>
+                                <th>{txt.active}</th>
                                 <th className="text-center">{txt.actions}</th>
                             </tr>
                         </thead>
                         <tbody>
                             {filteredStaff.length === 0 && (
-                                <tr><td colSpan={5} className="text-center py-8 text-muted-foreground text-sm">{txt.noStaff}</td></tr>
+                                <tr><td colSpan={6} className="text-center py-8 text-muted-foreground text-sm">{txt.noStaff}</td></tr>
                             )}
                             {visibleStaff.map((member) => (
                                 <tr key={member.id}>
@@ -536,6 +586,11 @@ export default function StaffPage() {
                                         ) : '-'}
                                     </td>
                                     <td>
+                                        <span className={`inline-flex rounded-md border px-2 py-1 text-[10px] font-extrabold uppercase tracking-wider font-mono ${member.is_active !== false ? 'border-emerald-500/30 bg-emerald-500/10 text-emerald-500' : 'border-destructive/30 bg-destructive/10 text-destructive'}`}>
+                                            {member.is_active !== false ? txt.active : txt.inactive}
+                                        </span>
+                                    </td>
+                                    <td>
                                         <div className="flex items-center justify-center gap-2">
                                             <button onClick={() => openView(member)} className="flex items-center gap-1 text-emerald-400 hover:text-emerald-300 text-xs font-medium px-2 py-1 rounded-lg hover:bg-emerald-400/10 transition-colors" title={txt.viewProfile}>
                                                 <Eye size={13} /> {txt.view}
@@ -549,6 +604,18 @@ export default function StaffPage() {
                                                 className="flex items-center gap-1 text-emerald-500 hover:text-emerald-400 text-xs font-medium px-2 py-1 rounded-lg hover:bg-emerald-500/10 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
                                             >
                                                 <Calculator size={13} /> {txt.payroll}
+                                            </button>
+                                            <button
+                                                onClick={() => void toggleStaffActive(member)}
+                                                disabled={!isAdmin}
+                                                className={`flex items-center gap-1 text-xs font-medium px-2 py-1 rounded-lg transition-colors ${
+                                                    member.is_active !== false
+                                                        ? 'text-red-400 hover:text-red-300 hover:bg-red-400/10'
+                                                        : 'text-emerald-400 hover:text-emerald-300 hover:bg-emerald-400/10'
+                                                } disabled:opacity-40 disabled:cursor-not-allowed`}
+                                            >
+                                                {member.is_active !== false ? <UserX size={13} /> : <UserCheck size={13} />}
+                                                {member.is_active !== false ? txt.deactivate : txt.activate}
                                             </button>
                                         </div>
                                     </td>
@@ -603,9 +670,17 @@ export default function StaffPage() {
                                         {member.contract ? `${formatNumber(member.contract.base_salary)} ${txt.currency}` : '--'}
                                     </p>
                                 </div>
+                                <div className="rounded-sm border border-border bg-muted/20 p-2">
+                                    <p className="text-muted-foreground">{txt.active}</p>
+                                    <div className="mt-1">
+                                        <span className={`inline-flex rounded-md border px-2 py-1 text-[10px] font-extrabold uppercase tracking-wider font-mono ${member.is_active !== false ? 'border-emerald-500/30 bg-emerald-500/10 text-emerald-500' : 'border-destructive/30 bg-destructive/10 text-destructive'}`}>
+                                            {member.is_active !== false ? txt.active : txt.inactive}
+                                        </span>
+                                    </div>
+                                </div>
                             </div>
 
-                            <div className="mt-3 grid grid-cols-3 gap-2">
+                            <div className="mt-3 grid grid-cols-4 gap-2">
                                 <button onClick={() => openView(member)} className="btn-ghost !px-2 !py-2 h-auto text-xs text-emerald-400 hover:text-emerald-300 justify-center" title={txt.viewProfile}>
                                     <Eye size={13} /> {txt.view}
                                 </button>
@@ -618,6 +693,14 @@ export default function StaffPage() {
                                     className="btn-ghost !px-2 !py-2 h-auto text-xs text-emerald-500 hover:text-emerald-400 justify-center disabled:opacity-40 disabled:cursor-not-allowed"
                                 >
                                     <Calculator size={13} /> {txt.payroll}
+                                </button>
+                                <button
+                                    onClick={() => void toggleStaffActive(member)}
+                                    disabled={!isAdmin}
+                                    className={`btn-ghost !px-2 !py-2 h-auto text-xs justify-center ${member.is_active !== false ? 'text-red-400 hover:text-red-300' : 'text-emerald-400 hover:text-emerald-300'} disabled:opacity-40 disabled:cursor-not-allowed`}
+                                >
+                                    {member.is_active !== false ? <UserX size={13} /> : <UserCheck size={13} />}
+                                    {member.is_active !== false ? txt.deactivate : txt.activate}
                                 </button>
                             </div>
                         </div>

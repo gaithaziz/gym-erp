@@ -1,11 +1,26 @@
 import uuid
+from decimal import Decimal
 from datetime import datetime, timezone
+from enum import Enum
 
-from sqlalchemy import Boolean, DateTime, ForeignKey, Integer, String, Text, UniqueConstraint
+from sqlalchemy import Boolean, DateTime, Enum as SAEnum, ForeignKey, Integer, Numeric, String, Text, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.database import Base
+from app.models.finance import Transaction
 from app.models.tenancy import BranchScopedMixin
+
+
+class FacilityAssetType(str, Enum):
+    MACHINE = "MACHINE"
+    FACILITY = "FACILITY"
+    ACCESSORY = "ACCESSORY"
+
+
+class FacilityAssetStatus(str, Enum):
+    GOOD = "GOOD"
+    NEED_MAINTENANCE = "NEED_MAINTENANCE"
+    FIXED = "FIXED"
 
 
 class FacilityMachine(BranchScopedMixin, Base):
@@ -29,6 +44,44 @@ class FacilityMachine(BranchScopedMixin, Base):
     )
 
     updated_by = relationship("User", foreign_keys=[updated_by_user_id])
+
+
+class FacilityAsset(BranchScopedMixin, Base):
+    __tablename__ = "facility_assets"
+    __table_args__ = (
+        UniqueConstraint("gym_id", "branch_id", "name", "asset_type", name="uq_facility_assets_branch_name_type"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
+    name: Mapped[str] = mapped_column(String(255), nullable=False)
+    asset_type: Mapped[FacilityAssetType] = mapped_column(
+        SAEnum(FacilityAssetType, native_enum=False),
+        nullable=False,
+        default=FacilityAssetType.MACHINE,
+        index=True,
+    )
+    status: Mapped[FacilityAssetStatus] = mapped_column(
+        SAEnum(FacilityAssetStatus, native_enum=False),
+        nullable=False,
+        default=FacilityAssetStatus.GOOD,
+    )
+    fix_expense_amount: Mapped[Decimal | None] = mapped_column(Numeric(12, 2), nullable=True)
+    fix_expense_transaction_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("transactions.id"),
+        nullable=True,
+    )
+    note: Mapped[str | None] = mapped_column(Text, nullable=True)
+    is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    updated_by_user_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("users.id"), nullable=True)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        default=lambda: datetime.now(timezone.utc),
+        onupdate=lambda: datetime.now(timezone.utc),
+        nullable=False,
+    )
+
+    updated_by = relationship("User", foreign_keys=[updated_by_user_id])
+    fix_expense_transaction = relationship("Transaction", foreign_keys=[fix_expense_transaction_id])
 
 
 class FacilitySection(BranchScopedMixin, Base):

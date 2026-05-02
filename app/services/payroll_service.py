@@ -16,6 +16,7 @@ from app.models.hr import (
     PayrollSettings,
     PayrollStatus,
 )
+from app.models.staff_debt import StaffDebtAccount
 from app.models.user import User
 from app.models.enums import Role
 
@@ -129,6 +130,7 @@ class PayrollService:
         commission_pay = 0.0
         bonus_pay = 0.0
         automatic_deductions = 0.0
+        debt_deductions = 0.0
 
         base_pay = float(contract.base_salary)
         if calculation_mode == "DAYS_WORKED":
@@ -159,7 +161,18 @@ class PayrollService:
             automatic_deductions = leave_days * daily_rate
 
         manual_deductions = max(float(manual_deductions or 0.0), 0.0)
-        deductions = automatic_deductions + manual_deductions
+        gross_after_other_deductions = base_pay + overtime_pay + commission_pay + bonus_pay - automatic_deductions - manual_deductions
+        if gross_after_other_deductions > 0:
+            debt_stmt = select(StaffDebtAccount).where(
+                StaffDebtAccount.gym_id == contract.gym_id,
+                StaffDebtAccount.user_id == user_id,
+            )
+            debt_result = await db.execute(debt_stmt)
+            debt_account = debt_result.scalar_one_or_none()
+            if debt_account is not None and float(debt_account.current_balance or 0) > 0:
+                debt_deductions = min(float(debt_account.current_balance), gross_after_other_deductions)
+
+        deductions = automatic_deductions + manual_deductions + debt_deductions
         total_pay = base_pay + overtime_pay + commission_pay + bonus_pay - deductions
 
         stmt_payroll = select(Payroll).where(
@@ -182,6 +195,7 @@ class PayrollService:
             payroll.commission_pay = _round_money(commission_pay)
             payroll.bonus_pay = _round_money(bonus_pay)
             payroll.manual_deductions = _round_money(manual_deductions)
+            payroll.debt_deductions = _round_money(debt_deductions)
             payroll.deductions = _round_money(deductions)
             payroll.total_pay = _round_money(total_pay)
         else:
@@ -197,6 +211,7 @@ class PayrollService:
                 commission_pay=_round_money(commission_pay),
                 bonus_pay=_round_money(bonus_pay),
                 manual_deductions=_round_money(manual_deductions),
+                debt_deductions=_round_money(debt_deductions),
                 deductions=_round_money(deductions),
                 total_pay=_round_money(total_pay),
                 status=PayrollStatus.DRAFT,

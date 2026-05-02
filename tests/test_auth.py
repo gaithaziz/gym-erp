@@ -1,8 +1,11 @@
 import pytest
-from datetime import date, timedelta
+import json
+from datetime import date, timedelta, datetime, timezone
 from httpx import AsyncClient
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from app.auth import security
+from app.models.membership import PolicyDocument, PolicySignature
 from app.models.user import User
 from app.models.enums import Role
 from app.config import settings
@@ -212,6 +215,8 @@ async def test_mobile_bootstrap_returns_customer_foundation_payload(client: Asyn
     assert payload["user"]["email"] == email
     assert payload["subscription"]["status"] == "NONE"
     assert payload["subscription"]["is_blocked"] is True
+    assert payload["policy"]["current_policy_version"] == "1.0"
+    assert payload["policy"]["requires_signature"] is True
     assert payload["gym"]["gym_name"] == settings.GYM_NAME
     assert "scan_gym_qr" in payload["capabilities"]
     assert "renew_subscription" in payload["capabilities"]
@@ -249,7 +254,182 @@ async def test_mobile_bootstrap_returns_staff_capabilities_without_subscription_
     assert payload["role"] == "ADMIN"
     assert payload["subscription"]["status"] == "ACTIVE"
     assert payload["subscription"]["is_blocked"] is False
+    assert payload["policy"]["current_policy_version"] == "1.0"
+    assert payload["policy"]["requires_signature"] is False
     assert "view_audit_summary" in payload["capabilities"]
     assert "manage_inventory" in payload["capabilities"]
     assert "audit" in payload["enabled_modules"]
     assert "finance" in payload["enabled_modules"]
+
+
+@pytest.mark.asyncio
+async def test_mobile_bootstrap_marks_signed_customer_policy_as_complete(client: AsyncClient, db_session: AsyncSession):
+    email = "mobile-policy-signed@example.com"
+    password = "password123"
+    user = User(
+        email=email,
+        hashed_password=security.get_password_hash(password),
+        role=Role.CUSTOMER,
+        full_name="Policy Signed Customer",
+    )
+    db_session.add(user)
+    await db_session.flush()
+    db_session.add(
+        PolicyDocument(
+            gym_id=user.gym_id,
+            locale="en",
+            version="2.0",
+            title="Updated Policy",
+            effective_date=datetime.now(timezone.utc),
+            intro="Updated contract",
+            sections_json=json.dumps([{"title": "Intro", "points": ["One"]}]),
+            footer_note="Footer",
+            created_by_user_id=user.id,
+        )
+    )
+    db_session.add(
+        PolicySignature(
+            gym_id=user.gym_id,
+            user_id=user.id,
+            locale="en",
+            policy_version="2.0",
+            signer_name="Policy Signed Customer",
+            accepted=True,
+            signed_at=datetime.now(timezone.utc),
+        )
+    )
+    await db_session.commit()
+
+    login_response = await client.post(
+        f"{settings.API_V1_STR}/auth/login",
+        json={"email": email, "password": password},
+    )
+    token = login_response.json()["data"]["access_token"]
+
+    response = await client.get(
+        f"{settings.API_V1_STR}/mobile/bootstrap",
+        headers={"Authorization": f"Bearer {token}"},
+    )
+
+    assert response.status_code == 200
+    payload = response.json()["data"]
+    assert payload["policy"]["current_policy_version"] == "2.0"
+    assert payload["policy"]["requires_signature"] is False
+
+
+@pytest.mark.asyncio
+async def test_policy_save_syncs_version_across_locales_and_invalidates_signatures(client: AsyncClient, db_session: AsyncSession):
+    admin_email = "policy-admin@example.com"
+    admin_password = "password123"
+    customer_email = "policy-customer@example.com"
+    customer_password = "password123"
+
+    admin = User(
+        email=admin_email,
+        hashed_password=security.get_password_hash(admin_password),
+        role=Role.ADMIN,
+        full_name="Policy Admin",
+    )
+    customer = User(
+        email=customer_email,
+        hashed_password=security.get_password_hash(customer_password),
+        role=Role.CUSTOMER,
+        full_name="Policy Customer",
+    )
+    db_session.add_all([admin, customer])
+    await db_session.flush()
+    db_session.add_all(
+        [
+            PolicyDocument(
+                gym_id=admin.gym_id,
+                locale="en",
+                version="1.0",
+                title="Policy EN",
+                effective_date=datetime.now(timezone.utc),
+                intro="English policy",
+                sections_json=json.dumps([{"title": "Intro", "points": ["EN"]}]),
+                footer_note="EN footer",
+                created_by_user_id=admin.id,
+            ),
+            PolicyDocument(
+                gym_id=admin.gym_id,
+                locale="ar",
+                version="1.0",
+                title="Policy AR",
+                effective_date=datetime.now(timezone.utc),
+                intro="Arabic policy",
+                sections_json=json.dumps([{"title": "Intro", "points": ["AR"]}]),
+                footer_note="AR footer",
+                created_by_user_id=admin.id,
+            ),
+            PolicySignature(
+                gym_id=admin.gym_id,
+                user_id=customer.id,
+                locale="en",
+                policy_version="1.0",
+                signer_name="Policy Customer",
+                accepted=True,
+                signed_at=datetime.now(timezone.utc),
+            ),
+        ]
+    )
+    await db_session.commit()
+
+    admin_login = await client.post(
+        f"{settings.API_V1_STR}/auth/login",
+        json={"email": admin_email, "password": admin_password},
+    )
+    admin_token = admin_login.json()["data"]["access_token"]
+
+    save_response = await client.put(
+        f"{settings.API_V1_STR}/membership/policy",
+        params={"locale": "en"},
+        headers={"Authorization": f"Bearer {admin_token}"},
+        json={
+            "title": "Policy EN Updated",
+            "effectiveDate": datetime.now(timezone.utc).isoformat(),
+            "updatedAt": datetime.now(timezone.utc).isoformat(),
+            "intro": "Updated English policy",
+            "sections": [{"title": "Intro", "points": ["Updated"]}],
+            "footerNote": "Updated footer",
+        },
+    )
+    assert save_response.status_code == 200
+
+    versions = {
+        row.locale: row.version
+        for row in (await db_session.execute(
+            select(PolicyDocument).where(PolicyDocument.gym_id == admin.gym_id)
+        )).scalars().all()
+    }
+    assert versions == {"en": "1.1", "ar": "1.1"}
+
+    remaining_signatures = (
+        await db_session.execute(
+            select(PolicySignature).where(PolicySignature.gym_id == admin.gym_id)
+        )
+    ).scalars().all()
+    assert remaining_signatures == []
+
+    customer_login = await client.post(
+        f"{settings.API_V1_STR}/auth/login",
+        json={"email": customer_email, "password": customer_password},
+    )
+    customer_token = customer_login.json()["data"]["access_token"]
+
+    sign_response = await client.post(
+        f"{settings.API_V1_STR}/membership/policy/signature",
+        params={"locale": "ar"},
+        headers={"Authorization": f"Bearer {customer_token}"},
+        json={"signerName": "Policy Customer", "accepted": True},
+    )
+    assert sign_response.status_code == 200
+    assert sign_response.json()["data"]["version"] == "1.1"
+
+    me_response = await client.get(
+        f"{settings.API_V1_STR}/membership/policy/signature/me",
+        params={"locale": "en"},
+        headers={"Authorization": f"Bearer {customer_token}"},
+    )
+    assert me_response.status_code == 200
+    assert me_response.json()["data"]["version"] == "1.1"

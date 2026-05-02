@@ -9,10 +9,13 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.auth import security
 from app.config import settings
 from app.models.access import AccessLog, AttendanceLog, RenewalRequestStatus, Subscription, SubscriptionRenewalRequest
+from app.models.classes import ClassReservation, ClassReservationStatus, ClassSession, ClassSessionStatus, ClassTemplate
 from app.models.chat import ChatMessage, ChatThread
+from app.models.announcement import Announcement
 from app.models.enums import Role
 from app.models.finance import PaymentMethod, Transaction, TransactionCategory, TransactionType
 from app.models.fitness import BiometricLog, DietPlan, WorkoutPlan
+from app.models.membership import PerkAccount, PolicyDocument, PolicySignature
 from app.models.hr import LeaveRequest, LeaveStatus, LeaveType
 from app.models.lost_found import LostFoundCategory, LostFoundItem, LostFoundStatus
 from app.models.notification import MobileDevice, PushDeliveryLog, WhatsAppDeliveryLog
@@ -254,6 +257,117 @@ async def test_mobile_staff_home_coach_uses_real_activity_not_member_summaries(c
 
 
 @pytest.mark.asyncio
+async def test_mobile_coach_sessions_summary_includes_check_ins_and_quick_actions(client: AsyncClient, db_session: AsyncSession):
+    now = datetime.now(timezone.utc).replace(microsecond=0, second=0)
+    gym, branch = await TenancyService.ensure_default_gym_and_branch(db_session)
+    coach = User(
+        email="coach-sessions-summary@example.com",
+        hashed_password=security.get_password_hash("password123"),
+        role=Role.COACH,
+        full_name="Session Coach",
+        is_active=True,
+        gym_id=gym.id,
+        home_branch_id=branch.id,
+    )
+    member_one = User(
+        email="member-sessions-summary-1@example.com",
+        hashed_password=security.get_password_hash("password123"),
+        role=Role.CUSTOMER,
+        full_name="Session Member One",
+        is_active=True,
+        gym_id=gym.id,
+        home_branch_id=branch.id,
+    )
+    member_two = User(
+        email="member-sessions-summary-2@example.com",
+        hashed_password=security.get_password_hash("password123"),
+        role=Role.CUSTOMER,
+        full_name="Session Member Two",
+        is_active=True,
+        gym_id=gym.id,
+        home_branch_id=branch.id,
+    )
+    db_session.add_all([coach, member_one, member_two])
+    await db_session.flush()
+    for user in (coach, member_one, member_two):
+        await TenancyService.ensure_user_branch_access(db_session, user_id=user.id, gym_id=gym.id, branch_id=branch.id)
+
+    template = ClassTemplate(
+        gym_id=gym.id,
+        name="Private Coaching",
+        duration_minutes=60,
+        capacity=12,
+        created_by_id=coach.id,
+        is_active=True,
+    )
+    db_session.add(template)
+    await db_session.flush()
+
+    upcoming_session = ClassSession(
+        gym_id=gym.id,
+        branch_id=branch.id,
+        template_id=template.id,
+        coach_id=coach.id,
+        starts_at=now + timedelta(hours=2),
+        ends_at=now + timedelta(hours=3),
+        session_name="Upcoming PT",
+        status=ClassSessionStatus.SCHEDULED,
+    )
+    check_in_session = ClassSession(
+        gym_id=gym.id,
+        branch_id=branch.id,
+        template_id=template.id,
+        coach_id=coach.id,
+        starts_at=now - timedelta(hours=2),
+        ends_at=now - timedelta(hours=1),
+        session_name="Check-in PT",
+        status=ClassSessionStatus.SCHEDULED,
+    )
+    db_session.add_all([upcoming_session, check_in_session])
+    await db_session.flush()
+    db_session.add_all(
+        [
+            ClassReservation(
+                gym_id=gym.id,
+                session_id=upcoming_session.id,
+                member_id=member_one.id,
+                status=ClassReservationStatus.PENDING,
+                reserved_at=now - timedelta(minutes=10),
+            ),
+            ClassReservation(
+                gym_id=gym.id,
+                session_id=check_in_session.id,
+                member_id=member_two.id,
+                status=ClassReservationStatus.RESERVED,
+                attended=False,
+                reserved_at=now - timedelta(hours=3),
+            ),
+        ]
+    )
+    await db_session.commit()
+
+    headers = await _login(client, coach.email)
+
+    home_response = await client.get(f"{settings.API_V1_STR}/mobile/staff/home", headers=headers)
+    assert home_response.status_code == 200
+    home = home_response.json()["data"]
+    assert any(action["id"] == "classes" for action in home["quick_actions"])
+    assert home["stats"]["class_sessions_today"] >= 1
+    assert home["stats"]["pending_class_requests"] == 1
+    assert any(item["kind"] == "class_session" for item in home["items"])
+
+    sessions_response = await client.get(f"{settings.API_V1_STR}/mobile/staff/coach/sessions", headers=headers)
+    assert sessions_response.status_code == 200
+    sessions = sessions_response.json()["data"]
+    assert sessions["stats"]["upcoming_sessions"] == 2
+    assert sessions["stats"]["pending_reservations"] == 1
+    assert sessions["stats"]["check_in_sessions"] == 1
+    assert any(action["id"] == "checkins" for action in sessions["quick_actions"])
+    assert sessions["pending_reservations"][0]["member_name"] == member_one.full_name
+    assert sessions["check_in_sessions"][0]["display_name"] == "Check-in PT"
+
+
+@pytest.mark.asyncio
 async def test_mobile_staff_home_employee_includes_real_operational_reminders(client: AsyncClient, db_session: AsyncSession):
     now = datetime.now(timezone.utc)
     employee = User(
@@ -309,12 +423,15 @@ async def test_mobile_staff_home_employee_includes_real_operational_reminders(cl
 @pytest.mark.asyncio
 async def test_mobile_customer_home_and_billing(client: AsyncClient, db_session: AsyncSession):
     now = datetime.now(timezone.utc)
+    gym, branch = await TenancyService.ensure_default_gym_and_branch(db_session)
     customer = User(
         email="customer-mobile@example.com",
         hashed_password=security.get_password_hash("password123"),
         role=Role.CUSTOMER,
         full_name="Customer Mobile",
         is_active=True,
+        gym_id=gym.id,
+        home_branch_id=branch.id,
     )
     coach = User(
         email="coach-mobile@example.com",
@@ -322,12 +439,15 @@ async def test_mobile_customer_home_and_billing(client: AsyncClient, db_session:
         role=Role.COACH,
         full_name="Coach Mobile",
         is_active=True,
+        gym_id=gym.id,
+        home_branch_id=branch.id,
     )
     db_session.add_all([customer, coach])
     await db_session.flush()
 
     db_session.add(
         Subscription(
+            gym_id=gym.id,
             user_id=customer.id,
             plan_name="Monthly",
             start_date=now - timedelta(days=5),
@@ -337,6 +457,7 @@ async def test_mobile_customer_home_and_billing(client: AsyncClient, db_session:
     )
     db_session.add(
         WorkoutPlan(
+            gym_id=gym.id,
             name="Starter Plan",
             creator_id=coach.id,
             member_id=customer.id,
@@ -349,6 +470,7 @@ async def test_mobile_customer_home_and_billing(client: AsyncClient, db_session:
     )
     db_session.add(
         DietPlan(
+            gym_id=gym.id,
             name="Lean Diet",
             creator_id=coach.id,
             member_id=customer.id,
@@ -361,6 +483,7 @@ async def test_mobile_customer_home_and_billing(client: AsyncClient, db_session:
     )
     db_session.add(
         BiometricLog(
+            gym_id=gym.id,
             member_id=customer.id,
             date=now - timedelta(days=1),
             weight_kg=81.2,
@@ -369,6 +492,7 @@ async def test_mobile_customer_home_and_billing(client: AsyncClient, db_session:
     )
     db_session.add(
         AccessLog(
+            gym_id=gym.id,
             user_id=customer.id,
             scan_time=now - timedelta(days=1),
             kiosk_id="kiosk-01",
@@ -378,6 +502,7 @@ async def test_mobile_customer_home_and_billing(client: AsyncClient, db_session:
     )
     db_session.add(
         SupportTicket(
+            gym_id=gym.id,
             customer_id=customer.id,
             subject="Need help",
             category=TicketCategory.SUBSCRIPTION,
@@ -387,6 +512,7 @@ async def test_mobile_customer_home_and_billing(client: AsyncClient, db_session:
         )
     )
     thread = ChatThread(
+        gym_id=gym.id,
         customer_id=customer.id,
         coach_id=coach.id,
         created_at=now - timedelta(days=1),
@@ -397,6 +523,7 @@ async def test_mobile_customer_home_and_billing(client: AsyncClient, db_session:
     await db_session.flush()
     db_session.add(
         ChatMessage(
+            gym_id=gym.id,
             thread_id=thread.id,
             sender_id=coach.id,
             message_type="TEXT",
@@ -406,6 +533,7 @@ async def test_mobile_customer_home_and_billing(client: AsyncClient, db_session:
         )
     )
     tx = Transaction(
+        gym_id=gym.id,
         amount=30.0,
         type=TransactionType.INCOME,
         category=TransactionCategory.SUBSCRIPTION,
@@ -417,6 +545,7 @@ async def test_mobile_customer_home_and_billing(client: AsyncClient, db_session:
     db_session.add(tx)
     db_session.add(
         WhatsAppDeliveryLog(
+            gym_id=gym.id,
             user_id=customer.id,
             phone_number="+15550001111",
             template_key="subscription_renewed_v1",
@@ -426,6 +555,56 @@ async def test_mobile_customer_home_and_billing(client: AsyncClient, db_session:
             idempotency_key=f"mobile-home-{customer.id}",
             status="SENT",
             created_at=now - timedelta(hours=1),
+        )
+    )
+    db_session.add(
+        PolicyDocument(
+            gym_id=gym.id,
+            locale="en",
+            version="1.0",
+            title="Gym Policy & Membership Contract",
+            effective_date=now - timedelta(days=1),
+            intro="Policy intro",
+            sections_json='[{"title":"A","points":["B"]}]',
+            footer_note="Footer note",
+            created_by_user_id=coach.id,
+        )
+    )
+    db_session.add(
+        PolicySignature(
+            gym_id=gym.id,
+            user_id=customer.id,
+            locale="en",
+            policy_version="1.0",
+            signer_name=customer.full_name,
+            accepted=True,
+            signed_at=now - timedelta(days=1),
+        )
+    )
+    db_session.add(
+        PerkAccount(
+            gym_id=gym.id,
+            user_id=customer.id,
+            perk_key="guest_visits",
+            perk_label="Guest Visits",
+            period_type="MONTHLY",
+            total_allowance=2,
+            used_allowance=1,
+            monthly_reset_day=1,
+            is_active=True,
+        )
+    )
+    db_session.add(
+        Announcement(
+            gym_id=gym.id,
+            branch_id=branch.id,
+            title="Branch reminder",
+            body="Bring your towel",
+            audience="CUSTOMERS",
+            target_scope="BRANCH",
+            is_published=True,
+            published_at=now - timedelta(hours=1),
+            created_by_user_id=coach.id,
         )
     )
     await db_session.commit()
@@ -440,6 +619,13 @@ async def test_mobile_customer_home_and_billing(client: AsyncClient, db_session:
     assert home["quick_stats"]["active_diet_plans"] == 1
     assert home["quick_stats"]["open_support_tickets"] == 1
     assert home["quick_stats"]["unread_chat_messages"] == 1
+    assert home["policy"]["current_policy_version"] == "1.0"
+    assert home["policy"]["requires_signature"] is False
+    assert home["perk_summary"]["total_accounts"] == 1
+    assert home["perk_summary"]["total_remaining"] == 1
+    assert any(action["id"] == "policy" for action in home["quick_actions"])
+    assert any(action["id"] == "bundle" and action["href"] == "/billing" for action in home["quick_actions"])
+    assert any(item["title"] == "Branch reminder" for item in home["recent_announcements"])
     assert home["recent_receipts"][0]["description"] == "Monthly renewal"
     assert home["latest_biometric"]["weight_kg"] == 81.2
     assert "qr" not in home
@@ -618,6 +804,96 @@ async def test_mobile_customer_notifications_feed(client: AsyncClient, db_sessio
     payload = response.json()["data"]
     assert payload["items"][0]["event_type"] == "SUPPORT_REPLY"
     assert payload["items"][0]["status"] == "SENT"
+    assert payload["items"][0]["source"] == "whatsapp"
+
+
+@pytest.mark.asyncio
+async def test_mobile_customer_notifications_respect_branch_targeting(client: AsyncClient, db_session: AsyncSession):
+    gym, branch_a = await TenancyService.ensure_default_gym_and_branch(db_session)
+    branch_b = Branch(
+        gym_id=gym.id,
+        slug="branch-b",
+        code="B2",
+        name="Branch B",
+        display_name="Branch B",
+        timezone="UTC",
+    )
+    admin = User(
+        email="branch-ann-admin@example.com",
+        hashed_password=security.get_password_hash("password123"),
+        role=Role.ADMIN,
+        full_name="Branch Ann Admin",
+        is_active=True,
+        gym_id=gym.id,
+        home_branch_id=branch_a.id,
+    )
+    customer_a = User(
+        email="branch-a-customer@example.com",
+        hashed_password=security.get_password_hash("password123"),
+        role=Role.CUSTOMER,
+        full_name="Branch A Customer",
+        is_active=True,
+        gym_id=gym.id,
+        home_branch_id=branch_a.id,
+    )
+    db_session.add(branch_b)
+    await db_session.flush()
+    customer_b = User(
+        email="branch-b-customer@example.com",
+        hashed_password=security.get_password_hash("password123"),
+        role=Role.CUSTOMER,
+        full_name="Branch B Customer",
+        is_active=True,
+        gym_id=gym.id,
+        home_branch_id=branch_b.id,
+    )
+    db_session.add_all([admin, customer_a, customer_b])
+    await db_session.flush()
+
+    admin_headers = await _login(client, admin.email)
+    branch_response = await client.post(
+        f"{settings.API_V1_STR}/admin/announcements",
+        headers=admin_headers,
+        json={
+            "title": "Branch A Update",
+            "body": "Only branch A should see this.",
+            "audience": "CUSTOMERS",
+            "target_scope": "BRANCH",
+            "branch_id": str(branch_a.id),
+            "push_enabled": False,
+        },
+    )
+    assert branch_response.status_code == 200
+    all_response = await client.post(
+        f"{settings.API_V1_STR}/admin/announcements",
+        headers=admin_headers,
+        json={
+            "title": "All Branch Update",
+            "body": "Everyone should see this.",
+            "audience": "CUSTOMERS",
+            "target_scope": "ALL_BRANCHES",
+            "push_enabled": False,
+        },
+    )
+    assert all_response.status_code == 200
+
+    a_headers = await _login(client, customer_a.email)
+    a_notifications = await client.get(f"{settings.API_V1_STR}/mobile/customer/notifications", headers=a_headers)
+    assert a_notifications.status_code == 200
+    a_items = a_notifications.json()["data"]["items"]
+    a_titles = {item["title"] for item in a_items if item["event_type"].startswith("ANNOUNCEMENT_")}
+    assert "Branch A Update" in a_titles
+    assert "All Branch Update" in a_titles
+    assert {item["source"] for item in a_items if item["event_type"].startswith("ANNOUNCEMENT_")} == {"announcement"}
+
+    b_headers = await _login(client, customer_b.email)
+    b_notifications = await client.get(f"{settings.API_V1_STR}/mobile/customer/notifications", headers=b_headers)
+    assert b_notifications.status_code == 200
+    b_items = b_notifications.json()["data"]["items"]
+    b_titles = {item["title"] for item in b_items if item["event_type"].startswith("ANNOUNCEMENT_")}
+    assert "All Branch Update" in b_titles
+    assert "Branch A Update" not in b_titles
+    assert all(item["source"] == "announcement" for item in b_items if item["event_type"].startswith("ANNOUNCEMENT_"))
 
 
 @pytest.mark.asyncio

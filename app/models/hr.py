@@ -68,6 +68,7 @@ class Payroll(GymScopedMixin, Base):
     commission_pay: Mapped[float] = mapped_column(Float, default=0.0)
     bonus_pay: Mapped[float] = mapped_column(Float, default=0.0)
     manual_deductions: Mapped[float] = mapped_column(Float, default=0.0)
+    debt_deductions: Mapped[float] = mapped_column(Float, default=0.0)
     deductions: Mapped[float] = mapped_column(Float, default=0.0)
     total_pay: Mapped[float] = mapped_column(Float, default=0.0)
     
@@ -75,11 +76,13 @@ class Payroll(GymScopedMixin, Base):
     approved_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     approved_by_user_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("users.id"), nullable=True)
     paid_transaction_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("transactions.id"), nullable=True)
+    debt_deduction_entry_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("staff_debt_entries.id"), nullable=True, unique=True)
     paid_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     paid_by_user_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("users.id"), nullable=True)
 
     user = relationship("User", foreign_keys=[user_id])
     payments = relationship("PayrollPayment", back_populates="payroll", cascade="all, delete-orphan")
+    debt_deduction_entry = relationship("StaffDebtEntry", foreign_keys=[debt_deduction_entry_id], uselist=False)
 
 
 class PayrollPayment(GymScopedMixin, Base):

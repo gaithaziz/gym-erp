@@ -2,9 +2,10 @@ import uuid
 from collections import defaultdict
 from datetime import date, datetime, timedelta, timezone
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import case, false, select, true, func
+from sqlalchemy import case, false, select, true, func, or_
 from app.config import settings
 from app.models.access import AccessLog, AttendanceLog, Subscription, SubscriptionStatus, SubscriptionRenewalRequest, RenewalRequestStatus
+from app.models.audit import AuditLog
 from app.models.hr import Payroll, PayrollStatus, LeaveRequest, LeaveStatus
 from app.models.staff_debt import StaffDebtAccount
 from app.models.classes import ClassReservation, ClassReservationStatus, ClassSession
@@ -33,6 +34,13 @@ class AnalyticsService:
             if not branch_ids:
                 return false()
             return User.home_branch_id.in_(branch_ids)
+
+        def _audit_branch_scope_expr() -> object:
+            if branch_ids is None:
+                return true()
+            if not branch_ids:
+                return false()
+            return or_(AuditLog.branch_id.is_(None), AuditLog.branch_id.in_(branch_ids))
 
         now = datetime.now(timezone.utc)
         branch_cache_key = ",".join(sorted(str(branch_id) for branch_id in branch_ids)) if branch_ids is not None else "all"
@@ -231,12 +239,140 @@ class AnalyticsService:
             .order_by(func.count(Subscription.id).desc(), Subscription.plan_name.asc())
             .limit(5)
         )
+        subscription_status_stmt = (
+            select(
+                Subscription.status.label("status"),
+                func.count(Subscription.id).label("count"),
+            )
+            .join(User, User.id == Subscription.user_id)
+            .where(
+                Subscription.gym_id == gym_id,
+                branch_scope_filter,
+            )
+            .group_by(Subscription.status)
+            .order_by(func.count(Subscription.id).desc(), Subscription.status.asc())
+        )
+        bundle_mix_stmt = (
+            select(
+                Subscription.plan_name.label("plan_name"),
+                Subscription.status.label("status"),
+                func.count(Subscription.id).label("count"),
+            )
+            .join(User, User.id == Subscription.user_id)
+            .where(
+                Subscription.gym_id == gym_id,
+                branch_scope_filter,
+            )
+            .group_by(Subscription.plan_name, Subscription.status)
+            .order_by(func.count(Subscription.id).desc(), Subscription.plan_name.asc(), Subscription.status.asc())
+        )
+        bundle_expiring_stmt = (
+            select(
+                Subscription.plan_name.label("plan_name"),
+                func.count(Subscription.id).label("count"),
+            )
+            .join(User, User.id == Subscription.user_id)
+            .where(
+                Subscription.gym_id == gym_id,
+                Subscription.status == SubscriptionStatus.ACTIVE,
+                Subscription.end_date >= now,
+                Subscription.end_date < expiring_30d_cutoff,
+                branch_scope_filter,
+            )
+            .group_by(Subscription.plan_name)
+        )
+        audit_since = now - timedelta(days=30)
+        audit_total_stmt = select(func.count(AuditLog.id)).where(
+            AuditLog.gym_id == gym_id,
+            AuditLog.timestamp >= audit_since,
+            _audit_branch_scope_expr(),
+        )
+        audit_top_actions_stmt = (
+            select(
+                AuditLog.action.label("action"),
+                func.count(AuditLog.id).label("count"),
+            )
+            .where(
+                AuditLog.gym_id == gym_id,
+                AuditLog.timestamp >= audit_since,
+                _audit_branch_scope_expr(),
+            )
+            .group_by(AuditLog.action)
+            .order_by(func.count(AuditLog.id).desc(), AuditLog.action.asc())
+        )
+        audit_recent_stmt = (
+            select(
+                AuditLog.id.label("id"),
+                AuditLog.action.label("action"),
+                AuditLog.target_id.label("target_id"),
+                AuditLog.timestamp.label("timestamp"),
+                AuditLog.details.label("details"),
+                User.full_name.label("user_name"),
+                User.email.label("user_email"),
+            )
+            .outerjoin(User, User.id == AuditLog.user_id)
+            .where(
+                AuditLog.gym_id == gym_id,
+                AuditLog.timestamp >= audit_since,
+                _audit_branch_scope_expr(),
+            )
+            .order_by(AuditLog.timestamp.desc())
+            .limit(5)
+        )
 
         expiring_7d = (await db.execute(expiring_7d_stmt)).scalar() or 0
         expiring_30d = (await db.execute(expiring_30d_stmt)).scalar() or 0
         debt_count, debt_total = (await db.execute(debt_stmt)).one()
         expiring_rows = (await db.execute(expiring_rows_stmt)).all()
         bundle_rows = (await db.execute(bundle_stmt)).all()
+        subscription_status_rows = (await db.execute(subscription_status_stmt)).all()
+        bundle_mix_rows = (await db.execute(bundle_mix_stmt)).all()
+        bundle_expiring_rows = (await db.execute(bundle_expiring_stmt)).all()
+        audit_total = (await db.execute(audit_total_stmt)).scalar() or 0
+        audit_top_actions = (await db.execute(audit_top_actions_stmt)).all()
+        audit_recent_rows = (await db.execute(audit_recent_stmt)).all()
+
+        bundle_mix_map: dict[str, dict[str, int | str]] = {}
+        for row in bundle_mix_rows:
+            bucket = bundle_mix_map.setdefault(
+                row.plan_name,
+                {
+                    "plan_name": row.plan_name,
+                    "active_count": 0,
+                    "frozen_count": 0,
+                    "expired_count": 0,
+                    "total_count": 0,
+                    "expiring_30d_count": 0,
+                },
+            )
+            status_name = row.status.value if hasattr(row.status, "value") else str(row.status)
+            count = int(row.count or 0)
+            bucket["total_count"] = int(bucket["total_count"]) + count
+            if status_name == SubscriptionStatus.ACTIVE.value:
+                bucket["active_count"] = int(bucket["active_count"]) + count
+            elif status_name == SubscriptionStatus.FROZEN.value:
+                bucket["frozen_count"] = int(bucket["frozen_count"]) + count
+            elif status_name == SubscriptionStatus.EXPIRED.value:
+                bucket["expired_count"] = int(bucket["expired_count"]) + count
+
+        for row in bundle_expiring_rows:
+            bucket = bundle_mix_map.setdefault(
+                row.plan_name,
+                {
+                    "plan_name": row.plan_name,
+                    "active_count": 0,
+                    "frozen_count": 0,
+                    "expired_count": 0,
+                    "total_count": 0,
+                    "expiring_30d_count": 0,
+                },
+            )
+            bucket["expiring_30d_count"] = int(bucket["expiring_30d_count"]) + int(row.count or 0)
+
+        bundle_breakdown = sorted(
+            bundle_mix_map.values(),
+            key=lambda item: (-int(item["total_count"]), str(item["plan_name"]).lower()),
+        )[:8]
 
         payload = {
             "live_headcount": live_headcount,
@@ -251,6 +387,13 @@ class AnalyticsService:
             "expiring_subscriptions_30d": int(expiring_30d or 0),
             "active_debt_accounts": int(debt_count or 0),
             "outstanding_staff_debt": float(debt_total or 0.0),
+            "subscriber_status_counts": [
+                {
+                    "status": (row.status.value if hasattr(row.status, "value") else str(row.status)),
+                    "count": int(row.count or 0),
+                }
+                for row in subscription_status_rows
+            ],
             "expiring_subscriptions": [
                 {
                     "user_id": str(row.user_id),
@@ -267,6 +410,27 @@ class AnalyticsService:
                     "count": int(row.count or 0),
                 }
                 for row in bundle_rows
+            ],
+            "bundle_breakdown": bundle_breakdown,
+            "audit_events_30d": int(audit_total or 0),
+            "audit_top_actions": [
+                {
+                    "action": row.action,
+                    "count": int(row.count or 0),
+                }
+                for row in audit_top_actions
+            ],
+            "audit_recent_events": [
+                {
+                    "id": str(row.id),
+                    "action": row.action,
+                    "target_id": row.target_id,
+                    "timestamp": row.timestamp.isoformat() if row.timestamp else None,
+                    "details": row.details,
+                    "user_name": row.user_name,
+                    "user_email": row.user_email,
+                }
+                for row in audit_recent_rows
             ],
         }
         if use_cache:

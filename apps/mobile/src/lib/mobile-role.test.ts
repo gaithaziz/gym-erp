@@ -51,6 +51,14 @@ function makeBootstrap(override: Partial<MobileBootstrap>): MobileBootstrap {
       support_email: null,
       support_phone: null,
     },
+    policy: {
+      current_policy_version: "1.0",
+      requires_signature: false,
+      locale_signatures: {
+        en: true,
+        ar: true,
+      },
+    },
     home_branch: null,
     accessible_branches: [],
     capabilities: [],

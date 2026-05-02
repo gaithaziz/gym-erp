@@ -83,10 +83,6 @@ interface StaffDebtDetail {
     monthly_balances: StaffDebtMonthlyBalance[];
 }
 
-type EntryType = StaffDebtEntry['entry_type'];
-
-const ENTRY_TYPES: EntryType[] = ['ADVANCE', 'DEDUCTION', 'REPAYMENT', 'SETTLEMENT', 'ADJUSTMENT'];
-
 const today = new Date();
 const defaultMonth = String(today.getMonth() + 1).padStart(2, '0');
 const defaultYear = String(today.getFullYear());
@@ -111,7 +107,6 @@ export default function StaffDebtPage() {
     const [detail, setDetail] = useState<StaffDebtDetail | null>(null);
     const [search, setSearch] = useState('');
     const [form, setForm] = useState({
-        entry_type: 'ADVANCE' as EntryType,
         amount: '',
         month: defaultMonth,
         year: defaultYear,
@@ -121,7 +116,7 @@ export default function StaffDebtPage() {
     const txt = locale === 'ar'
         ? {
             title: 'ديون الموظفين',
-            subtitle: 'سجل السلف والخصومات والسداد الشهري',
+            subtitle: 'سجل الديون فقط',
             staff: 'الموظفون',
             search: 'بحث',
             branch: 'الفرع',
@@ -133,15 +128,14 @@ export default function StaffDebtPage() {
             currentBalance: 'الرصيد الحالي',
             monthlyHistory: 'التاريخ الشهري',
             ledger: 'سجل الحركات',
-            addEntry: 'إضافة قيد',
-            saveEntry: 'حفظ القيد',
-            settle: 'تسوية الرصيد',
+            addEntry: 'إضافة دين',
+            saveEntry: 'حفظ الدين',
             amount: 'المبلغ',
             month: 'الشهر',
             year: 'السنة',
             notes: 'ملاحظات',
-            type: 'النوع',
-            advance: 'سلفة',
+            debtOnlyHint: 'يتم تسجيل نوع دين واحد فقط.',
+            advance: 'دين',
             deduction: 'خصم',
             repayment: 'سداد',
             settlement: 'تسوية',
@@ -165,7 +159,7 @@ export default function StaffDebtPage() {
         }
         : {
             title: 'Employee Debt',
-            subtitle: 'Track advances, deductions, repayments, and monthly settlements',
+            subtitle: 'Track debts only',
             staff: 'Staff',
             search: 'Search',
             branch: 'Branch',
@@ -177,15 +171,14 @@ export default function StaffDebtPage() {
             currentBalance: 'Current balance',
             monthlyHistory: 'Monthly history',
             ledger: 'Ledger',
-            addEntry: 'Add entry',
-            saveEntry: 'Save entry',
-            settle: 'Settle balance',
+            addEntry: 'Add debt',
+            saveEntry: 'Save debt',
             amount: 'Amount',
             month: 'Month',
             year: 'Year',
             notes: 'Notes',
-            type: 'Type',
-            advance: 'Advance',
+            debtOnlyHint: 'Only one debt type is recorded here.',
+            advance: 'Debt',
             deduction: 'Deduction',
             repayment: 'Repayment',
             settlement: 'Settlement',
@@ -208,8 +201,8 @@ export default function StaffDebtPage() {
             failedSave: 'Failed to save debt entry.',
         };
 
-    const getTypeLabel = (type: EntryType) => {
-        const labels: Record<EntryType, string> = {
+    const getTypeLabel = (type: StaffDebtEntry['entry_type']) => {
+        const labels: Record<StaffDebtEntry['entry_type'], string> = {
             ADVANCE: txt.advance,
             DEDUCTION: txt.deduction,
             REPAYMENT: txt.repayment,
@@ -218,6 +211,13 @@ export default function StaffDebtPage() {
         };
         return labels[type];
     };
+
+    const isAutoPayrollDeduction = (entry: StaffDebtEntry) =>
+        entry.entry_type === 'DEDUCTION' && Boolean(entry.notes?.toLowerCase().includes('automatic payroll debt deduction'));
+
+    const autoPayrollDeductionLabel = locale === 'ar'
+        ? 'خصم تلقائي من الراتب'
+        : 'Auto salary deduction';
 
     const selectedItem = useMemo(
         () => items.find((item) => item.user_id === selectedUserId) || null,
@@ -293,7 +293,7 @@ export default function StaffDebtPage() {
         }
         try {
             await api.post(`/hr/staff-debt/staff/${selectedUserId}/entries`, {
-                entry_type: form.entry_type,
+                entry_type: 'ADVANCE',
                 amount: Number(form.amount),
                 month: Number(form.month),
                 year: Number(form.year),
@@ -312,15 +312,6 @@ export default function StaffDebtPage() {
             console.error(err);
             showToast(txt.failedSave, 'error');
         }
-    };
-
-    const settleCurrentBalance = () => {
-        const balance = detail?.account?.current_balance ?? 0;
-        setForm((current) => ({
-            ...current,
-            entry_type: 'SETTLEMENT',
-            amount: String(balance > 0 ? balance : 0),
-        }));
     };
 
     const exportCsv = async () => {
@@ -538,19 +529,8 @@ export default function StaffDebtPage() {
                                         <Plus size={16} className="text-primary" />
                                         <h3 className="text-sm font-semibold text-foreground">{txt.addEntry}</h3>
                                     </div>
-                                    <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-                                        <div>
-                                            <label className="mb-1 block text-xs font-medium text-muted-foreground">{txt.type}</label>
-                                            <select
-                                                className="input-dark"
-                                                value={form.entry_type}
-                                                onChange={(e) => setForm((current) => ({ ...current, entry_type: e.target.value as EntryType }))}
-                                            >
-                                                {ENTRY_TYPES.map((entryType) => (
-                                                    <option key={entryType} value={entryType}>{getTypeLabel(entryType)}</option>
-                                                ))}
-                                            </select>
-                                        </div>
+                                    <p className="text-xs text-muted-foreground">{txt.debtOnlyHint}</p>
+                                    <div className="grid grid-cols-1 gap-3">
                                         <div>
                                             <label className="mb-1 block text-xs font-medium text-muted-foreground">{txt.amount}</label>
                                             <input
@@ -594,9 +574,6 @@ export default function StaffDebtPage() {
                                         />
                                     </div>
                                     <div className="flex flex-wrap justify-between gap-3 pt-1">
-                                        <button type="button" className="btn-ghost" onClick={settleCurrentBalance}>
-                                            <RotateCcw size={16} /> {txt.settle}
-                                        </button>
                                         <button type="submit" className="btn-primary">
                                             <CheckCircle2 size={16} /> {txt.saveEntry}
                                         </button>
@@ -678,8 +655,15 @@ export default function StaffDebtPage() {
                                                         {formatDate(entry.created_at)} • {entry.month.toString().padStart(2, '0')}/{entry.year}
                                                     </p>
                                                 </div>
-                                                <div className={`font-mono text-sm font-semibold ${isPositive ? 'text-amber-400' : 'text-emerald-400'}`}>
-                                                    {isPositive ? '+' : '-'}{formatNumber(entry.amount)} JOD
+                                                <div className="flex flex-col items-end gap-2">
+                                                    {isAutoPayrollDeduction(entry) && (
+                                                        <span className="rounded-full border border-emerald-500/30 bg-emerald-500/10 px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.18em] text-emerald-400">
+                                                            {autoPayrollDeductionLabel}
+                                                        </span>
+                                                    )}
+                                                    <div className={`font-mono text-sm font-semibold ${isPositive ? 'text-amber-400' : 'text-emerald-400'}`}>
+                                                        {isPositive ? '+' : '-'}{formatNumber(entry.amount)} JOD
+                                                    </div>
                                                 </div>
                                             </div>
                                             <div className="mt-2 grid grid-cols-2 gap-2 text-xs">

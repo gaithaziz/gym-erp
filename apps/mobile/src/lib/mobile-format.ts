@@ -254,6 +254,22 @@ export function localizePaymentMethod(value: string | undefined, isRTL: boolean)
   );
 }
 
+export function localizePerkPeriodType(value: string | undefined, isRTL: boolean) {
+  return localizeValue(
+    value,
+    isRTL
+      ? {
+          MONTHLY: "شهري",
+          CONTRACT: "عقد",
+        }
+      : {
+          MONTHLY: "Monthly",
+          CONTRACT: "Contract",
+        },
+    isRTL,
+  );
+}
+
 export function localizeAuditAction(value: string | undefined, isRTL: boolean) {
   return localizeValue(
     value,
@@ -442,6 +458,16 @@ export function localizeLostFoundStatus(value: string | undefined, isRTL: boolea
         },
     isRTL,
   );
+}
+
+export function localizeWeekday(weekday: number | undefined, isRTL: boolean) {
+  const labels = isRTL
+    ? ["الاثنين", "الثلاثاء", "الأربعاء", "الخميس", "الجمعة", "السبت", "الأحد"]
+    : ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"];
+  if (weekday == null || weekday < 0 || weekday >= labels.length) {
+    return isRTL ? "يوم" : "Day";
+  }
+  return labels[weekday];
 }
 
 function localizeValue(value: string | undefined, map: Record<string, string>, isRTL: boolean) {

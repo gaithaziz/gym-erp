@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import uuid
 from datetime import datetime, timezone
+import secrets
 from typing import Annotated, Any
 
 from fastapi import APIRouter, Depends, HTTPException, Query
@@ -23,7 +24,7 @@ router = APIRouter()
 class CoachingPackagePayload(BaseModel):
     user_id: uuid.UUID
     coach_id: uuid.UUID | None = None
-    package_key: str = Field(min_length=2, max_length=120)
+    package_key: str | None = Field(default=None, min_length=2, max_length=120)
     package_label: str = Field(min_length=2, max_length=255)
     total_sessions: int = Field(ge=0, le=9999)
     start_date: datetime | None = None
@@ -66,6 +67,12 @@ def _package_to_payload(package: CoachingPackage, *, member_name: str | None = N
         "is_active": package.is_active,
         "updated_at": package.updated_at.isoformat() if package.updated_at else None,
     }
+
+
+def _generate_package_key() -> str:
+    stamp = datetime.now(timezone.utc).strftime("%Y%m%d")
+    suffix = secrets.token_hex(3).upper()
+    return f"PT-{stamp}-{suffix}"
 
 
 async def _package_name_map(db: AsyncSession, packages: list[CoachingPackage]) -> dict[uuid.UUID, str | None]:
@@ -143,14 +150,15 @@ async def list_packages(
 @router.post("/packages", response_model=StandardResponse)
 async def create_package(
     payload: CoachingPackagePayload,
-    current_user: Annotated[User, Depends(dependencies.get_current_admin)],
+    current_user: Annotated[User, Depends(dependencies.get_current_manager)],
     db: Annotated[AsyncSession, Depends(get_db)],
 ):
+    package_key = (payload.package_key or "").strip() or _generate_package_key()
     package = CoachingPackage(
         gym_id=current_user.gym_id,
         user_id=payload.user_id,
         coach_id=payload.coach_id,
-        package_key=payload.package_key,
+        package_key=package_key,
         package_label=payload.package_label,
         total_sessions=payload.total_sessions,
         used_sessions=0,
@@ -174,7 +182,7 @@ async def create_package(
 async def update_package(
     package_id: uuid.UUID,
     payload: CoachingPackageUpdatePayload,
-    current_user: Annotated[User, Depends(dependencies.get_current_admin)],
+    current_user: Annotated[User, Depends(dependencies.get_current_manager)],
     db: Annotated[AsyncSession, Depends(get_db)],
 ):
     package = await _get_package_or_404(db, package_id, current_user.gym_id)

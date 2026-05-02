@@ -13,6 +13,8 @@ import {
     PolicyLocale,
     PolicySignature,
     getPolicySignatureKey,
+    getLegacyPolicySignatureKey,
+    getLocalePolicySignatureKey,
     loadPolicyContent,
 } from '@/lib/gymPolicy';
 
@@ -27,6 +29,7 @@ export default function GymPolicyPage() {
     const [signature, setSignature] = useState<PolicySignature | null>(null);
     const [signerName, setSignerName] = useState(user?.full_name || '');
     const [isSigning, setIsSigning] = useState(false);
+    const [signError, setSignError] = useState<string | null>(null);
 
     const txt = locale === 'ar'
         ? {
@@ -44,6 +47,10 @@ export default function GymPolicyPage() {
             contractVersion: 'إصدار العقد',
             policyPreview: 'ملخص السياسة',
             signingRequired: 'يجب توقيع العقد قبل إكمال الدفع أو متابعة تغيير الاشتراك.',
+            mobileSteps: 'الخطوات السريعة',
+            stepReview: '1. اقرأ العقد',
+            stepSign: '2. وقّع باسمك',
+            stepContinue: '3. عد للاشتراك',
         }
         : {
             title: 'Policy & Contract',
@@ -60,6 +67,10 @@ export default function GymPolicyPage() {
             contractVersion: 'Contract Version',
             policyPreview: 'Policy Preview',
             signingRequired: 'The contract must be signed before payment completion or subscription changes.',
+            mobileSteps: 'Quick Steps',
+            stepReview: '1. Review contract',
+            stepSign: '2. Sign with your name',
+            stepContinue: '3. Return to subscription',
         };
 
     useEffect(() => {
@@ -72,6 +83,7 @@ export default function GymPolicyPage() {
                 const policyData = policyRes.data?.data;
                 if (policyData) {
                     setPolicy({
+                        version: policyData.version || POLICY_VERSION,
                         title: policyData.title,
                         effectiveDate: policyData.effectiveDate,
                         updatedAt: policyData.updatedAt,
@@ -89,7 +101,11 @@ export default function GymPolicyPage() {
             } catch {
                 setPolicy(loadPolicyContent(policyLocale));
                 if (user?.id) {
-                    const raw = localStorage.getItem(getPolicySignatureKey(user.id));
+                    const raw =
+                        localStorage.getItem(getPolicySignatureKey(user.id)) ||
+                        localStorage.getItem(getLegacyPolicySignatureKey(user.id)) ||
+                        localStorage.getItem(getLocalePolicySignatureKey(user.id, 'en')) ||
+                        localStorage.getItem(getLocalePolicySignatureKey(user.id, 'ar'));
                     if (raw) {
                         try {
                             setSignature(JSON.parse(raw) as PolicySignature);
@@ -104,16 +120,18 @@ export default function GymPolicyPage() {
         setSignerName(user?.full_name || '');
     }, [policyLocale, user?.full_name, user?.id]);
 
-    const isSigned = signature?.version === POLICY_VERSION && signature.accepted;
+    const policyVersion = policy.version || POLICY_VERSION;
+    const isSigned = signature?.version === policyVersion && signature.accepted;
     const signatureDate = signature?.signedAt ? new Date(signature.signedAt) : null;
     const validSignatureDate = Boolean(signatureDate && !Number.isNaN(signatureDate.getTime()));
 
     const handleSign = async () => {
         if (!user?.id || !signerName.trim()) return;
         setIsSigning(true);
+        setSignError(null);
         try {
             const signed: PolicySignature = {
-                version: POLICY_VERSION,
+                version: policyVersion,
                 signedAt: new Date().toISOString(),
                 signerName: signerName.trim(),
                 accepted: true,
@@ -125,7 +143,14 @@ export default function GymPolicyPage() {
             const signatureData = response.data?.data as PolicySignature | undefined;
             const finalSignature = signatureData || signed;
             localStorage.setItem(getPolicySignatureKey(user.id), JSON.stringify(finalSignature));
+            localStorage.setItem(getLegacyPolicySignatureKey(user.id), JSON.stringify(finalSignature));
+            localStorage.setItem(getLocalePolicySignatureKey(user.id, policyLocale), JSON.stringify(finalSignature));
+            window.dispatchEvent(new Event('gym-policy-signature-updated'));
             setSignature(finalSignature);
+            router.replace('/dashboard/subscription');
+        } catch (error) {
+            const message = error instanceof Error ? error.message : 'Failed to sign contract.';
+            setSignError(message);
         } finally {
             setIsSigning(false);
         }
@@ -138,15 +163,21 @@ export default function GymPolicyPage() {
 
     if (!user) return null;
 
+    const mobileSteps = [
+        txt.stepReview,
+        txt.stepSign,
+        txt.stepContinue,
+    ];
+
     return (
-        <div className="max-w-5xl mx-auto space-y-6">
+        <div className="max-w-5xl mx-auto space-y-6 pb-24 sm:pb-6">
             <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
                 <div>
                     <p className="section-chip mb-2">{txt.policyPreview}</p>
                     <h1 className="text-2xl font-bold text-foreground font-serif tracking-tight">{txt.title}</h1>
                     <p className="mt-1 text-sm text-muted-foreground max-w-2xl">{txt.subtitle}</p>
                 </div>
-                <div className="flex flex-col items-start gap-2">
+                <div className="flex flex-wrap items-start gap-2 sm:flex-col sm:items-start">
                     <span className={`inline-flex items-center gap-2 rounded-full border px-3 py-1 text-xs font-bold uppercase tracking-wider ${contentMeta.badgeClass}`}>
                         <ShieldCheck size={14} />
                         {isSigned ? txt.signed : txt.unsigned}
@@ -165,7 +196,7 @@ export default function GymPolicyPage() {
                 <div className="grid gap-3 sm:grid-cols-3">
                     <div className="rounded-xl border border-border bg-card/50 p-4">
                         <p className="text-[11px] uppercase tracking-wider text-muted-foreground">{txt.contractVersion}</p>
-                        <p className="mt-1 text-sm font-semibold text-foreground">{POLICY_VERSION}</p>
+                        <p className="mt-1 text-sm font-semibold text-foreground">{policyVersion}</p>
                     </div>
                     <div className="rounded-xl border border-border bg-card/50 p-4">
                         <p className="text-[11px] uppercase tracking-wider text-muted-foreground">{txt.effectiveDate}</p>
@@ -184,6 +215,19 @@ export default function GymPolicyPage() {
                 <div className="mt-5 flex items-start gap-3 rounded-xl border border-border bg-background/60 p-4">
                     <Lock size={18} className="mt-0.5 text-primary" />
                     <p className="text-sm text-foreground">{txt.signingRequired}</p>
+                </div>
+
+                <div className="mt-4 grid gap-3 rounded-xl border border-border bg-background/60 p-4 sm:grid-cols-3">
+                    <div className="sm:col-span-1">
+                        <p className="text-xs font-bold uppercase tracking-wider text-muted-foreground">{txt.mobileSteps}</p>
+                    </div>
+                    <div className="sm:col-span-2 grid gap-2 sm:grid-cols-3">
+                        {mobileSteps.map((step) => (
+                            <div key={step} className="rounded-lg border border-border bg-card/40 px-3 py-2 text-xs text-muted-foreground">
+                                {step}
+                            </div>
+                        ))}
+                    </div>
                 </div>
             </div>
 
@@ -214,13 +258,18 @@ export default function GymPolicyPage() {
                     </div>
                 </div>
 
-                <div className="space-y-4">
+                <div className="space-y-4 lg:sticky lg:top-6 lg:self-start">
                     <div className="kpi-card p-6">
                         <div className="flex items-center gap-2">
                             <PenLine size={18} className="text-primary" />
                             <h2 className="text-lg font-bold text-foreground">{txt.signNow}</h2>
                         </div>
                         <p className="mt-2 text-sm text-muted-foreground">{txt.signatureNote}</p>
+                        {signError && (
+                            <div className="mt-4 rounded-xl border border-red-500/30 bg-red-500/10 px-4 py-3 text-sm text-red-200">
+                                {signError}
+                            </div>
+                        )}
 
                         <div className="mt-5 space-y-4">
                             <div>
@@ -255,6 +304,24 @@ export default function GymPolicyPage() {
                             </div>
                         )}
                     </div>
+                </div>
+            </div>
+
+            <div className="fixed inset-x-0 bottom-0 z-20 border-t border-border bg-background/95 px-4 py-3 backdrop-blur sm:hidden">
+                <div className="mx-auto flex max-w-5xl items-center gap-3">
+                    <div className="min-w-0 flex-1">
+                        <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">{isSigned ? txt.signed : txt.unsigned}</p>
+                        <p className="truncate text-sm text-foreground">{isSigned ? txt.signingRequired : txt.signNow}</p>
+                    </div>
+                    <button
+                        type="button"
+                        onClick={handleSign}
+                        disabled={isSigned || isSigning || !signerName.trim()}
+                        className="btn-primary shrink-0"
+                    >
+                        <PenLine size={16} />
+                        {isSigned ? txt.signed : txt.signNow}
+                    </button>
                 </div>
             </div>
         </div>

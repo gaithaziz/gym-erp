@@ -5,8 +5,13 @@ import { usePreferences } from "@/lib/preferences";
 import { Screen, Card, MutedText } from "@/components/ui";
 
 export default function IndexRoute() {
-  const { status, error } = useSession();
+  const { status, error, bootstrap } = useSession();
   const { copy } = usePreferences();
+  const isSignedForAnyLocale = Boolean(bootstrap?.policy?.locale_signatures?.en || bootstrap?.policy?.locale_signatures?.ar);
+
+  if (status === "signed_in" && bootstrap?.role === "CUSTOMER" && !isSignedForAnyLocale) {
+    return <Redirect href={"/policy" as never} />;
+  }
 
   if (status === "signed_in") {
     return <Redirect href="/(tabs)/home" />;

@@ -24,6 +24,7 @@ import {
     LifeBuoy,
     Activity,
     BadgeCheck,
+    Clock,
     Wrench,
     type LucideIcon
 } from "lucide-react";
@@ -41,8 +42,9 @@ import { useLocale } from '@/context/LocaleContext';
 import { useBranch } from '@/context/BranchContext';
 import { BRANCH_ADMIN_ROLES } from '@/lib/roles';
 import type { TranslationKey } from '@/lib/i18n/types';
+import { POLICY_VERSION, getLegacyPolicySignatureKey, getLocalePolicySignatureKey, getPolicySignatureKey, type PolicySignature } from '@/lib/gymPolicy';
 
-const BLOCKED_ALLOWED_ROUTES = ['/dashboard/subscription', '/dashboard/policy', '/dashboard/perks', '/dashboard/announcements', '/dashboard/blocked', '/dashboard/support', '/dashboard/lost-found'];
+const BLOCKED_ALLOWED_ROUTES = ['/dashboard/subscription', '/dashboard/policy', '/dashboard/announcements', '/dashboard/blocked', '/dashboard/support', '/dashboard/lost-found', '/dashboard/hours'];
 const BLOCKED_SUBSCRIPTION_STATUSES = new Set(['EXPIRED', 'FROZEN', 'NONE']);
 
 export default function DashboardLayout({
@@ -60,6 +62,8 @@ export default function DashboardLayout({
     const [supportHasNew, setSupportHasNew] = useState(false);
     const [lostFoundHasNew, setLostFoundHasNew] = useState(false);
     const [failedProfileImageUrl, setFailedProfileImageUrl] = useState<string | null>(null);
+    const [policySignatureState, setPolicySignatureState] = useState<'loading' | 'signed' | 'unsigned'>('loading');
+    const [policyVersion, setPolicyVersion] = useState(POLICY_VERSION);
     const profileImageUrl = resolveProfileImageUrl(user?.profile_picture_url);
     const isBlockedCustomer =
         user?.role === 'CUSTOMER' &&
@@ -76,6 +80,72 @@ export default function DashboardLayout({
         ? chatThreads.filter((t) => (t.unread_count || 0) > 0).length
         : 0;
     const supportReason = typeof window !== 'undefined' ? sessionStorage.getItem('admin_support_reason') : null;
+    const effectivePolicySignatureState = user?.role === 'CUSTOMER' ? policySignatureState : 'signed';
+
+    useEffect(() => {
+        if (isLoading || !user) {
+            return;
+        }
+
+        if (user.role !== 'CUSTOMER') {
+            return;
+        }
+
+        let cancelled = false;
+
+        const signatureKey = getPolicySignatureKey(user.id);
+        const legacySignatureKey = getLegacyPolicySignatureKey(user.id);
+        const enLocaleSignatureKey = getLocalePolicySignatureKey(user.id, 'en');
+        const arLocaleSignatureKey = getLocalePolicySignatureKey(user.id, 'ar');
+
+        const storedSignatureMatches = (expectedVersion: string) => {
+            if (!user?.id || typeof window === 'undefined') return false;
+            const raw =
+                localStorage.getItem(signatureKey) ||
+                localStorage.getItem(legacySignatureKey) ||
+                localStorage.getItem(enLocaleSignatureKey) ||
+                localStorage.getItem(arLocaleSignatureKey);
+            if (!raw) return false;
+            try {
+                const parsed = JSON.parse(raw) as PolicySignature;
+                return Boolean(parsed?.accepted && parsed.version === expectedVersion);
+            } catch {
+                return false;
+            }
+        };
+
+        const fetchPolicySignature = async () => {
+            try {
+                const policyResp = await api.get('/membership/policy', { params: { locale } });
+                const policyData = policyResp.data?.data as { version?: string } | undefined;
+                const expectedVersion = policyData?.version || POLICY_VERSION;
+                if (!cancelled) setPolicyVersion(expectedVersion);
+
+                const signatureResp = await api.get('/membership/policy/signature/me', { params: { locale } });
+                if (cancelled) return;
+                const signature = signatureResp.data?.data as PolicySignature | null | undefined;
+                const hasValidSignature = Boolean(signature?.accepted && signature.version === expectedVersion) || storedSignatureMatches(expectedVersion);
+                setPolicySignatureState(hasValidSignature ? 'signed' : 'unsigned');
+            } catch {
+                if (!cancelled) {
+                    const rawVersion = policyVersion || POLICY_VERSION;
+                    setPolicySignatureState(storedSignatureMatches(rawVersion) ? 'signed' : 'unsigned');
+                }
+            }
+        };
+
+        void fetchPolicySignature();
+        const handlePolicySignatureUpdate = () => {
+            if (!cancelled) {
+                void fetchPolicySignature();
+            }
+        };
+        window.addEventListener('gym-policy-signature-updated', handlePolicySignatureUpdate);
+        return () => {
+            cancelled = true;
+            window.removeEventListener('gym-policy-signature-updated', handlePolicySignatureUpdate);
+        };
+    }, [isLoading, user, locale, policyVersion]);
 
     useEffect(() => {
         if (!isLoading && !user) {
@@ -86,6 +156,15 @@ export default function DashboardLayout({
     useEffect(() => {
         if (isLoading || !user) return;
 
+        if (user.role === 'CUSTOMER' && effectivePolicySignatureState === 'loading') return;
+
+        if (user.role === 'CUSTOMER' && effectivePolicySignatureState === 'unsigned') {
+            if (!pathname.startsWith('/dashboard/policy')) {
+                router.replace('/dashboard/policy');
+            }
+            return;
+        }
+
         if (isBlockedCustomer) {
             if (!isBlockedRouteAllowed) {
                 router.replace('/dashboard/subscription');
@@ -93,7 +172,7 @@ export default function DashboardLayout({
             return;
         }
 
-    }, [isLoading, user, pathname, router, isBlockedCustomer, isBlockedRouteAllowed]);
+    }, [effectivePolicySignatureState, isLoading, user, pathname, router, isBlockedCustomer, isBlockedRouteAllowed]);
 
     // Close sidebar on route change (mobile)
     useEffect(() => {
@@ -188,12 +267,23 @@ export default function DashboardLayout({
         }
     }, [pathname, isSupportPage, isLostFoundPage, user]);
 
-    if (isLoading || !user) {
+    if (isLoading || !user || effectivePolicySignatureState === 'loading') {
         return (
             <div className="flex min-h-dvh items-center justify-center bg-background">
                 <div className="flex flex-col items-center gap-3">
                     <div className="h-10 w-10 animate-spin rounded-full border-4 border-primary border-t-transparent" />
                     <p className="text-sm text-muted-foreground">{t('common.loading')}</p>
+                </div>
+            </div>
+        );
+    }
+
+    if (user?.role === 'CUSTOMER' && effectivePolicySignatureState === 'unsigned' && !pathname.startsWith('/dashboard/policy')) {
+        return (
+            <div className="flex min-h-dvh items-center justify-center bg-background">
+                <div className="flex flex-col items-center gap-3">
+                    <div className="h-10 w-10 animate-spin rounded-full border-4 border-primary border-t-transparent" />
+                    <p className="text-sm text-muted-foreground">{t('common.redirecting')}</p>
                 </div>
             </div>
         );
@@ -235,7 +325,7 @@ export default function DashboardLayout({
         { href: '/dashboard/admin/staff-debt', labelKey: 'dashboard.nav.financials', labelOverride: locale === 'ar' ? 'ديون الموظفين' : 'Employee Debt', icon: Wallet, roles: [...BRANCH_ADMIN_ROLES], section: 'finance' },
         { href: '/dashboard/policy', labelKey: 'dashboard.nav.subscription', labelOverride: locale === 'ar' ? 'السياسة والعقد' : 'Policy & Contract', icon: ClipboardList, roles: [...BRANCH_ADMIN_ROLES, 'COACH', 'CUSTOMER', 'EMPLOYEE', 'CASHIER', 'RECEPTION', 'FRONT_DESK'], section: 'account' },
         { href: '/dashboard/announcements', labelKey: 'dashboard.nav.support', labelOverride: locale === 'ar' ? 'الإعلانات' : 'Announcements', icon: MessageSquare, roles: [...BRANCH_ADMIN_ROLES, 'COACH', 'CUSTOMER', 'EMPLOYEE', 'CASHIER', 'RECEPTION', 'FRONT_DESK'], section: 'account' },
-        { href: '/dashboard/packages', labelKey: 'dashboard.nav.subscription', labelOverride: locale === 'ar' ? 'الباقات الخاصة' : 'Private Packages', icon: BadgeCheck, roles: [...BRANCH_ADMIN_ROLES, 'COACH', 'CUSTOMER'], section: 'account' },
+        { href: '/dashboard/packages', labelKey: 'dashboard.nav.subscription', labelOverride: locale === 'ar' ? 'التدريب الخاص' : 'Private Coaching', icon: BadgeCheck, roles: [...BRANCH_ADMIN_ROLES, 'COACH', 'CUSTOMER'], section: 'account' },
         { href: '/dashboard/admin/announcements', labelKey: 'dashboard.nav.supportDesk', labelOverride: locale === 'ar' ? 'إدارة الإعلانات' : 'Announcements Admin', icon: MessageSquare, roles: [...BRANCH_ADMIN_ROLES], section: 'operations' },
         { href: '/dashboard/admin/facility', labelKey: 'dashboard.nav.inventory', labelOverride: locale === 'ar' ? 'المرافق والأجهزة' : 'Facilities & Machines', icon: Wrench, roles: [...BRANCH_ADMIN_ROLES], section: 'operations' },
         { href: '/dashboard/coach/plans', labelKey: 'dashboard.nav.workoutPlans', icon: Dumbbell, roles: [...BRANCH_ADMIN_ROLES, 'COACH'], section: 'coaching' },
@@ -253,8 +343,8 @@ export default function DashboardLayout({
         { href: '/dashboard/member/feedback', labelKey: 'dashboard.nav.myFeedback', icon: MessageSquare, roles: ['CUSTOMER'], section: 'account' },
         { href: '/dashboard/member/history', labelKey: 'dashboard.nav.history', icon: ClipboardList, roles: ['CUSTOMER'], section: 'account' },
         { href: '/dashboard/member/achievements', labelKey: 'dashboard.nav.achievements', icon: Trophy, roles: ['CUSTOMER'], section: 'account' },
+        { href: '/dashboard/hours', labelKey: 'dashboard.nav.support', labelOverride: locale === 'ar' ? 'ساعات العمل' : 'Hours & Days', icon: Clock, roles: [...BRANCH_ADMIN_ROLES, 'COACH', 'CUSTOMER', 'EMPLOYEE', 'CASHIER', 'RECEPTION', 'FRONT_DESK'], section: 'account' },
         { href: '/dashboard/subscription', labelKey: 'dashboard.nav.subscription', icon: ShieldAlert, roles: ['CUSTOMER'], section: 'account' },
-        { href: '/dashboard/perks', labelKey: 'dashboard.nav.subscription', labelOverride: locale === 'ar' ? 'المزايا والعدادات' : 'Perks & Counters', icon: BadgeCheck, roles: ['CUSTOMER', 'COACH', ...BRANCH_ADMIN_ROLES], section: 'account' },
         { href: '/dashboard/admin/policy', labelKey: 'dashboard.nav.subscription', labelOverride: locale === 'ar' ? 'سياسة النادي' : 'Gym Policy', icon: ClipboardList, roles: [...BRANCH_ADMIN_ROLES], section: 'operations' },
         { href: '/dashboard/support', labelKey: 'dashboard.nav.support', icon: MessageSquare, roles: ['CUSTOMER'], section: 'account' },
         { href: '/dashboard/system/stats', labelKey: 'dashboard.nav.globalStats', icon: Activity, roles: ['SUPER_ADMIN'], section: 'systemAdmin' },

@@ -58,7 +58,6 @@ interface LedgerResponse {
 const DEFAULT_FORM = {
     user_id: '',
     coach_id: '',
-    package_key: '',
     package_label: '',
     total_sessions: '8',
     start_date: '',
@@ -75,6 +74,7 @@ export default function PackagesPage() {
     const canManage = ['ADMIN', 'MANAGER'].includes(user?.role || '');
     const canCoachUse = ['ADMIN', 'MANAGER', 'COACH', 'CUSTOMER'].includes(user?.role || '');
     const [members, setMembers] = useState<MemberOption[]>([]);
+    const [coaches, setCoaches] = useState<MemberOption[]>([]);
     const [selectedMemberId, setSelectedMemberId] = useState('');
     const [selectedCoachId, setSelectedCoachId] = useState('');
     const [packagesData, setPackagesData] = useState<PackagesResponse | null>(null);
@@ -91,72 +91,76 @@ export default function PackagesPage() {
 
     const txt = locale === 'ar'
         ? {
-            title: 'الباقات الخاصة والعدادات',
-            subtitle: 'تابع حصص الجلسات الخاصة لكل عميل مع المدرب أو مع الإدارة.',
+            title: 'التدريب الخاص',
+            subtitle: 'أنشئ خطط التدريب الخاصة وراقب الجلسات المتبقية لكل عميل ومدرب.',
             summary: 'الملخص',
-            totalPackages: 'إجمالي الباقات',
+            totalPackages: 'إجمالي الخطط',
             totalRemaining: 'المتبقي',
             totalUsed: 'المستخدم',
             totalMembers: 'العملاء',
             totalCoaches: 'المدربون',
-            create: 'إضافة باقة خاصة',
+            create: 'خطة تدريب خاصة جديدة',
             member: 'العميل',
             coach: 'المدرب',
             selectMember: 'اختر العميل',
             selectCoach: 'اختر المدرب',
-            packageKey: 'مفتاح الباقة',
-            packageLabel: 'اسم الباقة',
+            packageKey: 'رمز الخطة',
+            packageKeyAuto: 'يُنشأ رمز الخطة تلقائياً.',
+            packageLabel: 'اسم الخطة',
             totalSessions: 'عدد الجلسات',
             startDate: 'تاريخ البداية',
             endDate: 'تاريخ النهاية',
             note: 'ملاحظة',
-            save: 'حفظ الباقة',
+            save: 'حفظ الخطة',
             saving: 'جارٍ الحفظ...',
             refresh: 'تحديث',
-            use: 'استهلك جلسة',
+            use: 'استخدام جلسة',
             useAmount: 'كمية الاستهلاك',
-            ledger: 'سجل التغييرات',
-            noPackages: 'لا توجد باقات خاصة بعد.',
+            ledger: 'سجل الجلسات',
+            noPackages: 'لا توجد خطط تدريب خاصة بعد.',
             noLedger: 'لا يوجد سجل لهذا العنصر.',
             active: 'نشط',
             inactive: 'غير نشط',
-            adjust: 'تعديل العدد',
-            adjustHint: 'أضف أو اخصم من العدد الإجمالي',
+            adjust: 'تعديل الجلسات',
+            adjustHint: 'أضف أو اخصم من إجمالي الجلسات',
             applyAdjustment: 'تطبيق التعديل',
+            helper: 'ابدأ باختيار العميل والمدرب، ثم أضف خطة التدريب الخاصة.',
         }
         : {
-            title: 'Private Coaching Packages',
-            subtitle: 'Track session packs per customer with their coach and admin visibility.',
+            title: 'Private Coaching',
+            subtitle: 'Create private training plans and track the sessions left for each member and coach.',
             summary: 'Summary',
-            totalPackages: 'Total Packages',
+            totalPackages: 'Total Plans',
             totalRemaining: 'Remaining',
             totalUsed: 'Used',
             totalMembers: 'Customers',
             totalCoaches: 'Coaches',
-            create: 'Add Private Package',
+            create: 'New Coaching Plan',
             member: 'Customer',
             coach: 'Coach',
             selectMember: 'Select Customer',
             selectCoach: 'Select Coach',
-            packageKey: 'Package Key',
-            packageLabel: 'Package Label',
+            packageKey: 'Plan Code',
+            packageKeyAuto: 'Plan code is generated automatically.',
+            packageLabel: 'Plan Name',
             totalSessions: 'Total Sessions',
             startDate: 'Start Date',
             endDate: 'End Date',
             note: 'Note',
-            save: 'Save Package',
+            save: 'Save Plan',
             saving: 'Saving...',
             refresh: 'Refresh',
-            use: 'Consume Session',
-            useAmount: 'Use Amount',
-            ledger: 'Change Ledger',
-            noPackages: 'No private coaching packages yet.',
+            use: 'Use Session',
+            useAmount: 'Amount',
+            ledger: 'Session Log',
+            noPackages: 'No private coaching plans yet.',
             noLedger: 'No ledger entries for this package.',
             active: 'Active',
             inactive: 'Inactive',
-            adjust: 'Adjust Count',
-            adjustHint: 'Add or subtract from the package total',
+            adjust: 'Adjust Sessions',
+            adjustHint: 'Add or subtract from the total sessions',
             applyAdjustment: 'Apply Adjustment',
+            helper: 'Start by choosing the customer and coach, then add the private training plan.',
         };
 
     const isCustomer = user?.role === 'CUSTOMER';
@@ -227,6 +231,23 @@ export default function PackagesPage() {
         }
     }, [isAdmin]);
 
+    const loadCoaches = useCallback(async () => {
+        if (!isAdmin) return;
+        try {
+            const response = await api.get('/hr/staff');
+            setCoaches((response.data?.data || [])
+                .filter((member: { role?: string }) => ['COACH', 'MANAGER', 'ADMIN'].includes(member.role || ''))
+                .map((member: { id: string; full_name: string; email?: string; role?: string }) => ({
+                    id: member.id,
+                    full_name: member.full_name,
+                    email: member.email,
+                    role: member.role,
+                })));
+        } catch {
+            setCoaches([]);
+        }
+    }, [isAdmin]);
+
     const loadPackages = useCallback(async () => {
         if (!user?.id) return;
         setLoading(true);
@@ -258,11 +279,15 @@ export default function PackagesPage() {
     }, [loadMembers]);
 
     useEffect(() => {
+        void loadCoaches();
+    }, [loadCoaches]);
+
+    useEffect(() => {
         void loadPackages();
     }, [loadPackages]);
 
     const customerMembers = useMemo(() => members.filter((member) => member.role === 'CUSTOMER'), [members]);
-    const coachMembers = useMemo(() => members.filter((member) => member.role === 'COACH' || member.role === 'MANAGER' || member.role === 'ADMIN'), [members]);
+    const coachMembers = useMemo(() => coaches, [coaches]);
 
     const copyFilterToForm = () => {
         setForm((current) => ({
@@ -276,7 +301,6 @@ export default function PackagesPage() {
         setForm({
             user_id: item.user_id,
             coach_id: item.coach_id || '',
-            package_key: item.package_key,
             package_label: item.package_label,
             total_sessions: String(item.total_sessions),
             start_date: item.start_date ? item.start_date.slice(0, 16) : '',
@@ -299,7 +323,7 @@ export default function PackagesPage() {
     };
 
     const createPackage = async () => {
-        if (!form.user_id || !form.package_key.trim() || !form.package_label.trim()) {
+        if (!form.user_id || !form.package_label.trim()) {
             showToast(locale === 'ar' ? 'أكمل الحقول المطلوبة.' : 'Complete the required fields.', 'error');
             return;
         }
@@ -308,7 +332,6 @@ export default function PackagesPage() {
             await api.post('/coaching/packages', {
                 user_id: form.user_id,
                 coach_id: asValue(form.coach_id) || null,
-                package_key: form.package_key.trim(),
                 package_label: form.package_label.trim(),
                 total_sessions: Number(form.total_sessions || 0),
                 start_date: form.start_date || null,
@@ -362,9 +385,10 @@ export default function PackagesPage() {
         <div className="max-w-6xl mx-auto space-y-6">
             <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
                 <div>
-                    <p className="section-chip mb-2">{txt.summary}</p>
+                    <p className="section-chip mb-2">{locale === 'ar' ? 'تدريب خاص' : 'Private Coaching'}</p>
                     <h1 className="text-2xl font-bold text-foreground font-serif tracking-tight">{txt.title}</h1>
                     <p className="mt-1 text-sm text-muted-foreground max-w-2xl">{txt.subtitle}</p>
+                    <p className="mt-2 text-xs text-muted-foreground max-w-2xl">{txt.helper}</p>
                 </div>
                 <button type="button" onClick={() => void loadPackages()} className="btn-secondary">
                     <RefreshCw size={16} />
@@ -464,6 +488,7 @@ export default function PackagesPage() {
                         <Plus size={16} className="text-primary" />
                         <h2 className="text-lg font-bold text-foreground">{txt.create}</h2>
                     </div>
+                    <p className="text-xs text-muted-foreground">{locale === 'ar' ? 'العميل والمدرب أولاً، ثم الخطة.' : 'Pick the member and coach first, then add the plan.'}</p>
                     <div className="grid gap-4 md:grid-cols-2">
                         <div>
                             <label className="mb-1.5 block text-xs font-medium text-muted-foreground">{txt.member}</label>
@@ -491,7 +516,8 @@ export default function PackagesPage() {
                     <div className="grid gap-4 md:grid-cols-2">
                         <div>
                             <label className="mb-1.5 block text-xs font-medium text-muted-foreground">{txt.packageKey}</label>
-                            <input className="input-dark" value={form.package_key} onChange={(event) => setForm((current) => ({ ...current, package_key: event.target.value }))} />
+                            <input className="input-dark" value="PT - auto generated" disabled readOnly />
+                            <p className="mt-1 text-[11px] text-muted-foreground">{txt.packageKeyAuto}</p>
                         </div>
                         <div>
                             <label className="mb-1.5 block text-xs font-medium text-muted-foreground">{txt.packageLabel}</label>
@@ -526,56 +552,62 @@ export default function PackagesPage() {
                 </div>
             )}
 
-            <div className="grid gap-4 lg:grid-cols-[1fr_0.95fr]">
+            <div className="grid gap-4 xl:grid-cols-[1.05fr_0.95fr]">
                 <div className="space-y-4">
                     {loading ? (
                         <div className="kpi-card p-6 text-sm text-muted-foreground">Loading...</div>
                     ) : filteredPackages.length ? (
                         filteredPackages.map((item) => (
                             <div key={item.id} className={`kpi-card p-6 space-y-4 ${item.id === selectedPackageId ? 'border-primary/50' : ''}`}>
-                                <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-                                    <div>
-                                        <p className="section-chip mb-2">{item.package_key}</p>
+                                <div className="flex flex-col gap-4">
+                                    <div className="min-w-0 flex-1">
+                                        <div className="mb-2 inline-flex max-w-full flex-col rounded-xl border border-primary/30 bg-primary/10 px-3 py-2">
+                                            <span className="text-[10px] font-bold uppercase tracking-[0.25em] text-primary/90">
+                                                {locale === 'ar' ? 'رمز الخطة' : 'Plan code'}
+                                            </span>
+                                            <span className="font-mono text-sm font-semibold tracking-[0.2em] text-primary break-all leading-tight">
+                                                {item.package_key}
+                                            </span>
+                                        </div>
                                         <h3 className="text-lg font-bold text-foreground">{item.package_label}</h3>
                                         <p className="text-xs text-muted-foreground mt-1">
                                             {item.member_name || item.user_id}
                                             {item.coach_name || item.coach_id ? ` · ${item.coach_name || item.coach_id}` : ''}
                                         </p>
+                                        <div className="mt-3 grid grid-cols-1 gap-2 sm:grid-cols-3">
+                                            <div className="rounded-xl border border-border bg-card/40 p-3">
+                                                <p className="text-[10px] uppercase tracking-wider text-muted-foreground">{txt.totalSessions}</p>
+                                                <p className="mt-1 text-sm font-semibold text-foreground">{item.total_sessions}</p>
+                                            </div>
+                                            <div className="rounded-xl border border-border bg-card/40 p-3">
+                                                <p className="text-[10px] uppercase tracking-wider text-muted-foreground">{txt.totalUsed}</p>
+                                                <p className="mt-1 text-sm font-semibold text-foreground">{item.used_sessions}</p>
+                                            </div>
+                                            <div className="rounded-xl border border-border bg-card/40 p-3">
+                                                <p className="text-[10px] uppercase tracking-wider text-muted-foreground">{txt.totalRemaining}</p>
+                                                <p className="mt-1 text-sm font-semibold text-foreground">{item.remaining_sessions}</p>
+                                            </div>
+                                        </div>
                                     </div>
-                                    <div className="flex items-center gap-2">
+                                    <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-1">
                                         <span className={`inline-flex items-center gap-2 rounded-full border px-2.5 py-1 text-xs font-bold uppercase tracking-wider ${item.is_active ? 'border-emerald-500/30 bg-emerald-500/10 text-emerald-400' : 'border-border bg-muted/30 text-muted-foreground'}`}>
                                             {item.is_active ? txt.active : txt.inactive}
                                         </span>
                                         {isAdmin && (
-                                            <button type="button" onClick={() => loadPackageIntoForm(item)} className="btn-secondary">
+                                            <button type="button" onClick={() => loadPackageIntoForm(item)} className="btn-secondary w-full justify-center">
                                                 {locale === 'ar' ? 'تحميل في النموذج' : 'Load into form'}
                                             </button>
                                         )}
-                                        <button type="button" onClick={() => void openLedger(item.id)} className="btn-secondary">
+                                        <button type="button" onClick={() => void openLedger(item.id)} className="btn-secondary w-full justify-center">
                                             <BookOpen size={16} />
                                             {txt.ledger}
                                         </button>
                                         {canCoachUse && (
-                                            <button type="button" onClick={() => void consumePackage(item.id)} className="btn-primary">
+                                            <button type="button" onClick={() => void consumePackage(item.id)} className="btn-primary w-full justify-center">
                                                 <Ticket size={16} />
                                                 {txt.use}
                                             </button>
                                         )}
-                                    </div>
-                                </div>
-
-                                <div className="grid gap-3 sm:grid-cols-3">
-                                    <div className="rounded-xl border border-border bg-card/40 p-3">
-                                        <p className="text-[11px] uppercase tracking-wider text-muted-foreground">{txt.totalSessions}</p>
-                                        <p className="text-sm font-semibold text-foreground mt-1">{item.total_sessions}</p>
-                                    </div>
-                                    <div className="rounded-xl border border-border bg-card/40 p-3">
-                                        <p className="text-[11px] uppercase tracking-wider text-muted-foreground">{txt.totalUsed}</p>
-                                        <p className="text-sm font-semibold text-foreground mt-1">{item.used_sessions}</p>
-                                    </div>
-                                    <div className="rounded-xl border border-border bg-card/40 p-3">
-                                        <p className="text-[11px] uppercase tracking-wider text-muted-foreground">{txt.totalRemaining}</p>
-                                        <p className="text-sm font-semibold text-foreground mt-1">{item.remaining_sessions}</p>
                                     </div>
                                 </div>
 
@@ -602,24 +634,26 @@ export default function PackagesPage() {
                                     </p>
                                 </div>
                                 {ledgerData?.entries?.length ? (
-                                    ledgerData.entries.map((entry) => (
-                                        <div key={entry.id} className="rounded-xl border border-border bg-card/50 p-4">
-                                            <div className="flex items-center justify-between gap-3">
-                                                <p className="text-sm font-semibold text-foreground">{entry.session_delta}</p>
-                                                <p className="text-xs text-muted-foreground">
-                                                    {entry.performed_at ? formatDate(entry.performed_at, { year: 'numeric', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }) : '--'}
-                                                </p>
+                                    <div className="max-h-[320px] space-y-3 overflow-y-auto pr-1">
+                                        {ledgerData.entries.map((entry) => (
+                                            <div key={entry.id} className="rounded-xl border border-border bg-card/50 p-4">
+                                                <div className="flex items-center justify-between gap-3">
+                                                    <p className="text-sm font-semibold text-foreground">{entry.session_delta}</p>
+                                                    <p className="text-xs text-muted-foreground">
+                                                        {entry.performed_at ? formatDate(entry.performed_at, { year: 'numeric', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }) : '--'}
+                                                    </p>
+                                                </div>
+                                                {entry.note && <p className="mt-2 text-xs text-muted-foreground">{entry.note}</p>}
                                             </div>
-                                            {entry.note && <p className="mt-2 text-xs text-muted-foreground">{entry.note}</p>}
-                                        </div>
-                                    ))
+                                        ))}
+                                    </div>
                                 ) : (
                                     <p className="text-sm text-muted-foreground">{txt.noLedger}</p>
                                 )}
 
                                 {isAdmin && (
-                                    <div className="rounded-xl border border-border bg-card/50 p-4 space-y-3">
-                                        <div>
+                                    <div className="rounded-xl border border-border bg-card/50 p-4 space-y-4">
+                                        <div className="space-y-1">
                                             <p className="text-sm font-semibold text-foreground">{txt.adjust}</p>
                                             <p className="text-xs text-muted-foreground mt-1">{txt.adjustHint}</p>
                                         </div>

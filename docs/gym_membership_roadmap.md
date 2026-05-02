@@ -32,25 +32,19 @@ The goal is to build a flexible membership platform that supports:
 - contract and policy pages with typed consent flow `web`
 - perk tracking and usage ledger `web + mobile`
 - private coaching packages and counters `web + mobile`
-- announcements feed and admin composer `web`
+- announcements feed, admin composer, and branch targeting `web + mobile`
+- mobile customer home quick actions and preview cards `mobile`
+- fully polished contract signing screens `mobile`
+- perk usage and remaining balance screens `mobile`
 - machine notes and gym uptime sections `web`
 - employee monthly debt tracking `web`
 - reporting, exports, and dashboard summaries `web`
-
-### Next
-
-- audience targeting by branch or all branches `web`
 - admin adjustment change logs for locked custom bundles `web`
 - deeper reporting polish and audit detail `web`
 - more bundle and subscriber analytics `web`
-
-### Mobile Still Needed
-
-- fully polished contract signing screens `mobile`
-- perk usage and remaining balance screens `mobile`
+- customer-first quick access views for subscription status and policy `mobile`
 - private coaching quick actions and session check-ins `mobile`
 - announcement push delivery and mobile notification handling `mobile`
-- customer-first quick access views for subscription status and policy `mobile`
 
 ## Product Principles
 
@@ -90,9 +84,8 @@ The goal is to build a flexible membership platform that supports:
 
 ### 4. Communication
 
-- announcements page `web + mobile`
+- announcements page with branch targeting `web + mobile`
 - push notifications `mobile`
-- audience targeting by branch or all branches `web`
 
 ### 5. Staff Finance
 
@@ -488,14 +481,14 @@ Some admin features can be mobile-accessible, but the main control surface shoul
 
 ## Mobile Priority Order
 
-1. Contract signing flow `mobile`
-2. Subscription status and policy views `mobile`
-3. Perk balances and usage `mobile`
-4. Private coaching counters and quick actions `mobile`
-5. Announcement push handling `mobile`
-6. Customer quick-access utilities `mobile`
+- [x] Contract signing flow `mobile`
+- [x] Subscription status and policy views `mobile`
+- [x] Perk balances and usage `mobile`
+- [x] Private coaching counters and quick actions `mobile`
+- [x] Announcement push handling `mobile`
+- [x] Customer quick-access utilities `mobile`
 
-## Open Decisions For Later
+## Finalized Decisions
 
 - saved filters are part of the first release
 - contract signing uses typed consent for the initial release

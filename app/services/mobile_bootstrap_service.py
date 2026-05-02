@@ -3,14 +3,17 @@ from __future__ import annotations
 from collections.abc import Iterable
 from typing import TypeVar
 
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.auth import schemas
 from app.database import set_rls_context
 from app.models.enums import Role
 from app.models.notification import MobileNotificationPreference
+from app.models.membership import PolicySignature
 from app.models.tenancy import Branch, Gym
 from app.models.user import User
+from app.services.policy_versions import get_gym_policy_version
 from app.services.role_access import is_branch_admin_role
 from app.services.subscription_status_service import SubscriptionAccessState, SubscriptionStatusService
 from app.services.tenancy_service import TenancyService
@@ -124,6 +127,7 @@ class MobileBootstrapService:
         enriched_user = await cls.build_user_response(current_user=current_user, db=db, is_impersonated=is_impersonated)
         subscription = await cls.get_subscription_snapshot(current_user=current_user, db=db)
         gym = await cls.get_gym_branding(current_user=current_user, db=db)
+        policy = await cls.get_policy_gate(current_user=current_user, db=db)
         accessible_branches = await cls.get_accessible_branches(current_user=current_user, db=db)
         home_branch = await cls.get_home_branch(current_user=current_user, db=db)
 
@@ -132,6 +136,7 @@ class MobileBootstrapService:
             role=current_user.role,
             subscription=subscription,
             gym=gym,
+            policy=policy,
             home_branch=home_branch,
             accessible_branches=accessible_branches,
             capabilities=list(cls._values_for_role(cls._ROLE_CAPABILITIES, current_user.role)),
@@ -183,6 +188,40 @@ class MobileBootstrapService:
             plan_name=state.subscription_plan_name,
             is_blocked=state.is_subscription_blocked,
             block_reason=state.block_reason,
+        )
+
+    @classmethod
+    async def get_policy_gate(
+        cls,
+        *,
+        current_user: User,
+        db: AsyncSession,
+    ) -> schemas.PolicyGate:
+        if current_user.role != Role.CUSTOMER:
+            return schemas.PolicyGate(current_policy_version="1.0", requires_signature=False, locale_signatures={})
+
+        signature_rows = (
+            await db.execute(
+                select(PolicySignature)
+                .where(
+                    PolicySignature.gym_id == current_user.gym_id,
+                    PolicySignature.user_id == current_user.id,
+                )
+                .order_by(PolicySignature.updated_at.desc())
+            )
+        ).scalars().all()
+        current_policy_version = await get_gym_policy_version(db, current_user.gym_id)
+        locale_signatures = {
+            locale: any(
+                sig.locale == locale and sig.policy_version == current_policy_version and sig.accepted
+                for sig in signature_rows
+            )
+            for locale in ("en", "ar")
+        }
+        return schemas.PolicyGate(
+            current_policy_version=current_policy_version,
+            requires_signature=not any(locale_signatures.values()),
+            locale_signatures=locale_signatures,
         )
 
     @classmethod

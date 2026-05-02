@@ -206,11 +206,18 @@ class NotificationPreference(BaseModel):
     announcements_enabled: bool = True
 
 
+class PolicyGate(BaseModel):
+    current_policy_version: str
+    requires_signature: bool
+    locale_signatures: dict[str, bool] = Field(default_factory=dict)
+
+
 class MobileBootstrap(BaseModel):
     user: UserResponse
     role: Role
     subscription: SubscriptionSnapshot
     gym: GymBranding
+    policy: PolicyGate
     home_branch: Optional[BranchSummary] = None
     accessible_branches: list[BranchSummary] = []
     capabilities: list[CapabilityValue]

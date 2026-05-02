@@ -1,14 +1,34 @@
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { CalendarClock, ShieldAlert, Snowflake, Lock, ArrowRightCircle } from 'lucide-react';
 import { useAuth } from '@/context/AuthContext';
 import { useLocale } from '@/context/LocaleContext';
 import { api } from '@/lib/api';
-import { POLICY_VERSION, getPolicySignatureKey, type PolicySignature } from '@/lib/gymPolicy';
+import { POLICY_VERSION, getLegacyPolicySignatureKey, getLocalePolicySignatureKey, getPolicySignatureKey, type PolicySignature } from '@/lib/gymPolicy';
 
 type SubscriptionStatus = 'ACTIVE' | 'FROZEN' | 'EXPIRED' | 'NONE';
+type BundleBenefit = {
+    id: string;
+    perk_key: string;
+    perk_label: string;
+    period_type: string;
+    total_allowance: number;
+    used_allowance: number;
+    remaining_allowance: number;
+    contract_ends_at?: string | null;
+    is_active: boolean;
+};
+
+type BundleBenefitsResponse = {
+    summary: {
+        total_accounts: number;
+        total_remaining: number;
+        total_used: number;
+    };
+    accounts: BundleBenefit[];
+};
 
 const localizeSubscriptionPlanName = (planName: string | null | undefined, locale: string) => {
     if (!planName) return '';
@@ -142,7 +162,10 @@ export default function CustomerSubscriptionPage() {
     }, [lockKey]);
     const [nowTs, setNowTs] = useState(0);
     const [signatureRefreshKey, setSignatureRefreshKey] = useState(0);
+    const [policyVersion, setPolicyVersion] = useState(POLICY_VERSION);
     const [contractSignature, setContractSignature] = useState<PolicySignature | null>(null);
+    const [bundleBenefits, setBundleBenefits] = useState<BundleBenefitsResponse | null>(null);
+    const [benefitUseBusyId, setBenefitUseBusyId] = useState<string | null>(null);
 
     useEffect(() => {
         const tick = () => setNowTs(Date.now());
@@ -157,14 +180,17 @@ export default function CustomerSubscriptionPage() {
     useEffect(() => {
         if (!user?.id) return;
         const signatureKey = getPolicySignatureKey(user.id);
+        const legacySignatureKey = getLegacyPolicySignatureKey(user.id);
+        const enLocaleSignatureKey = getLocalePolicySignatureKey(user.id, 'en');
+        const arLocaleSignatureKey = getLocalePolicySignatureKey(user.id, 'ar');
         const handleStorage = (event: StorageEvent) => {
-            if (event.key === signatureKey) {
+            if (event.key === signatureKey || event.key === legacySignatureKey) {
                 setSignatureRefreshKey((current) => current + 1);
             }
         };
         window.addEventListener('storage', handleStorage);
         return () => window.removeEventListener('storage', handleStorage);
-    }, [user?.id]);
+    }, [user?.id, locale]);
 
     useEffect(() => {
         const timeoutId = window.setTimeout(() => {
@@ -172,15 +198,32 @@ export default function CustomerSubscriptionPage() {
                 setContractSignature(null);
                 return;
             }
+            const signatureKey = getPolicySignatureKey(user.id);
+            const legacySignatureKey = getLegacyPolicySignatureKey(user.id);
+            const enLocaleSignatureKey = getLocalePolicySignatureKey(user.id, 'en');
+            const arLocaleSignatureKey = getLocalePolicySignatureKey(user.id, 'ar');
+            api.get('/membership/policy', { params: { locale: locale === 'ar' ? 'ar' : 'en' } })
+                .then((policyResponse) => {
+                    const policyData = policyResponse.data?.data as { version?: string } | undefined;
+                    setPolicyVersion(policyData?.version || POLICY_VERSION);
+                })
+                .catch(() => {
+                    setPolicyVersion(POLICY_VERSION);
+                });
             api.get('/membership/policy/signature/me', { params: { locale: locale === 'ar' ? 'ar' : 'en' } })
                 .then((response) => {
                     const signatureData = response.data?.data as PolicySignature | null | undefined;
                     if (signatureData) {
                         setContractSignature(signatureData);
-                        localStorage.setItem(getPolicySignatureKey(user.id), JSON.stringify(signatureData));
+                        localStorage.setItem(signatureKey, JSON.stringify(signatureData));
+                        localStorage.setItem(legacySignatureKey, JSON.stringify(signatureData));
                         return;
                     }
-                    const raw = localStorage.getItem(getPolicySignatureKey(user.id));
+                    const raw =
+                        localStorage.getItem(signatureKey) ||
+                        localStorage.getItem(legacySignatureKey) ||
+                        localStorage.getItem(enLocaleSignatureKey) ||
+                        localStorage.getItem(arLocaleSignatureKey);
                     if (!raw) {
                         setContractSignature(null);
                         return;
@@ -192,7 +235,11 @@ export default function CustomerSubscriptionPage() {
                     }
                 })
                 .catch(() => {
-                    const raw = localStorage.getItem(getPolicySignatureKey(user.id));
+                    const raw =
+                        localStorage.getItem(signatureKey) ||
+                        localStorage.getItem(legacySignatureKey) ||
+                        localStorage.getItem(enLocaleSignatureKey) ||
+                        localStorage.getItem(arLocaleSignatureKey);
                     if (!raw) {
                         setContractSignature(null);
                         return;
@@ -208,9 +255,36 @@ export default function CustomerSubscriptionPage() {
         return () => window.clearTimeout(timeoutId);
     }, [signatureRefreshKey, user?.id, locale]);
 
+    const loadBundleBenefits = useCallback(async () => {
+        if (!user?.id) {
+            setBundleBenefits(null);
+            return;
+        }
+        try {
+            const response = await api.get('/membership/perks');
+            setBundleBenefits((response.data?.data as BundleBenefitsResponse | undefined) || null);
+        } catch {
+            setBundleBenefits(null);
+        }
+    }, [user?.id]);
+
+    useEffect(() => {
+        void loadBundleBenefits();
+    }, [loadBundleBenefits, locale]);
+
+    const handleUseBenefit = useCallback(async (accountId: string) => {
+        try {
+            setBenefitUseBusyId(accountId);
+            await api.post(`/membership/perks/${accountId}/use`, { used_amount: 1 });
+            await loadBundleBenefits();
+        } finally {
+            setBenefitUseBusyId((current) => (current === accountId ? null : current));
+        }
+    }, [loadBundleBenefits]);
+
     const isRequestLocked = nowTs < lockUntilTs;
     const lockHoursRemaining = isRequestLocked ? Math.ceil((lockUntilTs - nowTs) / (1000 * 60 * 60)) : 0;
-    const isContractSigned = contractSignature?.accepted && contractSignature.version === POLICY_VERSION;
+    const isContractSigned = contractSignature?.accepted && contractSignature.version === policyVersion;
 
     const openRequest = (type: 'renewal' | 'unfreeze' | 'freeze' | 'extend') => {
         if (isRequestLocked || !isContractSigned) return;
@@ -287,7 +361,7 @@ export default function CustomerSubscriptionPage() {
                         <p className="text-[11px] uppercase tracking-wider text-muted-foreground">
                             {locale === 'ar' ? 'نسخة العقد' : 'Contract Version'}
                         </p>
-                        <p className="mt-1 text-sm font-semibold text-foreground">{POLICY_VERSION}</p>
+                        <p className="mt-1 text-sm font-semibold text-foreground">{policyVersion}</p>
                     </div>
                 </div>
 
@@ -298,6 +372,67 @@ export default function CustomerSubscriptionPage() {
                             : 'Subscription requests stay locked until the contract is signed.'}
                     </p>
                 )}
+            </div>
+
+            <div className="kpi-card p-6">
+                <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-4">
+                    <div>
+                        <p className="text-xs uppercase tracking-wider text-muted-foreground">
+                            {locale === 'ar' ? 'مزايا الباقة' : 'Bundle Benefits'}
+                        </p>
+                        <p className="mt-1 text-sm text-muted-foreground">
+                            {locale === 'ar'
+                                ? 'زيارات الضيوف واختبارات InBody والجلسات الخاصة جزء من اشتراكك.'
+                                : 'Guest visits, InBody tests, and private sessions are part of your subscription bundle.'}
+                        </p>
+                    </div>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 sm:min-w-[240px]">
+                        <div className="rounded-sm border border-border bg-card/40 p-3">
+                            <p className="text-[11px] uppercase tracking-wider text-muted-foreground">
+                                {locale === 'ar' ? 'المتبقي' : 'Remaining'}
+                            </p>
+                            <p className="mt-1 text-sm font-semibold text-foreground">{bundleBenefits?.summary.total_remaining ?? 0}</p>
+                        </div>
+                        <div className="rounded-sm border border-border bg-card/40 p-3">
+                            <p className="text-[11px] uppercase tracking-wider text-muted-foreground">
+                                {locale === 'ar' ? 'المستخدم' : 'Used'}
+                            </p>
+                            <p className="mt-1 text-sm font-semibold text-foreground">{bundleBenefits?.summary.total_used ?? 0}</p>
+                        </div>
+                    </div>
+                </div>
+
+                <div className="mt-4 space-y-3">
+                    {(bundleBenefits?.accounts || []).slice(0, 3).map((benefit) => (
+                        <div key={benefit.id} className="rounded-sm border border-border bg-card/40 p-3">
+                            <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-2">
+                                <div>
+                                    <p className="font-semibold text-foreground">{benefit.perk_label}</p>
+                                    <p className="text-xs text-muted-foreground mt-1">{benefit.perk_key}</p>
+                                </div>
+                                <span className="rounded-sm border border-border px-2.5 py-1 text-xs font-bold uppercase tracking-wider text-foreground">
+                                    {benefit.remaining_allowance} / {benefit.total_allowance}
+                                </span>
+                            </div>
+                            <p className="mt-2 text-sm text-muted-foreground">
+                                {locale === 'ar' ? 'نوع الميزة' : 'Benefit type'}: {benefit.period_type}
+                            </p>
+                            <div className="mt-3 flex items-center justify-between gap-3">
+                                <p className="text-xs text-muted-foreground">
+                                    {locale === 'ar' ? 'سجّل الاستخدام بعد إكمال الخدمة.' : 'Record usage after the service is completed.'}
+                                </p>
+                                <button
+                                    type="button"
+                                    onClick={() => void handleUseBenefit(benefit.id)}
+                                    disabled={benefitUseBusyId === benefit.id || benefit.remaining_allowance <= 0}
+                                    className="rounded-sm border border-border px-3 py-1.5 text-xs font-semibold text-foreground transition-colors hover:bg-white/5 disabled:cursor-not-allowed disabled:opacity-50"
+                                >
+                                    {benefitUseBusyId === benefit.id ? (locale === 'ar' ? 'جارٍ التحديث...' : 'Updating...') : (locale === 'ar' ? 'استخدم 1' : 'Use 1')}
+                                </button>
+                            </div>
+                        </div>
+                    ))}
+                </div>
             </div>
 
             <div className="kpi-card p-6">
@@ -397,6 +532,7 @@ export default function CustomerSubscriptionPage() {
                     </p>
                 )}
             </div>
+
         </div>
     );
 }

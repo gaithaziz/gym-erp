@@ -148,6 +148,7 @@ async function ensureRoleUser(request: APIRequestContext, role: AppRole): Promis
   }
 
   const admin = await apiLogin(request, adminEmail, adminPassword);
+  const adminMe = await fetchMe(request, admin.accessToken);
   const email = `e2e.${role.toLowerCase()}.${Date.now()}@example.com`;
 
   const register = await request.post(`${apiV1}/auth/register`, {
@@ -157,6 +158,7 @@ async function ensureRoleUser(request: APIRequestContext, role: AppRole): Promis
       email,
       password: rolePassword,
       role,
+      home_branch_id: adminMe?.home_branch_id ?? undefined,
     },
   });
 

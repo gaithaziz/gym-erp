@@ -15,6 +15,7 @@ from app.models.access import AccessLog, AttendanceLog, Subscription
 from app.models.enums import Role
 from app.models.finance import PaymentMethod, POSTransactionItem, Transaction, TransactionCategory, TransactionType
 from app.models.fitness import BiometricLog, DietPlan, WorkoutPlan
+from app.models.classes import ClassReservation, ClassReservationStatus, ClassSession, ClassSessionStatus
 from app.models.hr import LeaveRequest, LeaveStatus
 from app.models.inventory import Product
 from app.models.lost_found import LostFoundItem, LostFoundStatus
@@ -761,6 +762,7 @@ class MobileStaffService:
                 allow_all_for_admin=True,
             )
             branch_scope = User.home_branch_id.in_(branch_ids) if branch_ids else false()
+            session_scope = ClassSession.branch_id.in_(branch_ids) if branch_ids else false()
             members_count = await MobileStaffService._count(
                 db,
                 select(func.count(User.id)).where(User.role == Role.CUSTOMER, branch_scope),
@@ -809,6 +811,11 @@ class MobileStaffService:
                     )
                 )
             ).scalar()
+            coaching_session_data = await MobileStaffService.get_coach_sessions_summary(
+                current_user=current_user,
+                db=db,
+                branch_id=branch_id,
+            )
             recent_sessions = (
                 await db.execute(
                     select(WorkoutSession, WorkoutPlan.name, User.full_name)
@@ -849,6 +856,18 @@ class MobileStaffService:
                 }
                 for feedback, plan_name, member_name in recent_feedback
             )
+            activity_items.extend(
+                {
+                    "id": session["id"],
+                    "kind": "class_session",
+                    "title": session["display_name"],
+                    "subtitle": (
+                        f"{session['reserved_count']} reserved · {session['check_in_pending_count']} check-ins pending"
+                    ),
+                    "meta": session["starts_at"],
+                }
+                for session in coaching_session_data["upcoming_sessions"][:4]
+            )
             activity_items.sort(key=lambda item: item["meta"] or "", reverse=True)
             return {
                 "role": role.value,
@@ -859,9 +878,12 @@ class MobileStaffService:
                     "active_diet_plans": int(diet_total or 0),
                     "feedback_items": int(feedback_total or 0),
                     "today_sessions": int(pending_sessions or 0),
+                    "class_sessions_today": int(coaching_session_data["stats"]["today_sessions"]),
+                    "pending_class_requests": int(coaching_session_data["stats"]["pending_reservations"]),
                 },
                 "quick_actions": [
                     {"id": "shift_qr", "label": "Shift QR", "route": "/(tabs)/qr"},
+                    {"id": "classes", "label": "Sessions", "route": "/(tabs)/coach-sessions"},
                     {"id": "feedback", "label": "Feedback", "route": "/coach-feedback"},
                     {"id": "leaves", "label": "Leaves", "route": "/leaves"},
                     {"id": "chat", "label": "Chat", "route": "/chat"},
@@ -1082,6 +1104,145 @@ class MobileStaffService:
                 {"id": "profile", "label": "Profile", "route": "/profile"},
             ],
             "items": activity_items,
+        }
+
+    @staticmethod
+    async def get_coach_sessions_summary(*, current_user: User, db: AsyncSession, branch_id: uuid.UUID | None = None) -> dict:
+        if current_user.role not in {Role.ADMIN, Role.MANAGER, Role.COACH}:
+            raise ValueError("Not allowed")
+
+        branch_ids = await TenancyService.branch_scope_ids(
+            db,
+            current_user=current_user,
+            branch_id=branch_id,
+            allow_all_for_admin=current_user.role == Role.ADMIN,
+        )
+        session_scope = ClassSession.branch_id.in_(branch_ids) if branch_ids else false()
+        now = datetime.utcnow().replace(tzinfo=timezone.utc)
+        start_window = now - timedelta(days=1)
+        end_window = now + timedelta(days=7)
+
+        sessions = (
+            await db.execute(
+                select(ClassSession)
+                .options(selectinload(ClassSession.template), selectinload(ClassSession.coach))
+                .where(
+                    ClassSession.coach_id == current_user.id,
+                    session_scope,
+                    ClassSession.status == ClassSessionStatus.SCHEDULED,
+                    ClassSession.starts_at >= start_window,
+                    ClassSession.starts_at <= end_window,
+                )
+                .order_by(ClassSession.starts_at.asc())
+                .limit(12)
+            )
+        ).scalars().all()
+
+        session_ids = [session.id for session in sessions]
+        reservation_counts: dict[uuid.UUID, dict[str, int]] = {}
+        check_in_pending_counts: dict[uuid.UUID, int] = {}
+        pending_reservation_rows: list[tuple[ClassReservation, ClassSession, User]] = []
+
+        if session_ids:
+            count_rows = (
+                await db.execute(
+                    select(ClassReservation.session_id, ClassReservation.status, func.count(ClassReservation.id))
+                    .where(ClassReservation.session_id.in_(session_ids))
+                    .group_by(ClassReservation.session_id, ClassReservation.status)
+                )
+            ).all()
+            for session_id, status, count in count_rows:
+                bucket = reservation_counts.setdefault(session_id, {})
+                bucket[str(status.value if hasattr(status, "value") else status)] = int(count or 0)
+
+            pending_rows = (
+                await db.execute(
+                    select(ClassReservation, ClassSession, User)
+                    .join(ClassSession, ClassSession.id == ClassReservation.session_id)
+                    .join(User, User.id == ClassReservation.member_id)
+                    .where(
+                        ClassReservation.session_id.in_(session_ids),
+                        ClassReservation.status == ClassReservationStatus.PENDING,
+                    )
+                    .order_by(ClassReservation.reserved_at.asc())
+                )
+            ).all()
+            pending_reservation_rows = pending_rows
+
+            check_in_rows = (
+                await db.execute(
+                    select(ClassReservation.session_id, func.count(ClassReservation.id))
+                    .where(
+                        ClassReservation.session_id.in_(session_ids),
+                        ClassReservation.status == ClassReservationStatus.RESERVED,
+                        ClassReservation.attended.is_(False),
+                    )
+                    .group_by(ClassReservation.session_id)
+                )
+            ).all()
+            check_in_pending_counts = {session_id: int(count or 0) for session_id, count in check_in_rows}
+
+        def _counts_for(session_id: uuid.UUID) -> dict[str, int]:
+            counts = reservation_counts.get(session_id, {})
+            reserved = counts.get("RESERVED", 0)
+            pending = counts.get("PENDING", 0)
+            waitlist = counts.get("WAITLISTED", 0)
+            return {
+                "reserved_count": reserved,
+                "pending_count": pending,
+                "waitlist_count": waitlist,
+                "check_in_pending_count": check_in_pending_counts.get(session_id, 0),
+            }
+
+        upcoming_sessions = []
+        for session in sessions:
+            counts = _counts_for(session.id)
+            upcoming_sessions.append(
+                {
+                    "id": str(session.id),
+                    "display_name": session.display_name,
+                    "template_name": session.template.name if session.template else session.display_name,
+                    "starts_at": session.starts_at.isoformat(),
+                    "ends_at": session.ends_at.isoformat(),
+                    "status": session.status.value if hasattr(session.status, "value") else str(session.status),
+                    "capacity": session.effective_capacity,
+                    **counts,
+                }
+            )
+
+        check_in_sessions = [
+            session
+            for session in upcoming_sessions
+            if session["check_in_pending_count"] > 0 and datetime.fromisoformat(session["starts_at"]) <= now
+        ]
+        pending_reservations = [
+            {
+                "id": str(reservation.id),
+                "session_id": str(session.id),
+                "session_name": session.display_name,
+                "member_id": str(reservation.member_id),
+                "member_name": member.full_name,
+                "reserved_at": reservation.reserved_at.isoformat(),
+            }
+            for reservation, session, member in pending_reservation_rows
+        ]
+        today_count = sum(1 for session in sessions if session.starts_at.date() == now.date())
+        return {
+            "stats": {
+                "upcoming_sessions": len(upcoming_sessions),
+                "today_sessions": today_count,
+                "pending_reservations": len(pending_reservations),
+                "check_in_sessions": len(check_in_sessions),
+            },
+            "quick_actions": [
+                {"id": "sessions", "label": "Sessions", "route": "/(tabs)/coach-sessions"},
+                {"id": "checkins", "label": "Check-ins", "route": "/(tabs)/coach-sessions?tab=checkins"},
+                {"id": "reservations", "label": "Reservations", "route": "/(tabs)/coach-sessions?tab=requests"},
+                {"id": "feedback", "label": "Feedback", "route": "/coach-feedback"},
+            ],
+            "upcoming_sessions": upcoming_sessions,
+            "pending_reservations": pending_reservations,
+            "check_in_sessions": check_in_sessions,
         }
 
     @staticmethod

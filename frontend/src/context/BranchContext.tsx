@@ -40,9 +40,10 @@ export function BranchProvider({ children }: { children: ReactNode }) {
         const endpoint = user.role === 'SUPER_ADMIN' ? '/system/branches' : '/hr/branches';
         api.get(endpoint)
             .then(res => {
+                const payload = res.data;
                 const branchData = user.role === 'SUPER_ADMIN'
-                    ? (Array.isArray(res.data) ? res.data : [])
-                    : (res.data.data || []);
+                    ? (Array.isArray(payload) ? payload : (Array.isArray(payload?.data) ? payload.data : []))
+                    : (payload?.data || []);
                 setBranches(branchData);
                 
                 // Persistence: try to load from localStorage

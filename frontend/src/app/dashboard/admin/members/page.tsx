@@ -112,13 +112,50 @@ interface StaffMemberDetail {
     gym_feedback: Array<{ id: string; category: string; rating: number | null; comment: string | null; created_at: string }>;
 }
 
-const FIXED_SUBSCRIPTION_PLANS = [
-    { value: 'Monthly', days: 30 },
-    { value: 'Quarterly', days: 90 },
-    { value: 'Annual', days: 365 },
-] as const;
+interface BundleChangeLog {
+    id: string;
+    change_type: string;
+    previous_plan_name?: string | null;
+    new_plan_name?: string | null;
+    previous_start_date?: string | null;
+    new_start_date?: string | null;
+    previous_end_date?: string | null;
+    new_end_date?: string | null;
+    note?: string | null;
+    created_at?: string | null;
+}
 
-type FixedPlan = (typeof FIXED_SUBSCRIPTION_PLANS)[number]['value'];
+interface BundleBenefitAccount {
+    id: string;
+    perk_key: string;
+    perk_label: string;
+    period_type: 'MONTHLY' | 'CONTRACT';
+    total_allowance: number;
+    used_allowance: number;
+    remaining_allowance: number;
+    contract_ends_at?: string | null;
+    is_active: boolean;
+}
+
+interface BundleBenefitsResponse {
+    summary: {
+        total_accounts: number;
+        total_remaining: number;
+        total_used: number;
+    };
+    accounts: BundleBenefitAccount[];
+}
+
+interface BundlePerkDraft {
+    id: string;
+    perk_key: string;
+    perk_label: string;
+    period_type: 'CONTRACT' | 'MONTHLY';
+    total_allowance: string;
+    monthly_reset_day: string;
+    note: string;
+}
+
 type RenewalMode = 'period' | 'extend';
 type AssignableType = 'WORKOUT' | 'DIET';
 type MemberStatusFilter = 'ALL' | 'ACTIVE' | 'FROZEN' | 'EXPIRED' | 'NONE';
@@ -127,6 +164,17 @@ type DietPlanStatusFilter = 'ALL' | 'PUBLISHED' | 'DRAFT' | 'ARCHIVED';
 type ChartRange = '7d' | '30d' | '90d' | 'all';
 const MEMBERS_PAGE_SIZE = 10;
 const NO_BUNDLE_KEY = '__no_subscription__';
+
+const createBundlePerkDraft = (perk?: Partial<BundlePerkDraft>): BundlePerkDraft => ({
+    id: `perk-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+    perk_key: '',
+    perk_label: '',
+    period_type: 'CONTRACT',
+    total_allowance: '1',
+    monthly_reset_day: '',
+    note: '',
+    ...perk,
+});
 
 const getBundleKey = (member: Member) => {
     const rawName = member.subscription?.plan_name?.trim() || member.subscription_plan_name?.trim();
@@ -223,13 +271,23 @@ export default function MembersPage() {
     // Subscription Modal
     const [isManageOpen, setIsManageOpen] = useState(false);
     const [manageMember, setManageMember] = useState<Member | null>(null);
+    const [bundleChanges, setBundleChanges] = useState<BundleChangeLog[]>([]);
+    const [bundleBenefitsSummary, setBundleBenefitsSummary] = useState<BundleBenefitsResponse['summary']>({
+        total_accounts: 0,
+        total_remaining: 0,
+        total_used: 0,
+    });
+    const [bundleBenefitAccounts, setBundleBenefitAccounts] = useState<BundleBenefitAccount[]>([]);
     const [renewalMode, setRenewalMode] = useState<RenewalMode>('period');
-    const [subPlan, setSubPlan] = useState<FixedPlan>('Monthly');
+    const [subBundleName, setSubBundleName] = useState('Monthly Membership');
+    const [subDurationDays, setSubDurationDays] = useState(30);
     const [subStartDate, setSubStartDate] = useState(todayDateInput());
     const [subEndDate, setSubEndDate] = useState(addDaysToDateInput(todayDateInput(), 30));
     const [subExtendDays, setSubExtendDays] = useState(30);
     const [subAmountPaid, setSubAmountPaid] = useState('');
     const [subPaymentMethod, setSubPaymentMethod] = useState<'CASH' | 'CARD' | 'TRANSFER'>('CASH');
+    const [subNote, setSubNote] = useState('');
+    const [bundlePerks, setBundlePerks] = useState<BundlePerkDraft[]>([createBundlePerkDraft()]);
 
     // View Profile Modal
     const [isViewOpen, setIsViewOpen] = useState(false);
@@ -311,12 +369,30 @@ export default function MembersPage() {
             renewalMode: 'وضع التجديد',
             periodMode: 'فترة الاشتراك',
             extendMode: 'تمديد الاشتراك',
-            plan: 'الخطة',
+            plan: 'اسم الباقة',
+            bundleNameRequired: 'يجب إدخال اسم الباقة.',
             startDate: 'تاريخ البدء',
             endDate: 'تاريخ الانتهاء',
+            bundleDurationDays: 'عدد الأيام',
             extendDays: 'أيام التمديد',
             amountPaid: 'المبلغ المدفوع (JOD)',
             paymentMethod: 'طريقة الدفع',
+            adjustmentNote: 'ملاحظة التعديل',
+            bundleBenefits: 'مزايا الباقة',
+            bundleBenefitsHint: 'أضف مزايا الاشتراك داخل نفس الباقة بدل أن تكون شيئًا منفصلًا.',
+            bundleBenefitKey: 'مفتاح الميزة',
+            bundleBenefitLabel: 'اسم الميزة',
+            bundleBenefitAllowance: 'الكمية',
+            bundleBenefitPeriod: 'الفترة',
+            bundleBenefitContract: 'عقد',
+            bundleBenefitMonthly: 'شهري',
+            bundleBenefitMonthlyReset: 'يوم الضبط الشهري',
+            addBenefit: 'إضافة ميزة',
+            removeBenefit: 'حذف',
+            noBundleBenefits: 'لا توجد مزايا داخل هذه الباقة بعد.',
+            bundlePerkIncomplete: 'أكمل حقول الميزة أو احذف السطر الفارغ.',
+            bundleHistory: 'سجل تغييرات الباقة',
+            bundleHistoryEmpty: 'لا توجد تغييرات بعد.',
             cash: 'نقدًا',
             card: 'بطاقة',
             bankTransfer: 'تحويل بنكي',
@@ -462,12 +538,30 @@ export default function MembersPage() {
             fixedPlan: 'Fixed Plan',
             periodMode: 'Subscription Period',
             extendMode: 'Extend Subscription',
-            plan: 'Plan',
+            plan: 'Bundle Name',
+            bundleNameRequired: 'Bundle name is required.',
             startDate: 'Start Date',
             endDate: 'End Date',
+            bundleDurationDays: 'Duration Days',
             extendDays: 'Extension Days',
             amountPaid: 'Amount Paid (JOD)',
             paymentMethod: 'Payment Method',
+            adjustmentNote: 'Adjustment note',
+            bundleBenefits: 'Bundle Benefits',
+            bundleBenefitsHint: 'Add the subscription perks inside the same bundle instead of keeping them separate.',
+            bundleBenefitKey: 'Benefit Key',
+            bundleBenefitLabel: 'Benefit Name',
+            bundleBenefitAllowance: 'Allowance',
+            bundleBenefitPeriod: 'Period',
+            bundleBenefitContract: 'Contract',
+            bundleBenefitMonthly: 'Monthly',
+            bundleBenefitMonthlyReset: 'Monthly reset day',
+            addBenefit: 'Add benefit',
+            removeBenefit: 'Remove',
+            noBundleBenefits: 'No benefits added to this bundle yet.',
+            bundlePerkIncomplete: 'Complete the benefit fields or remove the empty row.',
+            bundleHistory: 'Bundle change log',
+            bundleHistoryEmpty: 'No bundle changes yet.',
             cash: 'Cash',
             card: 'Card',
             bankTransfer: 'Bank Transfer',
@@ -554,12 +648,6 @@ export default function MembersPage() {
             lineBodyFat: 'Body Fat (%)',
             lineMuscleKg: 'Muscle (kg)',
         };
-
-    const fixedPlanLabelByValue: Record<FixedPlan, string> = {
-        Monthly: text.monthly30d,
-        Quarterly: text.quarterly90d,
-        Annual: text.annual365d,
-    };
 
     const statusLabel = (status?: string | null) => {
         switch (status) {
@@ -866,6 +954,59 @@ export default function MembersPage() {
         }
     };
 
+    const fetchBundleChanges = useCallback(async (memberId: string) => {
+        try {
+            const response = await api.get(`/hr/subscriptions/${memberId}/bundle-changes`);
+            setBundleChanges(response.data?.data || []);
+        } catch (err) {
+            console.error(err);
+            setBundleChanges([]);
+        }
+    }, []);
+
+    const fetchBundlePerks = useCallback(async (memberId: string) => {
+        try {
+            const response = await api.get('/membership/perks', { params: { member_id: memberId } });
+            const data = response.data?.data as BundleBenefitsResponse | undefined;
+            const perks = data?.accounts || [];
+            setBundleBenefitsSummary(data?.summary || { total_accounts: 0, total_remaining: 0, total_used: 0 });
+            setBundleBenefitAccounts(perks);
+            setBundlePerks(perks.length ? perks.map((perk: {
+                id: string;
+                perk_key: string;
+                perk_label: string;
+                period_type: string;
+                total_allowance: number;
+                monthly_reset_day?: number | null;
+                note?: string | null;
+            }) => createBundlePerkDraft({
+                id: perk.id,
+                perk_key: perk.perk_key,
+                perk_label: perk.perk_label,
+                period_type: perk.period_type === 'MONTHLY' ? 'MONTHLY' : 'CONTRACT',
+                total_allowance: String(perk.total_allowance ?? 0),
+                monthly_reset_day: perk.monthly_reset_day ? String(perk.monthly_reset_day) : '',
+                note: perk.note || '',
+            })) : [createBundlePerkDraft()]);
+        } catch (err) {
+            console.error(err);
+            setBundleBenefitsSummary({ total_accounts: 0, total_remaining: 0, total_used: 0 });
+            setBundleBenefitAccounts([]);
+            setBundlePerks([createBundlePerkDraft()]);
+        }
+    }, []);
+
+    const handleUseBundleBenefit = useCallback(async (accountId: string) => {
+        if (!manageMember) return;
+        try {
+            await api.post(`/membership/perks/${accountId}/use`, { used_amount: 1 });
+            await fetchBundlePerks(manageMember.id);
+        } catch (err) {
+            console.error(err);
+            showToast(locale === 'ar' ? 'فشل تحديث الميزة.' : 'Failed to update benefit.', 'error');
+        }
+    }, [fetchBundlePerks, locale, manageMember, showToast]);
+
     useEffect(() => {
         setTimeout(() => fetchMembers(), 0);
     }, [fetchMembers]);
@@ -874,6 +1015,18 @@ export default function MembersPage() {
         setPlans([]);
         setDietPlans([]);
     }, [selectedBranchId]);
+
+    useEffect(() => {
+        if (!isManageOpen || !manageMember) return;
+        void fetchBundleChanges(manageMember.id);
+        void fetchBundlePerks(manageMember.id);
+    }, [fetchBundleChanges, fetchBundlePerks, isManageOpen, manageMember]);
+
+    useEffect(() => {
+        if (!isManageOpen || renewalMode !== 'period') return;
+        const normalizedDays = Math.max(1, Math.floor(Number(subDurationDays || 0)));
+        setSubEndDate(addDaysToDateInput(subStartDate, normalizedDays));
+    }, [isManageOpen, renewalMode, subDurationDays, subStartDate]);
 
     useEffect(() => {
         if (!isAddOpen) return;
@@ -953,13 +1106,19 @@ export default function MembersPage() {
 
     const openManage = (member: Member) => {
         setManageMember(member);
+        setBundleChanges([]);
+        setBundleBenefitsSummary({ total_accounts: 0, total_remaining: 0, total_used: 0 });
+        setBundleBenefitAccounts([]);
         setRenewalMode('period');
-        setSubPlan('Monthly');
+        setSubBundleName(member.subscription?.plan_name?.trim() || member.subscription_plan_name?.trim() || 'Monthly Membership');
+        setSubDurationDays(30);
         setSubStartDate(todayDateInput());
         setSubEndDate(addDaysToDateInput(todayDateInput(), 30));
         setSubExtendDays(30);
         setSubAmountPaid('');
         setSubPaymentMethod('CASH');
+        setSubNote('');
+        setBundlePerks([createBundlePerkDraft()]);
         setIsManageOpen(true);
     };
 
@@ -970,6 +1129,11 @@ export default function MembersPage() {
             showToast(text.amountPositive, 'error');
             return;
         }
+        const normalizedBundleName = subBundleName.trim();
+        if (!normalizedBundleName) {
+            showToast(text.bundleNameRequired, 'error');
+            return;
+        }
         if (renewalMode === 'extend') {
             const normalizedExtendDays = Math.floor(Number(subExtendDays));
             if (!Number.isFinite(normalizedExtendDays) || normalizedExtendDays <= 0) {
@@ -977,24 +1141,54 @@ export default function MembersPage() {
                 return;
             }
         }
+        const normalizedBundlePerks = bundlePerks.map((perk) => ({
+            perk_key: perk.perk_key.trim(),
+            perk_label: perk.perk_label.trim(),
+            period_type: perk.period_type,
+            total_allowance: Math.floor(Number(perk.total_allowance)),
+            monthly_reset_day: perk.monthly_reset_day.trim() ? Math.floor(Number(perk.monthly_reset_day)) : null,
+            note: perk.note.trim() || null,
+        }));
+        const hasInvalidPerkRow = normalizedBundlePerks.some((perk, index) => {
+            const source = bundlePerks[index];
+            const hasAnyInput = Boolean(
+                source.perk_key.trim() ||
+                source.perk_label.trim() ||
+                source.total_allowance.trim() ||
+                source.monthly_reset_day.trim() ||
+                source.note.trim()
+            );
+            if (!hasAnyInput) return false;
+            return !perk.perk_key || !perk.perk_label || !Number.isFinite(perk.total_allowance) || perk.total_allowance < 0;
+        });
+        if (hasInvalidPerkRow) {
+            showToast(text.bundlePerkIncomplete, 'error');
+            return;
+        }
+        const finalBundlePerks = normalizedBundlePerks.filter((perk) => perk.perk_key && perk.perk_label && Number.isFinite(perk.total_allowance) && perk.total_allowance >= 0);
+        const periodEndDate = addDaysToDateInput(subStartDate, Math.max(1, Math.floor(Number(subDurationDays || 0))));
         try {
             const payload = renewalMode === 'extend'
                 ? {
                     user_id: manageMember.id,
-                    plan_name: subPlan,
+                    plan_name: normalizedBundleName,
                     start_date: subStartDate,
                     end_date: subEndDate,
                     extend_days: Math.floor(Number(subExtendDays)),
                     amount_paid: amountPaid,
                     payment_method: subPaymentMethod,
+                    note: subNote.trim() || null,
+                    bundle_perks: finalBundlePerks,
                 }
                 : {
                     user_id: manageMember.id,
-                    plan_name: subPlan,
+                    plan_name: normalizedBundleName,
                     start_date: subStartDate,
-                    end_date: subEndDate,
+                    end_date: periodEndDate,
                     amount_paid: amountPaid,
                     payment_method: subPaymentMethod,
+                    note: subNote.trim() || null,
+                    bundle_perks: finalBundlePerks,
                 };
             await api.post('/hr/subscriptions', payload);
             setIsManageOpen(false);
@@ -1663,8 +1857,7 @@ export default function MembersPage() {
                                     type="button"
                                     onClick={() => {
                                         setRenewalMode('period');
-                                        const selectedPlan = FIXED_SUBSCRIPTION_PLANS.find(plan => plan.value === subPlan) ?? FIXED_SUBSCRIPTION_PLANS[0];
-                                        setSubEndDate(addDaysToDateInput(subStartDate, selectedPlan.days));
+                                        setSubEndDate(addDaysToDateInput(subStartDate, Math.max(1, Math.floor(Number(subDurationDays || 0)))));
                                     }}
                                     className={`py-2 px-3 text-sm rounded-sm border transition-colors ${renewalMode === 'period'
                                         ? 'border-primary text-primary bg-primary/10'
@@ -1687,24 +1880,18 @@ export default function MembersPage() {
                         </div>
 
                         {renewalMode === 'period' ? (
-                            <div className="space-y-3">
+                            <div className="space-y-4">
                                 <div>
                                     <label className="block text-xs text-muted-foreground mb-1">{text.plan}</label>
-                                    <select
+                                    <input
+                                        type="text"
                                         className="input-dark"
-                                        value={subPlan}
-                                        onChange={e => {
-                                            const nextPlan = e.target.value as FixedPlan;
-                                            const selectedPlan = FIXED_SUBSCRIPTION_PLANS.find(plan => plan.value === nextPlan) ?? FIXED_SUBSCRIPTION_PLANS[0];
-                                            setSubPlan(nextPlan);
-                                            setSubEndDate(addDaysToDateInput(subStartDate, selectedPlan.days));
-                                        }}
-                                    >
-                                        {FIXED_SUBSCRIPTION_PLANS.map(plan => (
-                                            <option key={plan.value} value={plan.value}>{fixedPlanLabelByValue[plan.value]}</option>
-                                        ))}
-                                    </select>
+                                        value={subBundleName}
+                                        onChange={(e) => setSubBundleName(e.target.value)}
+                                        placeholder={locale === 'ar' ? 'مثال: باقة ذهبية' : 'e.g. Gold Bundle'}
+                                    />
                                 </div>
+
                                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                                     <div>
                                         <label className="block text-xs text-muted-foreground mb-1">{text.startDate}</label>
@@ -1712,26 +1899,32 @@ export default function MembersPage() {
                                             type="date"
                                             className="input-dark"
                                             value={subStartDate}
-                                            onChange={e => {
-                                                const nextStart = e.target.value;
-                                                setSubStartDate(nextStart);
-                                                const selectedPlan = FIXED_SUBSCRIPTION_PLANS.find(plan => plan.value === subPlan) ?? FIXED_SUBSCRIPTION_PLANS[0];
-                                                setSubEndDate(addDaysToDateInput(nextStart, selectedPlan.days));
-                                            }}
+                                            onChange={e => setSubStartDate(e.target.value)}
                                             required
                                         />
                                     </div>
                                     <div>
-                                        <label className="block text-xs text-muted-foreground mb-1">{text.endDate}</label>
+                                        <label className="block text-xs text-muted-foreground mb-1">{text.bundleDurationDays}</label>
                                         <input
-                                            type="date"
+                                            type="number"
+                                            min={1}
+                                            step={1}
                                             className="input-dark"
-                                            value={subEndDate}
-                                            min={subStartDate || undefined}
-                                            onChange={e => setSubEndDate(e.target.value)}
+                                            value={subDurationDays}
+                                            onChange={(e) => setSubDurationDays(Math.max(1, Math.floor(Number(e.target.value || 1))))}
                                             required
                                         />
                                     </div>
+                                </div>
+
+                                <div>
+                                    <label className="block text-xs text-muted-foreground mb-1">{text.endDate}</label>
+                                    <input
+                                        type="date"
+                                        className="input-dark"
+                                        value={subEndDate}
+                                        readOnly
+                                    />
                                 </div>
                             </div>
                         ) : (
@@ -1747,6 +1940,189 @@ export default function MembersPage() {
                                 />
                             </div>
                         )}
+                        <div className="border border-border rounded-sm p-4 space-y-3">
+                            <div className="flex flex-wrap items-start justify-between gap-3">
+                                <div>
+                                    <h4 className="text-sm font-semibold text-foreground">{text.bundleBenefits}</h4>
+                                    <p className="text-xs text-muted-foreground mt-1">{text.bundleBenefitsHint}</p>
+                                </div>
+                                <button
+                                    type="button"
+                                    onClick={() => setBundlePerks((current) => [...current, createBundlePerkDraft()])}
+                                    className="btn-ghost text-xs"
+                                >
+                                    {text.addBenefit}
+                                </button>
+                            </div>
+                            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                                <div className="rounded-sm border border-border bg-card/40 p-3">
+                                    <p className="text-[11px] uppercase tracking-wider text-muted-foreground">
+                                        {locale === 'ar' ? 'إجمالي المزايا' : 'Total benefits'}
+                                    </p>
+                                    <p className="mt-1 text-sm font-semibold text-foreground">{bundleBenefitsSummary.total_accounts}</p>
+                                </div>
+                                <div className="rounded-sm border border-border bg-card/40 p-3">
+                                    <p className="text-[11px] uppercase tracking-wider text-muted-foreground">
+                                        {locale === 'ar' ? 'المتبقي' : 'Remaining'}
+                                    </p>
+                                    <p className="mt-1 text-sm font-semibold text-foreground">{bundleBenefitsSummary.total_remaining}</p>
+                                </div>
+                                <div className="rounded-sm border border-border bg-card/40 p-3">
+                                    <p className="text-[11px] uppercase tracking-wider text-muted-foreground">
+                                        {locale === 'ar' ? 'المستخدم' : 'Used'}
+                                    </p>
+                                    <p className="mt-1 text-sm font-semibold text-foreground">{bundleBenefitsSummary.total_used}</p>
+                                </div>
+                            </div>
+                            <div className="rounded-sm border border-border bg-card/40 p-3 space-y-3">
+                                <div className="flex items-center justify-between gap-3">
+                                    <div>
+                                        <p className="text-xs uppercase tracking-[0.2em] text-muted-foreground">
+                                            {locale === 'ar' ? 'الاستخدام الحالي للمزايا' : 'Current benefit usage'}
+                                        </p>
+                                        <p className="mt-1 text-xs text-muted-foreground">
+                                            {locale === 'ar'
+                                                ? 'استخدم 1 لتحديث العدّاد بعد تقديم الخدمة.'
+                                                : 'Use 1 to update the counter after the service is delivered.'}
+                                        </p>
+                                    </div>
+                                    <span className="rounded-full border border-border bg-background px-2 py-1 text-[10px] font-bold uppercase tracking-wider text-muted-foreground">
+                                        {bundleBenefitAccounts.length}
+                                    </span>
+                                </div>
+                                {bundleBenefitAccounts.length ? (
+                                    <div className="max-h-56 space-y-2 overflow-y-auto pr-1">
+                                        {bundleBenefitAccounts.map((benefit) => (
+                                            <div key={benefit.id} className="rounded-sm border border-border bg-background/40 p-3">
+                                                <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                                                    <div className="min-w-0">
+                                                        <p className="font-semibold text-foreground">{benefit.perk_label}</p>
+                                                        <p className="text-xs text-muted-foreground mt-1">{benefit.perk_key}</p>
+                                                    </div>
+                                                    <span className="inline-flex w-fit items-center rounded-full border border-border px-2.5 py-1 text-xs font-semibold text-foreground">
+                                                        {benefit.remaining_allowance} / {benefit.total_allowance}
+                                                    </span>
+                                                </div>
+                                                <div className="mt-3 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                                                    <p className="text-xs text-muted-foreground">
+                                                        {locale === 'ar' ? 'نوع الباقة' : 'Benefit type'}: {benefit.period_type}
+                                                    </p>
+                                                    <button
+                                                        type="button"
+                                                        onClick={() => void handleUseBundleBenefit(benefit.id)}
+                                                        disabled={benefit.remaining_allowance <= 0}
+                                                        className="btn-ghost text-xs w-full sm:w-auto justify-center disabled:opacity-50 disabled:cursor-not-allowed"
+                                                    >
+                                                        {locale === 'ar' ? 'استخدم 1' : 'Use 1'}
+                                                    </button>
+                                                </div>
+                                            </div>
+                                        ))}
+                                    </div>
+                                ) : (
+                                    <p className="text-xs text-muted-foreground">
+                                        {locale === 'ar' ? 'لا توجد مزايا مضافة لهذا الاشتراك بعد.' : 'No benefits added to this subscription yet.'}
+                                    </p>
+                                )}
+                            </div>
+                            {bundlePerks.length ? (
+                                <div className="space-y-3">
+                                    {bundlePerks.map((perk, index) => (
+                                        <div key={perk.id} className="rounded-sm border border-border bg-background/40 p-3 space-y-3">
+                                            <div className="flex items-center justify-between gap-3">
+                                                <div>
+                                                    <p className="text-xs uppercase tracking-[0.2em] text-muted-foreground">
+                                                        {text.bundleBenefits} {index + 1}
+                                                    </p>
+                                                    <p className="mt-1 text-sm text-muted-foreground">
+                                                        {locale === 'ar' ? 'سطر مختصر وسريع للمزايا.' : 'Short, quick row for bundle benefits.'}
+                                                    </p>
+                                                </div>
+                                                <button
+                                                    type="button"
+                                                    onClick={() => setBundlePerks((current) => current.length > 1 ? current.filter((_, itemIndex) => itemIndex !== index) : [createBundlePerkDraft()])}
+                                                    className="btn-ghost text-xs"
+                                                >
+                                                    {text.removeBenefit}
+                                                </button>
+                                            </div>
+                                            <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                                                <div>
+                                                    <label className="block text-xs text-muted-foreground mb-1">{text.bundleBenefitKey}</label>
+                                                    <input
+                                                        type="text"
+                                                        className="input-dark"
+                                                        value={perk.perk_key}
+                                                        onChange={(e) => setBundlePerks((current) => current.map((item, itemIndex) => itemIndex === index ? { ...item, perk_key: e.target.value } : item))}
+                                                        placeholder={locale === 'ar' ? 'guest_visit' : 'guest_visit'}
+                                                    />
+                                                </div>
+                                                <div>
+                                                    <label className="block text-xs text-muted-foreground mb-1">{text.bundleBenefitLabel}</label>
+                                                    <input
+                                                        type="text"
+                                                        className="input-dark"
+                                                        value={perk.perk_label}
+                                                        onChange={(e) => setBundlePerks((current) => current.map((item, itemIndex) => itemIndex === index ? { ...item, perk_label: e.target.value } : item))}
+                                                        placeholder={locale === 'ar' ? 'زيارة ضيف مجانية' : 'Free guest visit'}
+                                                    />
+                                                </div>
+                                                <div>
+                                                    <label className="block text-xs text-muted-foreground mb-1">{text.bundleBenefitAllowance}</label>
+                                                    <input
+                                                        type="number"
+                                                        min={0}
+                                                        step={1}
+                                                        className="input-dark"
+                                                        value={perk.total_allowance}
+                                                        onChange={(e) => setBundlePerks((current) => current.map((item, itemIndex) => itemIndex === index ? { ...item, total_allowance: e.target.value } : item))}
+                                                    />
+                                                </div>
+                                            </div>
+                                            <div className="grid grid-cols-1 md:grid-cols-[180px_1fr] gap-3">
+                                                <div>
+                                                    <label className="block text-xs text-muted-foreground mb-1">{text.bundleBenefitPeriod}</label>
+                                                    <select
+                                                        className="input-dark"
+                                                        value={perk.period_type}
+                                                        onChange={(e) => setBundlePerks((current) => current.map((item, itemIndex) => itemIndex === index ? { ...item, period_type: e.target.value as 'CONTRACT' | 'MONTHLY' } : item))}
+                                                    >
+                                                        <option value="CONTRACT">{text.bundleBenefitContract}</option>
+                                                        <option value="MONTHLY">{text.bundleBenefitMonthly}</option>
+                                                    </select>
+                                                </div>
+                                                <div>
+                                                    <label className="block text-xs text-muted-foreground mb-1">{text.adjustmentNote}</label>
+                                                    <input
+                                                        type="text"
+                                                        className="input-dark"
+                                                        value={perk.note}
+                                                        onChange={(e) => setBundlePerks((current) => current.map((item, itemIndex) => itemIndex === index ? { ...item, note: e.target.value } : item))}
+                                                        placeholder={locale === 'ar' ? 'ملاحظة اختيارية' : 'Optional note'}
+                                                    />
+                                                </div>
+                                            </div>
+                                            {perk.period_type === 'MONTHLY' ? (
+                                                <div className="max-w-[180px]">
+                                                    <label className="block text-xs text-muted-foreground mb-1">{text.bundleBenefitMonthlyReset}</label>
+                                                    <input
+                                                        type="number"
+                                                        min={1}
+                                                        max={31}
+                                                        step={1}
+                                                        className="input-dark"
+                                                        value={perk.monthly_reset_day}
+                                                        onChange={(e) => setBundlePerks((current) => current.map((item, itemIndex) => itemIndex === index ? { ...item, monthly_reset_day: e.target.value } : item))}
+                                                    />
+                                                </div>
+                                            ) : null}
+                                        </div>
+                                    ))}
+                                </div>
+                            ) : (
+                                <p className="text-xs text-muted-foreground">{text.noBundleBenefits}</p>
+                            )}
+                        </div>
                         <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                             <div>
                                 <label className="block text-xs text-muted-foreground mb-1">{text.amountPaid}</label>
@@ -1767,6 +2143,15 @@ export default function MembersPage() {
                                     <option value="TRANSFER">{text.bankTransfer}</option>
                                 </select>
                             </div>
+                        </div>
+                        <div>
+                            <label className="block text-xs text-muted-foreground mb-1">{text.adjustmentNote}</label>
+                            <textarea
+                                className="input-dark min-h-24"
+                                value={subNote}
+                                onChange={e => setSubNote(e.target.value)}
+                                placeholder={locale === 'ar' ? 'ملاحظة اختيارية للتعديل أو التجديد' : 'Optional note for the adjustment or renewal'}
+                            />
                         </div>
                         <button type="button" onClick={handleCreateSub} className="btn-primary w-full justify-center">
                             <RefreshCw size={15} /> {renewalMode === 'extend' ? text.extendMode : (manageMember?.subscription ? text.renewSubscription : text.activateSubscription)}
@@ -1792,6 +2177,33 @@ export default function MembersPage() {
                             </button>
                         </div>
                     )}
+
+                    <div className="border border-border rounded-sm p-4 space-y-3">
+                        <h4 className="text-sm font-semibold text-foreground">{text.bundleHistory}</h4>
+                        {bundleChanges.length ? (
+                            <div className="space-y-3">
+                                {bundleChanges.map((item) => (
+                                    <div key={item.id} className="rounded-xl border border-border bg-muted/10 p-3 text-xs text-muted-foreground">
+                                        <div className="flex flex-wrap items-center gap-2">
+                                            <span className="rounded-full border border-border bg-card px-2 py-0.5 font-semibold uppercase tracking-wide text-foreground">
+                                                {item.change_type.replaceAll('_', ' ')}
+                                            </span>
+                                            <span>{item.created_at ? formatDate(item.created_at, { year: 'numeric', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }) : '--'}</span>
+                                        </div>
+                                        <p className="mt-2 text-foreground">
+                                            {item.previous_plan_name || text.noSubscription} {'->'} {item.new_plan_name || text.noSubscription}
+                                        </p>
+                                        <p className="mt-1">
+                                            {item.previous_end_date ? formatDate(item.previous_end_date, { year: 'numeric', month: 'short', day: 'numeric' }) : '--'} {'->'} {item.new_end_date ? formatDate(item.new_end_date, { year: 'numeric', month: 'short', day: 'numeric' }) : '--'}
+                                        </p>
+                                        {item.note ? <p className="mt-1">{item.note}</p> : null}
+                                    </div>
+                                ))}
+                            </div>
+                        ) : (
+                            <p className="text-xs text-muted-foreground">{text.bundleHistoryEmpty}</p>
+                        )}
+                    </div>
                 </div>
             </Modal>
 

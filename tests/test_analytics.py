@@ -4,6 +4,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.config import settings
 from app.models.user import User
 from app.models.access import AccessLog, Subscription, SubscriptionStatus, AttendanceLog
+from app.models.audit import AuditLog
 from app.models.hr import Payroll
 from app.models.staff_debt import StaffDebtAccount
 from app.auth.security import get_password_hash
@@ -321,6 +322,10 @@ async def test_dashboard_reports_expiring_subscriptions_and_staff_debt(client: A
     assert data["outstanding_staff_debt"] == 125.0
     assert data["top_bundles"][0]["plan_name"] == "Gold"
     assert data["top_bundles"][0]["count"] == 2
+    assert any(item["status"] == "ACTIVE" and item["count"] == 3 for item in data["subscriber_status_counts"])
+    assert any(item["plan_name"] == "Gold" and item["total_count"] == 2 and item["active_count"] == 2 for item in data["bundle_breakdown"])
+    assert "audit_events_30d" in data
+    assert "audit_recent_events" in data
     assert any(item["full_name"] == "Report Customer A" for item in data["expiring_subscriptions"])
 
 
@@ -472,3 +477,24 @@ async def test_analytics_report_exports_and_staff_debt_csv(client: AsyncClient, 
     assert debt_pdf_resp.status_code == 200
     assert "application/pdf" in debt_pdf_resp.headers.get("content-type", "")
     assert debt_pdf_resp.content.startswith(b"%PDF")
+
+    db_session.add(
+        AuditLog(
+            gym_id=gym.id,
+            branch_id=branch.id,
+            user_id=admin.id,
+            action="EXPORT_TEST",
+            target_id=str(admin.id),
+            details="Export test row",
+        )
+    )
+    await db_session.commit()
+
+    audit_export_resp = await client.get(
+        f"{settings.API_V1_STR}/audit/logs/export?branch_id={branch.id}",
+        headers=headers,
+    )
+    assert audit_export_resp.status_code == 200
+    assert "text/csv" in audit_export_resp.headers.get("content-type", "")
+    audit_rows = list(csv.DictReader(StringIO(audit_export_resp.text)))
+    assert any(row["action"] == "EXPORT_TEST" for row in audit_rows)

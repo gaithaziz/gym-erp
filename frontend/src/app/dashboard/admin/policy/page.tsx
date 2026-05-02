@@ -72,6 +72,7 @@ export default function AdminPolicyPage() {
                 const payload = response.data?.data;
                 if (payload) {
                     setDraft({
+                        version: payload.version || POLICY_VERSION,
                         title: payload.title,
                         effectiveDate: payload.effectiveDate,
                         updatedAt: payload.updatedAt,
@@ -172,6 +173,7 @@ export default function AdminPolicyPage() {
             const payload = response.data?.data;
             const finalDraft = payload
                 ? {
+                    version: payload.version || nextDraft.version || POLICY_VERSION,
                     title: payload.title,
                     effectiveDate: payload.effectiveDate,
                     updatedAt: payload.updatedAt,
@@ -192,7 +194,7 @@ export default function AdminPolicyPage() {
         <div className="max-w-6xl mx-auto space-y-6">
             <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
                 <div>
-                    <p className="section-chip mb-2">{txt.version} {POLICY_VERSION}</p>
+                    <p className="section-chip mb-2">{txt.version} {draft.version || POLICY_VERSION}</p>
                     <h1 className="text-2xl font-bold text-foreground font-serif tracking-tight">{txt.title}</h1>
                     <p className="mt-1 text-sm text-muted-foreground max-w-2xl">{txt.subtitle}</p>
                 </div>

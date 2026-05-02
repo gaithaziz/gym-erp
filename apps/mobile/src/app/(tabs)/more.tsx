@@ -27,6 +27,7 @@ export default function MoreTab() {
       </Card>
 
       {customer ? <SecondaryLink href="/billing">{copy.more.billing}</SecondaryLink> : null}
+      <SecondaryLink href="/private-coaching">{copy.more.privateCoaching}</SecondaryLink>
       {adminControl ? <SecondaryLink href="/(tabs)/members">{copy.adminControl.peopleSummary}</SecondaryLink> : null}
       {adminControl ? <SecondaryLink href="/staff-operations">{copy.adminControl.employeeOperations}</SecondaryLink> : null}
       {adminControl ? <SecondaryLink href="/(tabs)/operations">{copy.adminControl.operationsSummary}</SecondaryLink> : null}

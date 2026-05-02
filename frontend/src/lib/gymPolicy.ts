@@ -13,6 +13,7 @@ export interface PolicySignature {
 }
 
 export interface PolicyContent {
+    version?: string;
     title: string;
     effectiveDate: string;
     updatedAt: string;
@@ -112,6 +113,12 @@ export const getPolicyStorageKey = (locale: PolicyLocale) =>
 
 export const getPolicySignatureKey = (userId: string) =>
     `${POLICY_SIGNATURE_PREFIX}${userId}`;
+
+export const getLegacyPolicySignatureKey = (userId: string) =>
+    `${POLICY_SIGNATURE_PREFIX}${userId}`;
+
+export const getLocalePolicySignatureKey = (userId: string, locale: PolicyLocale) =>
+    `${POLICY_SIGNATURE_PREFIX}${userId}_${locale}`;
 
 export const loadPolicyContent = (locale: PolicyLocale): PolicyContent => {
     if (typeof window === 'undefined') return DEFAULT_POLICY_CONTENT[locale];

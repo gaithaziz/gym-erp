@@ -71,23 +71,6 @@ interface ExerciseLibraryItem {
     is_global: boolean;
 }
 
-interface PlanAdherenceRow {
-    plan_id: string;
-    plan_name: string;
-    assigned_members: number;
-    adherent_members: number;
-    adherence_percent: number;
-}
-
-interface BulkAssignAdherenceSnapshot {
-    planId: string;
-    planName: string;
-    assignedMembers: number;
-    adherentMembers: number;
-    adherencePercent: number;
-    capturedAt: string;
-}
-
 interface SectionDraft {
     id: string;
     name: string;
@@ -105,7 +88,6 @@ async function loadWorkoutPlansData({
     setRefreshing,
     setPlans,
     setPlanSummaries,
-    setAdherenceRows,
     setMembers,
     branchParams,
     showToast,
@@ -115,7 +97,6 @@ async function loadWorkoutPlansData({
     setRefreshing: (value: boolean) => void;
     setPlans: (value: Plan[]) => void;
     setPlanSummaries: (value: PlanSummary[]) => void;
-    setAdherenceRows: (value: PlanAdherenceRow[]) => void;
     setMembers: (value: Member[]) => void;
     branchParams: Record<string, string>;
     showToast: (message: string, type: 'success' | 'error' | 'info') => void;
@@ -124,14 +105,12 @@ async function loadWorkoutPlansData({
 }) {
     setRefreshing(true);
     try {
-        const [plansRes, summariesRes, adherenceRes] = await Promise.all([
+        const [plansRes, summariesRes] = await Promise.all([
             api.get('/fitness/plans', { params: { include_all_creators: true, ...branchParams } }),
             api.get('/fitness/plan-summaries', { params: branchParams }).catch(() => ({ data: { data: [] } })),
-            api.get('/fitness/plans/adherence', { params: { window_days: 30, ...branchParams } }).catch(() => ({ data: { data: [] } })),
         ]);
         setPlans(plansRes.data.data);
         setPlanSummaries(summariesRes.data.data || []);
-        setAdherenceRows(adherenceRes.data.data || []);
         try {
             const membersRes = await api.get('/hr/members', { params: branchParams });
             setMembers(membersRes.data.data || []);
@@ -224,11 +203,6 @@ export default function WorkoutPlansPage() {
             openSource: 'فتح المصدر',
             replaceActiveNote: 'وضع استبدال الخطط النشطة مفعّل: سيتم أرشفة الخطط النشطة الحالية للأعضاء المحددين.',
             assignPrefix: 'تعيين:',
-            adherent30d: 'ملتزم (30 يومًا)',
-            lastBulkAssignCheck: 'آخر فحص للتعيين الجماعي',
-            assignedLabel: 'المعيّن:',
-            adherentLabel: ' | الملتزم (30 يومًا):',
-            scoreLabel: ' | النسبة:',
             sections: 'أقسام',
             warningDraftAssign: 'تحذير: أنت تعيّن خطة مسودة.',
             archivedCannotAssign: 'لا يمكن تعيين الخطط المؤرشفة.',
@@ -315,11 +289,6 @@ export default function WorkoutPlansPage() {
             openSource: 'Open Source',
             replaceActiveNote: 'Replace-active mode is enabled: existing active plans for selected members will be archived.',
             assignPrefix: 'Assign:',
-            adherent30d: 'adherent (30d)',
-            lastBulkAssignCheck: 'Last Bulk Assign Check',
-            assignedLabel: 'Assigned:',
-            adherentLabel: ' | Adherent (30d):',
-            scoreLabel: ' | Score:',
             sections: 'sections',
             warningDraftAssign: 'Warning: you are assigning a draft plan.',
             archivedCannotAssign: 'Archived plans cannot be assigned.',
@@ -328,7 +297,6 @@ export default function WorkoutPlansPage() {
         };
     const [plans, setPlans] = useState<Plan[]>([]);
     const [planSummaries, setPlanSummaries] = useState<PlanSummary[]>([]);
-    const [adherenceRows, setAdherenceRows] = useState<PlanAdherenceRow[]>([]);
     const [members, setMembers] = useState<Member[]>([]);
     const [loading, setLoading] = useState(true);
     const [refreshing, setRefreshing] = useState(false);
@@ -349,7 +317,6 @@ export default function WorkoutPlansPage() {
     const [assigningPlan, setAssigningPlan] = useState<Plan | null>(null);
     const [bulkAssignMemberIds, setBulkAssignMemberIds] = useState<string[]>([]);
     const [memberSearch, setMemberSearch] = useState('');
-    const [lastBulkAssignSnapshot, setLastBulkAssignSnapshot] = useState<BulkAssignAdherenceSnapshot | null>(null);
     const [selectedTemplateStatus, setSelectedTemplateStatus] = useState<'ALL' | Plan['status']>('ALL');
 
     const [planName, setPlanName] = useState('');
@@ -445,7 +412,6 @@ export default function WorkoutPlansPage() {
             setRefreshing,
             setPlans,
             setPlanSummaries,
-            setAdherenceRows,
             setMembers,
             branchParams,
             showToast,
@@ -487,7 +453,6 @@ export default function WorkoutPlansPage() {
                 setRefreshing,
                 setPlans,
                 setPlanSummaries,
-                setAdherenceRows,
                 setMembers,
                 branchParams,
                 showToast,
@@ -532,7 +497,6 @@ export default function WorkoutPlansPage() {
             setAssigningPlan(null);
             setBulkAssignMemberIds([]);
             setMemberSearch('');
-            setLastBulkAssignSnapshot(null);
         }, 0);
         return () => window.clearTimeout(timeoutId);
     }, [selectedBranchId]);
@@ -768,24 +732,6 @@ export default function WorkoutPlansPage() {
                 member_ids: memberIds,
                 replace_active: true,
             });
-            try {
-                const adherenceRes = await api.get(`/fitness/plans/${assigningPlan.id}/adherence`, {
-                    params: { window_days: 30 },
-                });
-                const row = adherenceRes.data?.data;
-                if (row) {
-                    setLastBulkAssignSnapshot({
-                        planId: row.plan_id,
-                        planName: row.plan_name,
-                        assignedMembers: row.assigned_members,
-                        adherentMembers: row.adherent_members,
-                        adherencePercent: row.adherence_percent,
-                        capturedAt: new Date().toISOString(),
-                    });
-                }
-            } catch {
-                // non-blocking snapshot fetch
-            }
             setAssignModalOpen(false);
             showToast(`Plan assigned to ${memberIds.length} member(s). Existing active plans were replaced.`, 'success');
             fetchData();
@@ -976,30 +922,6 @@ export default function WorkoutPlansPage() {
                     <button onClick={handleOpenCreateModal} className="btn-primary min-h-11"><Plus size={18} /> {txt.createPlan}</button>
                 </div>
             </div>
-
-            {adherenceRows.length > 0 && (
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-                    {adherenceRows.slice(0, 3).map(row => (
-                        <div key={row.plan_id} className="rounded-sm border border-border bg-muted/20 p-3">
-                            <p className="text-sm font-semibold text-foreground truncate">{row.plan_name}</p>
-                            <p className="text-xs text-muted-foreground mt-1">{row.adherent_members}/{row.assigned_members} {txt.adherent30d}</p>
-                            <p className="text-lg font-bold text-primary mt-1">{row.adherence_percent}%</p>
-                        </div>
-                    ))}
-                </div>
-            )}
-
-            {lastBulkAssignSnapshot && (
-                <div className="rounded-sm border border-emerald-500/30 bg-emerald-500/10 p-3">
-                    <p className="text-sm font-semibold text-foreground">{txt.lastBulkAssignCheck}</p>
-                    <p className="text-xs text-muted-foreground mt-1">
-                        {lastBulkAssignSnapshot.planName} | {new Date(lastBulkAssignSnapshot.capturedAt).toLocaleString()}
-                    </p>
-                    <p className="text-xs text-foreground mt-2">
-                        {txt.assignedLabel} <span className="font-semibold">{lastBulkAssignSnapshot.assignedMembers}</span>{txt.adherentLabel} <span className="font-semibold">{lastBulkAssignSnapshot.adherentMembers}</span>{txt.scoreLabel} <span className="font-semibold text-primary">{lastBulkAssignSnapshot.adherencePercent}%</span>
-                    </p>
-                </div>
-            )}
 
             <div className="space-y-3">
                 <PlanSectionHeader title={txt.templates} subtitle={txt.templatesSubtitle} />

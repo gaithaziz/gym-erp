@@ -6,12 +6,17 @@ import { api } from '@/lib/api';
 import { useAuth } from '@/context/AuthContext';
 import { useLocale } from '@/context/LocaleContext';
 import { useFeedback } from '@/components/FeedbackProvider';
+import { BranchSelector } from '@/components/BranchSelector';
+import { useBranch } from '@/context/BranchContext';
 
 interface Announcement {
     id: string;
     title: string;
     body: string;
     audience: 'ALL' | 'CUSTOMERS' | 'COACHES' | 'STAFF';
+    target_scope: 'ALL_BRANCHES' | 'BRANCH';
+    branch_id?: string | null;
+    branch_name?: string | null;
     is_published: boolean;
     push_enabled: boolean;
     published_at?: string | null;
@@ -22,6 +27,7 @@ const DEFAULT_FORM = {
     title: '',
     body: '',
     audience: 'ALL' as Announcement['audience'],
+    target_scope: 'ALL_BRANCHES' as Announcement['target_scope'],
     push_enabled: true,
 };
 
@@ -29,10 +35,62 @@ export default function AdminAnnouncementsPage() {
     const { user } = useAuth();
     const { locale, formatDate } = useLocale();
     const { showToast } = useFeedback();
+    const { branches, isLoading: branchesLoading } = useBranch();
     const [items, setItems] = useState<Announcement[]>([]);
+    const [localBranches, setLocalBranches] = useState<typeof branches>([]);
+    const [branchFetchAttempted, setBranchFetchAttempted] = useState(false);
     const [loading, setLoading] = useState(true);
     const [isSaving, setIsSaving] = useState(false);
     const [form, setForm] = useState(DEFAULT_FORM);
+    const [announcementBranchId, setAnnouncementBranchId] = useState('all');
+    const resolvedBranches = branches.length ? branches : localBranches;
+
+    useEffect(() => {
+        if (form.target_scope !== 'BRANCH') {
+            setAnnouncementBranchId('all');
+            return;
+        }
+        if (announcementBranchId === 'all') {
+            setAnnouncementBranchId(resolvedBranches[0]?.id || 'all');
+        }
+    }, [announcementBranchId, form.target_scope, resolvedBranches]);
+
+    useEffect(() => {
+        if (!user || branchesLoading || branches.length > 0 || branchFetchAttempted) return;
+        let cancelled = false;
+
+        const normalizeBranches = (response: { data?: unknown }) => {
+            if (Array.isArray(response.data)) return response.data;
+            const data = response.data as { data?: unknown } | undefined;
+            return Array.isArray(data?.data) ? data?.data : [];
+        };
+
+        const loadBranches = async () => {
+            for (const endpoint of ['/system/branches', '/hr/branches']) {
+                try {
+                    const response = await api.get(endpoint);
+                    if (cancelled) return;
+                    const branchData = normalizeBranches(response);
+                    if (branchData.length > 0) {
+                        setLocalBranches(branchData);
+                        return;
+                    }
+                } catch {
+                    // Try the next endpoint.
+                }
+            }
+
+            if (!cancelled) {
+                setLocalBranches([]);
+            }
+        };
+
+        setBranchFetchAttempted(true);
+        void loadBranches();
+        return () => {
+            cancelled = true;
+        };
+    }, [branchFetchAttempted, branches.length, branchesLoading, user]);
 
     const txt = locale === 'ar'
         ? {
@@ -44,9 +102,14 @@ export default function AdminAnnouncementsPage() {
             saving: 'جارٍ الحفظ...',
             audience: 'الفئة',
             all: 'الكل',
+            targetScope: 'استهداف الفروع',
+            allBranches: 'كل الفروع',
+            selectedBranch: 'فرع محدد',
+            targetHint: 'اختر كل الفروع للإعلان العام، أو فرعًا محددًا إذا أردت التقييد.',
             customers: 'العملاء',
             coaches: 'المدربون',
             staff: 'الموظفون',
+            branch: 'اختر الفرع',
             titleLabel: 'العنوان',
             bodyLabel: 'النص',
             pushEnabled: 'إرسال إشعار فوري',
@@ -63,9 +126,14 @@ export default function AdminAnnouncementsPage() {
             saving: 'Saving...',
             audience: 'Audience',
             all: 'All',
+            targetScope: 'Branch Target',
+            allBranches: 'All Branches',
+            selectedBranch: 'Specific branch',
+            targetHint: 'Choose all branches for a global announcement, or a specific branch to limit it.',
             customers: 'Customers',
             coaches: 'Coaches',
             staff: 'Staff',
+            branch: 'Choose branch',
             titleLabel: 'Title',
             bodyLabel: 'Body',
             pushEnabled: 'Send push notification',
@@ -95,16 +163,27 @@ export default function AdminAnnouncementsPage() {
             showToast(locale === 'ar' ? 'أكمل العنوان والنص.' : 'Complete the title and body.', 'error');
             return;
         }
+        if (form.target_scope === 'BRANCH' && announcementBranchId === 'all') {
+            showToast(locale === 'ar' ? 'اختر فرعًا للإعلان.' : 'Select a branch for the announcement.', 'error');
+            return;
+        }
+        if (form.target_scope === 'BRANCH' && resolvedBranches.length === 0) {
+            showToast(locale === 'ar' ? 'لا توجد فروع متاحة للاختيار.' : 'No branches are available to choose from.', 'error');
+            return;
+        }
         setIsSaving(true);
         try {
-            await api.post('/admin/announcements', {
-                title: form.title.trim(),
-                body: form.body.trim(),
-                audience: form.audience,
-                push_enabled: form.push_enabled,
-            });
-            setForm(DEFAULT_FORM);
-            await loadItems();
+                await api.post('/admin/announcements', {
+                    title: form.title.trim(),
+                    body: form.body.trim(),
+                    audience: form.audience,
+                    target_scope: form.target_scope,
+                    branch_id: form.target_scope === 'BRANCH' && announcementBranchId !== 'all' ? announcementBranchId : null,
+                    push_enabled: form.push_enabled,
+                });
+                setForm(DEFAULT_FORM);
+                setAnnouncementBranchId('all');
+                await loadItems();
         } catch {
             showToast(locale === 'ar' ? 'فشل في نشر الإعلان.' : 'Failed to publish announcement.', 'error');
         } finally {
@@ -157,6 +236,40 @@ export default function AdminAnnouncementsPage() {
                         </select>
                     </div>
                 </div>
+                <div className="grid gap-4 md:grid-cols-2">
+                    <div>
+                        <label className="mb-1.5 block text-xs font-medium text-muted-foreground">{txt.targetScope}</label>
+                        <select
+                            className="input-dark"
+                            value={form.target_scope}
+                            onChange={(event) => {
+                                const targetScope = event.target.value as Announcement['target_scope'];
+                                setForm((current) => ({ ...current, target_scope: targetScope }));
+                                if (targetScope === 'ALL_BRANCHES') {
+                                    setAnnouncementBranchId('all');
+                                } else if (announcementBranchId === 'all') {
+                                    setAnnouncementBranchId(resolvedBranches[0]?.id || 'all');
+                                }
+                            }}
+                        >
+                            <option value="ALL_BRANCHES">{txt.allBranches}</option>
+                            <option value="BRANCH">{txt.selectedBranch}</option>
+                        </select>
+                        <p className="mt-1 text-[11px] text-muted-foreground">{txt.targetHint}</p>
+                    </div>
+                    <div>
+                        {form.target_scope === 'BRANCH' ? (
+                            <>
+                                <label className="mb-1.5 block text-xs font-medium text-muted-foreground">{txt.branch}</label>
+                                <BranchSelector branches={resolvedBranches} selectedBranchId={announcementBranchId} onSelect={setAnnouncementBranchId} />
+                            </>
+                        ) : (
+                            <div className="rounded-xl border border-border bg-muted/10 px-4 py-3 text-xs text-muted-foreground">
+                                {locale === 'ar' ? 'سيظهر الإعلان في كل الفروع.' : 'The announcement will be visible in all branches.'}
+                            </div>
+                        )}
+                    </div>
+                </div>
                 <div>
                     <label className="mb-1.5 block text-xs font-medium text-muted-foreground">{txt.bodyLabel}</label>
                     <textarea className="input-dark min-h-32" value={form.body} onChange={(event) => setForm((current) => ({ ...current, body: event.target.value }))} />
@@ -187,6 +300,11 @@ export default function AdminAnnouncementsPage() {
                                 <div className="flex flex-col items-start gap-2">
                                     <span className="rounded-full border border-border bg-card px-3 py-1 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
                                         {item.audience}
+                                    </span>
+                                    <span className="rounded-full border border-border bg-card px-3 py-1 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+                            {item.target_scope === 'ALL_BRANCHES'
+                                            ? txt.allBranches
+                                            : item.branch_name || txt.selectedBranch}
                                     </span>
                                     <div className="flex items-center gap-2">
                                         <span className={`rounded-full border px-3 py-1 text-xs font-semibold ${item.is_published ? 'border-emerald-500/30 bg-emerald-500/10 text-emerald-400' : 'border-border bg-muted/30 text-muted-foreground'}`}>

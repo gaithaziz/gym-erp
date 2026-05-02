@@ -36,6 +36,7 @@ interface PayrollItem {
     bonus_pay: number;
     manual_deductions: number;
     leave_deductions?: number;
+    debt_deductions?: number;
     deductions: number;
     total_pay: number;
     status: 'DRAFT' | 'APPROVED' | 'REJECTED' | 'PARTIAL' | 'PAID';
@@ -69,7 +70,8 @@ export default function FinancePage() {
     const { t, formatDate, formatNumber, formatCurrency, locale } = useLocale();
     const { showToast } = useFeedback();
     const { branches, selectedBranchId, setSelectedBranchId } = useBranch();
-    const PAGE_SIZE = 50;
+    const DEFAULT_PAGE_SIZE = 50;
+    const PAGE_SIZE = DEFAULT_PAGE_SIZE;
     const [transactions, setTransactions] = useState<Transaction[]>([]);
     const [payrolls, setPayrolls] = useState<PayrollItem[]>([]);
     const [summary, setSummary] = useState<FinanceSummary>({
@@ -107,6 +109,9 @@ export default function FinancePage() {
     const [salaryCutoffDay, setSalaryCutoffDay] = useState(1);
     const [salaryCutoffInput, setSalaryCutoffInput] = useState('1');
     const [datePreset, setDatePreset] = useState<'all' | 'today' | '7d' | '30d' | 'custom'>('30d');
+    const [facilityExpenseNotice, setFacilityExpenseNotice] = useState<{ branchId: string; assetName: string; amount: string | null } | null>(null);
+    const [noticeRefreshKey, setNoticeRefreshKey] = useState(0);
+    const [transactionsPageSize, setTransactionsPageSize] = useState(DEFAULT_PAGE_SIZE);
 
     const [formData, setFormData] = useState({
         amount: '',
@@ -153,6 +158,7 @@ export default function FinancePage() {
             commission: 'عمولة',
             bonus: 'مكافأة',
             deductions: 'خصومات',
+            debtDeductions: 'خصومات الدَّين',
             netTotal: 'الإجمالي الصافي',
             amountPlaceholder: 'المبلغ',
             notePlaceholder: 'ملاحظة (اختياري)',
@@ -190,6 +196,7 @@ export default function FinancePage() {
             commission: 'Commission',
             bonus: 'Bonus',
             deductions: 'Deductions',
+            debtDeductions: 'Debt deductions',
             netTotal: 'Net Total',
             amountPlaceholder: 'Amount',
             notePlaceholder: 'Note (optional)',
@@ -203,6 +210,34 @@ export default function FinancePage() {
             reviewReady: 'Payroll drafts ready for review',
             reviewReadyDesc: 'There are payslips waiting for review and approval before payment.',
         };
+    const consumeFacilityExpenseNotice = useCallback((raw: string | null) => {
+        if (!raw) return false;
+        try {
+            const parsed = JSON.parse(raw) as { branchId?: string; assetName?: string; amount?: string | null };
+            if (!parsed.branchId || !parsed.assetName) return false;
+            setFacilityExpenseNotice({
+                branchId: parsed.branchId,
+                assetName: parsed.assetName,
+                amount: parsed.amount ?? null,
+            });
+            setActiveSection('transactions');
+            setTypeFilter('ALL');
+            setCategoryFilter('ALL');
+            setDatePreset('30d');
+            const now = new Date();
+            const start = new Date(now);
+            start.setDate(now.getDate() - 29);
+            setStartDate(toDateInput(start));
+            setEndDate(toDateInput(now));
+            setTransactionsPage(1);
+            setTransactionsPageSize(500);
+            setNoticeRefreshKey((prev) => prev + 1);
+            setSelectedBranchId('all');
+            return true;
+        } catch {
+            return false;
+        }
+    }, [setSelectedBranchId]);
     const jodCode = 'JOD';
     const paymentHistoryLabel = locale === 'ar' ? 'سجل المدفوعات' : 'Payment History';
     const noPaymentsRecordedLabel = locale === 'ar' ? 'لا توجد مدفوعات مسجلة.' : 'No payments recorded.';
@@ -249,8 +284,8 @@ export default function FinancePage() {
 
     const fetchTransactions = useCallback(async () => {
         const params: Record<string, string | number> = {
-            limit: PAGE_SIZE,
-            offset: (transactionsPage - 1) * PAGE_SIZE,
+            limit: transactionsPageSize,
+            offset: (transactionsPage - 1) * transactionsPageSize,
             ...getBranchParams(selectedBranchId),
         };
         if (typeFilter !== 'ALL') params.tx_type = typeFilter;
@@ -262,7 +297,7 @@ export default function FinancePage() {
         const listRes = await api.get('/finance/transactions', { params });
         setTransactions(listRes.data.data || []);
         setTransactionsTotal(Number(listRes.headers['x-total-count'] || 0));
-    }, [PAGE_SIZE, categoryFilter, datePreset, endDate, selectedBranchId, startDate, transactionsPage, typeFilter]);
+    }, [categoryFilter, datePreset, endDate, selectedBranchId, startDate, transactionsPage, transactionsPageSize, typeFilter]);
 
     const fetchSummary = useCallback(async () => {
         const params: Record<string, string | number> = {
@@ -337,6 +372,34 @@ export default function FinancePage() {
 
     useEffect(() => { setTimeout(() => fetchData(), 0); }, [fetchData]);
 
+    useEffect(() => {
+        if (typeof window === 'undefined') return;
+        const consumeStoredNotice = () => {
+            const rawSession = sessionStorage.getItem('pending_finance_asset_notice');
+            const rawLocal = localStorage.getItem('pending_finance_asset_notice');
+            const consumed = consumeFacilityExpenseNotice(rawSession || rawLocal);
+            if (consumed) {
+                sessionStorage.removeItem('pending_finance_asset_notice');
+                localStorage.removeItem('pending_finance_asset_notice');
+            }
+        };
+        consumeStoredNotice();
+        const onStorage = (event: StorageEvent) => {
+            if (event.key !== 'pending_finance_asset_notice') return;
+            const consumed = consumeFacilityExpenseNotice(event.newValue);
+            if (consumed) {
+                localStorage.removeItem('pending_finance_asset_notice');
+            }
+        };
+        window.addEventListener('storage', onStorage);
+        return () => window.removeEventListener('storage', onStorage);
+    }, [consumeFacilityExpenseNotice]);
+
+    useEffect(() => {
+        if (!noticeRefreshKey) return;
+        void fetchData();
+    }, [fetchData, noticeRefreshKey]);
+
     const applyPreset = (preset: 'all' | 'today' | '7d' | '30d' | 'custom') => {
         setDatePreset(preset);
         if (preset === 'custom' || preset === 'all') return;
@@ -352,7 +415,7 @@ export default function FinancePage() {
 
     const filteredTransactions = transactions;
 
-    const totalTransactionPages = Math.max(1, Math.ceil(transactionsTotal / PAGE_SIZE));
+    const totalTransactionPages = Math.max(1, Math.ceil(transactionsTotal / transactionsPageSize));
     const totalPayrollPages = Math.max(1, Math.ceil(payrollsTotal / PAGE_SIZE));
 
     useEffect(() => {
@@ -501,7 +564,8 @@ export default function FinancePage() {
         + Number(reviewForm.commission_pay || 0)
         + Number(reviewForm.bonus_pay || 0)
         - Number(reviewForm.manual_deductions || 0)
-        - Number(selectedPayroll?.leave_deductions || 0);
+        - Number(selectedPayroll?.leave_deductions || 0)
+        - Number(selectedPayroll?.debt_deductions || 0);
 
     const saveCutoffDay = async () => {
         const value = Number(salaryCutoffInput);
@@ -588,6 +652,17 @@ export default function FinancePage() {
 
             {activeSection === 'transactions' && (
                 <>
+                    {facilityExpenseNotice && (
+                        <div className="rounded-2xl border border-amber-500/30 bg-amber-500/10 px-4 py-3 text-sm text-foreground">
+                            <p className="font-semibold">
+                                {locale === 'ar' ? 'تم ترحيل مصروف صيانة من المرافق' : 'Facility repair expense posted'}
+                            </p>
+                            <p className="mt-1 text-xs text-muted-foreground">
+                                {facilityExpenseNotice.assetName}
+                                {facilityExpenseNotice.amount ? ` - ${facilityExpenseNotice.amount}` : ''}
+                            </p>
+                        </div>
+                    )}
                     <div className="chart-card p-4 border border-border space-y-3">
                         <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">{t('finance.filters')}</p>
                         <div className="flex flex-wrap gap-2">
@@ -809,6 +884,7 @@ export default function FinancePage() {
                             <div className="rounded-xl p-3 bg-card border border-border"><p className="text-xs text-muted-foreground">{txt.commission}</p><p className="font-mono font-semibold text-foreground">{reviewForm.commission_pay.toFixed(2)} JOD</p></div>
                             <div className="rounded-xl p-3 bg-card border border-border"><p className="text-xs text-muted-foreground">{txt.bonus}</p><p className="font-mono font-semibold text-foreground">{reviewForm.bonus_pay.toFixed(2)} JOD</p></div>
                             <div className="rounded-xl p-3 bg-card border border-border"><p className="text-xs text-muted-foreground">{txt.deductions}</p><p className="font-mono font-semibold text-red-400">-{selectedPayroll.deductions.toFixed(2)} JOD</p></div>
+                            <div className="rounded-xl p-3 bg-card border border-border"><p className="text-xs text-muted-foreground">{txt.debtDeductions}</p><p className="font-mono font-semibold text-red-400">-{(selectedPayroll.debt_deductions || 0).toFixed(2)} JOD</p></div>
                         </div>
 
                         {selectedPayroll.status === 'DRAFT' ? (
@@ -845,7 +921,7 @@ export default function FinancePage() {
                                         <p className="font-mono text-2xl font-semibold text-foreground">{reviewNetPay.toFixed(2)} JOD</p>
                                     </div>
                                     <div className="text-xs text-muted-foreground text-end">
-                                        <p>{locale === 'ar' ? 'خصومات الإجازات تُحسب تلقائياً' : 'Leave deductions stay automatic'}</p>
+                                        <p>{locale === 'ar' ? 'خصومات الإجازات والديون تُحسب تلقائياً' : 'Leave and debt deductions stay automatic'}</p>
                                         <p>{locale === 'ar' ? 'هذه التعديلات قبل الاعتماد' : 'These changes apply before approval'}</p>
                                     </div>
                                 </div>

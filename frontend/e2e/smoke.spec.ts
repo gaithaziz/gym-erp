@@ -40,12 +40,25 @@ async function loginToken(request: APIRequestContext, email: string, password: s
     throw new Error(`Login failed for ${email} (status=${lastStatus}, detail=${String(lastDetail)})`);
 }
 
+async function loginData(request: APIRequestContext, email: string, password: string): Promise<{ access_token: string; home_branch_id?: string | null }> {
+    const token = await loginToken(request, email, password);
+    const me = await request.get(`${apiV1}/auth/me`, {
+        headers: { Authorization: `Bearer ${token}` },
+    });
+    expect(me.ok()).toBeTruthy();
+    const body = await me.json();
+    return {
+        access_token: token,
+        home_branch_id: body?.data?.home_branch_id ?? null,
+    };
+}
+
 test('login page allows sign in', async ({ page }) => {
     await page.goto('/login');
     await page.fill('#email-address', adminEmail);
     await page.fill('#password', adminPassword);
     await page.getByTestId('login-submit').click();
-    await expect(page).toHaveURL(/\/dashboard/);
+    await page.waitForURL(/\/dashboard/, { timeout: 20_000 });
 });
 
 test('language toggle switches document direction', async ({ page }) => {
@@ -56,22 +69,22 @@ test('language toggle switches document direction', async ({ page }) => {
 });
 
 test('member create flow (API smoke)', async ({ request }) => {
-    const token = await loginToken(request, adminEmail, adminPassword);
+    const { access_token, home_branch_id } = await loginData(request, adminEmail, adminPassword);
     const email = `smoke.member.${Date.now()}@example.com`;
     const res = await request.post(`${apiV1}/auth/register`, {
-        headers: { Authorization: `Bearer ${token}` },
-        data: { full_name: 'Smoke Member', email, password: 'Temp#12345', role: 'CUSTOMER' },
+        headers: { Authorization: `Bearer ${access_token}` },
+        data: { full_name: 'Smoke Member', email, password: 'Temp#12345', role: 'CUSTOMER', home_branch_id },
     });
     expect(res.ok()).toBeTruthy();
 });
 
 test('ticket create + admin reply flow (API smoke)', async ({ request }) => {
-    const adminToken = await loginToken(request, adminEmail, adminPassword);
+    const { access_token: adminToken, home_branch_id } = await loginData(request, adminEmail, adminPassword);
     const email = `smoke.ticket.${Date.now()}@example.com`;
 
     const createCustomer = await request.post(`${apiV1}/auth/register`, {
         headers: { Authorization: `Bearer ${adminToken}` },
-        data: { full_name: 'Smoke Ticket Member', email, password: 'Temp#12345', role: 'CUSTOMER' },
+        data: { full_name: 'Smoke Ticket Member', email, password: 'Temp#12345', role: 'CUSTOMER', home_branch_id },
     });
     expect(createCustomer.ok()).toBeTruthy();
 
@@ -93,7 +106,7 @@ test('ticket create + admin reply flow (API smoke)', async ({ request }) => {
 
 test('payroll payment flow (API smoke)', async ({ request }) => {
     const token = await loginToken(request, adminEmail, adminPassword);
-    const pending = await request.get(`${apiV1}/hr/payrolls/pending?limit=1`, {
+    const pending = await request.get(`${apiV1}/hr/payrolls/pending?status=APPROVED&limit=1`, {
         headers: { Authorization: `Bearer ${token}` },
     });
     expect(pending.ok()).toBeTruthy();

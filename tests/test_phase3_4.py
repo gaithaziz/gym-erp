@@ -12,7 +12,7 @@ from app.models.access import AttendanceLog, RenewalRequestStatus, Subscription,
 from app.models.audit import AuditLog
 from app.models.announcement import Announcement
 from app.models.coaching import CoachingPackage
-from app.models.facility import FacilityMachine, FacilitySection
+from app.models.facility import FacilityAsset
 from app.models.chat import ChatMessage, ChatThread
 from app.models.enums import Role
 from app.models.finance import Transaction, TransactionCategory, TransactionType
@@ -713,7 +713,7 @@ async def test_mobile_admin_staff_operations_for_admin_manager_only(client: Asyn
     db_session.add_all([admin, manager, employee, customer])
     await db_session.flush()
 
-    now = datetime.now(timezone.utc)
+    now = datetime.now(timezone.utc).replace(hour=12, minute=0, second=0, microsecond=0)
     db_session.add_all(
         [
             Contract(
@@ -815,14 +815,16 @@ async def test_private_coaching_packages_create_use_and_adjust_flow(client: Asyn
         json={
             "user_id": str(customer.id),
             "coach_id": str(coach.id),
-            "package_key": "PT-8",
             "package_label": "Private PT 8",
             "total_sessions": 8,
             "note": "Phase 4 coaching pack",
         },
     )
     assert create_res.status_code == 200
-    package_id = create_res.json()["data"]["id"]
+    created_package = create_res.json()["data"]
+    assert created_package["package_key"].startswith("PT-")
+    assert len(created_package["package_key"]) > 3
+    package_id = created_package["id"]
 
     coach_list_res = await client.get(
         "/api/v1/coaching/packages",
@@ -870,6 +872,59 @@ async def test_private_coaching_packages_create_use_and_adjust_flow(client: Asyn
     stored = await db_session.get(CoachingPackage, uuid.UUID(package_id))
     assert stored is not None
     assert stored.total_sessions == 10
+
+
+@pytest.mark.asyncio
+async def test_private_coaching_manager_can_create_and_edit(client: AsyncClient, db_session):
+    manager = User(
+        email="phase4-coach-manager@test.com",
+        hashed_password=get_password_hash("password"),
+        full_name="Phase 4 Coach Manager",
+        role=Role.MANAGER,
+        is_active=True,
+    )
+    coach = User(
+        email="phase4-coach-manager-coach@test.com",
+        hashed_password=get_password_hash("password"),
+        full_name="Phase 4 Manager Coach",
+        role=Role.COACH,
+        is_active=True,
+    )
+    customer = User(
+        email="phase4-coach-manager-customer@test.com",
+        hashed_password=get_password_hash("password"),
+        full_name="Phase 4 Manager Customer",
+        role=Role.CUSTOMER,
+        is_active=True,
+    )
+    db_session.add_all([manager, coach, customer])
+    await db_session.commit()
+
+    manager_headers = await _login(client, manager.email)
+
+    create_res = await client.post(
+        "/api/v1/coaching/packages",
+        headers=manager_headers,
+        json={
+            "user_id": str(customer.id),
+            "coach_id": str(coach.id),
+            "package_label": "Manager PT",
+            "total_sessions": 6,
+        },
+    )
+    assert create_res.status_code == 200
+    package = create_res.json()["data"]
+    assert package["package_key"].startswith("PT-")
+
+    update_res = await client.patch(
+        f"/api/v1/coaching/packages/{package['id']}",
+        headers=manager_headers,
+        json={"package_label": "Manager PT Updated", "total_sessions": 7},
+    )
+    assert update_res.status_code == 200
+    updated = update_res.json()["data"]
+    assert updated["package_label"] == "Manager PT Updated"
+    assert updated["total_sessions"] == 7
 
 
 @pytest.mark.asyncio
@@ -930,60 +985,74 @@ async def test_announcements_publish_and_show_in_customer_feed(client: AsyncClie
 
 
 @pytest.mark.asyncio
-async def test_facility_machines_and_sections_are_branch_scoped(client: AsyncClient, db_session):
+async def test_facility_assets_are_branch_scoped_and_post_expenses(client: AsyncClient, db_session):
     admin_headers = await _auth_headers_for_role(client, db_session, Role.ADMIN, "phase6-facility-admin@test.com")
     _, branch = await TenancyService.ensure_default_gym_and_branch(db_session)
 
-    machine_res = await client.post(
-        "/api/v1/facility/machines",
+    asset_res = await client.post(
+        "/api/v1/facility/assets",
         headers=admin_headers,
         params={"branch_id": str(branch.id)},
         json={
-            "machine_name": "Treadmill A1",
-            "accessories_summary": "Power cord, safety clip, cup holder",
-            "condition_notes": "Working well",
-            "maintenance_notes": "Lubricate belt next week",
+            "name": "Treadmill A1",
+            "asset_type": "MACHINE",
+            "status": "NEED_MAINTENANCE",
+            "fix_expense_amount": 125.50,
+            "note": "Replaced the running belt and safety clip.",
             "is_active": True,
         },
     )
-    assert machine_res.status_code == 200
-    machine_id = machine_res.json()["data"]["id"]
+    assert asset_res.status_code == 200
+    asset_id = asset_res.json()["data"]["id"]
 
-    section_res = await client.post(
-        "/api/v1/facility/sections",
+    list_res = await client.get(
+        "/api/v1/facility/assets",
         headers=admin_headers,
         params={"branch_id": str(branch.id)},
+    )
+    assert list_res.status_code == 200
+    assert list_res.json()["data"][0]["id"] == asset_id
+
+    stored_asset = await db_session.get(FacilityAsset, uuid.UUID(asset_id))
+    assert stored_asset is not None and stored_asset.branch_id == branch.id
+
+    expense_res = await db_session.execute(
+        select(Transaction).where(
+            Transaction.description == "Maintenance fix expense - Treadmill A1",
+            Transaction.branch_id == branch.id,
+            Transaction.type == TransactionType.EXPENSE,
+            Transaction.category == TransactionCategory.MAINTENANCE,
+        )
+    )
+    expense = expense_res.scalars().first()
+    assert expense is not None
+    assert float(expense.amount) == 125.50
+
+    update_res = await client.patch(
+        f"/api/v1/facility/assets/{asset_id}",
+        headers=admin_headers,
         json={
-            "section_key": "OPENING_HOURS",
-            "title": "Opening Hours",
-            "body": "Sat-Thu 6:00 AM - 11:00 PM",
-            "sort_order": 1,
+            "name": "Treadmill A1",
+            "asset_type": "MACHINE",
+            "status": "GOOD",
+            "fix_expense_amount": 180.00,
+            "note": "Repaired and tested.",
             "is_active": True,
         },
     )
-    assert section_res.status_code == 200
-    section_id = section_res.json()["data"]["id"]
+    assert update_res.status_code == 200
 
-    list_machine_res = await client.get(
-        "/api/v1/facility/machines",
-        headers=admin_headers,
-        params={"branch_id": str(branch.id)},
+    updated_expense_res = await db_session.execute(
+        select(Transaction).where(
+            Transaction.description == "Maintenance fix expense - Treadmill A1",
+            Transaction.branch_id == branch.id,
+            Transaction.type == TransactionType.EXPENSE,
+            Transaction.category == TransactionCategory.MAINTENANCE,
+        )
     )
-    assert list_machine_res.status_code == 200
-    assert list_machine_res.json()["data"][0]["id"] == machine_id
-
-    list_section_res = await client.get(
-        "/api/v1/facility/sections",
-        headers=admin_headers,
-        params={"branch_id": str(branch.id)},
-    )
-    assert list_section_res.status_code == 200
-    assert list_section_res.json()["data"][0]["id"] == section_id
-
-    stored_machine = await db_session.get(FacilityMachine, uuid.UUID(machine_id))
-    stored_section = await db_session.get(FacilitySection, uuid.UUID(section_id))
-    assert stored_machine is not None and stored_machine.branch_id == branch.id
-    assert stored_section is not None and stored_section.branch_id == branch.id
+    updated_expense = updated_expense_res.scalars().first()
+    assert updated_expense is not None
+    assert float(updated_expense.amount) == 180.00
 
 
 async def _login(client: AsyncClient, email: str) -> dict[str, str]:

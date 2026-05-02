@@ -72,6 +72,12 @@ export const notificationPreferenceSchema = z.object({
   announcements_enabled: z.boolean(),
 });
 
+export const policyGateSchema = z.object({
+  current_policy_version: z.string().min(1),
+  requires_signature: z.boolean(),
+  locale_signatures: z.record(z.string(), z.boolean()).default({}),
+});
+
 export const branchSummarySchema = z.object({
   id: uuidLikeSchema,
   gym_id: uuidLikeSchema,
@@ -84,11 +90,36 @@ export const branchSummarySchema = z.object({
   email: z.string().email().nullable().optional(),
 });
 
+export const branchHoursDaySchema = z.object({
+  weekday: z.number().int().min(0).max(6),
+  is_closed: z.boolean(),
+  open_time: z.string().nullable().optional(),
+  close_time: z.string().nullable().optional(),
+  note: z.string().nullable().optional(),
+});
+
+export const branchHoursSummarySchema = z.object({
+  current_weekday: z.number().int().min(0).max(6),
+  current_is_closed: z.boolean(),
+  current_open_time: z.string().nullable().optional(),
+  current_close_time: z.string().nullable().optional(),
+  current_note: z.string().nullable().optional(),
+  updated_at: z.string().nullable().optional(),
+});
+
+export const branchHoursSchema = z.object({
+  branch: branchSummarySchema,
+  summary: branchHoursSummarySchema,
+  days: z.array(branchHoursDaySchema),
+});
+
 const rawMobileBootstrapSchema = z.object({
   user: authUserSchema,
   role: roleSchema,
   subscription: subscriptionSnapshotSchema,
   gym: gymBrandingSchema,
+  policy: policyGateSchema,
+  branch_hours: branchHoursSchema.nullable().optional(),
   home_branch: branchSummarySchema.nullable().optional(),
   accessible_branches: z.array(branchSummarySchema).default([]),
   capabilities: z.array(z.string()),
@@ -126,6 +157,8 @@ export const mobileReceiptSummarySchema = z.object({
 
 export const mobileCustomerHomeSchema = z.object({
   subscription: subscriptionSnapshotSchema,
+  policy: policyGateSchema,
+  branch_hours: branchHoursSchema.nullable().optional(),
   quick_stats: z.object({
     active_workout_plans: z.number().int(),
     active_diet_plans: z.number().int(),
@@ -133,6 +166,53 @@ export const mobileCustomerHomeSchema = z.object({
     open_support_tickets: z.number().int(),
     unread_chat_messages: z.number().int(),
   }),
+  perk_summary: z.object({
+    total_accounts: z.number().int(),
+    active_accounts: z.number().int(),
+    total_remaining: z.number().int(),
+    total_used: z.number().int(),
+    accounts: z.array(
+      z.object({
+        id: uuidLikeSchema,
+        perk_key: z.string(),
+        perk_label: z.string(),
+        remaining_allowance: z.number().int(),
+        total_allowance: z.number().int(),
+        period_type: z.string(),
+        contract_ends_at: z.string().nullable().optional(),
+      }),
+    ),
+  }),
+  quick_actions: z.array(
+    z.object({
+      id: z.string(),
+      label: z.string(),
+      href: z.string().nullable().optional(),
+      kind: z.string(),
+      badge: z.string().nullable().optional(),
+    }),
+  ),
+  next_class: z
+    .object({
+      id: uuidLikeSchema,
+      name: z.string(),
+      starts_at: z.string(),
+      ends_at: z.string(),
+      coach_name: z.string().nullable().optional(),
+    })
+    .nullable()
+    .optional(),
+  recent_announcements: z.array(
+    z.object({
+      id: uuidLikeSchema,
+      title: z.string(),
+      body: z.string(),
+      target_scope: z.string(),
+      branch_id: uuidLikeSchema.nullable().optional(),
+      branch_name: z.string().nullable().optional(),
+      published_at: z.string().nullable().optional(),
+    }),
+  ),
   latest_biometric: z
     .object({
       id: uuidLikeSchema,
@@ -983,6 +1063,9 @@ export type EnabledModule = z.infer<typeof enabledModuleSchema>;
 export type SubscriptionSnapshot = z.infer<typeof subscriptionSnapshotSchema>;
 export type GymBranding = z.infer<typeof gymBrandingSchema>;
 export type NotificationPreference = z.infer<typeof notificationPreferenceSchema>;
+export type BranchHoursDay = z.infer<typeof branchHoursDaySchema>;
+export type BranchHoursSummary = z.infer<typeof branchHoursSummarySchema>;
+export type BranchHours = z.infer<typeof branchHoursSchema>;
 export type MobileBootstrap = z.infer<typeof mobileBootstrapSchema>;
 export type MobileReceiptSummary = z.infer<typeof mobileReceiptSummarySchema>;
 export type MobileCustomerHome = z.infer<typeof mobileCustomerHomeSchema>;

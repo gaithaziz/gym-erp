@@ -3,6 +3,7 @@
 import { useAuth } from '@/context/AuthContext';
 import { api } from '@/lib/api';
 import { useEffect, useState, useCallback, useMemo } from 'react';
+import { useQuery } from '@tanstack/react-query';
 import { Users, DollarSign, Clock, TrendingUp, QrCode, Dumbbell, Utensils, ChevronRight, MessageSquare, UserCheck, ClipboardList, Trophy, Activity, Download, Building2 } from 'lucide-react';
 import {
     BarChart, Bar, Cell, LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip
@@ -11,7 +12,6 @@ import Link from 'next/link';
 import { DateRangePicker } from '@/components/DateRangePicker';
 import { DashboardGrid } from '@/components/DashboardGrid';
 import MemberSearchSelect from '@/components/MemberSearchSelect';
-import TablePagination from '@/components/TablePagination';
 import { fetchMemberOverviewData } from '@/app/dashboard/member/_shared/customerData';
 import type { GamificationStats as MemberGamificationStats } from '@/app/dashboard/member/_shared/types';
 import { DateRange } from 'react-day-picker';
@@ -38,6 +38,7 @@ interface DashboardStats {
     expiring_subscriptions_30d: number;
     active_debt_accounts: number;
     outstanding_staff_debt: number;
+    audit_events_30d?: number;
     expiring_subscriptions: Array<{
         user_id: string;
         full_name: string;
@@ -48,6 +49,31 @@ interface DashboardStats {
     top_bundles: Array<{
         plan_name: string;
         count: number;
+    }>;
+    bundle_breakdown?: Array<{
+        plan_name: string;
+        active_count: number;
+        frozen_count: number;
+        expired_count: number;
+        total_count: number;
+        expiring_30d_count: number;
+    }>;
+    subscriber_status_counts?: Array<{
+        status: string;
+        count: number;
+    }>;
+    audit_top_actions?: Array<{
+        action: string;
+        count: number;
+    }>;
+    audit_recent_events?: Array<{
+        id: string;
+        action: string;
+        target_id: string | null;
+        timestamp: string | null;
+        details: string | null;
+        user_name: string | null;
+        user_email: string | null;
     }>;
 }
 
@@ -62,13 +88,6 @@ interface LowStockItem {
     name: string;
     stock_quantity: number;
     low_stock_threshold: number;
-}
-
-interface ActivityItem {
-    text: string;
-    time: string;
-    color: string;
-    type: string;
 }
 
 interface BranchComparisonItem {
@@ -89,6 +108,32 @@ interface BranchComparisonResponse {
     top_branch: BranchComparisonItem | null;
     bottom_branch: BranchComparisonItem | null;
     branches: BranchComparisonItem[];
+}
+
+interface BranchHoursResponse {
+    branch: {
+        id: string;
+        name: string;
+        display_name?: string | null;
+        code: string;
+        slug: string;
+        timezone: string;
+    };
+    summary: {
+        current_weekday: number;
+        current_is_closed: boolean;
+        current_open_time?: string | null;
+        current_close_time?: string | null;
+        current_note?: string | null;
+        updated_at?: string | null;
+    };
+    days: Array<{
+        weekday: number;
+        is_closed: boolean;
+        open_time?: string | null;
+        close_time?: string | null;
+        note?: string | null;
+    }>;
 }
 
 interface Plan {
@@ -121,7 +166,6 @@ interface MemberSummary {
     email: string;
     date_of_birth?: string;
 }
-const VISITOR_ROWS_PAGE_SIZE = 10;
 
 interface DashboardGymOption {
     id: string;
@@ -171,11 +215,6 @@ function AdminDashboard({ userName, userRole }: { userName: string; userRole: st
     const { t, direction, formatCurrency, formatDate, formatNumber, locale } = useLocale();
     const adminTxt = locale === 'ar'
         ? {
-            justNow: 'الآن',
-            minutesAgoSuffix: 'دقيقة مضت',
-            hoursAgoSuffix: 'ساعة مضت',
-            recentSystemActivity: 'آخر نشاطات النظام',
-            noRecentActivity: 'لا يوجد نشاط حديث',
             dailyVisitorReport: 'تقرير الزوار اليومي (غير مباشر)',
             exportCsv: 'تصدير CSV',
             noVisitorData: 'لا توجد بيانات تقرير زوار للنطاق المحدد.',
@@ -200,19 +239,24 @@ function AdminDashboard({ userName, userRole }: { userName: string; userRole: st
             exportExpiringPdf: 'PDF',
             exportBundlesPdf: 'PDF',
             openDebtLedger: 'سجل الديون',
+            auditSummary: 'إجراءات التدقيق خلال 30 يومًا',
+            auditSubtitle: 'أعداد مجمّعة حسب نوع الإجراء.',
+            auditTotalLabel: 'إجمالي الإجراءات',
+            topAuditActions: 'أهم إجراءات التدقيق',
+            subscriberBreakdown: 'توزيع المشتركين',
+            bundleBreakdown: 'مزيج الباقات',
             expiring7d: 'تنتهي خلال 7 أيام',
+            expiring7dSubtitle: 'الاشتراكات التي تنتهي هذا الأسبوع.',
             expiring30d: 'تنتهي خلال 30 يومًا',
+            expiring30dSubtitle: 'الاشتراكات التي تنتهي خلال 30 يومًا.',
             debtAccounts: 'حسابات الديون',
+            debtAccountsSubtitle: 'الحسابات التي عليها رصيد مستحق.',
             outstandingDebt: 'الرصيد المستحق',
+            outstandingDebtSubtitle: 'إجمالي الديون غير المسددة.',
             topBundles: 'أقوى الباقات',
             expiringList: 'الاشتراكات القريبة من الانتهاء',
         }
         : {
-            justNow: 'Just now',
-            minutesAgoSuffix: 'm ago',
-            hoursAgoSuffix: 'h ago',
-            recentSystemActivity: 'Recent System Activity',
-            noRecentActivity: 'No recent activity',
             dailyVisitorReport: 'Daily Visitor Report (Non-Live)',
             exportCsv: 'Export CSV',
             noVisitorData: 'No visitor report data for selected range.',
@@ -237,10 +281,20 @@ function AdminDashboard({ userName, userRole }: { userName: string; userRole: st
             exportExpiringPdf: 'PDF',
             exportBundlesPdf: 'PDF',
             openDebtLedger: 'Open debt ledger',
+            auditSummary: 'Audit actions in 30 days',
+            auditSubtitle: 'Grouped counts by action type.',
+            auditTotalLabel: 'Action total',
+            topAuditActions: 'Top audit actions',
+            subscriberBreakdown: 'Subscriber breakdown',
+            bundleBreakdown: 'Bundle mix',
             expiring7d: 'Expiring in 7 days',
+            expiring7dSubtitle: 'Subscriptions ending this week.',
             expiring30d: 'Expiring in 30 days',
+            expiring30dSubtitle: 'Subscriptions ending within 30 days.',
             debtAccounts: 'Debt accounts',
+            debtAccountsSubtitle: 'Accounts with an outstanding balance.',
             outstandingDebt: 'Outstanding debt',
+            outstandingDebtSubtitle: 'Total unpaid debt.',
             topBundles: 'Top bundles',
             expiringList: 'Subscriptions expiring soon',
         };
@@ -251,11 +305,9 @@ function AdminDashboard({ userName, userRole }: { userName: string; userRole: st
     const [hoveredRevenueIndex, setHoveredRevenueIndex] = useState<number | null>(null);
     const revenueBarColor = '#22c55e';
     const expensesBarColor = '#ef4444';
-    const [recentActivity, setRecentActivity] = useState<ActivityItem[]>([]);
     const [lowStockItems, setLowStockItems] = useState<LowStockItem[]>([]);
     const [dailyVisitors, setDailyVisitors] = useState<DailyVisitorRow[]>([]);
     const [branchComparison, setBranchComparison] = useState<BranchComparisonResponse | null>(null);
-    const [dailyVisitorsPage, setDailyVisitorsPage] = useState(1);
     const [gyms, setGyms] = useState<DashboardGymOption[]>([]);
     const [dateRange, setDateRange] = useState<DateRange | undefined>({
         from: subDays(new Date(), 30),
@@ -336,10 +388,6 @@ function AdminDashboard({ userName, userRole }: { userName: string; userRole: st
             .then(res => setRevenueData(res.data.data || []))
             .catch(() => { });
 
-        api.get('/analytics/recent-activity', { params: scopeParams })
-            .then(res => setRecentActivity(res.data.data || []))
-            .catch(() => setRecentActivity([]));
-
         api.get('/inventory/products/low-stock', { params: scopeParams })
             .then(res => setLowStockItems(res.data.data || []))
             .catch(() => setLowStockItems([]));
@@ -365,25 +413,6 @@ function AdminDashboard({ userName, userRole }: { userName: string; userRole: st
         }, 0);
         return () => window.clearTimeout(timer);
     }, [fetchData]);
-
-    const totalDailyVisitorPages = Math.max(1, Math.ceil(dailyVisitors.length / VISITOR_ROWS_PAGE_SIZE));
-    const safeDailyVisitorsPage = Math.min(dailyVisitorsPage, totalDailyVisitorPages);
-    const visibleDailyVisitors = dailyVisitors.slice((safeDailyVisitorsPage - 1) * VISITOR_ROWS_PAGE_SIZE, safeDailyVisitorsPage * VISITOR_ROWS_PAGE_SIZE);
-
-    const formatTime = (iso: string) => {
-        if (!iso) return '';
-        try {
-            const d = new Date(iso);
-            const now = new Date();
-            const diffMs = now.getTime() - d.getTime();
-            const diffMin = Math.floor(diffMs / 60000);
-            if (diffMin < 1) return adminTxt.justNow;
-            if (diffMin < 60) return `${diffMin}${adminTxt.minutesAgoSuffix}`;
-            const diffHr = Math.floor(diffMin / 60);
-            if (diffHr < 24) return `${diffHr}${adminTxt.hoursAgoSuffix}`;
-            return formatDate(d, { month: 'short', day: '2-digit', year: 'numeric' });
-        } catch { return ''; }
-    };
 
     const revenueChartData = useMemo<RevenueChartPoint[]>(() => {
         if (revenueViewMode === 'daily') {
@@ -434,11 +463,27 @@ function AdminDashboard({ userName, userRole }: { userName: string; userRole: st
     ];
 
     const reportCards = [
-        { title: adminTxt.expiring7d, value: stats?.expiring_subscriptions_7d ?? 0, icon: Clock },
-        { title: adminTxt.expiring30d, value: stats?.expiring_subscriptions_30d ?? 0, icon: Users },
-        { title: adminTxt.debtAccounts, value: stats?.active_debt_accounts ?? 0, icon: DollarSign },
-        { title: adminTxt.outstandingDebt, value: stats ? formatCurrency(stats.outstanding_staff_debt || 0, 'JOD', { currencyDisplay: 'code' }) : '--', icon: TrendingUp },
+        { title: adminTxt.expiring7d, subtitle: adminTxt.expiring7dSubtitle, value: stats?.expiring_subscriptions_7d ?? 0, icon: Clock },
+        { title: adminTxt.expiring30d, subtitle: adminTxt.expiring30dSubtitle, value: stats?.expiring_subscriptions_30d ?? 0, icon: Users },
+        { title: adminTxt.debtAccounts, subtitle: adminTxt.debtAccountsSubtitle, value: stats?.active_debt_accounts ?? 0, icon: DollarSign },
+        { title: adminTxt.outstandingDebt, subtitle: adminTxt.outstandingDebtSubtitle, value: stats ? formatCurrency(stats.outstanding_staff_debt || 0, 'JOD', { currencyDisplay: 'code' }) : '--', icon: TrendingUp },
     ];
+
+    const statusLabels: Record<string, string> = {
+        ACTIVE: locale === 'ar' ? 'نشط' : 'Active',
+        FROZEN: locale === 'ar' ? 'مجمّد' : 'Frozen',
+        EXPIRED: locale === 'ar' ? 'منتهي' : 'Expired',
+    };
+
+    const subscriberStatusCards = (stats?.subscriber_status_counts || []).map((row) => ({
+        label: statusLabels[row.status] || row.status,
+        value: row.count,
+    }));
+    const subscriberStatusTotal = subscriberStatusCards.reduce((sum, item) => sum + item.value, 0);
+    const bundleBreakdown = stats?.bundle_breakdown || [];
+    const auditTopActions = stats?.audit_top_actions || [];
+    const auditTopActionsTotal = auditTopActions.reduce((sum, item) => sum + item.count, 0);
+    const expiringSubscriptions = stats?.expiring_subscriptions || [];
 
     const exportDailyVisitorsCsv = async () => {
         const from = dateRange?.from ? dateRange.from.toISOString().split('T')[0] : '';
@@ -664,114 +709,6 @@ function AdminDashboard({ userName, userRole }: { userName: string; userRole: st
                     </div>
                 ))}
 
-                <div key="reporting" className="kpi-card p-6 h-full min-h-[18rem] relative group md:col-span-6 xl:col-span-12">
-                    <div className="flex flex-wrap items-end justify-between gap-3 mb-5">
-                        <div>
-                            <h3 className="inline-flex rounded-md border border-orange-500/30 bg-orange-500/10 px-2 py-1 text-base font-extrabold text-orange-500 uppercase tracking-wider font-mono">{adminTxt.reportingTitle}</h3>
-                            <p className="text-xs text-muted-foreground mt-2">{adminTxt.reportingSubtitle}</p>
-                        </div>
-                        <div className="flex flex-wrap items-center gap-2">
-                            <button
-                                type="button"
-                                onClick={exportExpiringSubscriptionsCsv}
-                                className="inline-flex items-center gap-2 rounded-md border border-border bg-background px-3 py-2 text-xs font-semibold uppercase tracking-wider text-foreground transition-colors hover:bg-muted/40"
-                            >
-                                <Download size={14} />
-                                {adminTxt.exportExpiring}
-                            </button>
-                            <button
-                                type="button"
-                                onClick={exportExpiringSubscriptionsPdf}
-                                className="inline-flex items-center gap-2 rounded-md border border-border bg-background px-3 py-2 text-xs font-semibold uppercase tracking-wider text-foreground transition-colors hover:bg-muted/40"
-                            >
-                                <Download size={14} />
-                                {adminTxt.exportExpiringPdf}
-                            </button>
-                            <button
-                                type="button"
-                                onClick={exportTopBundlesCsv}
-                                className="inline-flex items-center gap-2 rounded-md border border-border bg-background px-3 py-2 text-xs font-semibold uppercase tracking-wider text-foreground transition-colors hover:bg-muted/40"
-                            >
-                                <Download size={14} />
-                                {adminTxt.exportBundles}
-                            </button>
-                            <button
-                                type="button"
-                                onClick={exportTopBundlesPdf}
-                                className="inline-flex items-center gap-2 rounded-md border border-border bg-background px-3 py-2 text-xs font-semibold uppercase tracking-wider text-foreground transition-colors hover:bg-muted/40"
-                            >
-                                <Download size={14} />
-                                {adminTxt.exportBundlesPdf}
-                            </button>
-                            <Link
-                                href="/dashboard/admin/staff-debt"
-                                className="inline-flex items-center gap-2 rounded-md border border-border bg-background px-3 py-2 text-xs font-semibold uppercase tracking-wider text-foreground transition-colors hover:bg-muted/40"
-                            >
-                                <Download size={14} />
-                                {adminTxt.openDebtLedger}
-                            </Link>
-                        </div>
-                    </div>
-                    <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
-                        {reportCards.map((card) => (
-                            <div key={card.title} className="rounded-xl border border-border bg-muted/10 p-4">
-                                <div className="flex items-center justify-between gap-3">
-                                    <div>
-                                        <p className="text-xs font-bold uppercase tracking-wider text-muted-foreground">{card.title}</p>
-                                        <p className="mt-2 text-2xl font-bold text-foreground font-mono">{card.value}</p>
-                                    </div>
-                                    <div className="h-10 w-10 flex items-center justify-center border border-border bg-background">
-                                        <card.icon size={16} className="text-foreground" />
-                                    </div>
-                                </div>
-                            </div>
-                        ))}
-                    </div>
-                    <div className="mt-5 grid gap-4 xl:grid-cols-2">
-                        <div className="rounded-xl border border-border bg-muted/10 p-4">
-                            <div className="flex items-center justify-between gap-3">
-                                <h4 className="text-sm font-semibold text-foreground">{adminTxt.topBundles}</h4>
-                                <span className="text-xs text-muted-foreground">{stats?.top_bundles?.length || 0}</span>
-                            </div>
-                            <div className="mt-3 space-y-2">
-                                {(stats?.top_bundles || []).length ? stats!.top_bundles.map((bundle) => (
-                                    <div key={bundle.plan_name} className="flex items-center justify-between gap-3 rounded-lg border border-border bg-background px-3 py-2">
-                                        <span className="truncate text-sm text-foreground">{bundle.plan_name}</span>
-                                        <span className="font-mono text-sm text-muted-foreground">{bundle.count}</span>
-                                    </div>
-                                )) : (
-                                    <p className="text-sm text-muted-foreground">{locale === 'ar' ? 'لا توجد باقات مسجلة بعد.' : 'No bundle data yet.'}</p>
-                                )}
-                            </div>
-                        </div>
-                        <div className="rounded-xl border border-border bg-muted/10 p-4">
-                            <div className="flex items-center justify-between gap-3">
-                                <h4 className="text-sm font-semibold text-foreground">{adminTxt.expiringList}</h4>
-                                <span className="text-xs text-muted-foreground">{stats?.expiring_subscriptions?.length || 0}</span>
-                            </div>
-                            <div className="mt-3 space-y-2">
-                                {(stats?.expiring_subscriptions || []).length ? stats!.expiring_subscriptions.map((item) => (
-                                    <div key={item.user_id} className="rounded-lg border border-border bg-background px-3 py-2">
-                                        <div className="flex items-center justify-between gap-3">
-                                            <div className="min-w-0">
-                                                <p className="truncate text-sm font-medium text-foreground">{item.full_name}</p>
-                                                <p className="truncate text-xs text-muted-foreground">{item.plan_name} - {item.email}</p>
-                                            </div>
-                                            <div className="text-right">
-                                                <p className="text-xs text-muted-foreground">
-                                                    {item.end_date ? formatDate(new Date(item.end_date), { month: 'short', day: 'numeric' }) : '--'}
-                                                </p>
-                                            </div>
-                                        </div>
-                                    </div>
-                                )) : (
-                                    <p className="text-sm text-muted-foreground">{locale === 'ar' ? 'لا توجد اشتراكات تنتهي قريبًا.' : 'No subscriptions expiring soon.'}</p>
-                                )}
-                            </div>
-                        </div>
-                    </div>
-                </div>
-
                 {/* Charts */}
                 <div key="chart-visits" className="kpi-card p-6 h-full min-h-[22rem] relative group">
                     <h3 className="inline-flex rounded-md border border-orange-500/30 bg-orange-500/10 px-2 py-1 text-base font-extrabold text-orange-500 uppercase tracking-wider font-mono mb-6">{t('dashboard.home.visitsByHour')} ({t('dashboard.home.lastDays').replace('{{days}}', String(selectedDays))})</h3>
@@ -890,33 +827,9 @@ function AdminDashboard({ userName, userRole }: { userName: string; userRole: st
                     </div>
                 </div>
 
-                {/* Recent Activity */}
-                <div key="activity" className="kpi-card p-0 h-full relative group overflow-hidden flex flex-col">
-                    <div className="p-4 border-b border-border flex-shrink-0">
-                        <h3 className="inline-flex rounded-md border border-orange-500/30 bg-orange-500/10 px-2 py-1 text-base font-extrabold text-orange-500 uppercase tracking-wider font-mono">{adminTxt.recentSystemActivity}</h3>
-                    </div>
-                    <div className="divide-y divide-border overflow-y-auto flex-1">
-                        {recentActivity.length > 0 ? (
-                            recentActivity.map((item, i) => (
-                                <div key={i} className="flex items-center gap-4 p-4 hover:bg-muted/30 transition-colors">
-                                    <div className={`w-2 h-2 rounded-full flex-shrink-0 ${item.type === 'access' ? 'bg-emerald-500' :
-                                        item.type === 'finance' ? 'bg-blue-500' :
-                                            item.type === 'attendance' ? 'bg-amber-500' : 'bg-gray-500'
-                                        }`} />
-                                    <div className="flex-1 min-w-0">
-                                        <p className="text-sm font-medium text-foreground truncate">{item.text}</p>
-                                        <p className="text-xs text-muted-foreground font-mono">{formatTime(item.time)}</p>
-                                    </div>
-                                </div>
-                            ))
-                        ) : (
-                            <div className="p-8 text-center text-muted-foreground text-sm font-mono">{adminTxt.noRecentActivity}</div>
-                        )}
-                    </div>
-                </div>
             </DashboardGrid>
 
-                <div className="kpi-card p-6">
+            <div className="kpi-card p-6">
                 <div className="flex items-center justify-between gap-3 mb-4">
                     <h3 className="inline-flex rounded-md border border-orange-500/30 bg-orange-500/10 px-2 py-1 text-base font-extrabold text-orange-500 uppercase tracking-wider font-mono">{adminTxt.dailyVisitorReport}</h3>
                     <button type="button" className="btn-ghost !py-1.5 !px-3 text-xs flex items-center gap-1" onClick={exportDailyVisitorsCsv}>
@@ -939,36 +852,164 @@ function AdminDashboard({ userName, userRole }: { userName: string; userRole: st
                         <div className="h-full flex items-center justify-center text-sm text-muted-foreground border border-dashed border-border">{adminTxt.noVisitorData}</div>
                     )}
                 </div>
-                <div className="overflow-x-auto">
-                    <table className="w-full text-start table-dark min-w-[440px]">
-                        <thead>
-                            <tr>
-                                <th>{adminTxt.date}</th>
-                                <th>{adminTxt.uniqueVisitors}</th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            {dailyVisitors.length > 0 ? (
-                                visibleDailyVisitors.map((row, i) => (
-                                    <tr key={`${row.date || row.week_start}-${i}`}>
-                                        <td className="font-mono text-xs text-muted-foreground">{row.date || row.week_start || '-'}</td>
-                                        <td className="font-mono text-xs text-foreground">{row.unique_visitors}</td>
-                                    </tr>
-                                ))
-                            ) : (
-                                <tr>
-                                    <td colSpan={2} className="text-center py-4 text-muted-foreground text-sm">{adminTxt.noRows}</td>
-                                </tr>
-                            )}
-                        </tbody>
-                    </table>
+            </div>
+
+            <div className="kpi-card p-6 h-full min-h-[18rem] relative group">
+                <div className="flex flex-wrap items-end justify-between gap-3 mb-5">
+                    <div>
+                        <h3 className="inline-flex rounded-md border border-orange-500/30 bg-orange-500/10 px-2 py-1 text-base font-extrabold text-orange-500 uppercase tracking-wider font-mono">{adminTxt.reportingTitle}</h3>
+                        <p className="text-xs text-muted-foreground mt-2">{adminTxt.reportingSubtitle}</p>
+                    </div>
+                    <div className="flex flex-wrap items-center gap-2">
+                        <button
+                            type="button"
+                            onClick={exportExpiringSubscriptionsCsv}
+                            className="inline-flex items-center gap-2 rounded-md border border-border bg-background px-3 py-2 text-xs font-semibold uppercase tracking-wider text-foreground transition-colors hover:bg-muted/40"
+                        >
+                            <Download size={14} />
+                            {adminTxt.exportExpiring}
+                        </button>
+                        <button
+                            type="button"
+                            onClick={exportExpiringSubscriptionsPdf}
+                            className="inline-flex items-center gap-2 rounded-md border border-border bg-background px-3 py-2 text-xs font-semibold uppercase tracking-wider text-foreground transition-colors hover:bg-muted/40"
+                        >
+                            <Download size={14} />
+                            {adminTxt.exportExpiringPdf}
+                        </button>
+                        <button
+                            type="button"
+                            onClick={exportTopBundlesCsv}
+                            className="inline-flex items-center gap-2 rounded-md border border-border bg-background px-3 py-2 text-xs font-semibold uppercase tracking-wider text-foreground transition-colors hover:bg-muted/40"
+                        >
+                            <Download size={14} />
+                            {adminTxt.exportBundles}
+                        </button>
+                        <button
+                            type="button"
+                            onClick={exportTopBundlesPdf}
+                            className="inline-flex items-center gap-2 rounded-md border border-border bg-background px-3 py-2 text-xs font-semibold uppercase tracking-wider text-foreground transition-colors hover:bg-muted/40"
+                        >
+                            <Download size={14} />
+                            {adminTxt.exportBundlesPdf}
+                        </button>
+                        <Link
+                            href="/dashboard/admin/staff-debt"
+                            className="inline-flex items-center gap-2 rounded-md border border-border bg-background px-3 py-2 text-xs font-semibold uppercase tracking-wider text-foreground transition-colors hover:bg-muted/40"
+                        >
+                            <Download size={14} />
+                            {adminTxt.openDebtLedger}
+                        </Link>
+                    </div>
                 </div>
-                <TablePagination
-                    page={safeDailyVisitorsPage}
-                    totalPages={totalDailyVisitorPages}
-                    onPrevious={() => setDailyVisitorsPage((prev) => Math.max(1, prev - 1))}
-                    onNext={() => setDailyVisitorsPage((prev) => Math.min(totalDailyVisitorPages, prev + 1))}
-                />
+                <div className="mb-5 grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+                    {reportCards.map((card) => (
+                        <div key={card.title} className="kpi-card group relative p-4">
+                            <div className="flex items-start justify-between gap-3">
+                                <div className="min-w-0">
+                                    <p className="inline-flex rounded-md border border-orange-500/30 bg-orange-500/10 px-2 py-1 text-[11px] font-extrabold text-orange-500 uppercase tracking-wider font-mono">{card.title}</p>
+                                    <p className="mt-2 text-2xl font-bold text-foreground font-mono tracking-tight">{card.value}</p>
+                                    <p className="mt-2 text-[11px] leading-4 text-muted-foreground">{card.subtitle}</p>
+                                </div>
+                                <div className="mt-1 h-10 w-10 shrink-0 border border-border bg-muted/50 flex items-center justify-center overflow-hidden">
+                                    <card.icon size={16} className="text-foreground" />
+                                </div>
+                            </div>
+                        </div>
+                    ))}
+                </div>
+                <div className="mt-5 grid gap-4 xl:grid-cols-2">
+                    <div className="rounded-xl border border-border bg-muted/10 p-4 flex flex-col">
+                        <div className="flex items-center justify-between gap-3">
+                            <div>
+                                <h4 className="text-sm font-semibold text-foreground">{adminTxt.bundleBreakdown}</h4>
+                                <p className="text-xs text-muted-foreground">{adminTxt.reportingSubtitle}</p>
+                            </div>
+                            <span className="text-xs text-muted-foreground">{bundleBreakdown.length}</span>
+                        </div>
+                        <div className="mt-3 max-h-64 space-y-2 overflow-y-auto pr-1">
+                            {bundleBreakdown.length ? bundleBreakdown.map((bundle) => (
+                                <div key={bundle.plan_name} className="rounded-lg border border-border bg-background px-3 py-2">
+                                    <div className="flex items-center justify-between gap-3">
+                                        <span className="truncate text-sm font-medium text-foreground">{bundle.plan_name}</span>
+                                        <span className="font-mono text-xs text-muted-foreground">{bundle.total_count}</span>
+                                    </div>
+                                    <div className="mt-2 grid grid-cols-2 gap-2 text-[10px] font-mono uppercase tracking-wider text-muted-foreground sm:grid-cols-4">
+                                        <span>{locale === 'ar' ? 'نشط' : 'Active'}: {bundle.active_count}</span>
+                                        <span>{locale === 'ar' ? 'مجمّد' : 'Frozen'}: {bundle.frozen_count}</span>
+                                        <span>{locale === 'ar' ? 'منتهي' : 'Expired'}: {bundle.expired_count}</span>
+                                        <span>{locale === 'ar' ? 'قريب' : 'Soon'}: {bundle.expiring_30d_count}</span>
+                                    </div>
+                                </div>
+                            )) : (
+                                <p className="text-sm text-muted-foreground">{locale === 'ar' ? 'لا توجد باقات مسجلة بعد.' : 'No bundle data yet.'}</p>
+                            )}
+                        </div>
+                    </div>
+                    <div className="rounded-xl border border-border bg-muted/10 p-4 flex flex-col">
+                        <div className="flex items-center justify-between gap-3">
+                            <div>
+                                <h4 className="text-sm font-semibold text-foreground">{adminTxt.subscriberBreakdown}</h4>
+                                <p className="text-xs text-muted-foreground">{adminTxt.reportingSubtitle}</p>
+                            </div>
+                            <span className="text-xs text-muted-foreground">{subscriberStatusTotal}</span>
+                        </div>
+                        <div className="mt-3 max-h-64 space-y-2 overflow-y-auto pr-1">
+                            {subscriberStatusCards.length ? subscriberStatusCards.map((item) => (
+                                <div key={item.label} className="flex items-center justify-between gap-3 rounded-lg border border-border bg-background px-3 py-2">
+                                    <span className="truncate text-sm text-foreground">{item.label}</span>
+                                    <span className="font-mono text-sm text-muted-foreground">{item.value}</span>
+                                </div>
+                            )) : (
+                                <p className="text-sm text-muted-foreground">{locale === 'ar' ? 'لا توجد بيانات اشتراكات بعد.' : 'No subscriber data yet.'}</p>
+                            )}
+                        </div>
+                    </div>
+                    <div className="rounded-xl border border-border bg-muted/10 p-4 flex flex-col">
+                        <div className="flex items-center justify-between gap-3">
+                            <div>
+                                <h4 className="text-sm font-semibold text-foreground">{adminTxt.auditSummary}</h4>
+                                <p className="text-xs text-muted-foreground">{adminTxt.auditSubtitle}</p>
+                            </div>
+                            <span className="text-xs text-muted-foreground">{adminTxt.auditTotalLabel}: {auditTopActionsTotal}</span>
+                        </div>
+                        <div className="mt-3 max-h-48 space-y-2 overflow-y-auto pr-1">
+                            {auditTopActions.length ? auditTopActions.map((item) => (
+                                <div key={item.action} className="flex items-center justify-between gap-3 rounded-lg border border-border bg-background px-3 py-2">
+                                    <span className="truncate text-sm text-foreground">{item.action}</span>
+                                    <span className="font-mono text-sm text-muted-foreground">{item.count}</span>
+                                </div>
+                            )) : (
+                                <p className="text-sm text-muted-foreground">{locale === 'ar' ? 'لا توجد سجلات تدقيق بعد.' : 'No audit records yet.'}</p>
+                            )}
+                        </div>
+                    </div>
+                    <div className="rounded-xl border border-border bg-muted/10 p-4 flex flex-col">
+                        <div className="flex items-center justify-between gap-3">
+                            <h4 className="text-sm font-semibold text-foreground">{adminTxt.expiringList}</h4>
+                            <span className="text-xs text-muted-foreground">{expiringSubscriptions.length}</span>
+                        </div>
+                        <div className="mt-3 max-h-64 space-y-2 overflow-y-auto pr-1">
+                            {expiringSubscriptions.length ? expiringSubscriptions.map((item) => (
+                                <div key={item.user_id} className="rounded-lg border border-border bg-background px-3 py-2">
+                                    <div className="flex items-center justify-between gap-3">
+                                        <div className="min-w-0">
+                                            <p className="truncate text-sm font-medium text-foreground">{item.full_name}</p>
+                                            <p className="truncate text-xs text-muted-foreground">{item.plan_name} - {item.email}</p>
+                                        </div>
+                                        <div className="text-right">
+                                            <p className="text-xs text-muted-foreground">
+                                                {item.end_date ? formatDate(new Date(item.end_date), { month: 'short', day: 'numeric' }) : '--'}
+                                            </p>
+                                        </div>
+                                    </div>
+                                </div>
+                            )) : (
+                                <p className="text-sm text-muted-foreground">{locale === 'ar' ? 'لا توجد اشتراكات تنتهي قريبًا.' : 'No subscriptions expiring soon.'}</p>
+                            )}
+                        </div>
+                    </div>
+                </div>
             </div>
         </div>
     );
@@ -984,8 +1025,6 @@ function CoachDashboard({ userName }: { userName: string }) {
             workoutPlans: 'خطط التمرين',
             plansCreated: 'الخطط المنشأة',
             assignedToMembers: 'مُعيّنة للأعضاء',
-            noAssignedClients: 'لا يوجد أعضاء معيّنون بعد',
-            assignedCompleted: 'عميلًا مُعيّنًا أكمل التمارين',
             createManagePrograms: 'إنشاء وإدارة البرامج',
             manageNutrition: 'إدارة التغذية',
             traineeFeedback: 'ملاحظات المتدربين',
@@ -1007,8 +1046,6 @@ function CoachDashboard({ userName }: { userName: string }) {
             workoutPlans: 'Workout Plans',
             plansCreated: 'Plans created',
             assignedToMembers: 'Assigned to members',
-            noAssignedClients: 'No assigned clients yet',
-            assignedCompleted: 'assigned clients completed workouts',
             createManagePrograms: 'Create & manage programs',
             manageNutrition: 'Manage nutrition',
             traineeFeedback: 'Trainee Feedback',
@@ -1038,49 +1075,7 @@ function CoachDashboard({ userName }: { userName: string }) {
     const [selectedMemberId, setSelectedMemberId] = useState('');
     const [memberBiometrics, setMemberBiometrics] = useState<BiometricLogResponse[]>([]);
     const [selectedMetric, setSelectedMetric] = useState<CoachBiometricMetricKey>('weight_kg');
-    const [planAdherence, setPlanAdherence] = useState({ rate: 0, adherent: 0, assigned: 0 });
     const [loading, setLoading] = useState(true);
-
-    const fetchPlanAdherence = useCallback(async (plansData: Plan[]) => {
-        const assignedPlans = plansData.filter((plan) => !!plan.member_id);
-        const assignedMemberIds = new Set(
-            assignedPlans.map((plan) => plan.member_id).filter((memberId): memberId is string => !!memberId)
-        );
-
-        if (assignedMemberIds.size === 0) {
-            setPlanAdherence({ rate: 0, adherent: 0, assigned: 0 });
-            return;
-        }
-
-        const sevenDaysAgo = new Date();
-        sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
-
-        const logResponses = await Promise.all(
-            assignedPlans.map((plan) =>
-                api.get(`/fitness/logs/${plan.id}`, {
-                    params: {
-                        from_date: sevenDaysAgo.toISOString(),
-                        limit: 500,
-                    },
-                }).catch(() => ({ data: { data: [] } }))
-            )
-        );
-
-        const activeMemberIds = new Set<string>();
-        logResponses.forEach((res) => {
-            const logs = (res.data?.data || []) as Array<{ member_id: string; completed: boolean }>;
-            logs.forEach((log) => {
-                if (log.completed && assignedMemberIds.has(log.member_id)) {
-                    activeMemberIds.add(log.member_id);
-                }
-            });
-        });
-
-        const assignedCount = assignedMemberIds.size;
-        const adherentCount = activeMemberIds.size;
-        const rate = assignedCount > 0 ? Math.round((adherentCount / assignedCount) * 100) : 0;
-        setPlanAdherence({ rate, adherent: adherentCount, assigned: assignedCount });
-    }, []);
 
     useEffect(() => {
         Promise.all([
@@ -1097,10 +1092,9 @@ function CoachDashboard({ userName }: { userName: string }) {
             setDietsCount(assignedDietsData.length);
             setMembers(membersData);
             if (membersData.length > 0) setSelectedMemberId(membersData[0].id);
-            fetchPlanAdherence(plansData).catch(() => setPlanAdherence({ rate: 0, adherent: 0, assigned: 0 }));
             setLoading(false);
         });
-    }, [fetchPlanAdherence]);
+    }, []);
 
     useEffect(() => {
         if (!selectedMemberId) return;
@@ -1151,22 +1145,6 @@ function CoachDashboard({ userName }: { userName: string }) {
                         </div>
                         <div className="p-2 border border-border bg-muted/50">
                             <Utensils size={18} className="text-foreground" />
-                        </div>
-                    </div>
-                </div>
-                <div className="kpi-card group">
-                    <div className="flex items-start justify-between">
-                        <div>
-                            <p className="inline-flex rounded-md border border-orange-500/30 bg-orange-500/10 px-2 py-1 text-xs font-extrabold text-orange-500 uppercase tracking-wider font-mono">{locale === 'ar' ? 'الالتزام بالخطة (7 أيام)' : 'Plan Adherence (7d)'}</p>
-                            <p className="text-3xl font-bold text-foreground mt-2 font-mono tracking-tighter">{planAdherence.rate}%</p>
-                            <p className="text-xs text-muted-foreground mt-1">
-                                {planAdherence.assigned > 0
-                                    ? `${planAdherence.adherent}/${planAdherence.assigned} ${txt.assignedCompleted}`
-                                    : txt.noAssignedClients}
-                            </p>
-                        </div>
-                        <div className="p-2 border border-border bg-muted/50">
-                            <Activity size={18} className="text-foreground" />
                         </div>
                     </div>
                 </div>
@@ -1392,6 +1370,13 @@ function CustomerDashboard({
             expires: 'ينتهي:',
             statusLabel: 'الحالة:',
             visits: 'زيارة',
+            hours: 'ساعات العمل',
+            viewHours: 'عرض الساعات',
+            hoursToday: 'ساعات اليوم',
+            hoursOpenNow: 'مفتوح الآن',
+            hoursClosedToday: 'مغلق اليوم',
+            hoursNotSet: 'لم يتم تحديد ساعات العمل بعد.',
+            updated: 'آخر تحديث',
             myProgress: 'تقدمي',
             bodyMetricsTrends: 'قياسات الجسم والاتجاهات',
             workoutPlans: 'خطط التمرين',
@@ -1418,6 +1403,13 @@ function CustomerDashboard({
             expires: 'Expires:',
             statusLabel: 'Status:',
             visits: 'visits',
+            hours: 'Hours & days',
+            viewHours: 'View hours',
+            hoursToday: "Today's hours",
+            hoursOpenNow: 'Open now',
+            hoursClosedToday: 'Closed today',
+            hoursNotSet: 'Working hours are not set yet.',
+            updated: 'Updated',
             myProgress: 'My Progress',
             bodyMetricsTrends: 'Body metrics and trends',
             workoutPlans: 'Workout Plans',
@@ -1440,6 +1432,13 @@ function CustomerDashboard({
     const [stats, setStats] = useState<MemberGamificationStats | null>(null);
     const [biometrics, setBiometrics] = useState<BiometricLogResponse[]>([]);
     const [loading, setLoading] = useState(true);
+    const hoursQuery = useQuery({
+        queryKey: ['customer-hours'],
+        queryFn: async () => {
+            const response = await api.get('/branch-hours/current');
+            return response.data?.data as BranchHoursResponse | null;
+        },
+    });
 
     useEffect(() => {
         const loadData = async () => {
@@ -1500,6 +1499,19 @@ function CustomerDashboard({
             statusClass: 'text-muted-foreground',
         },
     }[statusLabel];
+    const branchHours = hoursQuery.data;
+    const currentWeekday = branchHours?.summary.current_weekday;
+    const currentHours = branchHours?.days?.find((day) => day.weekday === currentWeekday);
+    const hasConfiguredHours = Boolean(branchHours?.days?.some((day) => !day.is_closed && day.open_time && day.close_time));
+    const hoursLabel = !branchHours || !hasConfiguredHours
+        ? customerTxt.hoursNotSet
+        : branchHours.summary.current_is_closed
+        ? customerTxt.hoursClosedToday
+        : branchHours.summary.current_open_time && branchHours.summary.current_close_time
+            ? `${branchHours.summary.current_open_time} - ${branchHours.summary.current_close_time}`
+            : currentHours && !currentHours.is_closed && currentHours.open_time && currentHours.close_time
+                ? `${currentHours.open_time} - ${currentHours.close_time}`
+                : customerTxt.hoursClosedToday;
 
     return (
         <div className="space-y-8">
@@ -1527,6 +1539,22 @@ function CustomerDashboard({
                             {planLabel} | {customerTxt.statusLabel} <span className={subscriptionCardTheme.statusClass}>{statusLabel}</span>
                         </p>
                     </div>
+                </div>
+            </div>
+
+            <div className="kpi-card p-5 border-l-4 border-l-primary">
+                <div className="flex items-start justify-between gap-3">
+                    <div>
+                        <p className="section-chip mb-2">{customerTxt.hours}</p>
+                        <p className="text-lg font-bold text-foreground font-mono">
+                            {branchHours
+                                ? `${customerTxt.hoursToday}: ${hoursLabel}`
+                                : customerTxt.hoursNotSet}
+                        </p>
+                    </div>
+                    <Link href="/dashboard/hours" className="btn-secondary">
+                        {customerTxt.viewHours}
+                    </Link>
                 </div>
             </div>
 

@@ -44,6 +44,7 @@ import { ThemeProvider } from "@/components/ThemeProvider";
 import { FeedbackProvider } from "@/components/FeedbackProvider";
 import { LocaleProvider } from "@/context/LocaleContext";
 import { BranchProvider } from "@/context/BranchContext";
+import { AppQueryProvider } from "@/components/QueryProvider";
 
 export default function RootLayout({
   children,
@@ -68,7 +69,9 @@ export default function RootLayout({
           <LocaleProvider>
             <AuthProvider>
               <BranchProvider>
-                <FeedbackProvider>{children}</FeedbackProvider>
+                <AppQueryProvider>
+                  <FeedbackProvider>{children}</FeedbackProvider>
+                </AppQueryProvider>
               </BranchProvider>
             </AuthProvider>
           </LocaleProvider>

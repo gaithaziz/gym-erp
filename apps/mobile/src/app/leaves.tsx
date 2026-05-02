@@ -17,7 +17,7 @@ type LeaveRequest = {
   reason?: string | null;
 };
 
-const LEAVE_TYPES = ["ANNUAL", "SICK", "EMERGENCY", "UNPAID"] as const;
+const LEAVE_TYPES = ["VACATION", "SICK", "OTHER"] as const;
 
 export default function LeavesScreen() {
   const { authorizedRequest } = useSession();
@@ -25,7 +25,7 @@ export default function LeavesScreen() {
   const queryClient = useQueryClient();
   const locale = localeTag(isRTL);
   const today = new Date().toISOString().slice(0, 10);
-  const [leaveType, setLeaveType] = useState<(typeof LEAVE_TYPES)[number]>("ANNUAL");
+  const [leaveType, setLeaveType] = useState<(typeof LEAVE_TYPES)[number]>("VACATION");
   const [startDate, setStartDate] = useState(today);
   const [endDate, setEndDate] = useState(today);
   const [reason, setReason] = useState("");
@@ -59,7 +59,7 @@ export default function LeavesScreen() {
     <Screen title={copy.operationsScreen.myLeaves} subtitle={copy.leavesScreen.subtitle}>
       <Card>
         <SectionTitle>{copy.leavesScreen.requestLeave}</SectionTitle>
-        <Input value={leaveType} onChangeText={(value) => setLeaveType((LEAVE_TYPES.includes(value as never) ? value : "ANNUAL") as (typeof LEAVE_TYPES)[number])} placeholder={copy.leavesScreen.leaveType} />
+        <Input value={leaveType} onChangeText={(value) => setLeaveType((LEAVE_TYPES.includes(value as never) ? value : "VACATION") as (typeof LEAVE_TYPES)[number])} placeholder={copy.leavesScreen.leaveType} />
         <Input value={startDate} onChangeText={setStartDate} placeholder={copy.leavesScreen.startDate} />
         <Input value={endDate} onChangeText={setEndDate} placeholder={copy.leavesScreen.endDate} />
         <TextArea value={reason} onChangeText={setReason} placeholder={copy.leavesScreen.reason} />

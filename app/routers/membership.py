@@ -7,7 +7,7 @@ from typing import Annotated, Any, Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, Field
-from sqlalchemy import delete, select
+from sqlalchemy import delete, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.auth import dependencies
@@ -16,10 +16,9 @@ from app.database import get_db
 from app.models.enums import Role
 from app.models.membership import PerkAccount, PerkUsage, PolicyDocument, PolicySignature
 from app.models.user import User
+from app.services.policy_versions import POLICY_VERSION, get_gym_policy_version, get_next_gym_policy_version
 
 router = APIRouter()
-
-POLICY_VERSION = "1.0"
 
 DEFAULT_POLICY_CONTENT: dict[str, dict[str, Any]] = {
     "en": {
@@ -97,6 +96,7 @@ class PolicySection(BaseModel):
 
 
 class PolicyContentPayload(BaseModel):
+    version: str | None = None
     title: str
     effectiveDate: datetime
     updatedAt: datetime
@@ -127,10 +127,11 @@ class PerkUsagePayload(BaseModel):
     note: str | None = Field(default=None, max_length=2000)
 
 
-def _policy_to_payload(row: PolicyDocument | None, locale: str) -> PolicyContentPayload:
+def _policy_to_payload(row: PolicyDocument | None, locale: str, version: str | None = None) -> PolicyContentPayload:
     if row is None:
         default = DEFAULT_POLICY_CONTENT[locale]
         return PolicyContentPayload(
+            version=version or POLICY_VERSION,
             title=default["title"],
             effectiveDate=datetime.fromisoformat(default["effectiveDate"].replace("Z", "+00:00")),
             updatedAt=datetime.fromisoformat(default["updatedAt"].replace("Z", "+00:00")),
@@ -143,6 +144,7 @@ def _policy_to_payload(row: PolicyDocument | None, locale: str) -> PolicyContent
     except Exception:
         sections_raw = []
     return PolicyContentPayload(
+        version=row.version,
         title=row.title,
         effectiveDate=row.effective_date,
         updatedAt=row.updated_at,
@@ -189,8 +191,9 @@ async def get_policy(
     locale: str = Query(default="en", pattern="^(en|ar)$"),
 ):
     row = await _get_policy_row(db, current_user.gym_id, locale)
+    current_version = await get_gym_policy_version(db, current_user.gym_id)
     if row is None:
-        payload = _policy_to_payload(None, locale)
+        payload = _policy_to_payload(None, locale, current_version)
     else:
         payload = _policy_to_payload(row, locale)
     return StandardResponse(data=payload.model_dump())
@@ -204,12 +207,13 @@ async def save_policy(
     locale: str = Query(default="en", pattern="^(en|ar)$"),
 ):
     sections_json = json.dumps([section.model_dump() for section in payload.sections], ensure_ascii=False)
+    next_version = await get_next_gym_policy_version(db, current_user.gym_id)
     row = await _get_policy_row(db, current_user.gym_id, locale)
     if row is None:
         row = PolicyDocument(
             gym_id=current_user.gym_id,
             locale=locale,
-            version=POLICY_VERSION,
+            version=next_version,
             title=payload.title,
             effective_date=payload.effectiveDate,
             intro=payload.intro,
@@ -219,7 +223,6 @@ async def save_policy(
         )
         db.add(row)
     else:
-        row.version = POLICY_VERSION
         row.title = payload.title
         row.effective_date = payload.effectiveDate
         row.intro = payload.intro
@@ -227,6 +230,17 @@ async def save_policy(
         row.footer_note = payload.footerNote
         row.updated_at = payload.updatedAt
         row.created_by_user_id = current_user.id
+        row.version = next_version
+    await db.execute(
+        update(PolicyDocument)
+        .where(PolicyDocument.gym_id == current_user.gym_id)
+        .values(version=next_version)
+    )
+    await db.execute(
+        delete(PolicySignature).where(
+            PolicySignature.gym_id == current_user.gym_id,
+        )
+    )
     await db.commit()
     await db.refresh(row)
     return StandardResponse(data=_policy_to_payload(row, locale).model_dump())
@@ -242,10 +256,11 @@ async def get_my_policy_signature(
         select(PolicySignature).where(
             PolicySignature.gym_id == current_user.gym_id,
             PolicySignature.user_id == current_user.id,
-            PolicySignature.locale == locale,
+            PolicySignature.accepted.is_(True),
         )
+        .order_by(PolicySignature.signed_at.desc())
     )
-    row = result.scalar_one_or_none()
+    row = result.scalars().first()
     if row is None:
         return StandardResponse(data=None)
     return StandardResponse(data={
@@ -264,32 +279,39 @@ async def sign_policy(
     locale: str = Query(default="en", pattern="^(en|ar)$"),
 ):
     policy_row = await _get_policy_row(db, current_user.gym_id, locale)
-    version = policy_row.version if policy_row else POLICY_VERSION
+    version = policy_row.version if policy_row else await get_gym_policy_version(db, current_user.gym_id)
     result = await db.execute(
         select(PolicySignature).where(
             PolicySignature.gym_id == current_user.gym_id,
             PolicySignature.user_id == current_user.id,
-            PolicySignature.locale == locale,
+        )
+        .order_by(PolicySignature.signed_at.desc())
+    )
+    row = result.scalars().first()
+    now = datetime.now(timezone.utc)
+    if row is not None and row.accepted and row.policy_version == version:
+        return StandardResponse(data={
+            "version": row.policy_version,
+            "signedAt": row.signed_at.isoformat() if row.signed_at else None,
+            "signerName": row.signer_name,
+            "accepted": row.accepted,
+        })
+    await db.execute(
+        delete(PolicySignature).where(
+            PolicySignature.gym_id == current_user.gym_id,
+            PolicySignature.user_id == current_user.id,
         )
     )
-    row = result.scalar_one_or_none()
-    now = datetime.now(timezone.utc)
-    if row is None:
-        row = PolicySignature(
-            gym_id=current_user.gym_id,
-            user_id=current_user.id,
-            locale=locale,
-            policy_version=version,
-            signer_name=payload.signerName,
-            accepted=payload.accepted,
-            signed_at=now,
-        )
-        db.add(row)
-    else:
-        row.policy_version = version
-        row.signer_name = payload.signerName
-        row.accepted = payload.accepted
-        row.signed_at = now
+    row = PolicySignature(
+        gym_id=current_user.gym_id,
+        user_id=current_user.id,
+        locale=locale,
+        policy_version=version,
+        signer_name=payload.signerName,
+        accepted=payload.accepted,
+        signed_at=now,
+    )
+    db.add(row)
     await db.commit()
     await db.refresh(row)
     return StandardResponse(data={

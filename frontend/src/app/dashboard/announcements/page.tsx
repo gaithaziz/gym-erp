@@ -12,6 +12,8 @@ interface Announcement {
     title: string;
     body: string;
     audience: 'ALL' | 'CUSTOMERS' | 'COACHES' | 'STAFF';
+    target_scope?: 'ALL_BRANCHES' | 'BRANCH';
+    branch_name?: string | null;
     is_published: boolean;
     push_enabled: boolean;
     published_at?: string | null;
@@ -128,6 +130,11 @@ export default function AnnouncementsPage() {
                                 <div className="flex flex-col items-start gap-2">
                                     <span className="rounded-full border border-border bg-card px-3 py-1 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
                                         {item.audience}
+                                    </span>
+                                    <span className="rounded-full border border-border bg-card px-3 py-1 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+                                        {item.target_scope === 'BRANCH'
+                                            ? (item.branch_name || (locale === 'ar' ? 'فرع محدد' : 'Selected branch'))
+                                            : (locale === 'ar' ? 'كل الفروع' : 'All branches')}
                                     </span>
                                     <span className="text-xs text-muted-foreground">
                                         {item.published_at ? formatDate(item.published_at, { year: 'numeric', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }) : '--'}

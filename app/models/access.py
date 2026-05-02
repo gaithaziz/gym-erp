@@ -1,7 +1,7 @@
 import uuid
-from datetime import datetime
+from datetime import datetime, timezone
 from enum import Enum
-from sqlalchemy import String, Enum as SAEnum, ForeignKey, DateTime
+from sqlalchemy import String, Enum as SAEnum, ForeignKey, DateTime, Text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from app.database import Base
 from app.models.subscription_enums import SubscriptionStatus
@@ -26,6 +26,33 @@ class Subscription(GymScopedMixin, Base):
     status: Mapped[SubscriptionStatus] = mapped_column(SAEnum(SubscriptionStatus, native_enum=False), default=SubscriptionStatus.ACTIVE, nullable=False)
 
     user = relationship("User", backref="subscription")
+    bundle_changes = relationship("SubscriptionBundleChangeLog", back_populates="subscription", cascade="all, delete-orphan")
+
+
+class SubscriptionBundleChangeLog(BranchScopedMixin, Base):
+    __tablename__ = "subscription_bundle_change_logs"
+
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
+    subscription_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("subscriptions.id"), nullable=False, index=True)
+    user_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id"), nullable=False, index=True)
+    change_type: Mapped[str] = mapped_column(String(32), nullable=False)
+    previous_plan_name: Mapped[str | None] = mapped_column(String, nullable=True)
+    new_plan_name: Mapped[str | None] = mapped_column(String, nullable=True)
+    previous_start_date: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    new_start_date: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    previous_end_date: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    new_end_date: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    note: Mapped[str | None] = mapped_column(Text, nullable=True)
+    created_by_user_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("users.id"), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        default=lambda: datetime.now(timezone.utc),
+        nullable=False,
+    )
+
+    subscription = relationship("Subscription", back_populates="bundle_changes")
+    user = relationship("User", foreign_keys=[user_id])
+    created_by = relationship("User", foreign_keys=[created_by_user_id])
 
 class AccessLog(BranchScopedMixin, Base):
     __tablename__ = "access_logs"

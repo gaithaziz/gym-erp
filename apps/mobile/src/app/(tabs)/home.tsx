@@ -5,7 +5,7 @@ import { Pressable, StyleSheet, Text, View } from "react-native";
 
 import { Card, InlineStat, MutedText, PrimaryButton, QueryState, Screen, SecondaryButton, SecondaryLink, SectionTitle, SkeletonBlock, ValueText } from "@/components/ui";
 import { parseAdminHomeEnvelope, parseEnvelope, parseHomeEnvelope, parseMyReservationsEnvelope, parseStaffHomeEnvelope, type ClassReservation, type MobileGamificationStats } from "@/lib/api";
-import { localeTag, localizeAuditAction, localizeFinanceCategory, localizeFinanceTransactionType, localizePaymentMethod, localizeRole, localizeSubscriptionStatus, localizeTicketStatus } from "@/lib/mobile-format";
+import { localeTag, localizeAuditAction, localizeFinanceCategory, localizeFinanceTransactionType, localizePaymentMethod, localizeRole, localizeSubscriptionStatus, localizeTicketStatus, localizeWeekday } from "@/lib/mobile-format";
 import { getCurrentRole, isAdminControlRole, isCustomerRole } from "@/lib/mobile-role";
 import { usePreferences } from "@/lib/preferences";
 import { useSession } from "@/lib/session";
@@ -51,10 +51,43 @@ function CustomerHomeTab() {
   const upcomingClasses = (classesQuery.data ?? []).slice(0, 2);
   const classesCopy = copy.classesScreen;
   const nextClass = (home as typeof home & { next_class?: { name: string; starts_at: string; coach_name?: string | null } })?.next_class;
+  const branchHours = home?.branch_hours as
+    | {
+        branch: { name: string; display_name?: string | null };
+        summary: {
+          current_weekday: number;
+          current_is_closed: boolean;
+          current_open_time?: string | null;
+          current_close_time?: string | null;
+          current_note?: string | null;
+          updated_at?: string | null;
+        };
+        days: Array<{
+          weekday: number;
+          is_closed: boolean;
+          open_time?: string | null;
+          close_time?: string | null;
+          note?: string | null;
+        }>;
+      }
+    | null
+    | undefined;
   const firstName = bootstrap?.user.full_name ? bootstrap.user.full_name.split(" ")[0] : "";
   const title = isRTL ? `${copy.home.greeting}${firstName ? `، ${firstName}` : ""}` : `${copy.home.greeting}${firstName ? `, ${firstName}` : ""}`;
   const locale = localeTag(isRTL);
   const localizedSubscriptionStatus = localizeSubscriptionStatus(home?.subscription.status, isRTL);
+  const currentWeekday = branchHours?.summary.current_weekday;
+  const currentHoursDay = branchHours?.days?.find((day) => day.weekday === currentWeekday);
+  const hasConfiguredHours = Boolean(branchHours?.days?.some((day) => !day.is_closed && day.open_time && day.close_time));
+  const currentHoursLabel = !branchHours || !hasConfiguredHours
+    ? copy.home.hoursNotSet
+    : branchHours?.summary.current_is_closed
+      ? copy.home.hoursClosedToday
+      : branchHours?.summary.current_open_time && branchHours?.summary.current_close_time
+        ? `${branchHours.summary.current_open_time} - ${branchHours.summary.current_close_time}`
+        : currentHoursDay && !currentHoursDay.is_closed && currentHoursDay.open_time && currentHoursDay.close_time
+          ? `${currentHoursDay.open_time} - ${currentHoursDay.close_time}`
+          : copy.home.hoursClosedToday;
 
   return (
     <Screen
@@ -144,6 +177,68 @@ function CustomerHomeTab() {
             <PrimaryButton onPress={() => router.push("/billing")}>{copy.home.renew}</PrimaryButton>
           </Card>
 
+          <Card style={{ borderLeftWidth: 4, borderLeftColor: theme.primary, marginBottom: 16 }}>
+            <View style={{ flexDirection: isRTL ? "row-reverse" : "row", justifyContent: "space-between", alignItems: "center", gap: 12 }}>
+              <View style={{ flex: 1 }}>
+                <SectionTitle>{copy.home.hours}</SectionTitle>
+              </View>
+              <SecondaryButton onPress={() => router.push("/hours" as never)}>{copy.home.viewHours}</SecondaryButton>
+            </View>
+            {branchHours ? (
+              <View style={{ marginTop: 16, gap: 10 }}>
+                <View style={[styles.listRow, { borderTopColor: theme.border, flexDirection: isRTL ? "row-reverse" : "row" }]}>
+                  <View style={styles.listTextBlock}>
+                    <Text style={[styles.listTitle, { color: theme.foreground, fontFamily: fontSet.body, textAlign: isRTL ? "right" : "left", writingDirection: direction }]}>
+                      {localizeWeekday(branchHours.summary.current_weekday, isRTL)}
+                    </Text>
+                    <MutedText>{currentHoursLabel}</MutedText>
+                  </View>
+                </View>
+              </View>
+            ) : (
+              <View style={{ marginTop: 12 }}>
+                <MutedText>{copy.home.hoursNotSet}</MutedText>
+              </View>
+            )}
+          </Card>
+
+          <Card style={{ borderLeftWidth: 4, borderLeftColor: theme.primary, marginBottom: 16 }}>
+            <View style={{ flexDirection: isRTL ? "row-reverse" : "row", justifyContent: "space-between", alignItems: "center", gap: 12 }}>
+              <View style={{ flex: 1 }}>
+                <SectionTitle>{copy.home.perks}</SectionTitle>
+              </View>
+              <SecondaryButton onPress={() => router.push("/billing" as never)}>{copy.home.viewPerks}</SecondaryButton>
+            </View>
+            <View style={[styles.statGrid, { flexDirection: isRTL ? "row-reverse" : "row", marginTop: 16 }]}>
+              <InlineStat label={copy.home.perksActive} value={home.perk_summary.active_accounts} />
+              <InlineStat label={copy.home.perksRemaining} value={home.perk_summary.total_remaining} />
+              <InlineStat label={copy.home.perksUsed} value={home.perk_summary.total_used} />
+            </View>
+            {home.perk_summary.accounts.length ? (
+              <View style={{ gap: 10, marginTop: 16 }}>
+                {home.perk_summary.accounts.slice(0, 3).map((perk) => (
+                  <View key={perk.id} style={[styles.listRow, { borderTopColor: theme.border, flexDirection: isRTL ? "row-reverse" : "row" }]}>
+                    <View style={styles.listTextBlock}>
+                      <Text style={[styles.listTitle, { color: theme.foreground, fontFamily: fontSet.body, textAlign: isRTL ? "right" : "left", writingDirection: direction }]}>
+                        {perk.perk_label}
+                      </Text>
+                      <MutedText>
+                        {perk.period_type}
+                        {" · "}
+                        {perk.remaining_allowance} / {perk.total_allowance}
+                      </MutedText>
+                    </View>
+                    <Text style={[styles.amountText, { color: theme.primary, fontFamily: fontSet.mono }]}>
+                      {perk.remaining_allowance}
+                    </Text>
+                  </View>
+                ))}
+              </View>
+            ) : (
+              <MutedText>{copy.home.noPerks}</MutedText>
+            )}
+          </Card>
+
           {nextClass && (
             <Card style={{ borderLeftWidth: 4, borderLeftColor: theme.primary, marginBottom: 16 }}>
                <View style={{ flexDirection: isRTL ? 'row-reverse' : 'row', justifyContent: 'space-between', alignItems: 'center' }}>
@@ -182,6 +277,7 @@ function CustomerHomeTab() {
             <SectionTitle>{copy.home.quickActions}</SectionTitle>
             <View style={[styles.actionGrid, { flexDirection: isRTL ? "row-reverse" : "row" }]}>
               <HomeAction label={copy.home.logBodyMetrics} onPress={() => router.push("/(tabs)/progress" as never)} />
+              <HomeAction label={copy.more.privateCoaching} onPress={() => router.push("/private-coaching" as never)} />
               <HomeAction label={copy.home.requestSupport} onPress={() => router.push("/ticket")} />
               <HomeAction label={copy.home.reportLostItem} onPress={() => router.push("/lost-found")} />
               <HomeAction label={copy.home.leaveFeedback} onPress={() => router.push("/feedback")} />

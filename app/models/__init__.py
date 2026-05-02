@@ -2,7 +2,7 @@ from app.models.chat import ChatMessage, ChatReadReceipt, ChatThread
 from app.models.lost_found import LostFoundComment, LostFoundItem, LostFoundMedia
 from app.models.notification import MobileDevice, MobileNotificationPreference, PushDeliveryLog
 from app.models.roaming import MemberRoamingAccess
-from app.models.access import RenewalRequestStatus, SubscriptionRenewalRequest
+from app.models.access import RenewalRequestStatus, SubscriptionRenewalRequest, SubscriptionBundleChangeLog
 from app.models.support import SupportTicket, SupportMessage, TicketCategory, TicketStatus
 from app.models.classes import ClassTemplate, ClassSession, ClassReservation, ClassSessionStatus, ClassReservationStatus
 from app.models.tenancy import Gym, Branch, UserBranchAccess
@@ -10,7 +10,8 @@ from app.models.system import SystemConfig
 from app.models.audit import AuditLog
 from app.models.announcement import Announcement
 from app.models.coaching import CoachingPackage, CoachingPackageLedger
-from app.models.facility import FacilityMachine, FacilitySection
+from app.models.branch_hours import BranchOperatingHour
+from app.models.facility import FacilityAsset, FacilityAssetStatus, FacilityAssetType, FacilityMachine, FacilitySection
 from app.models.membership import PolicyDocument, PolicySignature, PerkAccount, PerkUsage
 from app.models.staff_debt import StaffDebtAccount, StaffDebtEntry, StaffDebtEntryType, StaffDebtMonthlyBalance
 from app.models.user import User
@@ -34,6 +35,7 @@ __all__ = [
     "MemberRoamingAccess",
     "RenewalRequestStatus",
     "SubscriptionRenewalRequest",
+    "SubscriptionBundleChangeLog",
     "SupportTicket",
     "SupportMessage",
     "TicketCategory",
@@ -48,6 +50,10 @@ __all__ = [
     "Announcement",
     "CoachingPackage",
     "CoachingPackageLedger",
+    "BranchOperatingHour",
+    "FacilityAsset",
+    "FacilityAssetStatus",
+    "FacilityAssetType",
     "FacilityMachine",
     "FacilitySection",
     "PolicyDocument",

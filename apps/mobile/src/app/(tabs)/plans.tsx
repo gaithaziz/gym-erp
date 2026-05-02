@@ -1478,7 +1478,7 @@ function CustomerPlansTab() {
                       ))}
                     </>
                   ) : null}
-                  <Input value={dietAdherence} onChangeText={setDietAdherence} placeholder={copy.plans.dayAdherence} />
+                  <Input value={dietAdherence} onChangeText={setDietAdherence} placeholder={copy.plans.dayScore} />
                   <TextArea value={dietDayNotes} onChangeText={setDietDayNotes} placeholder={copy.plans.dayNotes} />
                   <PrimaryButton onPress={() => saveDietDayMutation.mutate()}>{copy.plans.saveDay}</PrimaryButton>
                 </>

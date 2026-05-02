@@ -4,10 +4,31 @@ import { useState } from "react";
 import { Pressable, Share, StyleSheet, Text, View } from "react-native";
 
 import { Card, MutedText, PrimaryButton, QueryState, Screen, SectionTitle, SecondaryButton, TextArea } from "@/components/ui";
-import { parseBillingEnvelope } from "@/lib/api";
+import { parseBillingEnvelope, parseEnvelope } from "@/lib/api";
 import { localeTag, localizePaymentMethod, localizeRenewalStatus, localizeSubscriptionStatus } from "@/lib/mobile-format";
 import { usePreferences } from "@/lib/preferences";
 import { useSession } from "@/lib/session";
+
+type PerkAccount = {
+  id: string;
+  perk_key: string;
+  perk_label: string;
+  period_type: string;
+  total_allowance: number;
+  used_allowance: number;
+  remaining_allowance: number;
+  contract_ends_at?: string | null;
+  is_active: boolean;
+};
+
+type PerksResponse = {
+  summary: {
+    total_accounts: number;
+    total_remaining: number;
+    total_used: number;
+  };
+  accounts: PerkAccount[];
+};
 
 export default function BillingScreen() {
   const router = useRouter();
@@ -23,7 +44,12 @@ export default function BillingScreen() {
     queryKey: ["mobile-billing"],
     queryFn: async () => parseBillingEnvelope(await authorizedRequest("/mobile/customer/billing")).data,
   });
+  const perksQuery = useQuery({
+    queryKey: ["mobile-billing-perks"],
+    queryFn: async () => parseEnvelope<PerksResponse>(await authorizedRequest("/membership/perks")).data,
+  });
   const billing = billingQuery.data;
+  const perks = perksQuery.data;
   const locale = localeTag(isRTL);
   const subscription = billing?.subscription ?? bootstrap?.subscription;
   const subscriptionStatus = subscription?.status ?? "NONE";
@@ -55,6 +81,18 @@ export default function BillingScreen() {
     },
   });
 
+  const perkUseMutation = useMutation({
+    mutationFn: async (accountId: string) => {
+      return authorizedRequest(`/membership/perks/${accountId}/use`, {
+        method: "POST",
+        body: JSON.stringify({ used_amount: 1 }),
+      });
+    },
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({ queryKey: ["mobile-billing-perks"] });
+    },
+  });
+
   return (
     <Screen title={copy.common.billing} subtitle={copy.billingScreen.subtitle}>
       <QueryState loading={billingQuery.isLoading} error={billingQuery.error instanceof Error ? billingQuery.error.message : null} />
@@ -79,6 +117,56 @@ export default function BillingScreen() {
                 <InlineSubStat label={copy.billingScreen.expiryDate} value={expiryLabel} />
               </View>
             </View>
+          </Card>
+
+          <Card>
+            <SectionTitle>{copy.home.perks}</SectionTitle>
+            <View style={[styles.statGrid, { flexDirection: isRTL ? "row-reverse" : "row" }]}>
+              <InlineSubStat label={copy.home.perksRemaining} value={perks?.summary.total_remaining?.toString() ?? "0"} />
+              <InlineSubStat label={copy.home.perksUsed} value={perks?.summary.total_used?.toString() ?? "0"} />
+            </View>
+            {perks?.accounts?.length ? (
+              <View style={{ gap: 10, marginTop: 12 }}>
+                {perks.accounts.slice(0, 3).map((perk) => (
+                  <View key={perk.id} style={[styles.perkRow, { borderTopColor: theme.border }]}>
+                    <View style={[styles.rowSpread, { flexDirection: isRTL ? "row-reverse" : "row" }]}>
+                      <Text style={[styles.itemTitle, { color: theme.foreground, fontFamily: fontSet.body, textAlign: isRTL ? "right" : "left", writingDirection: direction }]}>
+                        {perk.perk_label}
+                      </Text>
+                      <Text style={[styles.statusChip, { color: theme.primary, fontFamily: fontSet.mono, textTransform: isRTL ? "none" : "uppercase" }]}>
+                        {perk.remaining_allowance} / {perk.total_allowance}
+                      </Text>
+                    </View>
+                    <MutedText>
+                      {perk.period_type} · {perk.is_active ? copy.common.yes : copy.common.no}
+                    </MutedText>
+                    <View style={[styles.useRow, { flexDirection: isRTL ? "row-reverse" : "row" }]}>
+                      <MutedText>
+                        {locale === "ar" ? "استخدم بعد إكمال الخدمة." : "Use after the service is completed."}
+                      </MutedText>
+                      <Pressable
+                        onPress={() => perkUseMutation.mutate(perk.id)}
+                        disabled={perkUseMutation.isPending || perk.remaining_allowance <= 0}
+                        style={({ pressed }) => [
+                          styles.useButton,
+                          {
+                            borderColor: theme.border,
+                            backgroundColor: pressed ? theme.primarySoft : theme.cardAlt,
+                            opacity: perkUseMutation.isPending || perk.remaining_allowance <= 0 ? 0.5 : 1,
+                          },
+                        ]}
+                      >
+                        <Text style={[styles.useButtonText, { color: theme.foreground, fontFamily: fontSet.mono }]}>
+                          {perkUseMutation.isPending ? (locale === "ar" ? "جارٍ التحديث..." : "Updating...") : (locale === "ar" ? "استخدم 1" : "Use 1")}
+                        </Text>
+                      </Pressable>
+                    </View>
+                  </View>
+                ))}
+              </View>
+            ) : (
+              <MutedText>{copy.home.noPerks}</MutedText>
+            )}
           </Card>
 
           <Card>
@@ -385,6 +473,28 @@ const styles = StyleSheet.create({
     gap: 4,
     borderTopWidth: 1,
     paddingTop: 10,
+  },
+  perkRow: {
+    gap: 6,
+    borderTopWidth: 1,
+    paddingTop: 10,
+  },
+  useRow: {
+    gap: 10,
+    alignItems: "center",
+    justifyContent: "space-between",
+  },
+  useButton: {
+    borderWidth: 1,
+    borderRadius: 10,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    minWidth: 92,
+    alignItems: "center",
+  },
+  useButtonText: {
+    fontSize: 12,
+    fontWeight: "700",
   },
   rowSpread: {
     justifyContent: "space-between",

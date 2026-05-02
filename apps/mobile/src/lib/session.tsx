@@ -9,6 +9,8 @@ import {
   type Envelope,
 } from "@/lib/api";
 import { getPushRegistration, type PushRegistration } from "@/lib/push-notifications";
+import { applyPolicySignatureCache, clearPolicySignatureState, hydratePolicySignatureCache, persistPolicySignatureState, type PolicyLocale } from "@/lib/policy-signature";
+import { usePreferences } from "@/lib/preferences";
 import type { MobileBootstrap, TokenPair } from "@gym-erp/contracts";
 
 const TOKEN_STORAGE_KEY = "gymerpmobiletokens";
@@ -48,6 +50,7 @@ type SessionContextValue = {
   signIn: (email: string, password: string) => Promise<void>;
   signOut: () => Promise<void>;
   refreshBootstrap: () => Promise<void>;
+  markPolicySignatureAccepted: (locale: PolicyLocale, version: string) => Promise<void>;
   authorizedRequest: <T>(path: string, init?: RequestInit) => Promise<Envelope<T>>;
 };
 
@@ -227,6 +230,7 @@ async function sendDeviceRegistration(path: string, accessToken: string, registr
 }
 
 export function SessionProvider({ children }: PropsWithChildren) {
+  const { locale } = usePreferences();
   const [status, setStatus] = useState<SessionStatus>("loading");
   const [error, setError] = useState<string | null>(null);
   const [tokenPair, setTokenPair] = useState<TokenPair | null>(null);
@@ -240,9 +244,13 @@ export function SessionProvider({ children }: PropsWithChildren) {
 
   const signOut = useCallback(async () => {
     const current = tokenPairRef.current;
+    const currentUserId = bootstrap?.user.id ?? null;
     const registration = await loadPushRegistration();
     if (current?.access_token && registration) {
       await sendDeviceRegistration("/mobile/devices/unregister", current.access_token, registration).catch(() => undefined);
+    }
+    if (currentUserId) {
+      await clearPolicySignatureState(currentUserId);
     }
     setTokenPair(null);
     setBootstrap(null);
@@ -252,7 +260,7 @@ export function SessionProvider({ children }: PropsWithChildren) {
     await persistTokenPair(null);
     await persistPushRegistration(null);
     setStatus("signed_out");
-  }, []);
+  }, [bootstrap]);
 
   const refreshAccessToken = useCallback(async () => {
     const current = tokenPairRef.current;
@@ -318,10 +326,27 @@ export function SessionProvider({ children }: PropsWithChildren) {
     const parsed = parseBootstrapEnvelope(payload);
     const storedBranch = await loadSelectedBranch(parsed.data.user.id);
     const resolvedBranch = resolveBranchSelection(parsed.data, storedBranch);
-    setBootstrap(parsed.data);
+      const hydrated = await hydratePolicySignatureCache(parsed.data);
+    setBootstrap(hydrated);
     setSelectedBranchIdState(resolvedBranch);
     await persistSelectedBranch(parsed.data.user.id, resolvedBranch);
-  }, [authorizedRequest]);
+  }, [authorizedRequest, locale]);
+
+  const markPolicySignatureAccepted = useCallback(
+    async (policyLocale: PolicyLocale, version: string) => {
+      const current = bootstrap;
+      if (!current?.user.id) {
+        return;
+      }
+      const entry = {
+        version,
+        signedAt: new Date().toISOString(),
+      };
+      await persistPolicySignatureState(current.user.id, entry);
+      setBootstrap((latest) => (latest ? applyPolicySignatureCache(latest, entry) : latest));
+    },
+    [bootstrap],
+  );
 
   const setSelectedBranchId = useCallback(
     async (nextBranchId: string | null) => {
@@ -385,7 +410,8 @@ export function SessionProvider({ children }: PropsWithChildren) {
         }
 
         const resolvedBranch = resolveBranchSelection(bootstrapPayload.data, await loadSelectedBranch(bootstrapPayload.data.user.id));
-        setBootstrap(bootstrapPayload.data);
+        const hydrated = await hydratePolicySignatureCache(bootstrapPayload.data);
+        setBootstrap(hydrated);
         setSelectedBranchIdState(resolvedBranch);
         await persistSelectedBranch(bootstrapPayload.data.user.id, resolvedBranch);
         setStatus("signed_in");
@@ -440,7 +466,8 @@ export function SessionProvider({ children }: PropsWithChildren) {
           const payload = parseBootstrapEnvelope(retryEnvelope);
           if (alive) {
             const resolvedBranch = resolveBranchSelection(payload.data, await loadSelectedBranch(payload.data.user.id));
-            setBootstrap(payload.data);
+            const hydrated = await hydratePolicySignatureCache(payload.data);
+            setBootstrap(hydrated);
             setSelectedBranchIdState(resolvedBranch);
             await persistSelectedBranch(payload.data.user.id, resolvedBranch);
             setStatus("signed_in");
@@ -457,7 +484,8 @@ export function SessionProvider({ children }: PropsWithChildren) {
 
         if (alive) {
           const resolvedBranch = resolveBranchSelection(payload.data, await loadSelectedBranch(payload.data.user.id));
-          setBootstrap(payload.data);
+          const hydrated = await hydratePolicySignatureCache(payload.data);
+          setBootstrap(hydrated);
           setSelectedBranchIdState(resolvedBranch);
           await persistSelectedBranch(payload.data.user.id, resolvedBranch);
           setStatus("signed_in");
@@ -491,12 +519,13 @@ export function SessionProvider({ children }: PropsWithChildren) {
       setSelectedBranchId,
       error,
       status,
+      markPolicySignatureAccepted,
       signIn,
       signOut,
       refreshBootstrap,
       authorizedRequest,
     }),
-    [authorizedRequest, bootstrap, selectedBranchId, setSelectedBranchId, error, refreshBootstrap, signIn, signOut, status],
+    [authorizedRequest, bootstrap, selectedBranchId, setSelectedBranchId, error, markPolicySignatureAccepted, refreshBootstrap, signIn, signOut, status],
   );
 
   return <SessionContext.Provider value={value}>{children}</SessionContext.Provider>;

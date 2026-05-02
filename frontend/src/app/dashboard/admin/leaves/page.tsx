@@ -21,6 +21,11 @@ interface LeaveRequest {
     status: string;
     reason: string | null;
 }
+const LEAVE_TYPE_LABELS = {
+    SICK: { en: 'Sick', ar: 'مرضية' },
+    VACATION: { en: 'Vacation', ar: 'إجازة' },
+    OTHER: { en: 'Other', ar: 'أخرى' },
+} as const;
 const LEAVES_PAGE_SIZE = 10;
 
 export default function AdminLeavesPage() {
@@ -119,16 +124,9 @@ export default function AdminLeavesPage() {
         }
     };
     const leaveTypeLabel = (type: string) => {
-        switch (type) {
-            case 'SICK':
-                return txt.sick;
-            case 'VACATION':
-                return txt.vacation;
-            case 'OTHER':
-                return txt.other;
-            default:
-                return type;
-        }
+        const entry = LEAVE_TYPE_LABELS[type as keyof typeof LEAVE_TYPE_LABELS];
+        if (!entry) return type;
+        return locale === 'ar' ? entry.ar : entry.en;
     };
 
     const fetchLeaves = useCallback(async () => {

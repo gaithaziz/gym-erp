@@ -37,7 +37,7 @@ export default function MemberDietsPage() {
         diets: 'الخطط المعينة',
         noDiets: 'لا توجد خطط غذائية معينة بعد.',
         dietTracker: 'متتبع النظام الغذائي',
-        adherence: 'التزام اليوم',
+        dailyScore: 'درجة اليوم',
         notes: 'ملاحظات اليوم',
         saveDay: 'حفظ اليوم',
         legacy: 'محتوى الخطة',
@@ -61,7 +61,7 @@ export default function MemberDietsPage() {
         diets: 'Assigned diets',
         noDiets: 'No diet plans assigned yet.',
         dietTracker: 'Diet tracker',
-        adherence: 'Daily adherence',
+        dailyScore: 'Daily score',
         notes: 'Day notes',
         saveDay: 'Save day',
         legacy: 'Plan content',
@@ -327,7 +327,7 @@ export default function MemberDietsPage() {
 
                                         <div className="kpi-card p-4 space-y-3">
                                             <label className="space-y-1">
-                                                <span className="text-xs text-muted-foreground">{txt.adherence}</span>
+                                                <span className="text-xs text-muted-foreground">{txt.dailyScore}</span>
                                                 <select value={adherenceRating} onChange={(event) => setAdherenceRating(event.target.value)} className="w-full border border-border bg-background px-3 py-2 text-sm text-foreground">
                                                     {[1, 2, 3, 4, 5].map((value) => (
                                                         <option key={value} value={value}>{value}/5</option>

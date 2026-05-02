@@ -74,6 +74,7 @@ async function fetchMe(request: APIRequestContext, accessToken: string) {
 
 async function ensureCustomerUser(request: APIRequestContext) {
   const admin = await apiLogin(request, adminEmail, adminPassword);
+  const adminMe = await fetchMe(request, admin.accessToken);
   const email = `e2e.customer.${Date.now()}@example.com`;
   const register = await request.post(`${apiV1}/auth/register`, {
     headers: { Authorization: `Bearer ${admin.accessToken}` },
@@ -82,6 +83,7 @@ async function ensureCustomerUser(request: APIRequestContext) {
       email,
       password: rolePassword,
       role: "CUSTOMER",
+      home_branch_id: adminMe?.home_branch_id ?? undefined,
     },
   });
   expect(register.ok()).toBeTruthy();

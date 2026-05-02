@@ -26,6 +26,7 @@ from app.routers.lost_found import router as lost_found_router
 from app.routers.support import router as support_router
 from app.routers.membership import router as membership_router
 from app.routers.coaching import router as coaching_router
+from app.routers.branch_hours import router as branch_hours_router
 from app.routers.announcements import router as announcements_router
 from app.routers.facility import router as facility_router
 from app.routers.staff_debt import router as staff_debt_router
@@ -115,6 +116,7 @@ app.include_router(lost_found_router, prefix=f"{settings.API_V1_STR}/lost-found"
 app.include_router(support_router, prefix=f"{settings.API_V1_STR}/support", tags=["Support"])
 app.include_router(membership_router, prefix=f"{settings.API_V1_STR}/membership", tags=["Membership"])
 app.include_router(coaching_router, prefix=f"{settings.API_V1_STR}/coaching", tags=["Coaching"])
+app.include_router(branch_hours_router, prefix=f"{settings.API_V1_STR}", tags=["Branch Hours"])
 app.include_router(announcements_router, prefix=f"{settings.API_V1_STR}", tags=["Announcements"])
 app.include_router(facility_router, prefix=f"{settings.API_V1_STR}/facility", tags=["Facility"])
 app.include_router(staff_debt_router, prefix=f"{settings.API_V1_STR}/hr", tags=["HR"])

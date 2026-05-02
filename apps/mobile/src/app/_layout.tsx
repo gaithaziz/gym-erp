@@ -3,6 +3,7 @@ import { Tajawal_400Regular, Tajawal_500Medium, Tajawal_700Bold, Tajawal_800Extr
 import { useFonts } from "expo-font";
 import * as Notifications from "expo-notifications";
 import { Stack, useRouter } from "expo-router";
+import { usePathname } from "expo-router";
 import { StatusBar } from "expo-status-bar";
 import { useEffect, useRef, useState } from "react";
 import { LogBox, Platform } from "react-native";
@@ -52,8 +53,9 @@ export default function RootLayout() {
 
 function AppNavigator() {
   const { copy, fontSet, locale, theme, themeMode } = usePreferences();
-  const { status } = useSession();
+  const { status, bootstrap } = useSession();
   const router = useRouter();
+  const pathname = usePathname();
   const notifListenerRef = useRef<Notifications.Subscription | null>(null);
 
   // Route notification taps to the correct in-app screen
@@ -69,6 +71,22 @@ function AppNavigator() {
       notifListenerRef.current?.remove();
     };
   }, [router, status]);
+
+  useEffect(() => {
+    if (status !== "signed_in") return;
+    const localeSigned = Boolean(
+      bootstrap?.policy?.locale_signatures?.en ||
+      bootstrap?.policy?.locale_signatures?.ar
+    );
+    const requiresSignature = bootstrap?.role === "CUSTOMER" && !localeSigned;
+    if (requiresSignature && pathname !== "/policy") {
+      router.replace("/policy" as never);
+      return;
+    }
+    if (!requiresSignature && pathname === "/policy") {
+      router.replace("/(tabs)/home");
+    }
+  }, [bootstrap?.policy?.locale_signatures, bootstrap?.role, locale, pathname, router, status]);
 
   return (
     <>
@@ -98,8 +116,12 @@ function AppNavigator() {
         <Stack.Screen name="login" options={{ headerShown: false }} />
         <Stack.Screen name="forgot-password" options={{ headerShown: false }} />
         <Stack.Screen name="reset-password" options={{ headerShown: false }} />
+        <Stack.Screen name="policy" options={{ headerShown: false }} />
         <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
         <Stack.Screen name="billing" options={{ headerShown: false, title: copy.common.billing }} />
+        <Stack.Screen name="hours" options={{ headerShown: false, title: copy.home.hours }} />
+        <Stack.Screen name="private-coaching" options={{ headerShown: false, title: copy.privateCoachingScreen.title }} />
+        <Stack.Screen name="private-coaching/[id]" options={{ headerShown: false, title: copy.privateCoachingScreen.detailsTitle }} />
         <Stack.Screen name="badges" options={{ headerShown: false, title: copy.home.achievements }} />
         <Stack.Screen name="diagnostics" options={{ headerShown: false, title: "Diagnostics" }} />
         <Stack.Screen name="notifications" options={{ headerShown: false, title: copy.common.notifications }} />

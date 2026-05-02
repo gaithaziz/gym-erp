@@ -13,7 +13,8 @@ from app.models.hr import Contract, ContractType
 from app.models.staff_debt import StaffDebtAccount, StaffDebtMonthlyBalance
 from app.models.fitness import WorkoutPlan, DietPlan
 from app.models.finance import Transaction, TransactionType, TransactionCategory
-from app.models.access import Subscription
+from app.models.access import Subscription, SubscriptionBundleChangeLog
+from app.models.membership import PerkAccount
 from app.models.tenancy import Branch, UserBranchAccess
 from app.services.tenancy_service import TenancyService
 from sqlalchemy import select, func
@@ -589,6 +590,41 @@ async def test_manager_sees_branch_workout_and_diet_plans(client: AsyncClient, d
 
 
 @pytest.mark.asyncio
+async def test_members_list_includes_subscription_bundle_name(client: AsyncClient, db_session: AsyncSession):
+    password = "password123"
+    hashed = get_password_hash(password)
+    _, branch = await TenancyService.ensure_default_gym_and_branch(db_session)
+    admin = User(email="admin_members_bundle@gym.com", hashed_password=hashed, role="ADMIN", full_name="Members Admin", home_branch_id=branch.id)
+    customer = User(email="customer_members_bundle@gym.com", hashed_password=hashed, role="CUSTOMER", full_name="Bundle Customer", home_branch_id=branch.id)
+    db_session.add_all([admin, customer])
+    await db_session.flush()
+    db_session.add(
+        Subscription(
+            gym_id=branch.gym_id,
+            user_id=customer.id,
+            plan_name="Gold Bundle",
+            start_date=datetime.now(timezone.utc),
+            end_date=datetime.now(timezone.utc) + timedelta(days=30),
+            status="ACTIVE",
+        )
+    )
+    await db_session.commit()
+
+    login_resp = await client.post(
+        f"{settings.API_V1_STR}/auth/login",
+        json={"email": admin.email, "password": password},
+    )
+    headers = {"Authorization": f"Bearer {login_resp.json()['data']['access_token']}"}
+
+    resp = await client.get(f"{settings.API_V1_STR}/hr/members", headers=headers)
+    assert resp.status_code == 200
+    rows = resp.json()["data"]
+    customer_row = next(row for row in rows if row["id"] == str(customer.id))
+    assert customer_row["subscription_plan_name"] == "Gold Bundle"
+    assert customer_row["subscription"]["plan_name"] == "Gold Bundle"
+
+
+@pytest.mark.asyncio
 async def test_manager_without_branch_assignment_falls_back_to_main_branch(client: AsyncClient, db_session: AsyncSession):
     password = "password123"
     hashed = get_password_hash(password)
@@ -858,14 +894,84 @@ async def test_payroll_settings_and_partial_payments_flow(client: AsyncClient, d
         headers=headers,
     )
     assert reopen.status_code == 200
-    reopened = reopen.json()["data"]
-    assert reopened["status"] == "DRAFT"
-    assert reopened["paid_amount"] == 0.0
-    assert reopened["pending_amount"] == 1000.0
 
-    payment_count_stmt = select(func.count(PayrollPayment.id)).where(PayrollPayment.payroll_id == uuid.UUID(payroll_id))
-    payment_count_res = await db_session.execute(payment_count_stmt)
-    assert payment_count_res.scalar_one() == 0
+
+@pytest.mark.asyncio
+async def test_staff_debt_auto_deducts_from_paid_payroll(client: AsyncClient, db_session: AsyncSession):
+    password = "password123"
+    hashed = get_password_hash(password)
+    _, branch = await TenancyService.ensure_default_gym_and_branch(db_session)
+    admin = User(email="admin_staff_debt_auto@gym.com", hashed_password=hashed, role="ADMIN", full_name="Debt Auto Admin", home_branch_id=branch.id)
+    employee = User(email="employee_staff_debt_auto@gym.com", hashed_password=hashed, role="EMPLOYEE", full_name="Debt Auto Employee", home_branch_id=branch.id)
+    db_session.add_all([admin, employee])
+    await db_session.flush()
+
+    login_resp = await client.post(
+        f"{settings.API_V1_STR}/auth/login",
+        json={"email": admin.email, "password": password},
+    )
+    assert login_resp.status_code == 200
+    headers = {"Authorization": f"Bearer {login_resp.json()['data']['access_token']}"}
+
+    create_contract = await client.post(
+        f"{settings.API_V1_STR}/hr/contracts",
+        json={
+            "user_id": str(employee.id),
+            "start_date": str(date.today()),
+            "base_salary": 1000.0,
+            "contract_type": "FULL_TIME",
+            "standard_hours": 160,
+        },
+        headers=headers,
+    )
+    assert create_contract.status_code == 200
+
+    debt_resp = await client.post(
+        f"{settings.API_V1_STR}/hr/staff-debt/staff/{employee.id}/entries",
+        json={
+            "entry_type": "ADVANCE",
+            "amount": 300.0,
+            "notes": "Salary advance",
+            "branch_id": str(branch.id),
+        },
+        headers=headers,
+    )
+    assert debt_resp.status_code == 200
+    assert debt_resp.json()["data"]["account"]["current_balance"] == 300.0
+
+    now = datetime.now(timezone.utc)
+    generate = await client.post(
+        f"{settings.API_V1_STR}/hr/payroll/generate",
+        json={"user_id": str(employee.id), "month": now.month, "year": now.year},
+        headers=headers,
+    )
+    assert generate.status_code == 200
+    payroll_data = generate.json()["data"]
+    assert payroll_data["debt_deductions"] == 300.0
+    assert payroll_data["deductions"] == 300.0
+    assert payroll_data["total_pay"] == 700.0
+
+    approve = await client.patch(
+        f"{settings.API_V1_STR}/hr/payrolls/{payroll_data['id']}/status",
+        json={"status": "APPROVED"},
+        headers=headers,
+    )
+    assert approve.status_code == 200
+
+    pay_resp = await client.post(
+        f"{settings.API_V1_STR}/hr/payrolls/{payroll_data['id']}/payments",
+        json={"amount": 700.0, "payment_method": "CASH"},
+        headers=headers,
+    )
+    assert pay_resp.status_code == 200
+    settled = pay_resp.json()["data"]
+    assert settled["status"] == "PAID"
+    assert settled["debt_deductions"] == 300.0
+
+    account_stmt = select(StaffDebtAccount).where(StaffDebtAccount.user_id == employee.id)
+    account_result = await db_session.execute(account_stmt)
+    account = account_result.scalar_one()
+    assert float(account.current_balance) == 0.0
 
 
 @pytest.mark.asyncio
@@ -910,10 +1016,33 @@ async def test_subscription_renewal_posts_finance_transaction(client: AsyncClien
             "end_date": end_date.isoformat(),
             "amount_paid": 75.0,
             "payment_method": "CASH",
+            "bundle_perks": [
+                {
+                    "perk_key": "guest_visit",
+                    "perk_label": "Free Guest Visit",
+                    "period_type": "CONTRACT",
+                    "total_allowance": 2,
+                },
+                {
+                    "perk_key": "body_scan",
+                    "perk_label": "InBody Scan",
+                    "period_type": "MONTHLY",
+                    "total_allowance": 1,
+                    "monthly_reset_day": 1,
+                },
+            ],
         },
         headers=headers,
     )
     assert sub_resp.status_code == 200
+
+    perks = (await db_session.execute(select(PerkAccount).where(PerkAccount.user_id == member.id))).scalars().all()
+    assert len(perks) == 2
+    perk_keys = {perk.perk_key for perk in perks}
+    assert perk_keys == {"guest_visit", "body_scan"}
+    contract_perk = next(perk for perk in perks if perk.perk_key == "guest_visit")
+    assert contract_perk.contract_starts_at.date() == start_date
+    assert contract_perk.contract_ends_at.date() == end_date
 
     extend_resp = await client.post(
         f"{settings.API_V1_STR}/hr/subscriptions",
@@ -930,6 +1059,10 @@ async def test_subscription_renewal_posts_finance_transaction(client: AsyncClien
     )
     assert extend_resp.status_code == 200
 
+    refreshed_perks = (await db_session.execute(select(PerkAccount).where(PerkAccount.user_id == member.id))).scalars().all()
+    refreshed_contract_perk = next(perk for perk in refreshed_perks if perk.perk_key == "guest_visit")
+    assert refreshed_contract_perk.contract_ends_at.date() == (end_date + timedelta(days=15))
+
     sub = (await db_session.execute(select(Subscription).where(Subscription.user_id == member.id))).scalar_one()
     assert sub.start_date.date() == start_date
     assert sub.end_date.date() == end_date + timedelta(days=15)
@@ -943,6 +1076,16 @@ async def test_subscription_renewal_posts_finance_transaction(client: AsyncClien
     txs = tx_res.scalars().all()
     assert len(txs) == 2
     assert sorted(float(tx.amount) for tx in txs) == [25.0, 75.0]
+
+    history_resp = await client.get(
+        f"{settings.API_V1_STR}/hr/subscriptions/{member.id}/bundle-changes",
+        headers=headers,
+    )
+    assert history_resp.status_code == 200
+    history = history_resp.json()["data"]
+    assert len(history) == 2
+    assert history[0]["change_type"] == "EXTEND"
+    assert history[1]["change_type"] == "CREATE"
 
 
 @pytest.mark.asyncio

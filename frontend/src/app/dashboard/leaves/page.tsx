@@ -16,6 +16,11 @@ interface LeaveRequest {
     status: string;
     reason: string | null;
 }
+const LEAVE_TYPE_OPTIONS = [
+    { value: 'SICK', label: 'Sick' },
+    { value: 'VACATION', label: 'Vacation' },
+    { value: 'OTHER', label: 'Other' },
+] as const;
 const MY_LEAVES_PAGE_SIZE = 10;
 
 export default function MyLeavesPage() {
@@ -29,7 +34,7 @@ export default function MyLeavesPage() {
     // form state
     const [startDate, setStartDate] = useState('');
     const [endDate, setEndDate] = useState('');
-    const [leaveType, setLeaveType] = useState('SICK');
+    const [leaveType, setLeaveType] = useState<'SICK' | 'VACATION' | 'OTHER'>('SICK');
     const [reason, setReason] = useState('');
 
     const fetchLeaves = async () => {
@@ -150,10 +155,18 @@ export default function MyLeavesPage() {
                     </div>
                     <div>
                         <label className="block text-xs uppercase font-bold text-muted-foreground mb-1">{locale === 'ar' ? 'نوع الإجازة' : 'Leave Type'}</label>
-                        <select value={leaveType} onChange={e => setLeaveType(e.target.value)} className="input-dark w-full">
-                            <option value="SICK">{locale === 'ar' ? 'مرضية' : 'Sick'}</option>
-                            <option value="VACATION">{locale === 'ar' ? 'إجازة' : 'Vacation'}</option>
-                            <option value="OTHER">{locale === 'ar' ? 'أخرى' : 'Other'}</option>
+                        <select value={leaveType} onChange={e => setLeaveType(e.target.value as 'SICK' | 'VACATION' | 'OTHER')} className="input-dark w-full">
+                            {LEAVE_TYPE_OPTIONS.map((option) => (
+                                <option key={option.value} value={option.value}>
+                                    {locale === 'ar'
+                                        ? option.value === 'SICK'
+                                            ? 'مرضية'
+                                            : option.value === 'VACATION'
+                                                ? 'إجازة'
+                                                : 'أخرى'
+                                        : option.label}
+                                </option>
+                            ))}
                         </select>
                     </div>
                     <div>
@@ -169,4 +182,3 @@ export default function MyLeavesPage() {
         </div>
     );
 }
-

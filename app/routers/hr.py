@@ -26,7 +26,9 @@ from app.models.hr import (
     PayrollStatus,
 )
 from app.models.finance import Transaction, TransactionType, TransactionCategory, PaymentMethod
-from app.models.access import AttendanceLog
+from app.models.staff_debt import StaffDebtAccount, StaffDebtEntry, StaffDebtEntryType, StaffDebtMonthlyBalance
+from app.models.access import AttendanceLog, Subscription, SubscriptionBundleChangeLog
+from app.models.membership import PerkAccount
 from app.services.payroll_service import PayrollService
 from app.services.payroll_automation_service import PayrollAutomationService
 from app.services.audit_service import AuditService
@@ -91,6 +93,50 @@ def _date_to_utc_datetime(value: date) -> datetime:
 def _utc_datetime_to_date(value: datetime) -> date:
     aware_value = value if value.tzinfo else value.replace(tzinfo=timezone.utc)
     return aware_value.astimezone(timezone.utc).date()
+
+
+async def _log_subscription_bundle_change(
+    db: AsyncSession,
+    *,
+    current_user: User,
+    member: User,
+    subscription: Subscription,
+    change_type: str,
+    previous_plan_name: str | None = None,
+    new_plan_name: str | None = None,
+    previous_start_date: datetime | None = None,
+    new_start_date: datetime | None = None,
+    previous_end_date: datetime | None = None,
+    new_end_date: datetime | None = None,
+    note: str | None = None,
+) -> None:
+    db.add(
+        SubscriptionBundleChangeLog(
+            gym_id=current_user.gym_id,
+            branch_id=current_user.home_branch_id or member.home_branch_id,
+            subscription_id=subscription.id,
+            user_id=member.id,
+            change_type=change_type,
+            previous_plan_name=previous_plan_name,
+            new_plan_name=new_plan_name,
+            previous_start_date=previous_start_date,
+            new_start_date=new_start_date,
+            previous_end_date=previous_end_date,
+            new_end_date=new_end_date,
+            note=note,
+            created_by_user_id=current_user.id,
+            created_at=datetime.now(timezone.utc),
+        )
+    )
+
+
+class BundlePerkPayload(BaseModel):
+    perk_key: str = Field(min_length=2, max_length=120)
+    perk_label: str = Field(min_length=2, max_length=255)
+    period_type: Literal["MONTHLY", "CONTRACT"] = "CONTRACT"
+    total_allowance: int = Field(ge=0, le=9999)
+    monthly_reset_day: int | None = Field(default=None, ge=1, le=31)
+    note: str | None = Field(default=None, max_length=2000)
 
 
 def _pdf_bytes(title: str, lines: list[str]) -> bytes:
@@ -361,6 +407,157 @@ def _current_utc_datetime() -> datetime:
     return datetime.now(timezone.utc)
 
 
+def _entry_delta(entry_type: StaffDebtEntryType, amount: float) -> float:
+    amount = float(amount)
+    if entry_type == StaffDebtEntryType.ADVANCE:
+        return amount
+    if entry_type in {
+        StaffDebtEntryType.DEDUCTION,
+        StaffDebtEntryType.REPAYMENT,
+        StaffDebtEntryType.SETTLEMENT,
+    }:
+        return -abs(amount)
+    return amount
+
+
+async def _record_staff_debt_entry(
+    db: AsyncSession,
+    *,
+    current_user: User,
+    staff_user: User,
+    entry_type: StaffDebtEntryType,
+    amount: float,
+    notes: str | None,
+    month: int,
+    year: int,
+) -> StaffDebtEntry | None:
+    amount = float(amount)
+    if amount <= 0:
+        return None
+
+    account_stmt = select(StaffDebtAccount).where(
+        StaffDebtAccount.gym_id == current_user.gym_id,
+        StaffDebtAccount.user_id == staff_user.id,
+    )
+    account = (await db.execute(account_stmt)).scalar_one_or_none()
+    if account is None:
+        return None
+
+    balance_before = float(account.current_balance or 0.0)
+    delta = _entry_delta(entry_type, amount)
+    balance_after = balance_before + delta
+
+    entry = StaffDebtEntry(
+        gym_id=current_user.gym_id,
+        branch_id=account.branch_id,
+        account_id=account.id,
+        entry_type=entry_type,
+        amount=Decimal(str(amount)).quantize(Decimal("0.01")),
+        balance_before=Decimal(str(balance_before)).quantize(Decimal("0.01")),
+        balance_after=Decimal(str(balance_after)).quantize(Decimal("0.01")),
+        month=month,
+        year=year,
+        notes=notes,
+        created_by_user_id=current_user.id,
+    )
+    db.add(entry)
+
+    balance_stmt = select(StaffDebtMonthlyBalance).where(
+        StaffDebtMonthlyBalance.account_id == account.id,
+        StaffDebtMonthlyBalance.year == year,
+        StaffDebtMonthlyBalance.month == month,
+        StaffDebtMonthlyBalance.gym_id == current_user.gym_id,
+    )
+    monthly_balance = (await db.execute(balance_stmt)).scalar_one_or_none()
+    if monthly_balance is None:
+        monthly_balance = StaffDebtMonthlyBalance(
+            gym_id=current_user.gym_id,
+            branch_id=account.branch_id,
+            account_id=account.id,
+            month=month,
+            year=year,
+            opening_balance=Decimal(str(balance_before)).quantize(Decimal("0.01")),
+            advances_total=Decimal("0.00"),
+            deductions_total=Decimal("0.00"),
+            repayments_total=Decimal("0.00"),
+            settlements_total=Decimal("0.00"),
+            adjustments_total=Decimal("0.00"),
+            closing_balance=Decimal(str(balance_before)).quantize(Decimal("0.01")),
+            entry_count=0,
+            updated_by_user_id=current_user.id,
+        )
+        db.add(monthly_balance)
+        await db.flush()
+
+    amount_abs = Decimal(str(abs(amount))).quantize(Decimal("0.01"))
+    if entry_type == StaffDebtEntryType.ADVANCE:
+        monthly_balance.advances_total = Decimal(str(monthly_balance.advances_total)) + amount_abs
+    elif entry_type == StaffDebtEntryType.DEDUCTION:
+        monthly_balance.deductions_total = Decimal(str(monthly_balance.deductions_total)) + amount_abs
+    elif entry_type == StaffDebtEntryType.REPAYMENT:
+        monthly_balance.repayments_total = Decimal(str(monthly_balance.repayments_total)) + amount_abs
+    elif entry_type == StaffDebtEntryType.SETTLEMENT:
+        monthly_balance.settlements_total = Decimal(str(monthly_balance.settlements_total)) + amount_abs
+    else:
+        monthly_balance.adjustments_total = Decimal(str(monthly_balance.adjustments_total)) + Decimal(str(delta)).quantize(Decimal("0.01"))
+    monthly_balance.entry_count = int(monthly_balance.entry_count or 0) + 1
+    monthly_balance.closing_balance = Decimal(str(balance_after)).quantize(Decimal("0.01"))
+    monthly_balance.updated_by_user_id = current_user.id
+
+    account.current_balance = Decimal(str(balance_after)).quantize(Decimal("0.01"))
+    account.updated_by_user_id = current_user.id
+    return entry
+
+
+async def _apply_payroll_debt_deduction(
+    db: AsyncSession,
+    *,
+    current_user: User,
+    staff_user: User,
+    payroll: Payroll,
+) -> None:
+    if float(getattr(payroll, "debt_deductions", 0.0) or 0.0) <= 0:
+        return
+    if payroll.debt_deduction_entry_id is not None:
+        return
+    entry = await _record_staff_debt_entry(
+        db,
+        current_user=current_user,
+        staff_user=staff_user,
+        entry_type=StaffDebtEntryType.DEDUCTION,
+        amount=float(payroll.debt_deductions or 0.0),
+        notes=f"Automatic payroll debt deduction for {payroll.month:02d}/{payroll.year}",
+        month=payroll.month,
+        year=payroll.year,
+    )
+    if entry is not None:
+        payroll.debt_deduction_entry_id = entry.id
+
+
+async def _reverse_payroll_debt_deduction(
+    db: AsyncSession,
+    *,
+    current_user: User,
+    staff_user: User,
+    payroll: Payroll,
+) -> None:
+    if float(getattr(payroll, "debt_deductions", 0.0) or 0.0) <= 0:
+        return
+    if payroll.debt_deduction_entry_id is None:
+        return
+    await _record_staff_debt_entry(
+        db,
+        current_user=current_user,
+        staff_user=staff_user,
+        entry_type=StaffDebtEntryType.ADJUSTMENT,
+        amount=float(payroll.debt_deductions or 0.0),
+        notes=f"Reversal of payroll debt deduction for {payroll.month:02d}/{payroll.year}",
+        month=payroll.month,
+        year=payroll.year,
+    )
+    payroll.debt_deduction_entry_id = None
+
+
 async def _resolve_catchup_period(
     db: AsyncSession,
     *,
@@ -404,7 +601,8 @@ def _serialize_payroll(payroll: Payroll, user: User, *, worked_days: int | None 
     pending_amount = _money(max(float(payroll.total_pay) - paid_amount, 0.0))
     payments = list(payroll.__dict__.get("payments") or [])
     manual_deductions = _money(float(getattr(payroll, "manual_deductions", 0.0) or 0.0))
-    leave_deductions = _money(max(float(payroll.deductions) - manual_deductions, 0.0))
+    debt_deductions = _money(float(getattr(payroll, "debt_deductions", 0.0) or 0.0))
+    leave_deductions = _money(max(float(payroll.deductions) - manual_deductions - debt_deductions, 0.0))
     def _normalized(dt: datetime | None) -> datetime:
         if dt is None:
             return datetime.min.replace(tzinfo=timezone.utc)
@@ -427,6 +625,7 @@ def _serialize_payroll(payroll: Payroll, user: User, *, worked_days: int | None 
         "bonus_pay": payroll.bonus_pay,
         "leave_deductions": leave_deductions,
         "manual_deductions": manual_deductions,
+        "debt_deductions": debt_deductions,
         "deductions": payroll.deductions,
         "total_pay": payroll.total_pay,
         "status": payroll.status.value,
@@ -813,6 +1012,12 @@ async def create_payroll_payment(
         payroll.paid_transaction_id = payment.transaction_id
         payroll.paid_at = payment.paid_at
         payroll.paid_by_user_id = current_user.id
+        await _apply_payroll_debt_deduction(
+            db,
+            current_user=current_user,
+            staff_user=staff_user,
+            payroll=payroll,
+        )
     else:
         payroll.paid_transaction_id = None
         payroll.paid_at = None
@@ -881,7 +1086,18 @@ async def update_payroll(
 
     manual_deductions = _money(float(payroll.manual_deductions or 0.0))
     payroll.manual_deductions = manual_deductions
-    payroll.deductions = _money(existing_leave_deductions + manual_deductions)
+    debt_deductions = _money(float(getattr(payroll, "debt_deductions", 0.0) or 0.0))
+    gross_after_other_deductions = _money(
+        float(payroll.base_pay)
+        + float(payroll.overtime_pay)
+        + float(payroll.commission_pay)
+        + float(payroll.bonus_pay)
+        - existing_leave_deductions
+        - manual_deductions
+    )
+    debt_deductions = _money(min(debt_deductions, max(gross_after_other_deductions, 0.0)))
+    payroll.debt_deductions = debt_deductions
+    payroll.deductions = _money(existing_leave_deductions + manual_deductions + debt_deductions)
     payroll.total_pay = _money(
         float(payroll.base_pay)
         + float(payroll.overtime_pay)
@@ -950,6 +1166,12 @@ async def update_payroll_status(
         payroll.paid_by_user_id = latest_payment.paid_by_user_id if latest_payment else current_user.id
         payroll.approved_at = payroll.approved_at or now
         payroll.approved_by_user_id = payroll.approved_by_user_id or current_user.id
+        await _apply_payroll_debt_deduction(
+            db,
+            current_user=current_user,
+            staff_user=staff_user,
+            payroll=payroll,
+        )
     elif target_status == PayrollStatus.APPROVED:
         payroll.status = PayrollStatus.APPROVED
         payroll.approved_at = now
@@ -983,6 +1205,12 @@ async def update_payroll_status(
         payroll.paid_transaction_id = None
         payroll.paid_at = None
         payroll.paid_by_user_id = None
+        await _reverse_payroll_debt_deduction(
+            db,
+            current_user=current_user,
+            staff_user=staff_user,
+            payroll=payroll,
+        )
 
     await db.commit()
 
@@ -1251,6 +1479,7 @@ async def get_staff(
             "full_name": staff.full_name,
             "email": staff.email,
             "role": staff.role.value,
+            "is_active": staff.is_active,
             "home_branch_id": str(staff.home_branch_id) if staff.home_branch_id else None,
             "profile_picture_url": staff.profile_picture_url,
             "phone_number": staff.phone_number,
@@ -1671,6 +1900,7 @@ async def list_members(
 
     data = []
     for u in users:
+        role_value = u.role.value if hasattr(u.role, "value") else str(u.role)
         # Get subscription status. Be defensive here so malformed legacy rows do not fail the entire list.
         sub = None
         effective_status = "NONE"
@@ -1697,16 +1927,18 @@ async def list_members(
             "id": str(u.id),
             "full_name": u.full_name,
             "email": u.email,
-            "role": u.role.value,
+            "role": role_value,
             "home_branch_id": str(u.home_branch_id) if u.home_branch_id else None,
             "profile_picture_url": u.profile_picture_url,
             "phone_number": u.phone_number,
             "date_of_birth": u.date_of_birth.isoformat() if u.date_of_birth else None,
             "emergency_contact": u.emergency_contact,
             "bio": u.bio,
+            "subscription_plan_name": sub.plan_name if sub else None,
             "subscription": {
                 "status": effective_status,
                 "end_date": subscription_end_date,
+                "plan_name": sub.plan_name if sub else None,
             } if sub else None
         })
 
@@ -1723,6 +1955,8 @@ class SubscriptionCreate(BaseModel):
     extend_days: int | None = Field(default=None, ge=1)
     amount_paid: float = Field(..., gt=0)
     payment_method: PaymentMethod = PaymentMethod.CASH
+    note: str | None = Field(default=None, max_length=2000)
+    bundle_perks: list[BundlePerkPayload] = Field(default_factory=list)
 
 class SubscriptionUpdate(BaseModel):
     status: Literal["ACTIVE", "FROZEN"]
@@ -1735,7 +1969,6 @@ async def create_subscription(
     db: Annotated[AsyncSession, Depends(get_db)]
 ):
     """Create or renew a subscription for a member."""
-    from app.models.access import Subscription
     from app.models.subscription_enums import SubscriptionStatus
     if data.end_date < data.start_date:
         raise HTTPException(status_code=400, detail="end_date must be on or after start_date")
@@ -1762,6 +1995,11 @@ async def create_subscription(
     start_dt = _date_to_utc_datetime(data.start_date)
     end_dt = _date_to_utc_datetime(data.end_date)
     now = datetime.now(timezone.utc)
+    previous_plan_name = existing.plan_name if existing else None
+    previous_start_date = existing.start_date if existing else None
+    previous_end_date = existing.end_date if existing else None
+    change_type = "CREATE"
+    bundle_note = data.note.strip() if data.note else None
 
     if existing:
         if data.extend_days is not None:
@@ -1772,12 +2010,14 @@ async def create_subscription(
             existing.end_date = _date_to_utc_datetime(new_end_date)
             existing.status = SubscriptionStatus.ACTIVE
             msg = "Subscription extended"
+            change_type = "EXTEND"
         else:
             existing.plan_name = data.plan_name
             existing.start_date = start_dt
             existing.end_date = end_dt
             existing.status = SubscriptionStatus.ACTIVE
             msg = "Subscription renewed"
+            change_type = "RENEW"
     else:
         sub = Subscription(
             user_id=data.user_id,
@@ -1787,7 +2027,9 @@ async def create_subscription(
             status=SubscriptionStatus.ACTIVE
         )
         db.add(sub)
+        await db.flush()
         msg = "Subscription created"
+        existing = sub
 
     tx = Transaction(
         amount=data.amount_paid,
@@ -1802,6 +2044,76 @@ async def create_subscription(
         user_id=data.user_id,
     )
     db.add(tx)
+    bundle_start = existing.start_date if existing and data.extend_days is not None else start_dt
+    bundle_end = existing.end_date if existing and data.extend_days is not None and existing.end_date else end_dt
+    existing_perks_result = await db.execute(
+        select(PerkAccount).where(
+            PerkAccount.gym_id == current_user.gym_id,
+            PerkAccount.user_id == data.user_id,
+        )
+    )
+    existing_perks = list(existing_perks_result.scalars().all())
+    perk_map = {
+        (perk.perk_key.strip().lower(), perk.period_type.upper()): perk
+        for perk in existing_perks
+    }
+    for perk_payload in data.bundle_perks:
+        perk_key = perk_payload.perk_key.strip()
+        if not perk_key:
+            continue
+        perk_label = perk_payload.perk_label.strip()
+        if not perk_label:
+            continue
+        lookup_key = (perk_key.lower(), perk_payload.period_type.upper())
+        account = perk_map.get(lookup_key)
+        if account is None:
+            account = PerkAccount(
+                gym_id=current_user.gym_id,
+                user_id=data.user_id,
+                perk_key=perk_key,
+                perk_label=perk_label,
+                period_type=perk_payload.period_type,
+                total_allowance=max(0, perk_payload.total_allowance),
+                used_allowance=0,
+                contract_starts_at=bundle_start,
+                contract_ends_at=bundle_end,
+                monthly_reset_day=perk_payload.monthly_reset_day,
+                note=perk_payload.note,
+                is_active=True,
+            )
+            db.add(account)
+            perk_map[lookup_key] = account
+        else:
+            account.perk_label = perk_label
+            account.period_type = perk_payload.period_type
+            account.total_allowance = max(0, perk_payload.total_allowance)
+            account.contract_starts_at = bundle_start
+            account.contract_ends_at = bundle_end
+            account.monthly_reset_day = perk_payload.monthly_reset_day
+            account.note = perk_payload.note
+            account.is_active = True
+    if not data.bundle_perks:
+        for account in existing_perks:
+            if account.period_type == "CONTRACT":
+                account.contract_starts_at = bundle_start
+                account.contract_ends_at = bundle_end
+                account.is_active = True
+    await _log_subscription_bundle_change(
+        db,
+        current_user=current_user,
+        member=member,
+        subscription=existing,
+        change_type=change_type,
+        previous_plan_name=previous_plan_name,
+        new_plan_name=data.plan_name,
+        previous_start_date=previous_start_date,
+        new_start_date=start_dt,
+        previous_end_date=previous_end_date,
+        new_end_date=(existing.end_date if data.extend_days is not None and existing.end_date else end_dt),
+        note=bundle_note or (
+            f"Custom bundle {change_type.lower()}" if change_type != "CREATE" else "Custom bundle activated"
+        ),
+    )
 
     await db.commit()
 
@@ -1847,7 +2159,6 @@ async def update_subscription(
     db: Annotated[AsyncSession, Depends(get_db)]
 ):
     """Update subscription status: FREEZE or ACTIVATE (unfreeze)."""
-    from app.models.access import Subscription
     from app.models.subscription_enums import SubscriptionStatus
 
     member = await TenancyService.require_user_in_gym(
@@ -1878,9 +2189,8 @@ async def update_subscription(
     if end_date < now:
         raise HTTPException(status_code=400, detail="Subscription is expired. Renew it to reactivate access.")
 
+    previous_status = sub.status.value if hasattr(sub.status, "value") else str(sub.status)
     sub.status = SubscriptionStatus(data.status)
-    await db.commit()
-
     member = await TenancyService.get_user_in_gym(db, gym_id=current_user.gym_id, user_id=user_id)
     if member:
         await WhatsAppNotificationService.queue_and_send(
@@ -1897,6 +2207,20 @@ async def update_subscription(
             },
             idempotency_key=f"subscription-update:{user_id}:{data.status}:{sub.end_date.isoformat() if sub.end_date else 'none'}",
         )
+    await _log_subscription_bundle_change(
+        db,
+        current_user=current_user,
+        member=member or sub.user,
+        subscription=sub,
+        change_type="STATUS_CHANGE",
+        previous_plan_name=sub.plan_name,
+        new_plan_name=sub.plan_name,
+        previous_start_date=sub.start_date,
+        new_start_date=sub.start_date,
+        previous_end_date=sub.end_date,
+        new_end_date=sub.end_date,
+        note=f"Status changed from {previous_status} to {data.status}",
+    )
     
     await AuditService.log_action(
         db=db,
@@ -1906,11 +2230,67 @@ async def update_subscription(
         details=f"Status changed to {data.status}"
     )
     await db.commit()
-    
+
     return StandardResponse(message=f"Subscription status updated to {data.status}")
 
 
+@router.get("/subscriptions/{user_id}/bundle-changes", response_model=StandardResponse)
+async def list_subscription_bundle_changes(
+    user_id: uuid.UUID,
+    current_user: Annotated[User, Depends(dependencies.RoleChecker([Role.ADMIN, Role.MANAGER, Role.RECEPTION, Role.FRONT_DESK]))],
+    db: Annotated[AsyncSession, Depends(get_db)],
+    limit: int = Query(20, ge=1, le=100),
+):
+    member = await TenancyService.require_user_in_gym(
+        db,
+        current_user=current_user,
+        user_id=user_id,
+        detail="Member not found",
+    )
+    if member.home_branch_id is not None:
+        await TenancyService.require_branch_access(
+            db,
+            current_user=current_user,
+            branch_id=member.home_branch_id,
+            allow_all_for_admin=True,
+        )
+    subscription = (
+        await db.execute(
+            select(Subscription).where(Subscription.user_id == user_id)
+        )
+    ).scalar_one_or_none()
+    if subscription is None:
+        return StandardResponse(data=[])
 
+    rows = (
+        await db.execute(
+            select(SubscriptionBundleChangeLog)
+            .where(
+                SubscriptionBundleChangeLog.subscription_id == subscription.id,
+                SubscriptionBundleChangeLog.gym_id == current_user.gym_id,
+            )
+            .order_by(SubscriptionBundleChangeLog.created_at.desc())
+            .limit(limit)
+        )
+    ).scalars().all()
+    return StandardResponse(data=[
+        {
+            "id": str(row.id),
+            "subscription_id": str(row.subscription_id),
+            "user_id": str(row.user_id),
+            "change_type": row.change_type,
+            "previous_plan_name": row.previous_plan_name,
+            "new_plan_name": row.new_plan_name,
+            "previous_start_date": row.previous_start_date.isoformat() if row.previous_start_date else None,
+            "new_start_date": row.new_start_date.isoformat() if row.new_start_date else None,
+            "previous_end_date": row.previous_end_date.isoformat() if row.previous_end_date else None,
+            "new_end_date": row.new_end_date.isoformat() if row.new_end_date else None,
+            "note": row.note,
+            "created_by_user_id": str(row.created_by_user_id) if row.created_by_user_id else None,
+            "created_at": row.created_at.isoformat() if row.created_at else None,
+        }
+        for row in rows
+    ])
 
 
 @router.post("/leaves", response_model=StandardResponse)
