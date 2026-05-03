@@ -34,7 +34,6 @@ export default function MobilePolicyScreen() {
   const { bootstrap, authorizedRequest, refreshBootstrap, markPolicySignatureAccepted } = useSession();
   const { direction, fontSet, isRTL, locale, theme } = usePreferences();
   const [policy, setPolicy] = useState<PolicyPayload | null>(null);
-  const [signature, setSignature] = useState<PolicySignature | null>(null);
   const [signerName, setSignerName] = useState(bootstrap?.user.full_name || "");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -78,14 +77,9 @@ export default function MobilePolicyScreen() {
     const load = async () => {
       if (!bootstrap?.user.id) return;
       try {
-        const [policyRes, signatureRes] = await Promise.all([
-          authorizedRequest<PolicyPayload>(`/membership/policy?locale=${policyLocale}`, { method: "GET" }),
-          authorizedRequest<PolicySignature | null>(`/membership/policy/signature/me?locale=${policyLocale}`, { method: "GET" }),
-        ]);
+        const policyRes = await authorizedRequest<PolicyPayload>(`/membership/policy?locale=${policyLocale}`, { method: "GET" });
         const policyData = policyRes.data;
-        const signatureData = signatureRes.data;
         setPolicy(policyData);
-        setSignature(signatureData || null);
       } catch (caught) {
         setError(caught instanceof Error ? caught.message : txt.loading);
       }
@@ -95,10 +89,7 @@ export default function MobilePolicyScreen() {
   }, [authorizedRequest, bootstrap?.user.id, bootstrap?.user.full_name, locale, txt.loading]);
 
   const policyVersion = policy?.version || bootstrap?.policy.current_policy_version || "1.0";
-  const isSigned = Boolean(
-    (signature?.accepted && signature.version === policyVersion) ||
-      Boolean(bootstrap?.policy?.locale_signatures?.en || bootstrap?.policy?.locale_signatures?.ar),
-  );
+  const isSigned = Boolean(bootstrap?.policy?.locale_signatures?.en || bootstrap?.policy?.locale_signatures?.ar);
   const returnToApp = async () => {
     await refreshBootstrap().catch(() => undefined);
     router.replace("/(tabs)/home");
@@ -112,7 +103,6 @@ export default function MobilePolicyScreen() {
         method: "POST",
         body: JSON.stringify({ signerName: signerName.trim(), accepted: true }),
       });
-      setSignature(response.data);
       await markPolicySignatureAccepted(policyLocale, response.data.version || policyVersion).catch(() => undefined);
       await returnToApp();
     } catch (caught) {

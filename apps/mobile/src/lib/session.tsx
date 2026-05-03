@@ -51,6 +51,7 @@ type SessionContextValue = {
   signOut: () => Promise<void>;
   refreshBootstrap: () => Promise<void>;
   markPolicySignatureAccepted: (locale: PolicyLocale, version: string) => Promise<void>;
+  getAccessToken: () => string | null;
   authorizedRequest: <T>(path: string, init?: RequestInit) => Promise<Envelope<T>>;
 };
 
@@ -348,6 +349,8 @@ export function SessionProvider({ children }: PropsWithChildren) {
     [bootstrap],
   );
 
+  const getAccessToken = useCallback(() => tokenPairRef.current?.access_token ?? null, []);
+
   const setSelectedBranchId = useCallback(
     async (nextBranchId: string | null) => {
       const current = bootstrap;
@@ -523,9 +526,10 @@ export function SessionProvider({ children }: PropsWithChildren) {
       signIn,
       signOut,
       refreshBootstrap,
+      getAccessToken,
       authorizedRequest,
     }),
-    [authorizedRequest, bootstrap, selectedBranchId, setSelectedBranchId, error, markPolicySignatureAccepted, refreshBootstrap, signIn, signOut, status],
+    [authorizedRequest, bootstrap, getAccessToken, selectedBranchId, setSelectedBranchId, error, markPolicySignatureAccepted, refreshBootstrap, signIn, signOut, status],
   );
 
   return <SessionContext.Provider value={value}>{children}</SessionContext.Provider>;

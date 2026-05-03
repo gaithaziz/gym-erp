@@ -74,10 +74,14 @@ function FloatingChatButton() {
   const { copy, isRTL, theme } = usePreferences();
   const insets = useSafeAreaInsets();
 
-  const hidden = status !== "signed_in" || pathname === "/login" || pathname.includes("/chat") || !hasCapability(bootstrap, "view_chat");
+  const canViewChat = hasCapability(bootstrap, "view_chat");
+  const canViewSupport = hasCapability(bootstrap, "view_support");
+  const showChat = canViewChat;
+  const showSupport = !showChat && canViewSupport;
+  const hidden = status !== "signed_in" || pathname === "/login" || pathname.includes("/chat") || pathname.includes("/ticket") || (!showChat && !showSupport);
   const homeQuery = useQuery({
     queryKey: ["mobile-home"],
-    enabled: !hidden && isCustomerRole(bootstrap?.role),
+    enabled: !hidden && isCustomerRole(bootstrap?.role) && showChat,
     staleTime: 30_000,
     queryFn: async () => parseHomeEnvelope(await authorizedRequest("/mobile/customer/home")).data,
   });
@@ -92,8 +96,8 @@ function FloatingChatButton() {
   return (
     <Pressable
       accessibilityRole="button"
-      accessibilityLabel={copy.common.chat}
-      onPress={() => router.push("/chat")}
+      accessibilityLabel={showChat ? copy.common.chat : copy.common.support}
+      onPress={() => router.push(showChat ? "/chat" : "/ticket")}
       style={[
         styles.floatingChatButton,
         {
@@ -105,8 +109,8 @@ function FloatingChatButton() {
         },
       ]}
     >
-      <Ionicons name="chatbubble-ellipses" size={24} color="#FFFFFF" />
-      {unreadCount > 0 ? (
+      <Ionicons name={showChat ? "chatbubble-ellipses" : "help-buoy"} size={24} color="#FFFFFF" />
+      {showChat && unreadCount > 0 ? (
         <View
           style={[
             styles.floatingChatDot,

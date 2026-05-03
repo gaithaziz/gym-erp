@@ -124,7 +124,7 @@ export default function DashboardLayout({
                 const signatureResp = await api.get('/membership/policy/signature/me', { params: { locale } });
                 if (cancelled) return;
                 const signature = signatureResp.data?.data as PolicySignature | null | undefined;
-                const hasValidSignature = Boolean(signature?.accepted && signature.version === expectedVersion) || storedSignatureMatches(expectedVersion);
+                const hasValidSignature = Boolean(signature?.accepted) || storedSignatureMatches(expectedVersion);
                 setPolicySignatureState(hasValidSignature ? 'signed' : 'unsigned');
             } catch {
                 if (!cancelled) {

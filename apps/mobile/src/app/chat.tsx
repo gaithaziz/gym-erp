@@ -3,6 +3,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Image } from "expo-image";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { useDeferredValue, useEffect, useMemo, useRef, useState } from "react";
+import { AppState } from "react-native";
 import {
   Modal,
   KeyboardAvoidingView,
@@ -18,6 +19,7 @@ import Animated, { useAnimatedStyle, useSharedValue } from "react-native-reanima
 import { Gesture, GestureDetector } from "react-native-gesture-handler";
 
 import { Card, Input, MediaPreview, MutedText, QueryState, Screen } from "@/components/ui";
+import { API_BASE_URL } from "@/lib/api";
 import { classifyChatAttachment, isImageMime, resolveMediaUri } from "@/lib/chat-media";
 import { pickImageOrVideoFromLibrary, type PickedMedia } from "@/lib/media-picker";
 import { localeTag, localizeMessageType, localizeRole } from "@/lib/mobile-format";
@@ -60,6 +62,8 @@ type PendingVoiceUpload = {
   mimeType: string;
   uri: string;
 };
+
+const CHAT_REFRESH_INTERVAL_MS = 5000;
 
 function formatDuration(totalSeconds: number | null | undefined) {
   if (!totalSeconds || totalSeconds <= 0) {
@@ -333,7 +337,7 @@ function ChatPhotoMessage({
 export default function ChatScreen() {
   const router = useRouter();
   const params = useLocalSearchParams<{ contactId?: string; memberId?: string }>();
-  const { authorizedRequest, bootstrap, selectedBranchId } = useSession();
+  const { authorizedRequest, bootstrap, selectedBranchId, getAccessToken } = useSession();
   const { copy, direction, fontSet, isRTL, theme } = usePreferences();
   const insets = useSafeAreaInsets();
   const role = getCurrentRole(bootstrap);
@@ -356,6 +360,8 @@ export default function ChatScreen() {
   const [pendingVoiceUpload, setPendingVoiceUpload] = useState<PendingVoiceUpload | null>(null);
   const [openPhotoUri, setOpenPhotoUri] = useState<string | null>(null);
   const messagesScrollRef = useRef<ScrollView | null>(null);
+  const chatSocketRef = useRef<WebSocket | null>(null);
+  const chatSocketPingRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const recorder = useAudioRecorder(RecordingPresets.HIGH_QUALITY);
   const recorderState = useAudioRecorderState(recorder);
   const recording = recorderState.isRecording;
@@ -417,6 +423,11 @@ export default function ChatScreen() {
   const threadsQuery = useQuery({
     queryKey: ["mobile-chat", selectedBranchId ?? "all"],
     queryFn: async () => (await authorizedRequest<Thread[]>(`/mobile/chat/threads${branchSuffix}`)).data,
+    staleTime: 0,
+    refetchInterval: CHAT_REFRESH_INTERVAL_MS,
+    refetchIntervalInBackground: false,
+    refetchOnMount: "always",
+    refetchOnReconnect: true,
   });
   const threads = useMemo(() => threadsQuery.data ?? [], [threadsQuery.data]);
   const deferredThreadSearch = useDeferredValue(threadSearch);
@@ -455,7 +466,78 @@ export default function ChatScreen() {
     queryFn: async () => (
       await authorizedRequest<ChatMessage[]>(`/mobile/chat/threads/${selectedThread?.id}/messages${branchSuffix}`)
     ).data,
+    staleTime: 0,
+    refetchInterval: CHAT_REFRESH_INTERVAL_MS,
+    refetchIntervalInBackground: false,
+    refetchOnMount: "always",
+    refetchOnReconnect: true,
   });
+
+  useEffect(() => {
+    const token = getAccessToken();
+    if (!token || !bootstrap || readOnly) {
+      return;
+    }
+
+    const baseUrl = API_BASE_URL.replace(/\/api\/v1\/?$/, "").replace(/^http/, "ws");
+    const socket = new WebSocket(`${baseUrl}/api/v1/chat/ws?token=${encodeURIComponent(token)}`);
+    chatSocketRef.current = socket;
+
+    const refreshChat = () => {
+      void queryClient.invalidateQueries({ queryKey: ["mobile-chat"] });
+      void queryClient.invalidateQueries({ queryKey: ["mobile-chat-messages"] });
+      void queryClient.invalidateQueries({ queryKey: ["mobile-home"] });
+    };
+
+    socket.onopen = () => {
+      if (chatSocketPingRef.current) {
+        clearInterval(chatSocketPingRef.current);
+      }
+      chatSocketPingRef.current = setInterval(() => {
+        try {
+          socket.send(JSON.stringify({ action: "ping" }));
+        } catch {
+          return;
+        }
+      }, 25000);
+    };
+
+    socket.onmessage = (event) => {
+      try {
+        const payload = JSON.parse(event.data as string) as { event?: string; thread_id?: string };
+        if (payload.event === "chat.message.created" || payload.event === "chat.read.updated") {
+          refreshChat();
+        }
+      } catch {
+        return;
+      }
+    };
+
+    socket.onerror = () => {
+      refreshChat();
+    };
+
+    socket.onclose = () => {
+      if (chatSocketPingRef.current) {
+        clearInterval(chatSocketPingRef.current);
+        chatSocketPingRef.current = null;
+      }
+      if (chatSocketRef.current === socket) {
+        chatSocketRef.current = null;
+      }
+    };
+
+    return () => {
+      if (chatSocketPingRef.current) {
+        clearInterval(chatSocketPingRef.current);
+        chatSocketPingRef.current = null;
+      }
+      socket.close();
+      if (chatSocketRef.current === socket) {
+        chatSocketRef.current = null;
+      }
+    };
+  }, [bootstrap, getAccessToken, queryClient, readOnly]);
 
   const markReadMutation = useMutation({
     mutationFn: async () => {
@@ -642,6 +724,18 @@ export default function ChatScreen() {
     });
     return () => cancelAnimationFrame(frame);
   }, [messagesQuery.data, selectedThread?.id]);
+
+  useEffect(() => {
+    const subscription = AppState.addEventListener("change", (nextState) => {
+      if (nextState === "active") {
+        void queryClient.invalidateQueries({ queryKey: ["mobile-chat"] });
+        void queryClient.invalidateQueries({ queryKey: ["mobile-chat-messages"] });
+        void queryClient.invalidateQueries({ queryKey: ["mobile-home"] });
+      }
+    });
+
+    return () => subscription.remove();
+  }, [queryClient]);
 
   useEffect(() => {
     return () => {

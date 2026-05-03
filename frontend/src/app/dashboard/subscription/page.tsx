@@ -283,7 +283,7 @@ export default function CustomerSubscriptionPage() {
 
     const isRequestLocked = nowTs < lockUntilTs;
     const lockHoursRemaining = isRequestLocked ? Math.ceil((lockUntilTs - nowTs) / (1000 * 60 * 60)) : 0;
-    const isContractSigned = contractSignature?.accepted && contractSignature.version === policyVersion;
+    const isContractSigned = Boolean(contractSignature?.accepted);
 
     const openRequest = (type: 'renewal' | 'unfreeze' | 'freeze' | 'extend') => {
         if (isRequestLocked || !isContractSigned) return;

@@ -252,10 +252,12 @@ async def get_my_policy_signature(
     db: Annotated[AsyncSession, Depends(get_db)],
     locale: str = Query(default="en", pattern="^(en|ar)$"),
 ):
+    current_policy_version = await get_gym_policy_version(db, current_user.gym_id)
     result = await db.execute(
         select(PolicySignature).where(
             PolicySignature.gym_id == current_user.gym_id,
             PolicySignature.user_id == current_user.id,
+            PolicySignature.policy_version == current_policy_version,
             PolicySignature.accepted.is_(True),
         )
         .order_by(PolicySignature.signed_at.desc())
@@ -278,12 +280,12 @@ async def sign_policy(
     db: Annotated[AsyncSession, Depends(get_db)],
     locale: str = Query(default="en", pattern="^(en|ar)$"),
 ):
-    policy_row = await _get_policy_row(db, current_user.gym_id, locale)
-    version = policy_row.version if policy_row else await get_gym_policy_version(db, current_user.gym_id)
+    version = await get_gym_policy_version(db, current_user.gym_id)
     result = await db.execute(
         select(PolicySignature).where(
             PolicySignature.gym_id == current_user.gym_id,
             PolicySignature.user_id == current_user.id,
+            PolicySignature.locale == locale,
         )
         .order_by(PolicySignature.signed_at.desc())
     )
@@ -296,22 +298,22 @@ async def sign_policy(
             "signerName": row.signer_name,
             "accepted": row.accepted,
         })
-    await db.execute(
-        delete(PolicySignature).where(
-            PolicySignature.gym_id == current_user.gym_id,
-            PolicySignature.user_id == current_user.id,
+    if row is None:
+        row = PolicySignature(
+            gym_id=current_user.gym_id,
+            user_id=current_user.id,
+            locale=locale,
+            policy_version=version,
+            signer_name=payload.signerName,
+            accepted=payload.accepted,
+            signed_at=now,
         )
-    )
-    row = PolicySignature(
-        gym_id=current_user.gym_id,
-        user_id=current_user.id,
-        locale=locale,
-        policy_version=version,
-        signer_name=payload.signerName,
-        accepted=payload.accepted,
-        signed_at=now,
-    )
-    db.add(row)
+        db.add(row)
+    else:
+        row.policy_version = version
+        row.signer_name = payload.signerName
+        row.accepted = payload.accepted
+        row.signed_at = now
     await db.commit()
     await db.refresh(row)
     return StandardResponse(data={

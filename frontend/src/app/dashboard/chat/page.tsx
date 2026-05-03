@@ -596,7 +596,7 @@ export default function ChatPage() {
         const interval = window.setInterval(() => {
             fetchThreads();
             if (selectedThreadId) fetchMessages(selectedThreadId);
-        }, 7000);
+        }, 3000);
         return () => window.clearInterval(interval);
     }, [socketConnected, selectedThreadId]); // eslint-disable-line react-hooks/exhaustive-deps
 

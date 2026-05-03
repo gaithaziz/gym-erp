@@ -433,3 +433,170 @@ async def test_policy_save_syncs_version_across_locales_and_invalidates_signatur
     )
     assert me_response.status_code == 200
     assert me_response.json()["data"]["version"] == "1.1"
+
+    me_response_ar = await client.get(
+        f"{settings.API_V1_STR}/membership/policy/signature/me",
+        params={"locale": "ar"},
+        headers={"Authorization": f"Bearer {customer_token}"},
+    )
+    assert me_response_ar.status_code == 200
+    assert me_response_ar.json()["data"]["version"] == "1.1"
+
+
+@pytest.mark.asyncio
+async def test_policy_signature_is_shared_across_locales(client: AsyncClient, db_session: AsyncSession):
+    email = "locale-policy@example.com"
+    password = "password123"
+    user = User(
+        email=email,
+        hashed_password=security.get_password_hash(password),
+        role=Role.CUSTOMER,
+        full_name="Locale Policy Customer",
+    )
+    db_session.add(user)
+    await db_session.flush()
+    db_session.add_all(
+        [
+            PolicyDocument(
+                gym_id=user.gym_id,
+                locale="en",
+                version="2.0",
+                title="Policy EN",
+                effective_date=datetime.now(timezone.utc),
+                intro="English policy",
+                sections_json=json.dumps([{"title": "Intro", "points": ["EN"]}]),
+                footer_note="EN footer",
+                created_by_user_id=user.id,
+            ),
+            PolicyDocument(
+                gym_id=user.gym_id,
+                locale="ar",
+                version="2.0",
+                title="Policy AR",
+                effective_date=datetime.now(timezone.utc),
+                intro="Arabic policy",
+                sections_json=json.dumps([{"title": "Intro", "points": ["AR"]}]),
+                footer_note="AR footer",
+                created_by_user_id=user.id,
+            ),
+        ]
+    )
+    await db_session.commit()
+
+    login_response = await client.post(
+        f"{settings.API_V1_STR}/auth/login",
+        json={"email": email, "password": password},
+    )
+    token = login_response.json()["data"]["access_token"]
+
+    sign_en = await client.post(
+        f"{settings.API_V1_STR}/membership/policy/signature",
+        params={"locale": "en"},
+        headers={"Authorization": f"Bearer {token}"},
+        json={"signerName": "Locale Policy Customer", "accepted": True},
+    )
+    assert sign_en.status_code == 200
+
+    sign_ar = await client.post(
+        f"{settings.API_V1_STR}/membership/policy/signature",
+        params={"locale": "ar"},
+        headers={"Authorization": f"Bearer {token}"},
+        json={"signerName": "Locale Policy Customer", "accepted": True},
+    )
+    assert sign_ar.status_code == 200
+
+    bootstrap = await client.get(
+        f"{settings.API_V1_STR}/mobile/bootstrap",
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    assert bootstrap.status_code == 200
+    assert bootstrap.json()["data"]["policy"]["locale_signatures"] == {"en": True, "ar": True}
+
+    rows = (
+        await db_session.execute(
+            select(PolicySignature).where(
+                PolicySignature.gym_id == user.gym_id,
+                PolicySignature.user_id == user.id,
+                PolicySignature.accepted.is_(True),
+            )
+        )
+    ).scalars().all()
+    assert {row.locale for row in rows} == {"en", "ar"}
+
+    me_en = await client.get(
+        f"{settings.API_V1_STR}/membership/policy/signature/me",
+        params={"locale": "en"},
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    me_ar = await client.get(
+        f"{settings.API_V1_STR}/membership/policy/signature/me",
+        params={"locale": "ar"},
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    assert me_en.status_code == 200
+    assert me_ar.status_code == 200
+    assert me_en.json()["data"]["version"] == "2.0"
+    assert me_ar.json()["data"]["version"] == "2.0"
+
+
+@pytest.mark.asyncio
+async def test_signing_uses_current_policy_version_even_when_locale_docs_lag(client: AsyncClient, db_session: AsyncSession):
+    email = "stale-locale-policy@example.com"
+    password = "password123"
+    user = User(
+        email=email,
+        hashed_password=security.get_password_hash(password),
+        role=Role.CUSTOMER,
+        full_name="Stale Locale Customer",
+    )
+    db_session.add(user)
+    await db_session.flush()
+    db_session.add_all(
+        [
+            PolicyDocument(
+                gym_id=user.gym_id,
+                locale="en",
+                version="2.0",
+                title="Policy EN",
+                effective_date=datetime.now(timezone.utc),
+                intro="English policy",
+                sections_json=json.dumps([{"title": "Intro", "points": ["EN"]}]),
+                footer_note="EN footer",
+                created_by_user_id=user.id,
+            ),
+            PolicyDocument(
+                gym_id=user.gym_id,
+                locale="ar",
+                version="1.1",
+                title="Policy AR",
+                effective_date=datetime.now(timezone.utc),
+                intro="Arabic policy",
+                sections_json=json.dumps([{"title": "Intro", "points": ["AR"]}]),
+                footer_note="AR footer",
+                created_by_user_id=user.id,
+            ),
+        ]
+    )
+    await db_session.commit()
+
+    login_response = await client.post(
+        f"{settings.API_V1_STR}/auth/login",
+        json={"email": email, "password": password},
+    )
+    token = login_response.json()["data"]["access_token"]
+
+    sign_response = await client.post(
+        f"{settings.API_V1_STR}/membership/policy/signature",
+        params={"locale": "ar"},
+        headers={"Authorization": f"Bearer {token}"},
+        json={"signerName": "Stale Locale Customer", "accepted": True},
+    )
+    assert sign_response.status_code == 200
+    assert sign_response.json()["data"]["version"] == "2.0"
+
+    bootstrap = await client.get(
+        f"{settings.API_V1_STR}/mobile/bootstrap",
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    assert bootstrap.status_code == 200
+    assert bootstrap.json()["data"]["policy"]["locale_signatures"] == {"en": True, "ar": True}

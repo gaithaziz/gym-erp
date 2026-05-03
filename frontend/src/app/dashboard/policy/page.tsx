@@ -120,8 +120,8 @@ export default function GymPolicyPage() {
         setSignerName(user?.full_name || '');
     }, [policyLocale, user?.full_name, user?.id]);
 
-    const policyVersion = policy.version || POLICY_VERSION;
-    const isSigned = signature?.version === policyVersion && signature.accepted;
+    const policyVersion = signature?.version || policy.version || POLICY_VERSION;
+    const isSigned = Boolean(signature?.accepted);
     const signatureDate = signature?.signedAt ? new Date(signature.signedAt) : null;
     const validSignatureDate = Boolean(signatureDate && !Number.isNaN(signatureDate.getTime()));
 

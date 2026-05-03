@@ -29,7 +29,7 @@ export function useChatThreads({ enabled, limit = 50, branchId = 'all' }: UseCha
             return (response.data?.data || []) as ChatThreadSummary[];
         },
         {
-            refreshInterval: enabled ? 12000 : 0,
+            refreshInterval: enabled ? 5000 : 0,
             revalidateOnFocus: true,
             dedupingInterval: 5000,
         },

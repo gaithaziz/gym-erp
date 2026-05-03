@@ -1,6 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useLocalSearchParams } from "expo-router";
 import { useEffect, useMemo, useState } from "react";
+import { AppState } from "react-native";
 import { Pressable, StyleSheet, Text, View } from "react-native";
 
 import { Card, Input, MediaPreview, MutedText, PrimaryButton, QueryState, Screen, SectionTitle, SecondaryButton, TextArea } from "@/components/ui";
@@ -29,6 +30,7 @@ type SupportTicket = {
 const CATEGORIES = ["GENERAL", "TECHNICAL", "BILLING", "SUBSCRIPTION"] as const;
 const QUEUE_FILTERS = ["all", "active", "resolvedClosed"] as const;
 const STAFF_STATUSES = ["OPEN", "IN_PROGRESS", "RESOLVED", "CLOSED"] as const;
+const SUPPORT_REFRESH_INTERVAL_MS = 5000;
 
 function subscriptionSupportSubject(type: string, copy: ReturnType<typeof usePreferences>["copy"]) {
   if (type === "freeze") {
@@ -106,6 +108,11 @@ export default function SupportScreen() {
   const supportQuery = useQuery({
     queryKey: ["mobile-support", ticketQueryString],
     retry: 1,
+    staleTime: 0,
+    refetchInterval: SUPPORT_REFRESH_INTERVAL_MS,
+    refetchIntervalInBackground: false,
+    refetchOnMount: "always",
+    refetchOnReconnect: true,
     queryFn: async () => (await authorizedRequest<SupportTicket[]>(supportPath)).data,
   });
   const tickets = useMemo(() => supportQuery.data ?? [], [supportQuery.data]);
@@ -122,6 +129,18 @@ export default function SupportScreen() {
       setSelectedTicketId(params.ticketId);
     }
   }, [params.ticketId]);
+
+  useEffect(() => {
+    const subscription = AppState.addEventListener("change", (nextState) => {
+      if (nextState !== "active") {
+        return;
+      }
+      void queryClient.invalidateQueries({ queryKey: ["mobile-support"] });
+      void queryClient.invalidateQueries({ queryKey: ["mobile-support-tab"] });
+    });
+
+    return () => subscription.remove();
+  }, [queryClient]);
 
   const createTicketMutation = useMutation({
     mutationFn: async () =>

@@ -211,16 +211,11 @@ class MobileBootstrapService:
             )
         ).scalars().all()
         current_policy_version = await get_gym_policy_version(db, current_user.gym_id)
-        locale_signatures = {
-            locale: any(
-                sig.locale == locale and sig.policy_version == current_policy_version and sig.accepted
-                for sig in signature_rows
-            )
-            for locale in ("en", "ar")
-        }
+        policy_signed = any(sig.policy_version == current_policy_version and sig.accepted for sig in signature_rows)
+        locale_signatures = {locale: policy_signed for locale in ("en", "ar")}
         return schemas.PolicyGate(
             current_policy_version=current_policy_version,
-            requires_signature=not any(locale_signatures.values()),
+            requires_signature=not policy_signed,
             locale_signatures=locale_signatures,
         )
 

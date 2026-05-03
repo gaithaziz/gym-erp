@@ -1,6 +1,8 @@
 import { Redirect, useRouter } from "expo-router";
 import { useQuery } from "@tanstack/react-query";
 import { Pressable, StyleSheet, Text, View } from "react-native";
+import { AppState } from "react-native";
+import { useEffect } from "react";
 
 import { Card, MutedText, QueryState, Screen, SectionTitle, SecondaryButton } from "@/components/ui";
 import { localizeTicketCategory, localizeTicketStatus } from "@/lib/mobile-format";
@@ -17,6 +19,8 @@ type SupportTicket = {
   customer?: { full_name?: string | null; email?: string | null } | null;
 };
 
+const SUPPORT_TAB_REFRESH_INTERVAL_MS = 5000;
+
 export default function SupportTab() {
   const router = useRouter();
   const { authorizedRequest, bootstrap, selectedBranchId } = useSession();
@@ -28,6 +32,11 @@ export default function SupportTab() {
   const ticketsQuery = useQuery({
     queryKey: ["mobile-support-tab", role, selectedBranchId],
     enabled: customer || supportStaff,
+    staleTime: 0,
+    refetchInterval: SUPPORT_TAB_REFRESH_INTERVAL_MS,
+    refetchIntervalInBackground: false,
+    refetchOnMount: "always",
+    refetchOnReconnect: true,
     queryFn: async () => {
       const params = new URLSearchParams();
       if (selectedBranchId) {
@@ -37,6 +46,18 @@ export default function SupportTab() {
       return (await authorizedRequest<SupportTicket[]>(suffix ? `/mobile/support/tickets?${suffix}` : "/mobile/support/tickets")).data;
     },
   });
+  const refetchSupportTickets = ticketsQuery.refetch;
+
+  useEffect(() => {
+    const subscription = AppState.addEventListener("change", (nextState) => {
+      if (nextState !== "active") {
+        return;
+      }
+      void refetchSupportTickets();
+    });
+
+    return () => subscription.remove();
+  }, [refetchSupportTickets]);
 
   if (isCoachRole(role)) {
     return <Redirect href="/chat" />;
