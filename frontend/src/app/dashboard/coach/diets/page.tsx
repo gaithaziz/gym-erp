@@ -435,16 +435,22 @@ export default function DietPlansPage() {
     }, [showToast, txt.failedLoadLibrary]);
 
     useEffect(() => {
-        void fetchData();
+        const timer = window.setTimeout(() => {
+            void fetchData();
+        }, 0);
+        return () => window.clearTimeout(timer);
     }, [fetchData]);
 
     useEffect(() => {
-        setExpandedTemplatePlanId(null);
-        setExpandedAssignedPlanId(null);
-        setAssignModalOpen(false);
-        setAssigningPlan(null);
-        setBulkAssignMemberIds([]);
-        setMemberSearch('');
+        const timer = window.setTimeout(() => {
+            setExpandedTemplatePlanId(null);
+            setExpandedAssignedPlanId(null);
+            setAssignModalOpen(false);
+            setAssigningPlan(null);
+            setBulkAssignMemberIds([]);
+            setMemberSearch('');
+        }, 0);
+        return () => window.clearTimeout(timer);
     }, [selectedBranchId]);
 
     const resetForm = () => {

@@ -421,22 +421,6 @@ export default function WorkoutPlansPage() {
 
     const loadingErrorText = txt.loadingError;
 
-    const fetchData = useCallback(async () => {
-        const requestId = ++loadSeqRef.current;
-        await loadWorkoutPlansData({
-            setRefreshing,
-            setPlans,
-            setPlanSummaries,
-            setMembers,
-            branchParams,
-            showToast,
-            loadingErrorText,
-            setLoading,
-            setLoadError,
-            isCurrentRequest: () => loadSeqRef.current === requestId,
-        });
-    }, [branchParams, loadingErrorText, showToast]);
-
     const fetchExerciseLibrary = useCallback(async (query?: string) => {
         try {
             const [itemsRes, recentRes] = await Promise.all([
@@ -465,8 +449,20 @@ export default function WorkoutPlansPage() {
     };
 
     useEffect(() => {
-        void fetchData();
-    }, [fetchData]);
+        const requestId = ++loadSeqRef.current;
+        void loadWorkoutPlansData({
+            setRefreshing,
+            setPlans,
+            setPlanSummaries,
+            setMembers,
+            branchParams,
+            showToast,
+            loadingErrorText,
+            setLoading,
+            setLoadError,
+            isCurrentRequest: () => loadSeqRef.current === requestId,
+        });
+    }, [branchParams, loadingErrorText, showToast]);
 
     const resetForm = () => {
         const defaultSection = { id: makeId(), name: txt.general, exercises: [] };
@@ -495,16 +491,19 @@ export default function WorkoutPlansPage() {
     };
 
     useEffect(() => {
-        setLoadError(null);
-        setShowModal(false);
-        setEditingPlan(null);
-        setModalStep(1);
-        setAssignModalOpen(false);
-        setAssigningPlan(null);
-        setExpandedTemplatePlanId(null);
-        setExpandedAssignedPlanId(null);
-        setBulkAssignMemberIds([]);
-        setMemberSearch('');
+        const timer = window.setTimeout(() => {
+            setLoadError(null);
+            setShowModal(false);
+            setEditingPlan(null);
+            setModalStep(1);
+            setAssignModalOpen(false);
+            setAssigningPlan(null);
+            setExpandedTemplatePlanId(null);
+            setExpandedAssignedPlanId(null);
+            setBulkAssignMemberIds([]);
+            setMemberSearch('');
+        }, 0);
+        return () => window.clearTimeout(timer);
     }, [selectedBranchId]);
 
     const addSection = () => {

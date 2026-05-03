@@ -158,9 +158,12 @@ export default function FeedbackPage() {
     };
 
     useEffect(() => {
-        setSelectedPlan('');
-        setLogs([]);
-        setExpandedSessionId(null);
+        const timer = window.setTimeout(() => {
+            setSelectedPlan('');
+            setLogs([]);
+            setExpandedSessionId(null);
+        }, 0);
+        return () => window.clearTimeout(timer);
     }, [branchParams, setSelectedPlan]);
 
     const markSessionReviewed = async (sessionId: string) => {

@@ -176,15 +176,20 @@ export default function DashboardLayout({
 
     // Close sidebar on route change (mobile)
     useEffect(() => {
-        setSidebarOpen(false);
+        const timer = window.setTimeout(() => {
+            setSidebarOpen(false);
+        }, 0);
+        return () => window.clearTimeout(timer);
     }, [pathname]);
 
     useEffect(() => {
         if (!user) return;
         if (!getAccessToken()) {
-            setSupportHasNew(false);
-            setLostFoundHasNew(false);
-            return;
+            const timer = window.setTimeout(() => {
+                setSupportHasNew(false);
+                setLostFoundHasNew(false);
+            }, 0);
+            return () => window.clearTimeout(timer);
         }
 
         const seenKeySupport = `last_seen_support_${user.id}`;
