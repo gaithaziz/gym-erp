@@ -421,6 +421,22 @@ export default function WorkoutPlansPage() {
 
     const loadingErrorText = txt.loadingError;
 
+    const fetchData = async () => {
+        const requestId = ++loadSeqRef.current;
+        await loadWorkoutPlansData({
+            setRefreshing,
+            setPlans,
+            setPlanSummaries,
+            setMembers,
+            branchParams,
+            showToast,
+            loadingErrorText,
+            setLoading,
+            setLoadError,
+            isCurrentRequest: () => loadSeqRef.current === requestId,
+        });
+    };
+
     const fetchExerciseLibrary = useCallback(async (query?: string) => {
         try {
             const [itemsRes, recentRes] = await Promise.all([
