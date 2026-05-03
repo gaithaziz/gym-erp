@@ -47,6 +47,7 @@ export default function AdminSupportPage() {
     const [isUploadingPhoto, setIsUploadingPhoto] = useState(false);
     const photoInputRef = useRef<HTMLInputElement>(null);
     const messageListRef = useRef<HTMLDivElement>(null);
+    const scrollTimerRef = useRef<number | null>(null);
 
     const refreshTickets = useCallback(
         () =>
@@ -68,7 +69,10 @@ export default function AdminSupportPage() {
         try {
             const response = await api.get(`/support/tickets/${id}`, { params: getBranchParams(selectedBranchId) });
             setTicketDetails(response.data?.data);
-            setTimeout(() => {
+            if (scrollTimerRef.current !== null) {
+                window.clearTimeout(scrollTimerRef.current);
+            }
+            scrollTimerRef.current = window.setTimeout(() => {
                 if (messageListRef.current) {
                     messageListRef.current.scrollTop = 0;
                 }
@@ -77,6 +81,14 @@ export default function AdminSupportPage() {
             showToast(t('support.admin.failedFetchDetails'), 'error');
         }
     }, [selectedBranchId, showToast, t]);
+
+    useEffect(() => {
+        return () => {
+            if (scrollTimerRef.current !== null) {
+                window.clearTimeout(scrollTimerRef.current);
+            }
+        };
+    }, []);
 
     useEffect(() => {
         if (selectedTicketId) {
@@ -314,6 +326,7 @@ export default function AdminSupportPage() {
                                     value={replyText}
                                     onChange={(e) => setReplyText(e.target.value)}
                                     placeholder={t('support.admin.replyPlaceholder')}
+                                    aria-label={t('support.admin.replyPlaceholder')}
                                     className="input-dark flex-1"
                                     disabled={isReplying || isUploadingPhoto}
                                 />
@@ -397,6 +410,7 @@ export default function AdminSupportPage() {
                     <input
                         type="text"
                         placeholder={t('support.admin.searchPlaceholder')}
+                        aria-label={t('support.admin.searchPlaceholder')}
                         value={searchQuery}
                         onChange={(e) => setSearchQuery(e.target.value)}
                         className="input-dark input-with-icon w-full"
@@ -405,6 +419,7 @@ export default function AdminSupportPage() {
                 <div className="field-with-icon shrink-0 w-full sm:w-48">
                     <Filter className="field-icon" size={18} />
                     <select
+                        aria-label={t('support.admin.allCategories')}
                         value={categoryFilter}
                         onChange={(e) => {
                             setTicketsPage(1);

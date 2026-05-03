@@ -337,6 +337,7 @@ export default function GlobalAuditLogsPage() {
                             setActionFilter(e.target.value);
                         }}
                         placeholder={locale === 'ar' ? 'مثال: USER_IMPERSONATED' : 'e.g. USER_IMPERSONATED'}
+                        aria-label={locale === 'ar' ? 'الإجراء' : 'Action'}
                     />
                 </div>
                 <div>
@@ -349,6 +350,7 @@ export default function GlobalAuditLogsPage() {
                             setGymFilter(e.target.value);
                             setSelectedBranchId('all');
                         }}
+                        aria-label={locale === 'ar' ? 'المنشأة' : 'Gym'}
                     >
                         <option value="">{locale === 'ar' ? 'الكل' : 'All'}</option>
                         {gyms.map((g) => (

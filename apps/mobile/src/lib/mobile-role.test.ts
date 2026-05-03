@@ -10,7 +10,7 @@
  */
 import { describe, expect, it } from "vitest";
 
-import { getCurrentRole, hasCapability, hasModule, isAdminControlRole, isCustomerRole, isStaffRole } from "./mobile-role";
+import { getCurrentRole, hasCapability, hasModule, isAdminControlRole, isCustomerRole, isReceptionDeskRole, isStaffRole } from "./mobile-role";
 import type { MobileBootstrap } from "@gym-erp/contracts";
 
 // ─── Fixture helpers ───────────────────────────────────────────────────────
@@ -134,6 +134,13 @@ describe("role classification", () => {
     expect(isStaffRole("CASHIER")).toBe(true);
     expect(isStaffRole("CUSTOMER")).toBe(false);
     expect(isStaffRole(null)).toBe(false);
+  });
+
+  it("identifies reception desk roles", () => {
+    expect(isReceptionDeskRole("RECEPTION")).toBe(true);
+    expect(isReceptionDeskRole("FRONT_DESK")).toBe(true);
+    expect(isReceptionDeskRole("COACH")).toBe(false);
+    expect(isReceptionDeskRole(null)).toBe(false);
   });
 });
 

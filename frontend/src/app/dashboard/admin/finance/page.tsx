@@ -370,7 +370,7 @@ export default function FinancePage() {
         setLoading(false);
     }, [endDate, fetchDraftReminder, fetchPayrollSettings, fetchPayrolls, fetchSummary, fetchTransactions, showToast, startDate, t]);
 
-    useEffect(() => { setTimeout(() => fetchData(), 0); }, [fetchData]);
+    useEffect(() => { void fetchData(); }, [fetchData]);
 
     useEffect(() => {
         if (typeof window === 'undefined') return;
@@ -779,7 +779,7 @@ export default function FinancePage() {
                             </div>
                             <button className="btn-ghost" onClick={saveCutoffDay}><Settings2 size={14} /> {t('finance.saveCutoff')}</button>
                         </div>
-                        <div className="field-with-icon"><Search size={14} className="field-icon" /><input value={salarySearch} onChange={(e) => setSalarySearch(e.target.value)} placeholder={t('finance.searchEmployee')} className="input-dark input-with-icon" /></div>
+                        <div className="field-with-icon"><Search size={14} className="field-icon" /><input value={salarySearch} onChange={(e) => setSalarySearch(e.target.value)} placeholder={t('finance.searchEmployee')} aria-label={t('finance.searchEmployee')} className="input-dark input-with-icon" /></div>
                     </div>
 
                     <div className="chart-card overflow-hidden !p-0 border border-border">
@@ -837,7 +837,7 @@ export default function FinancePage() {
                             <div><label className="block text-xs font-medium text-muted-foreground mb-1.5">{t('finance.type')}</label><select className="input-dark" value={formData.type} onChange={e => setFormData({ ...formData, type: e.target.value })}><option value="INCOME">{t('finance.income')}</option><option value="EXPENSE">{t('finance.expense')}</option></select></div>
                             <div><label className="block text-xs font-medium text-muted-foreground mb-1.5">{t('finance.category')}</label><select className="input-dark" value={formData.category} onChange={e => setFormData({ ...formData, category: e.target.value })}><option value="OTHER_INCOME">{txt.categoryOtherIncome}</option><option value="SUBSCRIPTION">{txt.categorySubscription}</option><option value="POS_SALE">{txt.categoryPosSale}</option><option value="RENT">{txt.categoryRent}</option><option value="SALARY">{txt.categorySalary}</option><option value="UTILITIES">{txt.categoryUtilities}</option><option value="MAINTENANCE">{txt.categoryMaintenance}</option><option value="EQUIPMENT">{txt.categoryEquipment}</option><option value="OTHER_EXPENSE">{txt.categoryOtherExpense}</option></select></div>
                             <div><label className="block text-xs font-medium text-muted-foreground mb-1.5">{`${t('finance.amount')} (${jodCode})`}</label><input type="number" step="0.01" required className="input-dark" value={formData.amount} onChange={e => setFormData({ ...formData, amount: e.target.value })} /></div>
-                            <div><label className="block text-xs font-medium text-muted-foreground mb-1.5">{t('finance.description')}</label><input type="text" className="input-dark" value={formData.description} onChange={e => setFormData({ ...formData, description: e.target.value })} placeholder={descriptionPlaceholder} /></div>
+                            <div><label className="block text-xs font-medium text-muted-foreground mb-1.5">{t('finance.description')}</label><input type="text" className="input-dark" value={formData.description} onChange={e => setFormData({ ...formData, description: e.target.value })} placeholder={descriptionPlaceholder} aria-label={t('finance.description')} /></div>
                             <div><label className="block text-xs font-medium text-muted-foreground mb-1.5">{txt.paymentMethod}</label><select className="input-dark" value={formData.payment_method} onChange={e => setFormData({ ...formData, payment_method: e.target.value })}><option value="CASH">{txt.cash}</option><option value="CARD">{txt.card}</option><option value="TRANSFER">{txt.bankTransfer}</option></select></div>
                             <div className="flex justify-end gap-3 pt-4 border-t border-border"><button type="button" onClick={() => setShowModal(false)} className="btn-ghost">{t('finance.close')}</button><button type="submit" className="btn-primary">{t('finance.logTransaction')}</button></div>
                         </form>
@@ -945,15 +945,15 @@ export default function FinancePage() {
                                     <div className="space-y-3 rounded-lg p-3 bg-background border border-border">
                                         <p className="text-xs text-muted-foreground uppercase tracking-wide">{t('finance.recordPayment')}</p>
                                         <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
-                                            <input type="number" min={0.01} step="0.01" max={selectedPayroll.pending_amount} className="input-dark" placeholder={txt.amountPlaceholder} value={payAmount} onChange={(e) => setPayAmount(e.target.value)} />
-                                            <select className="input-dark" value={payMethod} onChange={(e) => setPayMethod(e.target.value as 'CASH' | 'CARD' | 'TRANSFER')}>
+                                            <input type="number" min={0.01} step="0.01" max={selectedPayroll.pending_amount} className="input-dark" placeholder={txt.amountPlaceholder} aria-label={txt.amountPlaceholder} value={payAmount} onChange={(e) => setPayAmount(e.target.value)} />
+                                            <select className="input-dark" aria-label={txt.paymentMethod} value={payMethod} onChange={(e) => setPayMethod(e.target.value as 'CASH' | 'CARD' | 'TRANSFER')}>
                                                 <option value="CASH">{txt.cash}</option>
                                                 <option value="CARD">{txt.card}</option>
                                                 <option value="TRANSFER">{txt.transfer}</option>
                                             </select>
                                             <button className="btn-primary" onClick={submitPayrollPayment} disabled={payingPayrollId === selectedPayroll.id}>{t('finance.recordPayment')}</button>
                                         </div>
-                                        <input type="text" className="input-dark" placeholder={txt.notePlaceholder} value={payNote} onChange={(e) => setPayNote(e.target.value)} />
+                                        <input type="text" className="input-dark" placeholder={txt.notePlaceholder} aria-label={txt.notePlaceholder} value={payNote} onChange={(e) => setPayNote(e.target.value)} />
                                     </div>
                                 )}
                                 <div className="rounded-lg p-3 bg-background border border-border space-y-2">

@@ -7,6 +7,7 @@ import { useAuth } from '@/context/AuthContext';
 import { useLocale } from '@/context/LocaleContext';
 import { useFeedback } from '@/components/FeedbackProvider';
 import MemberSearchSelect from '@/components/MemberSearchSelect';
+import { canManagePackagesRole, canUseCoachPackagesRole } from '@/lib/roles';
 
 interface MemberOption {
     id: string;
@@ -71,8 +72,8 @@ export default function PackagesPage() {
     const { user } = useAuth();
     const { locale, formatDate } = useLocale();
     const { showToast } = useFeedback();
-    const canManage = ['ADMIN', 'MANAGER'].includes(user?.role || '');
-    const canCoachUse = ['ADMIN', 'MANAGER', 'COACH', 'CUSTOMER'].includes(user?.role || '');
+    const canManage = canManagePackagesRole(user?.role);
+    const canCoachUse = canUseCoachPackagesRole(user?.role);
     const [members, setMembers] = useState<MemberOption[]>([]);
     const [coaches, setCoaches] = useState<MemberOption[]>([]);
     const [selectedMemberId, setSelectedMemberId] = useState('');

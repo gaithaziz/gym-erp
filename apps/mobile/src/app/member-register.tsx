@@ -37,6 +37,8 @@ export default function MemberRegisterScreen() {
       ).data,
     onSuccess: async (payload) => {
       await queryClient.invalidateQueries({ queryKey: ["mobile-staff-members"] });
+      await queryClient.invalidateQueries({ queryKey: ["mobile-home"] });
+      await queryClient.invalidateQueries({ queryKey: ["mobile-admin-people-summary"] });
       router.replace({ pathname: "/(tabs)/members", params: { memberId: payload.member.id } });
     },
     onError: (error) => {
@@ -48,10 +50,10 @@ export default function MemberRegisterScreen() {
     <Screen title={copy.membersScreen.quickRegister} subtitle={copy.membersScreen.quickRegisterSubtitle}>
       <Card>
         <SectionTitle>{copy.membersScreen.newMember}</SectionTitle>
-        <Input value={fullName} onChangeText={setFullName} placeholder={copy.membersScreen.fullName} />
-        <Input value={email} onChangeText={setEmail} placeholder={copy.membersScreen.email} autoCapitalize="none" />
-        <Input value={phoneNumber} onChangeText={setPhoneNumber} placeholder={copy.membersScreen.phoneNumber} />
-        <Input value={password} onChangeText={setPassword} placeholder={copy.membersScreen.temporaryPassword} secureTextEntry />
+        <Input value={fullName} onChangeText={setFullName} placeholder={copy.membersScreen.fullName} accessibilityLabel={copy.membersScreen.fullName} />
+        <Input value={email} onChangeText={setEmail} placeholder={copy.membersScreen.email} accessibilityLabel={copy.membersScreen.email} autoCapitalize="none" />
+        <Input value={phoneNumber} onChangeText={setPhoneNumber} placeholder={copy.membersScreen.phoneNumber} accessibilityLabel={copy.membersScreen.phoneNumber} />
+        <Input value={password} onChangeText={setPassword} placeholder={copy.membersScreen.temporaryPassword} accessibilityLabel={copy.membersScreen.temporaryPassword} secureTextEntry />
         {notice ? <InlineNotice notice={notice} /> : null}
         <PrimaryButton onPress={() => registerMutation.mutate()} disabled={registerMutation.isPending || !fullName.trim() || !email.trim() || password.length < 6}>
           {registerMutation.isPending ? copy.common.loading : copy.membersScreen.createMember}

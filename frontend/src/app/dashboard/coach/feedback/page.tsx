@@ -8,6 +8,7 @@ import { useAuth } from '@/context/AuthContext';
 import { useLocale } from '@/context/LocaleContext';
 import { BranchSelector } from '@/components/BranchSelector';
 import { useBranch } from '@/context/BranchContext';
+import { canReviewCoachSessionsRole } from '@/lib/roles';
 import { getBranchParams } from '@/lib/branch';
 
 interface Plan {
@@ -108,8 +109,8 @@ export default function FeedbackPage() {
     const [tab, setTab] = useState<'FLAGGED' | 'WORKOUT' | 'DIET' | 'GYM'>('FLAGGED');
     const [minRating, setMinRating] = useState(1);
     const [loading, setLoading] = useState(true);
-    const canReviewSessions = ['ADMIN', 'MANAGER', 'COACH'].includes(user?.role || '');
-    const canAdjustPlans = ['ADMIN', 'MANAGER', 'COACH'].includes(user?.role || '');
+    const canReviewSessions = canReviewCoachSessionsRole(user?.role);
+    const canAdjustPlans = canReviewCoachSessionsRole(user?.role);
     const branchParams = useMemo(() => getBranchParams(selectedBranchId), [selectedBranchId]);
 
     useEffect(() => {
@@ -157,12 +158,9 @@ export default function FeedbackPage() {
     };
 
     useEffect(() => {
-        const timeoutId = window.setTimeout(() => {
-            setSelectedPlan('');
-            setLogs([]);
-            setExpandedSessionId(null);
-        }, 0);
-        return () => window.clearTimeout(timeoutId);
+        setSelectedPlan('');
+        setLogs([]);
+        setExpandedSessionId(null);
     }, [branchParams, setSelectedPlan]);
 
     const markSessionReviewed = async (sessionId: string) => {
@@ -253,7 +251,7 @@ export default function FeedbackPage() {
                 <div>
                     <h1 className="text-2xl font-bold text-white">{locale === 'ar' ? 'ملاحظات المتدربين' : 'Trainee Feedback'}</h1>
                     <p className="text-sm text-[#6B6B6B] mt-1">{locale === 'ar' ? 'نظرة عامة على ملاحظات التدريب والتغذية وتجربة النادي' : 'Workout, diet, and full gym feedback overview'}</p>
-                    {user?.role === 'MANAGER' ? (
+                    {canReviewSessions ? (
                         <p className="mt-2 text-xs font-mono uppercase text-muted-foreground">{locale === 'ar' ? 'عرض فرع المدير' : 'Branch manager overview'}</p>
                     ) : null}
                 </div>

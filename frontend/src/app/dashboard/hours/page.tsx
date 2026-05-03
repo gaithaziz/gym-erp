@@ -217,6 +217,7 @@ export default function HoursPage() {
                                                         type="checkbox"
                                                         checked={day.is_closed}
                                                         onChange={(event) => updateDay(day.weekday, { is_closed: event.target.checked })}
+                                                        aria-label={locale === 'ar' ? 'مغلق' : 'Closed'}
                                                     />
                                                     {locale === 'ar' ? 'مغلق' : 'Closed'}
                                                 </label>
@@ -230,6 +231,7 @@ export default function HoursPage() {
                                                         value={day.open_time || ''}
                                                         disabled={day.is_closed}
                                                         onChange={(event) => updateDay(day.weekday, { open_time: event.target.value })}
+                                                        aria-label={locale === 'ar' ? 'من' : 'Open'}
                                                     />
                                                 </label>
                                                 <label className="space-y-1">
@@ -240,6 +242,7 @@ export default function HoursPage() {
                                                         value={day.close_time || ''}
                                                         disabled={day.is_closed}
                                                         onChange={(event) => updateDay(day.weekday, { close_time: event.target.value })}
+                                                        aria-label={locale === 'ar' ? 'إلى' : 'Close'}
                                                     />
                                                 </label>
                                             </div>
@@ -250,6 +253,7 @@ export default function HoursPage() {
                                                     className="input-dark"
                                                     value={day.note || ''}
                                                     onChange={(event) => updateDay(day.weekday, { note: event.target.value })}
+                                                    aria-label={locale === 'ar' ? 'ملاحظة' : 'Note'}
                                                 />
                                             </label>
                                         </div>

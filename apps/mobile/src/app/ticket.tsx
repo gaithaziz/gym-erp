@@ -6,7 +6,7 @@ import { Pressable, StyleSheet, Text, View } from "react-native";
 import { Card, Input, MediaPreview, MutedText, PrimaryButton, QueryState, Screen, SectionTitle, SecondaryButton, TextArea } from "@/components/ui";
 import { pickImagesFromLibrary } from "@/lib/media-picker";
 import { localizeTicketCategory, localizeTicketStatus, localeTag } from "@/lib/mobile-format";
-import { getCurrentRole, isCustomerRole } from "@/lib/mobile-role";
+import { getCurrentRole, isCustomerRole, isSupportStaffRole } from "@/lib/mobile-role";
 import { usePreferences } from "@/lib/preferences";
 import { useSession } from "@/lib/session";
 
@@ -62,7 +62,7 @@ export default function SupportScreen() {
   const { copy, direction, fontSet, isRTL, theme } = usePreferences();
   const role = getCurrentRole(bootstrap);
   const customer = isCustomerRole(role);
-  const canHandleSupport = role === "ADMIN" || role === "MANAGER" || role === "RECEPTION" || role === "FRONT_DESK";
+  const canHandleSupport = isSupportStaffRole(role);
   const queryClient = useQueryClient();
   const locale = localeTag(isRTL);
   const [subject, setSubject] = useState("");
@@ -112,6 +112,12 @@ export default function SupportScreen() {
   const selectedTicket = useMemo(() => tickets.find((ticket) => ticket.id === selectedTicketId) ?? tickets[0] ?? null, [selectedTicketId, tickets]);
 
   useEffect(() => {
+    setSelectedTicketId(null);
+    setReplyMessage("");
+    setFeedback(null);
+  }, [selectedBranchId]);
+
+  useEffect(() => {
     if (params.ticketId && typeof params.ticketId === "string") {
       setSelectedTicketId(params.ticketId);
     }
@@ -136,6 +142,7 @@ export default function SupportScreen() {
         setSelectedTicketId(data.id);
       }
       await queryClient.invalidateQueries({ queryKey: ["mobile-support"] });
+      await queryClient.invalidateQueries({ queryKey: ["mobile-support-tab"] });
     },
     onError: (error) => setFeedback(error instanceof Error ? error.message : copy.common.errorTryAgain),
   });
@@ -170,6 +177,7 @@ export default function SupportScreen() {
       setReplyMessage("");
       setFeedback(copy.common.successUpdated);
       await queryClient.invalidateQueries({ queryKey: ["mobile-support"] });
+      await queryClient.invalidateQueries({ queryKey: ["mobile-support-tab"] });
     },
     onError: (error) => setFeedback(error instanceof Error ? error.message : copy.common.errorTryAgain),
   });
@@ -204,6 +212,7 @@ export default function SupportScreen() {
       setReplyMessage("");
       setFeedback(copy.common.successUpdated);
       await queryClient.invalidateQueries({ queryKey: ["mobile-support"] });
+      await queryClient.invalidateQueries({ queryKey: ["mobile-support-tab"] });
     },
     onError: (error) => setFeedback(error instanceof Error ? error.message : copy.common.errorTryAgain),
   });
@@ -213,7 +222,7 @@ export default function SupportScreen() {
       {customer ? (
         <Card>
           <SectionTitle>{copy.supportScreen.newTicket}</SectionTitle>
-          <Input value={subject} onChangeText={setSubject} placeholder={copy.supportScreen.subjectPlaceholder} />
+          <Input value={subject} onChangeText={setSubject} placeholder={copy.supportScreen.subjectPlaceholder} accessibilityLabel={copy.supportScreen.subjectPlaceholder} />
           <View style={[styles.categoryList, { flexDirection: isRTL ? "row-reverse" : "row" }]}>
             {CATEGORIES.map((item) => {
               const active = item === category;
@@ -230,7 +239,7 @@ export default function SupportScreen() {
               );
             })}
           </View>
-          <TextArea value={message} onChangeText={setMessage} placeholder={copy.supportScreen.messagePlaceholder} />
+          <TextArea value={message} onChangeText={setMessage} placeholder={copy.supportScreen.messagePlaceholder} accessibilityLabel={copy.supportScreen.messagePlaceholder} />
           <PrimaryButton onPress={() => createTicketMutation.mutate()} disabled={createTicketMutation.isPending || !subject.trim() || !message.trim()}>
             {createTicketMutation.isPending ? copy.supportScreen.creatingTicket : copy.supportScreen.newTicket}
           </PrimaryButton>
@@ -314,7 +323,7 @@ export default function SupportScreen() {
                   </View>
                 ))
               )}
-              <TextArea value={replyMessage} onChangeText={setReplyMessage} placeholder={copy.supportScreen.messagePlaceholder} />
+              <TextArea value={replyMessage} onChangeText={setReplyMessage} placeholder={copy.supportScreen.messagePlaceholder} accessibilityLabel={copy.supportScreen.messagePlaceholder} />
               <View style={styles.actionRow}>
                 <PrimaryButton onPress={() => replyMutation.mutate()} disabled={replyMutation.isPending || !replyMessage.trim()}>
                   {replyMutation.isPending ? copy.supportScreen.sendingReply : copy.supportScreen.sendReply}

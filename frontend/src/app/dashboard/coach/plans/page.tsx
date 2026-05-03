@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { api } from '@/lib/api';
 import Link from 'next/link';
 import { Plus, Dumbbell, Trash2, Archive, UserPlus, Pencil, Save, X, Video, PlayCircle, RefreshCw, Send } from 'lucide-react';
@@ -15,6 +15,7 @@ import { BranchSelector } from '@/components/BranchSelector';
 import { useBranch } from '@/context/BranchContext';
 import { useLocale } from '@/context/LocaleContext';
 import { getBranchParams } from '@/lib/branch';
+import { matchesSearchQuery } from '@/lib/search';
 
 interface Member {
     id: string;
@@ -93,6 +94,8 @@ async function loadWorkoutPlansData({
     showToast,
     loadingErrorText,
     setLoading,
+    setLoadError,
+    isCurrentRequest,
 }: {
     setRefreshing: (value: boolean) => void;
     setPlans: (value: Plan[]) => void;
@@ -102,24 +105,33 @@ async function loadWorkoutPlansData({
     showToast: (message: string, type: 'success' | 'error' | 'info') => void;
     loadingErrorText: string;
     setLoading: (value: boolean) => void;
+    setLoadError: (value: string | null) => void;
+    isCurrentRequest: () => boolean;
 }) {
     setRefreshing(true);
+    setLoadError(null);
     try {
         const [plansRes, summariesRes] = await Promise.all([
             api.get('/fitness/plans', { params: { include_all_creators: true, ...branchParams } }),
             api.get('/fitness/plan-summaries', { params: branchParams }).catch(() => ({ data: { data: [] } })),
         ]);
+        if (!isCurrentRequest()) return;
         setPlans(plansRes.data.data);
         setPlanSummaries(summariesRes.data.data || []);
         try {
             const membersRes = await api.get('/hr/members', { params: branchParams });
+            if (!isCurrentRequest()) return;
             setMembers(membersRes.data.data || []);
         } catch {
+            if (!isCurrentRequest()) return;
             setMembers([]);
         }
     } catch {
+        if (!isCurrentRequest()) return;
+        setLoadError(loadingErrorText);
         showToast(loadingErrorText, 'error');
     }
+    if (!isCurrentRequest()) return;
     setLoading(false);
     setRefreshing(false);
 }
@@ -129,6 +141,7 @@ export default function WorkoutPlansPage() {
     const { branches, selectedBranchId, setSelectedBranchId } = useBranch();
     const { showToast, confirm: confirmAction } = useFeedback();
     const branchParams = useMemo(() => getBranchParams(selectedBranchId), [selectedBranchId]);
+    const loadSeqRef = useRef(0);
     const txt: Record<string, string> = locale === 'ar'
         ? {
             pageTitle: 'خطط التمرين',
@@ -300,6 +313,7 @@ export default function WorkoutPlansPage() {
     const [members, setMembers] = useState<Member[]>([]);
     const [loading, setLoading] = useState(true);
     const [refreshing, setRefreshing] = useState(false);
+    const [loadError, setLoadError] = useState<string | null>(null);
 
     const [showModal, setShowModal] = useState(false);
     const [editingPlan, setEditingPlan] = useState<Plan | null>(null);
@@ -407,7 +421,8 @@ export default function WorkoutPlansPage() {
 
     const loadingErrorText = txt.loadingError;
 
-    const fetchData = async () => {
+    const fetchData = useCallback(async () => {
+        const requestId = ++loadSeqRef.current;
         await loadWorkoutPlansData({
             setRefreshing,
             setPlans,
@@ -417,8 +432,10 @@ export default function WorkoutPlansPage() {
             showToast,
             loadingErrorText,
             setLoading,
+            setLoadError,
+            isCurrentRequest: () => loadSeqRef.current === requestId,
         });
-    };
+    }, [branchParams, loadingErrorText, showToast]);
 
     const fetchExerciseLibrary = useCallback(async (query?: string) => {
         try {
@@ -448,20 +465,8 @@ export default function WorkoutPlansPage() {
     };
 
     useEffect(() => {
-        const timer = setTimeout(() => {
-            void loadWorkoutPlansData({
-                setRefreshing,
-                setPlans,
-                setPlanSummaries,
-                setMembers,
-                branchParams,
-                showToast,
-                loadingErrorText,
-                setLoading,
-            });
-        }, 0);
-        return () => clearTimeout(timer);
-    }, [branchParams, loadingErrorText, showToast]);
+        void fetchData();
+    }, [fetchData]);
 
     const resetForm = () => {
         const defaultSection = { id: makeId(), name: txt.general, exercises: [] };
@@ -490,15 +495,16 @@ export default function WorkoutPlansPage() {
     };
 
     useEffect(() => {
-        const timeoutId = window.setTimeout(() => {
-            setExpandedTemplatePlanId(null);
-            setExpandedAssignedPlanId(null);
-            setAssignModalOpen(false);
-            setAssigningPlan(null);
-            setBulkAssignMemberIds([]);
-            setMemberSearch('');
-        }, 0);
-        return () => window.clearTimeout(timeoutId);
+        setLoadError(null);
+        setShowModal(false);
+        setEditingPlan(null);
+        setModalStep(1);
+        setAssignModalOpen(false);
+        setAssigningPlan(null);
+        setExpandedTemplatePlanId(null);
+        setExpandedAssignedPlanId(null);
+        setBulkAssignMemberIds([]);
+        setMemberSearch('');
     }, [selectedBranchId]);
 
     const addSection = () => {
@@ -885,9 +891,7 @@ export default function WorkoutPlansPage() {
             .sort((a, b) => b.members.length - a.members.length || a.rootPlanName.localeCompare(b.rootPlanName));
     }, [assignedPlans, members, plans]);
     const filteredMembers = useMemo(() => {
-        const q = memberSearch.trim().toLowerCase();
-        if (!q) return members;
-        return members.filter(m => m.full_name.toLowerCase().includes(q) || m.email.toLowerCase().includes(q));
+        return members.filter((member) => matchesSearchQuery(memberSearch, [member.full_name, member.email]));
     }, [members, memberSearch]);
     const getPlanSummary = (planId: string) => planSummaries.find(s => s.id === planId);
     const statusBadgeClass = (status: Plan['status']) => {
@@ -900,6 +904,16 @@ export default function WorkoutPlansPage() {
 
     return (
         <div className="space-y-8">
+            {loadError ? (
+                <div className="rounded-2xl border border-red-200 bg-red-50 p-4 text-red-700 shadow-sm dark:border-red-400/30 dark:bg-red-500/10 dark:text-red-200">
+                    <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                        <p className="text-sm font-semibold">{loadError}</p>
+                        <button onClick={() => void fetchData()} className="btn-ghost min-h-11 sm:shrink-0" type="button">
+                            {txt.refresh}
+                        </button>
+                    </div>
+                </div>
+            ) : null}
             <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
                 <div>
                     <h1 className="text-2xl font-bold text-foreground">{txt.pageTitle}</h1>
@@ -1060,14 +1074,14 @@ export default function WorkoutPlansPage() {
                     {modalStep === 1 && (
                         <div className="space-y-4">
                             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                                <input type="text" required className="input-dark" value={planName} onChange={e => setPlanName(e.target.value)} placeholder={txt.planName} />
-                                <input type="text" className="input-dark" value={planDesc} onChange={e => setPlanDesc(e.target.value)} placeholder={txt.description} />
-                                <select className="input-dark" value={planStatus} onChange={e => setPlanStatus(e.target.value as Plan['status'])}>
+                                <input type="text" required className="input-dark" value={planName} onChange={e => setPlanName(e.target.value)} placeholder={txt.planName} aria-label={txt.planName} />
+                                <input type="text" className="input-dark" value={planDesc} onChange={e => setPlanDesc(e.target.value)} placeholder={txt.description} aria-label={txt.description} />
+                                <select className="input-dark" value={planStatus} onChange={e => setPlanStatus(e.target.value as Plan['status'])} aria-label={txt.status}>
                                     <option value="DRAFT">{txt.draft}</option>
                                     <option value="PUBLISHED">{txt.published}</option>
                                     <option value="ARCHIVED">{txt.archived}</option>
                                 </select>
-                                <input type="number" min={1} max={60} className="input-dark" value={expectedSessions30d} onChange={e => setExpectedSessions30d(parseInt(e.target.value) || 12)} placeholder={txt.expectedSessions} />
+                                <input type="number" min={1} max={60} className="input-dark" value={expectedSessions30d} onChange={e => setExpectedSessions30d(parseInt(e.target.value) || 12)} placeholder={txt.expectedSessions} aria-label={txt.expectedSessions} />
                             </div>
                             {!editingPlan && members.length > 0 && (
                                 <MemberSearchSelect
@@ -1077,6 +1091,7 @@ export default function WorkoutPlansPage() {
                                     allowClear={true}
                                     clearLabel={txt.unassignedTemplate}
                                     placeholder={txt.searchMemberLong}
+                                    ariaLabel={txt.searchMemberLong}
                                 />
                             )}
                         </div>
@@ -1086,7 +1101,7 @@ export default function WorkoutPlansPage() {
                         <div className="space-y-4">
                             <div className="p-4 rounded-sm border border-border bg-muted/20 space-y-3">
                                 <div className="flex gap-2">
-                                    <input type="text" className="input-dark" value={sectionNameInput} onChange={e => setSectionNameInput(e.target.value)} placeholder={txt.sectionName} />
+                                    <input type="text" className="input-dark" value={sectionNameInput} onChange={e => setSectionNameInput(e.target.value)} placeholder={txt.sectionName} aria-label={txt.sectionName} />
                                     <button type="button" className="btn-primary min-h-11" onClick={addSection}><Plus size={16} /> {txt.addSection}</button>
                                 </div>
                                 <div className="flex flex-wrap gap-2">
@@ -1116,6 +1131,7 @@ export default function WorkoutPlansPage() {
                                                 type="text"
                                                 className="input-dark"
                                                 placeholder={txt.searchLibrary}
+                                                aria-label={txt.searchLibrary}
                                                 value={libraryQuery}
                                                 onChange={e => setLibraryQuery(e.target.value)}
                                             />
@@ -1143,18 +1159,18 @@ export default function WorkoutPlansPage() {
                                     </div>
                                 )}
                                 <div className="grid grid-cols-1 md:grid-cols-4 gap-3">
-                                    <input type="text" className="input-dark md:col-span-2" value={currentExerciseName} onChange={e => setCurrentExerciseName(e.target.value)} placeholder={txt.exerciseName} />
-                                    <input type="number" className="input-dark text-center" value={currentSets} min={1} onChange={e => setCurrentSets(parseInt(e.target.value) || 1)} />
-                                    <input type="number" className="input-dark text-center" value={currentReps} min={1} onChange={e => setCurrentReps(parseInt(e.target.value) || 1)} />
+                                    <input type="text" className="input-dark md:col-span-2" value={currentExerciseName} onChange={e => setCurrentExerciseName(e.target.value)} placeholder={txt.exerciseName} aria-label={txt.exerciseName} />
+                                    <input type="number" className="input-dark text-center" value={currentSets} min={1} onChange={e => setCurrentSets(parseInt(e.target.value) || 1)} aria-label={txt.sets} />
+                                    <input type="number" className="input-dark text-center" value={currentReps} min={1} onChange={e => setCurrentReps(parseInt(e.target.value) || 1)} aria-label={txt.reps} />
                                 </div>
                                 <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-                                    <select className="input-dark" value={currentVideoType} onChange={e => setCurrentVideoType(e.target.value as VideoType)}>
+                                    <select className="input-dark" value={currentVideoType} onChange={e => setCurrentVideoType(e.target.value as VideoType)} aria-label={txt.videoType}>
                                         <option value="">{txt.noVideo}</option>
                                         <option value="EMBED">{txt.embedUrl}</option>
                                         <option value="UPLOAD">{txt.uploadVideo}</option>
                                     </select>
-                                    {currentVideoType === 'EMBED' && <input type="url" className="input-dark md:col-span-2" value={currentVideoUrl} onChange={e => setCurrentVideoUrl(e.target.value)} placeholder={locale === 'ar' ? 'https://youtube.com/...' : 'https://youtube.com/...'} />}
-                                    {currentVideoType === 'UPLOAD' && <input type="file" accept="video/*" className="input-dark md:col-span-2" onChange={e => setCurrentVideoFile(e.target.files?.[0] || null)} />}
+                                    {currentVideoType === 'EMBED' && <input type="url" className="input-dark md:col-span-2" value={currentVideoUrl} onChange={e => setCurrentVideoUrl(e.target.value)} placeholder={locale === 'ar' ? 'https://youtube.com/...' : 'https://youtube.com/...'} aria-label={locale === 'ar' ? 'https://youtube.com/...' : 'https://youtube.com/...'} />}
+                                    {currentVideoType === 'UPLOAD' && <input type="file" accept="video/*" className="input-dark md:col-span-2" aria-label={txt.uploadVideo} onChange={e => setCurrentVideoFile(e.target.files?.[0] || null)} />}
                                 </div>
                                 <button type="button" onClick={addExerciseToSection} className="btn-primary min-h-11"><Plus size={16} /> {txt.addExercise}</button>
                             </div>
@@ -1297,6 +1313,7 @@ export default function WorkoutPlansPage() {
                             type="text"
                             className="input-dark"
                             placeholder={txt.searchMember}
+                            aria-label={txt.searchMember}
                             value={memberSearch}
                             onChange={e => setMemberSearch(e.target.value)}
                         />

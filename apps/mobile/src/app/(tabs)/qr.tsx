@@ -7,10 +7,11 @@ import { Modal, Pressable, StyleSheet, Text, View } from "react-native";
 import { Card, Input, MutedText, PrimaryButton, QueryState, Screen, SectionTitle, SkeletonBlock, ValueText } from "@/components/ui";
 import { parseCheckInLookupEnvelope, parseCheckInResultEnvelope, parseStaffMemberDetailEnvelope, type AccessScanResult } from "@/lib/api";
 import { localizeAccessReason, localizeAccessStatus, localizeSubscriptionStatus, localeTag } from "@/lib/mobile-format";
-import { getCurrentRole, hasCapability, isCustomerRole } from "@/lib/mobile-role";
+import { getCurrentRole, hasCapability, isCoachRole, isCustomerRole } from "@/lib/mobile-role";
 import { parseScannedKioskPayload, type ScannedKioskPayload } from "@/lib/mobile-scan";
 import { usePreferences } from "@/lib/preferences";
 import { useSession } from "@/lib/session";
+import { useDebouncedValue } from "@/lib/useDebouncedValue";
 
 export default function QrTab() {
   const { bootstrap } = useSession();
@@ -245,15 +246,16 @@ function StaffQrTab() {
   const [permission, requestPermission] = useCameraPermissions();
   const [kioskId, setKioskId] = useState("");
   const [search, setSearch] = useState("");
+  const debouncedSearch = useDebouncedValue(search, 300);
   const [shiftScan, setShiftScan] = useState<ScannedKioskPayload | null>(null);
   const [shiftError, setShiftError] = useState<string | null>(null);
 
   const lookupQuery = useQuery({
-    queryKey: ["mobile-staff-checkin-lookup", search.trim(), selectedBranchId ?? "all"],
-    enabled: search.trim().length >= 2,
+    queryKey: ["mobile-staff-checkin-lookup", debouncedSearch.trim(), selectedBranchId ?? "all"],
+    enabled: debouncedSearch.trim().length >= 2,
     queryFn: async () => {
       const suffix = selectedBranchId ? `&branch_id=${encodeURIComponent(selectedBranchId)}` : "";
-      return parseCheckInLookupEnvelope(await authorizedRequest(`/mobile/staff/check-in/lookup?q=${encodeURIComponent(search.trim())}${suffix}`)).data;
+      return parseCheckInLookupEnvelope(await authorizedRequest(`/mobile/staff/check-in/lookup?q=${encodeURIComponent(debouncedSearch.trim())}${suffix}`)).data;
     },
   });
 
@@ -347,7 +349,7 @@ function StaffQrTab() {
   }
 
   return (
-    <Screen title={role === "COACH" ? copy.qr.staffShiftTitle : copy.staffTabs.checkIn} subtitle={copy.qr.staffScreenSubtitle} showSubtitle>
+    <Screen title={isCoachRole(role) ? copy.qr.staffShiftTitle : copy.staffTabs.checkIn} subtitle={copy.qr.staffScreenSubtitle} showSubtitle>
       <QueryState loading={selectedMemberQuery.isLoading} loadingVariant="detail" error={selectedMemberQuery.error instanceof Error ? selectedMemberQuery.error.message : null} />
       <Card style={[styles.cameraShell, { backgroundColor: theme.cardAlt, borderColor: theme.border }]}>
         <SectionTitle>{copy.qr.staffShiftTitle}</SectionTitle>
@@ -465,7 +467,7 @@ function StaffQrTab() {
             )}
             <Input value={kioskId} onChangeText={setKioskId} placeholder={copy.qr.manualKiosk} />
             <MutedText>{copy.qr.staffMemberCheckInHint}</MutedText>
-            <Input value={search} onChangeText={setSearch} placeholder={copy.membersScreen.search} />
+            <Input value={search} onChangeText={setSearch} placeholder={copy.membersScreen.search} accessibilityLabel={copy.membersScreen.search} />
             <MutedText>{copy.qr.staffMemberSearchHint}</MutedText>
           </Card>
 

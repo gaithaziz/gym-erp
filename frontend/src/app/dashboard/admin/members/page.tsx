@@ -12,6 +12,7 @@ import { BranchSelector } from '@/components/BranchSelector';
 import { useAuth } from '@/context/AuthContext';
 import { useBranch } from '@/context/BranchContext';
 import { resolveProfileImageUrl } from '@/lib/profileImage';
+import { canAssignCoachPlansRole, canManageMembersRole, canMessageCoachClientsRole } from '@/lib/roles';
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip } from 'recharts';
 import { useLocale } from '@/context/LocaleContext';
 import SafeResponsiveChart from '@/components/SafeResponsiveChart';
@@ -236,14 +237,15 @@ export default function MembersPage() {
     const { user } = useAuth();
     const { branches, selectedBranchId, setSelectedBranchId } = useBranch();
     const initialBranchId = selectedBranchId !== 'all' ? selectedBranchId : branches[0]?.id || '';
-    const canManageMembers = ['ADMIN', 'MANAGER', 'RECEPTION', 'FRONT_DESK'].includes(user?.role || '');
-    const canAssignPlans = ['ADMIN', 'MANAGER', 'COACH'].includes(user?.role || '');
-    const canMessageClient = ['ADMIN', 'COACH'].includes(user?.role || '');
+    const canManageMembers = canManageMembersRole(user?.role);
+    const canAssignPlans = canAssignCoachPlansRole(user?.role);
+    const canMessageClient = canMessageCoachClientsRole(user?.role);
     const { showToast, confirm: confirmAction } = useFeedback();
     const [members, setMembers] = useState<Member[]>([]);
     const [plans, setPlans] = useState<WorkoutPlan[]>([]);
     const [dietPlans, setDietPlans] = useState<DietPlan[]>([]);
     const [loading, setLoading] = useState(true);
+    const [loadError, setLoadError] = useState<string | null>(null);
     const [search, setSearch] = useState('');
     const [debouncedSearch, setDebouncedSearch] = useState('');
     const [statusFilter, setStatusFilter] = useState<MemberStatusFilter>('ALL');
@@ -906,12 +908,17 @@ export default function MembersPage() {
 
     const fetchMembers = useCallback(async () => {
         setLoading(true);
+        setLoadError(null);
         try {
             const res = await api.get('/hr/members', { params: getBranchParams(selectedBranchId) });
             setMembers(res.data.data);
-        } catch (err) { console.error(err); }
-        setLoading(false);
-    }, [selectedBranchId]);
+        } catch (err) {
+            console.error(err);
+            setLoadError(locale === 'ar' ? 'فشل تحميل الأعضاء.' : 'Failed to load members.');
+        } finally {
+            setLoading(false);
+        }
+    }, [locale, selectedBranchId]);
 
     const fetchPlans = async () => {
         const branchParams = getBranchParams(selectedBranchId);
@@ -1008,7 +1015,7 @@ export default function MembersPage() {
     }, [fetchBundlePerks, locale, manageMember, showToast]);
 
     useEffect(() => {
-        setTimeout(() => fetchMembers(), 0);
+        void fetchMembers();
     }, [fetchMembers]);
 
     useEffect(() => {
@@ -1351,7 +1358,7 @@ export default function MembersPage() {
         return dietPlans.filter(plan => plan.status === assignDietStatusFilter);
     }, [dietPlans, assignDietStatusFilter]);
 
-    if (loading) return (
+    if (loading && !loadError) return (
         <div className="flex h-64 items-center justify-center">
             <div className="h-8 w-8 animate-spin rounded-full border-4 border-[#FF6B00] border-t-transparent" />
         </div>
@@ -1359,6 +1366,14 @@ export default function MembersPage() {
 
     return (
         <div className="space-y-8">
+            {loadError ? (
+                <div className="flex items-center justify-between gap-3 rounded-xl border border-destructive/30 bg-destructive/10 px-4 py-3 text-sm text-destructive">
+                    <span>{loadError}</span>
+                    <button type="button" className="btn-ghost !px-2 !py-1 text-xs" onClick={() => void fetchMembers()}>
+                        {locale === 'ar' ? 'إعادة المحاولة' : 'Retry'}
+                    </button>
+                </div>
+            ) : null}
             <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
                 <div>
                     <h1 className="text-2xl font-bold text-foreground">{canManageMembers ? t('members.titleMembers') : t('members.titleClients')}</h1>

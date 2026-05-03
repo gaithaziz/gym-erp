@@ -9,6 +9,7 @@ import { localizeContractType, localizeLeaveStatus, localizePayrollStatus, local
 import { getCurrentRole, isAdminControlRole } from "@/lib/mobile-role";
 import { usePreferences } from "@/lib/preferences";
 import { useSession } from "@/lib/session";
+import { useDebouncedValue } from "@/lib/useDebouncedValue";
 
 const ROLE_FILTERS = ["ALL", "MANAGER", "COACH", "EMPLOYEE", "CASHIER", "RECEPTION", "FRONT_DESK"] as const;
 const STATUS_FILTERS = ["all", "active", "inactive"] as const;
@@ -18,6 +19,7 @@ export default function StaffOperationsScreen() {
   const { copy, direction, fontSet, isRTL, theme } = usePreferences();
   const role = getCurrentRole(bootstrap);
   const [search, setSearch] = useState("");
+  const debouncedSearch = useDebouncedValue(search, 300);
   const [roleFilter, setRoleFilter] = useState<(typeof ROLE_FILTERS)[number]>("ALL");
   const [statusFilter, setStatusFilter] = useState<(typeof STATUS_FILTERS)[number]>("all");
   const [selectedId, setSelectedId] = useState<string | null>(null);
@@ -26,11 +28,11 @@ export default function StaffOperationsScreen() {
   const canUse = isAdminControlRole(role);
 
   const staffQuery = useQuery({
-    queryKey: ["mobile-admin-staff-operations", search.trim(), roleFilter, statusFilter, role, selectedBranchId ?? "all"],
+    queryKey: ["mobile-admin-staff-operations", debouncedSearch.trim(), roleFilter, statusFilter, role, selectedBranchId ?? "all"],
     enabled: canUse,
     queryFn: async () => {
       const params = new URLSearchParams();
-      if (search.trim()) params.set("q", search.trim());
+      if (debouncedSearch.trim()) params.set("q", debouncedSearch.trim());
       if (roleFilter !== "ALL") params.set("role", roleFilter);
       if (statusFilter !== "all") params.set("status", statusFilter);
       if (selectedBranchId) params.set("branch_id", selectedBranchId);
@@ -68,7 +70,7 @@ export default function StaffOperationsScreen() {
     <Screen title={copy.adminControl.employeeOperations} subtitle={copy.adminControl.subtitle} showSubtitle>
       <Card>
         <SectionTitle>{copy.adminControl.staffRoster}</SectionTitle>
-        <Input value={search} onChangeText={setSearch} placeholder={copy.adminControl.searchStaff} />
+        <Input value={search} onChangeText={setSearch} placeholder={copy.adminControl.searchStaff} accessibilityLabel={copy.adminControl.searchStaff} />
         <View style={[styles.chipRow, { flexDirection: isRTL ? "row-reverse" : "row" }]}>
           {ROLE_FILTERS.map((item) => (
             <Chip

@@ -58,6 +58,8 @@ export default function CustomerSupportPage() {
     const [isUploadingPhoto, setIsUploadingPhoto] = useState(false);
     const photoInputRef = useRef<HTMLInputElement>(null);
     const messageListRef = useRef<HTMLDivElement>(null);
+    const ticketDetailSeqRef = useRef(0);
+    const ticketDetailScrollTimerRef = useRef<number | null>(null);
 
     const refreshTickets = useCallback(
         () =>
@@ -85,18 +87,39 @@ export default function CustomerSupportPage() {
     }, [defaultType, isSubscriptionType, ticketsPage, refreshTickets]);
 
     const fetchTicketDetails = useCallback(async (id: string) => {
+        const requestSeq = ++ticketDetailSeqRef.current;
         try {
             const response = await api.get(`/support/tickets/${id}`);
+            if (requestSeq !== ticketDetailSeqRef.current) {
+                return;
+            }
             setTicketDetails(response.data?.data);
-            setTimeout(() => {
+            if (ticketDetailScrollTimerRef.current) {
+                window.clearTimeout(ticketDetailScrollTimerRef.current);
+            }
+            ticketDetailScrollTimerRef.current = window.setTimeout(() => {
+                if (requestSeq !== ticketDetailSeqRef.current) {
+                    return;
+                }
                 if (messageListRef.current) {
                     messageListRef.current.scrollTop = 0;
                 }
             }, 50);
         } catch {
+            if (requestSeq !== ticketDetailSeqRef.current) {
+                return;
+            }
             showToast(t('support.customer.failedFetchDetails'), 'error');
         }
     }, [showToast, t]);
+
+    useEffect(() => {
+        return () => {
+            if (ticketDetailScrollTimerRef.current) {
+                window.clearTimeout(ticketDetailScrollTimerRef.current);
+            }
+        };
+    }, []);
 
     useEffect(() => {
         if (selectedTicketId) {
@@ -493,4 +516,3 @@ export default function CustomerSupportPage() {
         </div>
     );
 }
-

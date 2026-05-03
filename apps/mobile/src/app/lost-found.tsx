@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Pressable, StyleSheet, Text, View } from "react-native";
 
 import { Card, Input, MediaPreview, MutedText, PrimaryButton, QueryState, Screen, SectionTitle, SecondaryButton, TextArea } from "@/components/ui";
@@ -64,6 +64,10 @@ export default function LostFoundScreen() {
   });
   const items = useMemo(() => itemsQuery.data ?? [], [itemsQuery.data]);
   const selectedItem = useMemo(() => items.find((item) => item.id === selectedItemId) ?? items[0] ?? null, [items, selectedItemId]);
+
+  useEffect(() => {
+    setSelectedItemId(null);
+  }, [selectedBranchId]);
 
   const itemDetailQuery = useQuery({
     queryKey: ["mobile-lost-found-detail", selectedItem?.id, selectedBranchId ?? "all"],

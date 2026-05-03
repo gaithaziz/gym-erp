@@ -70,6 +70,7 @@ export default function AuditLogsPage() {
     const { branches, selectedBranchId, setSelectedBranchId } = useBranch();
     const [logs, setLogs] = useState<AuditLog[]>([]);
     const [loading, setLoading] = useState(true);
+    const [loadError, setLoadError] = useState<string | null>(null);
     const [page, setPage] = useState(1);
     const auditText = locale === 'ar'
         ? {
@@ -115,6 +116,7 @@ export default function AuditLogsPage() {
 
     const fetchLogs = useCallback(async () => {
         setLoading(true);
+        setLoadError(null);
         try {
             const params: Record<string, string | number> = { limit: 100 };
             if (selectedBranchId && selectedBranchId !== 'all') params.branch_id = selectedBranchId;
@@ -123,10 +125,11 @@ export default function AuditLogsPage() {
             setLogs(logsRes.data.data || []);
         } catch (err) {
             console.error('Failed to fetch audit logs:', err);
+            setLoadError(locale === 'ar' ? 'فشل تحميل سجلات التدقيق.' : 'Failed to load audit logs.');
         } finally {
             setLoading(false);
         }
-    }, [selectedBranchId]);
+    }, [locale, selectedBranchId]);
 
     useEffect(() => {
         fetchLogs();
@@ -268,6 +271,14 @@ export default function AuditLogsPage() {
             </div>
 
             <div className="kpi-card p-0 overflow-hidden">
+                {loadError ? (
+                    <div className="flex items-center justify-between gap-3 border-b border-border bg-destructive/10 px-4 py-3 text-sm text-destructive">
+                        <span>{loadError}</span>
+                        <button type="button" className="btn-ghost !px-2 !py-1 text-xs" onClick={() => void fetchLogs()}>
+                            {auditText.refresh}
+                        </button>
+                    </div>
+                ) : null}
                 <div className="overflow-x-auto">
                     <table className="w-full text-start border-collapse table-dark">
                         <thead>

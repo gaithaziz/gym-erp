@@ -1,6 +1,6 @@
 'use client';
 
-import { ChangeEvent, FormEvent, useCallback, useEffect, useMemo, useState } from 'react';
+import { ChangeEvent, FormEvent, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import Image from 'next/image';
 import { ListFilter, Search, Upload } from 'lucide-react';
 
@@ -11,7 +11,8 @@ import { useLocale } from '@/context/LocaleContext';
 import { useBranch } from '@/context/BranchContext';
 import { BranchSelector } from '@/components/BranchSelector';
 import { api } from '@/lib/api';
-import { isBranchAdminRole } from '@/lib/roles';
+import { matchesSearchQuery } from '@/lib/search';
+import { canAccessLostFoundFeedRole, isBranchAdminRole } from '@/lib/roles';
 
 type LostFoundStatus = 'REPORTED' | 'UNDER_REVIEW' | 'READY_FOR_PICKUP' | 'CLOSED' | 'REJECTED' | 'DISPOSED';
 type LostFoundCategory = 'LOST' | 'FOUND';
@@ -78,8 +79,6 @@ interface LostFoundSummary {
     disposed: number;
     total_open: number;
 }
-
-const handlerRoles = ['ADMIN', 'MANAGER', 'RECEPTION', 'FRONT_DESK'];
 
 const statusOptions: Array<{ value: LostFoundStatus }> = [
     { value: 'REPORTED' },
@@ -301,7 +300,7 @@ export default function LostFoundPage() {
         if (category === 'FOUND') return txt.foundCategory;
         return category || txt.notAvailable;
     };
-    const isHandler = handlerRoles.includes(user?.role || '');
+    const isHandler = canAccessLostFoundFeedRole(user?.role);
     const isAdmin = isBranchAdminRole(user?.role);
     const [viewMode, setViewMode] = useState<'ACTIVE' | 'ARCHIVE'>('ACTIVE');
 
@@ -319,6 +318,9 @@ export default function LostFoundPage() {
     const [saving, setSaving] = useState(false);
     const [pendingFile, setPendingFile] = useState<File | null>(null);
     const [pendingPreview, setPendingPreview] = useState<string | null>(null);
+    const itemsFetchSeqRef = useRef(0);
+    const summaryFetchSeqRef = useRef(0);
+    const handlersFetchSeqRef = useRef(0);
     const [reportForm, setReportForm] = useState({
         title: '',
         description: '',
@@ -334,15 +336,9 @@ export default function LostFoundPage() {
     );
 
     const filteredItems = useMemo(() => {
-        const q = search.trim().toLowerCase();
         return items.filter((item) => {
             const statusOk = statusFilter === 'ALL' ? true : item.status === statusFilter;
-            const searchOk = q
-                ? [item.title, item.description, item.category, item.reporter.full_name || '', item.reporter.email]
-                    .join(' ')
-                    .toLowerCase()
-                    .includes(q)
-                : true;
+            const searchOk = matchesSearchQuery(search, [item.title, item.description, item.category, item.reporter.full_name, item.reporter.email]);
             return statusOk && searchOk;
         });
     }, [items, search, statusFilter]);
@@ -350,12 +346,14 @@ export default function LostFoundPage() {
     const visibleStatusOptions = viewMode === 'ARCHIVE' ? archiveStatusOptions : activeStatusOptions;
 
     const fetchItems = useCallback(async () => {
+        const requestSeq = ++itemsFetchSeqRef.current;
         try {
             const params: Record<string, string | boolean> = {};
             if (statusFilter !== 'ALL') params.status = statusFilter;
             params.archived_only = viewMode === 'ARCHIVE';
             if (selectedBranchId && selectedBranchId !== 'all') params.branch_id = selectedBranchId;
             const response = await api.get('/lost-found/items', { params });
+            if (requestSeq !== itemsFetchSeqRef.current) return;
             const rows = (response.data?.data || []) as LostFoundItem[];
             setItems(rows);
             setLoadError(null);
@@ -364,6 +362,7 @@ export default function LostFoundPage() {
                 setSelectedItemId(rows[0]?.id || null);
             }
         } catch {
+            if (requestSeq !== itemsFetchSeqRef.current) return;
             setItems([]);
             setLoadError(locale === 'ar' ? 'تعذر تحميل المفقودات والمعثورات.' : 'Failed to load Lost & Found reports.');
         }
@@ -371,24 +370,30 @@ export default function LostFoundPage() {
 
     const fetchSummary = useCallback(async () => {
         if (!isHandler) return;
+        const requestSeq = ++summaryFetchSeqRef.current;
         try {
             const params: Record<string, string> = {};
             if (selectedBranchId && selectedBranchId !== 'all') params.branch_id = selectedBranchId;
             const response = await api.get('/lost-found/summary', { params });
+            if (requestSeq !== summaryFetchSeqRef.current) return;
             setSummary(response.data?.data || null);
         } catch {
+            if (requestSeq !== summaryFetchSeqRef.current) return;
             setSummary(null);
         }
     }, [isHandler, selectedBranchId]);
 
     const fetchHandlers = useCallback(async () => {
         if (!isHandler) return;
+        const requestSeq = ++handlersFetchSeqRef.current;
         try {
             const params: Record<string, string> = {};
             if (selectedBranchId && selectedBranchId !== 'all') params.branch_id = selectedBranchId;
             const response = await api.get('/lost-found/handlers', { params });
+            if (requestSeq !== handlersFetchSeqRef.current) return;
             setHandlers(response.data?.data || []);
         } catch {
+            if (requestSeq !== handlersFetchSeqRef.current) return;
             setHandlers([]);
         }
     }, [isHandler, selectedBranchId]);

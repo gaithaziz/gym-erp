@@ -13,6 +13,7 @@ interface MemberSearchSelectProps {
     value: string;
     onChange: (memberId: string) => void;
     placeholder?: string;
+    ariaLabel?: string;
     allowClear?: boolean;
     clearLabel?: string;
     noClientsLabel?: string;
@@ -27,6 +28,7 @@ export default function MemberSearchSelect({
     value,
     onChange,
     placeholder = 'Search clients...',
+    ariaLabel,
     allowClear = false,
     clearLabel = 'Clear selection',
     noClientsLabel = 'No clients',
@@ -118,6 +120,7 @@ export default function MemberSearchSelect({
                 type="text"
                 className="input-dark w-full"
                 placeholder={placeholder}
+                aria-label={ariaLabel || placeholder}
                 value={inputValue}
                 disabled={disabled}
                 required={required}

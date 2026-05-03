@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState, useCallback } from 'react';
+import { useEffect, useRef, useState, useCallback } from 'react';
 import { api } from '@/lib/api';
 import { ShoppingCart, Plus, Minus, Trash2, CreditCard, Banknote, ArrowRightLeft, Check, Package } from 'lucide-react';
 import { useLocale } from '@/context/LocaleContext';
@@ -39,6 +39,7 @@ export default function POSPage() {
     const [paymentMethod, setPaymentMethod] = useState('CASH');
     const [categoryFilter, setCategoryFilter] = useState('');
     const [saleComplete, setSaleComplete] = useState<string | null>(null);
+    const saleCompleteTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
     const fetchProducts = useCallback(async () => {
         try {
@@ -60,6 +61,14 @@ export default function POSPage() {
         setCategoryFilter('');
         setCart([]);
     }, [selectedBranchId]);
+
+    useEffect(() => {
+        return () => {
+            if (saleCompleteTimerRef.current) {
+                clearTimeout(saleCompleteTimerRef.current);
+            }
+        };
+    }, []);
 
     const addToCart = (product: Product) => {
         setCart(prev => {
@@ -109,7 +118,10 @@ export default function POSPage() {
             setSaleComplete(`$${total.toFixed(2)}`);
             setCart([]);
             fetchProducts(); // Refresh stock
-            setTimeout(() => setSaleComplete(null), 3000);
+            if (saleCompleteTimerRef.current) {
+                clearTimeout(saleCompleteTimerRef.current);
+            }
+            saleCompleteTimerRef.current = setTimeout(() => setSaleComplete(null), 3000);
         } catch {
             console.error('Sale failed');
         } finally {

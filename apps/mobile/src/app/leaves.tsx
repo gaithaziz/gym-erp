@@ -51,6 +51,7 @@ export default function LeavesScreen() {
       setReason("");
       setMessage(copy.leavesScreen.submitted);
       await queryClient.invalidateQueries({ queryKey: ["mobile-leaves"] });
+      await queryClient.invalidateQueries({ queryKey: ["mobile-home"] });
     },
     onError: (error) => setMessage(error instanceof Error ? error.message : copy.common.errorTryAgain),
   });
@@ -59,10 +60,10 @@ export default function LeavesScreen() {
     <Screen title={copy.operationsScreen.myLeaves} subtitle={copy.leavesScreen.subtitle}>
       <Card>
         <SectionTitle>{copy.leavesScreen.requestLeave}</SectionTitle>
-        <Input value={leaveType} onChangeText={(value) => setLeaveType((LEAVE_TYPES.includes(value as never) ? value : "VACATION") as (typeof LEAVE_TYPES)[number])} placeholder={copy.leavesScreen.leaveType} />
-        <Input value={startDate} onChangeText={setStartDate} placeholder={copy.leavesScreen.startDate} />
-        <Input value={endDate} onChangeText={setEndDate} placeholder={copy.leavesScreen.endDate} />
-        <TextArea value={reason} onChangeText={setReason} placeholder={copy.leavesScreen.reason} />
+        <Input value={leaveType} onChangeText={(value) => setLeaveType((LEAVE_TYPES.includes(value as never) ? value : "VACATION") as (typeof LEAVE_TYPES)[number])} placeholder={copy.leavesScreen.leaveType} accessibilityLabel={copy.leavesScreen.leaveType} />
+        <Input value={startDate} onChangeText={setStartDate} placeholder={copy.leavesScreen.startDate} accessibilityLabel={copy.leavesScreen.startDate} />
+        <Input value={endDate} onChangeText={setEndDate} placeholder={copy.leavesScreen.endDate} accessibilityLabel={copy.leavesScreen.endDate} />
+        <TextArea value={reason} onChangeText={setReason} placeholder={copy.leavesScreen.reason} accessibilityLabel={copy.leavesScreen.reason} />
         <PrimaryButton onPress={() => submitMutation.mutate()} disabled={submitMutation.isPending}>
           {submitMutation.isPending ? copy.leavesScreen.submitting : copy.leavesScreen.requestLeave}
         </PrimaryButton>

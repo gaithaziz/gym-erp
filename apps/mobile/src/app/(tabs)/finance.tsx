@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Alert, Pressable, Share, StyleSheet, Text, View } from "react-native";
 
 import { Card, Input, MutedText, PrimaryButton, QueryState, Screen, SecondaryButton, SectionTitle } from "@/components/ui";
@@ -8,6 +8,7 @@ import { localizeFinanceCategory, localizeFinanceTransactionType, localizePaymen
 import { getCurrentRole, isAdminControlRole } from "@/lib/mobile-role";
 import { usePreferences } from "@/lib/preferences";
 import { useSession } from "@/lib/session";
+import { useDebouncedValue } from "@/lib/useDebouncedValue";
 
 type Product = {
   id: string;
@@ -71,6 +72,7 @@ export default function FinanceTab() {
   const [showAdminPos, setShowAdminPos] = useState(false);
   const [memberId, setMemberId] = useState("");
   const [search, setSearch] = useState("");
+  const debouncedSearch = useDebouncedValue(search, 300);
   const [paymentMethod, setPaymentMethod] = useState<(typeof PAYMENT_METHODS)[number]>("CASH");
   const [cart, setCart] = useState<Record<string, CartLine>>({});
   const [selectedReceiptId, setSelectedReceiptId] = useState<string | null>(null);
@@ -95,12 +97,12 @@ export default function FinanceTab() {
   });
 
   const productsQuery = useQuery({
-    queryKey: ["mobile-products", search.trim(), selectedBranchId ?? "all"],
+    queryKey: ["mobile-products", debouncedSearch.trim(), selectedBranchId ?? "all"],
     enabled: !adminControl || showAdminPos,
     queryFn: async () => {
       const params = new URLSearchParams();
-      if (search.trim()) {
-        params.set("search", search.trim());
+      if (debouncedSearch.trim()) {
+        params.set("search", debouncedSearch.trim());
       }
       if (selectedBranchId) {
         params.set("branch_id", selectedBranchId);
@@ -115,6 +117,15 @@ export default function FinanceTab() {
     enabled: Boolean(selectedReceiptId),
     queryFn: async () => parseEnvelope<ReceiptDetail>(await authorizedRequest(`/finance/transactions/${selectedReceiptId}/receipt`)).data,
   });
+
+  useEffect(() => {
+    setShowAdminPos(false);
+    setMemberId("");
+    setSearch("");
+    setCart({});
+    setSelectedReceiptId(null);
+    setLastReceiptId(null);
+  }, [selectedBranchId]);
 
   const checkoutMutation = useMutation({
     mutationFn: async () =>
@@ -242,7 +253,7 @@ export default function FinanceTab() {
 
       <Card>
         <SectionTitle>{copy.financeScreen.products}</SectionTitle>
-        <Input value={search} onChangeText={setSearch} placeholder={copy.financeScreen.searchProducts} />
+        <Input value={search} onChangeText={setSearch} placeholder={copy.financeScreen.searchProducts} accessibilityLabel={copy.financeScreen.searchProducts} />
         <QueryState
           loading={productsQuery.isLoading}
           loadingVariant="list"

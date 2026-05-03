@@ -1,7 +1,8 @@
 'use client';
 
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { api } from '@/lib/api';
+import { useDebouncedValue } from '@/lib/useDebouncedValue';
 import { Check, X, Search, Printer } from 'lucide-react';
 import { useFeedback } from '@/components/FeedbackProvider';
 import TablePagination from '@/components/TablePagination';
@@ -37,9 +38,11 @@ export default function AdminLeavesPage() {
     const [statusFilter, setStatusFilter] = useState('ALL');
     const [typeFilter, setTypeFilter] = useState('ALL');
     const [search, setSearch] = useState('');
+    const debouncedSearch = useDebouncedValue(search, 300);
     const [startDate, setStartDate] = useState('');
     const [endDate, setEndDate] = useState('');
     const [tablePage, setTablePage] = useState(1);
+    const fetchSeqRef = useRef(0);
     const txt = locale === 'ar'
         ? {
             loadError: 'فشل في تحميل الإجازات',
@@ -130,27 +133,32 @@ export default function AdminLeavesPage() {
     };
 
     const fetchLeaves = useCallback(async () => {
+        const requestSeq = ++fetchSeqRef.current;
         setLoading(true);
         try {
             const params: Record<string, string> = {};
             if (statusFilter !== 'ALL') params.status = statusFilter;
             if (typeFilter !== 'ALL') params.leave_type = typeFilter;
-            if (search.trim()) params.search = search.trim();
+            if (debouncedSearch.trim()) params.search = debouncedSearch.trim();
             if (startDate) params.start_date = startDate;
             if (endDate) params.end_date = endDate;
             Object.assign(params, getBranchParams(selectedBranchId));
             const res = await api.get('/hr/leaves', { params });
+            if (requestSeq !== fetchSeqRef.current) return;
             setLeaves(res.data.data || []);
         } catch (err) {
+            if (requestSeq !== fetchSeqRef.current) return;
             const detail = (err as { response?: { data?: { detail?: string } } })?.response?.data?.detail;
             showToast(detail || txt.loadError, 'error');
         } finally {
-            setLoading(false);
+            if (requestSeq === fetchSeqRef.current) {
+                setLoading(false);
+            }
         }
-    }, [endDate, search, selectedBranchId, showToast, startDate, statusFilter, typeFilter, txt.loadError]);
+    }, [debouncedSearch, endDate, selectedBranchId, showToast, startDate, statusFilter, typeFilter, txt.loadError]);
 
     useEffect(() => {
-        setTimeout(() => fetchLeaves(), 0);
+        void fetchLeaves();
     }, [fetchLeaves]);
 
     useEffect(() => {
@@ -263,24 +271,24 @@ export default function AdminLeavesPage() {
             <div className="chart-card p-4 border border-border space-y-3">
                 <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">{txt.filters}</p>
                 <div className="grid grid-cols-1 md:grid-cols-4 gap-3">
-                    <select className="input-dark" value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)}>
+                    <select aria-label={txt.allStatus} className="input-dark" value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)}>
                         <option value="ALL">{txt.allStatus}</option>
                         <option value="PENDING">{txt.pending}</option>
                         <option value="APPROVED">{txt.approved}</option>
                         <option value="DENIED">{txt.denied}</option>
                     </select>
-                    <select className="input-dark" value={typeFilter} onChange={(e) => setTypeFilter(e.target.value)}>
+                    <select aria-label={txt.allTypes} className="input-dark" value={typeFilter} onChange={(e) => setTypeFilter(e.target.value)}>
                         <option value="ALL">{txt.allTypes}</option>
                         <option value="SICK">{txt.sick}</option>
                         <option value="VACATION">{txt.vacation}</option>
                         <option value="OTHER">{txt.other}</option>
                     </select>
-                    <input type="date" className="input-dark" value={startDate} onChange={(e) => setStartDate(e.target.value)} />
-                    <input type="date" className="input-dark" value={endDate} onChange={(e) => setEndDate(e.target.value)} min={startDate || undefined} />
+                    <input aria-label={txt.start} type="date" className="input-dark" value={startDate} onChange={(e) => setStartDate(e.target.value)} />
+                    <input aria-label={txt.end} type="date" className="input-dark" value={endDate} onChange={(e) => setEndDate(e.target.value)} min={startDate || undefined} />
                 </div>
                 <div className="field-with-icon">
                     <Search size={14} className="field-icon" />
-                    <input className="input-dark input-with-icon" value={search} onChange={(e) => setSearch(e.target.value)} placeholder={txt.searchPlaceholder} />
+                    <input aria-label={txt.searchPlaceholder} className="input-dark input-with-icon" value={search} onChange={(e) => setSearch(e.target.value)} placeholder={txt.searchPlaceholder} />
                 </div>
             </div>
 

@@ -283,15 +283,15 @@ export default function SystemStatsPage() {
             <div className="kpi-card p-4 grid grid-cols-1 lg:grid-cols-4 gap-3">
                 <div>
                     <label className="text-xs font-semibold text-muted-foreground">{locale === 'ar' ? 'من' : 'From'}</label>
-                    <input type="date" className="input-dark w-full mt-1" value={fromDate} onChange={(e) => setFromDate(e.target.value)} />
+                    <input type="date" className="input-dark w-full mt-1" aria-label={locale === 'ar' ? 'من' : 'From'} value={fromDate} onChange={(e) => setFromDate(e.target.value)} />
                 </div>
                 <div>
                     <label className="text-xs font-semibold text-muted-foreground">{locale === 'ar' ? 'إلى' : 'To'}</label>
-                    <input type="date" className="input-dark w-full mt-1" value={toDate} onChange={(e) => setToDate(e.target.value)} />
+                    <input type="date" className="input-dark w-full mt-1" aria-label={locale === 'ar' ? 'إلى' : 'To'} value={toDate} onChange={(e) => setToDate(e.target.value)} />
                 </div>
                 <div>
                     <label className="text-xs font-semibold text-muted-foreground">{locale === 'ar' ? 'النادي' : 'Gym'}</label>
-                    <select className="input-dark w-full mt-1" value={gymFilter} onChange={(e) => setGymFilter(e.target.value)}>
+                    <select className="input-dark w-full mt-1" aria-label={locale === 'ar' ? 'النادي' : 'Gym'} value={gymFilter} onChange={(e) => setGymFilter(e.target.value)}>
                         <option value="">{locale === 'ar' ? 'الكل' : 'All gyms'}</option>
                         {gyms.map((gym) => (
                             <option key={gym.id} value={gym.id}>{gym.name}</option>
@@ -300,7 +300,7 @@ export default function SystemStatsPage() {
                 </div>
                 <div>
                     <label className="text-xs font-semibold text-muted-foreground">{locale === 'ar' ? 'حالة الصحة' : 'Health status'}</label>
-                    <select className="input-dark w-full mt-1" value={healthFilter} onChange={(e) => setHealthFilter(e.target.value)}>
+                    <select className="input-dark w-full mt-1" aria-label={locale === 'ar' ? 'حالة الصحة' : 'Health status'} value={healthFilter} onChange={(e) => setHealthFilter(e.target.value)}>
                         <option value="">{locale === 'ar' ? 'الكل' : 'All'}</option>
                         <option value="healthy">{locale === 'ar' ? 'سليم' : 'Healthy'}</option>
                         <option value="low_activity">{locale === 'ar' ? 'نشاط منخفض' : 'Low activity'}</option>

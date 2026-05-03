@@ -1,0 +1,80 @@
+# Vibecoding Smell Checklist
+
+Use this when reviewing a new screen, feature, or refactor on web or mobile, including shared hooks and data flows. If more than one item is true, pause and tighten the implementation before merging.
+
+- [x] **Done:** Search-backed screens now debounce before they hit the backend on web and mobile.
+- [x] **Done:** Web and mobile share a reusable debounced value hook instead of inlining timer logic per screen.
+- [x] **Done:** Manual fetch pages now ignore stale responses from older requests on rapidly changing filters.
+- [x] **Done:** Lost & Found now ignores stale list, summary, and handler refreshes when newer requests are already in flight.
+- [x] **Done:** Mobile support ticket create/reply flows now refresh the broader support tab list, not just the current ticket view.
+- [x] **Done:** Announcements now show inline loading, empty, error, and retry states instead of relying only on toast feedback.
+- [x] **Done:** Search and filter inputs now have explicit accessibility labels on the affected web and mobile screens.
+- [x] **Done:** Admin inventory search and category filters now have explicit accessibility labels too.
+- [x] **Done:** Admin announcement, notification-rule, inventory, and staff-debt form fields now have explicit accessibility labels on their editable controls.
+- [x] **Done:** Admin notification-rule enable toggles now have explicit accessibility labels too.
+- [x] **Done:** Repeated role gates for support, member registration, and reception-desk views now use shared helpers instead of ad hoc role arrays.
+- [x] **Done:** Chat, lost-found, coaching, and package access gates now use shared role helpers on both web and mobile instead of repeating role arrays in each screen.
+- [x] **Done:** Coach and cashier branches in the mobile tabs now use shared role predicates for titles, routing, and access checks.
+- [x] **Done:** Mobile branch-aware tabs now clear stale selected records when the active branch changes, so detail panes do not stay pinned to data from the previous branch.
+- [x] **Done:** Leave submission and member registration now refresh the broader home and people-summary caches, not just the immediate list on screen.
+- [x] **Done:** Customer support ticket details on web now ignore stale responses from older ticket selections.
+- [x] **Done:** Web coach diet-library and plan refreshes now ignore stale responses from older overlapping loads or branch changes.
+- [x] **Done:** Admin notifications and announcements reloads now ignore stale responses from older overlapping fetches.
+- [x] **Done:** Web support ticket detail scrolling and coach diet refreshes no longer leave zero-delay timers hanging around after state changes.
+- [x] **Done:** Admin leaves now starts its initial fetch directly instead of through a zero-delay timer.
+- [x] **Done:** Coach library loads now guard against stale overlapping fetches, retry inline on failure, and no longer defer the initial load through a zero-delay timer.
+- [x] **Done:** Admin finance now loads directly on mount and labels the salary search and payment entry fields explicitly.
+- [x] **Done:** Admin support now clears its delayed ticket-detail scroll timer and labels the ticket search, category filter, and reply fields explicitly.
+- [x] **Done:** System stats now labels its date and filter controls explicitly.
+- [x] **Done:** Mobile chat now labels the thread and contact search inputs explicitly.
+- [x] **Done:** QR scanner and manual fallback controls now label their scan, kiosk, and mode inputs explicitly.
+- [x] **Done:** Mobile chat composer now labels the message input explicitly.
+- [x] **Done:** Hours editor day controls now label the open, close, closed, and note fields explicitly.
+- [x] **Done:** Mobile leave-request and member-registration forms now label their inputs explicitly.
+- [x] **Done:** Admin staff, staff-summary, attendance, and members pages now start their initial fetches directly instead of through zero-delay timers.
+- [x] **Done:** Admin POS now clears its transient sale-complete banner with a tracked timer instead of an orphaned timeout.
+- [x] **Done:** Coach workout-plan editor now labels its plan, exercise, section, search, and member-selection inputs explicitly, and the shared member-search combobox now exposes an accessible label.
+- [x] **Done:** Mobile profile and support-ticket forms now label their editable fields explicitly.
+- [x] **Done:** System audit and user-impersonation filters now label their editable controls explicitly.
+- [x] **Done:** Admin staff add wizard now synchronizes the home-branch field directly instead of deferring it through a zero-delay timer.
+- [x] **Done:** Coach feedback now clears its branch-scoped selection directly on branch changes instead of deferring it through a zero-delay timer.
+- [x] **Done:** Mobile feedback and billing comment fields now label their text areas explicitly.
+- [x] **Done:** Audit logs now show a visible error and retry path instead of failing silently, and the coach workout-plan editor no longer defers its branch reset through zero-delay timers.
+- [x] **Done:** Coach workout-plan section naming and member selection fields are explicitly labeled.
+- [x] **Done:** Coach feedback now uses the shared coach-review role predicate instead of a hardcoded manager branch.
+- [x] **Done:** Admin staff, attendance, members, and facility pages now show visible error and retry paths instead of only failing through toasts or console logs.
+- [x] **Done:** Web coach plans now guard against stale overlapping loads and show a visible load error with retry instead of relying on toast-only feedback.
+- [x] **Done:** Mobile coach plans now reset branch-scoped selection and draft state when the active branch changes.
+- [x] **Done:** The coach-plan rest timer now only starts and stops when the timer becomes active instead of re-installing every second.
+- [x] **Done:** The coach plans page now treats stale branch refreshes as a first-class load-state problem instead of letting older responses overwrite newer data.
+- [x] **Done:** Subscription-blocked pages now start their clocks directly instead of deferring the first tick through a zero-delay timer.
+- [x] **Done:** The dashboard sidebar now closes immediately on route changes instead of scheduling a zero-delay timer.
+- [x] **Done:** The dashboard layout now clears blocked-user activity badges immediately when there is no access token instead of deferring through a zero-delay timer.
+- [x] **Done:** The blocked-account page now starts its lock timer directly instead of deferring the first tick through a zero-delay timer.
+- [x] **Done:** Shared search helpers now handle the repeated trim/lowercase/includes logic on web and mobile instead of duplicating it in each screen.
+- [x] **Done:** Shared search normalization now keeps web and mobile filter behavior consistent across chat, lost-found, coaching, and assignment screens.
+- [x] **Done:** Mobile search-heavy assignment pickers now defer filtering work instead of recomputing on every raw keystroke.
+- [x] **Done:** Search or filter inputs now debounce or gate short queries before they hit the backend.
+- [x] **Done:** Search-backed `queryKey` entries now use debounced, normalized input instead of raw keystrokes.
+- [x] **Done:** Member, support, inventory, leaves, and chat flows now expose loading, empty, and error states instead of only the happy path.
+- [x] **Done:** Branch, role, and locale-sensitive screens now derive from shared helpers and current preferences instead of hardcoded assumptions.
+- [x] **Done:** Server-backed state that is also edited locally now re-syncs from queries or resets appropriately when the active context changes.
+- [x] **Done:** Timers and recorder/scroll effects now have matching cleanup paths in dashboard and mobile screens.
+- [x] **Done:** Branch-scoped lists and details now avoid stale overwrite bugs by keying fetches and guarding the active selection.
+- [x] **Done:** Mutations now invalidate the related list, count, detail view, or dashboard cache after save.
+- [x] **Done:** Client-side filtering is used only where the app already has the data locally, and backend-backed filters stay query-driven.
+- [x] **Done:** Shared helpers and hooks are reused across web and mobile screens instead of staying one-off.
+- [x] **Done:** Permission checks, validation, and failure states are now surfaced on admin and staff workflows.
+- [x] **Done:** Extra hot-path work is now deferred or scoped so repeated refetches and local filtering only happen when needed.
+- [x] **Done:** Search behavior is normalized between frontend and backend, including trimming and minimum-length thresholds.
+- [x] **Done:** Mobile search-heavy and scanner-heavy inputs now use debounced or deferred updates for responsiveness.
+- [x] **Done:** Branch-scoped and background-refreshed screens now define what happens when the active branch changes, including clearing stale selection state.
+- [x] **Done:** Search and filter screens now include labels and better keyboard/focus affordances where they are needed.
+
+Fast self-check:
+
+- Can this input spam the backend?
+- Is the expensive work tied to the right state?
+- Would this still make sense at 10x the data volume?
+- Are we filtering the right layer?
+- Did we clean up everything we created?

@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import Link from 'next/link';
 import { Plus, Utensils, Trash2, Pencil, Save, X, Send, Archive, RefreshCw, UserPlus, ChevronDown, ChevronUp } from 'lucide-react';
 import { api } from '@/lib/api';
@@ -11,6 +11,7 @@ import { useFeedback } from '@/components/FeedbackProvider';
 import { useLocale } from '@/context/LocaleContext';
 import { useBranch } from '@/context/BranchContext';
 import { getBranchParams } from '@/lib/branch';
+import { matchesSearchQuery } from '@/lib/search';
 
 interface DietPlan {
     id: string;
@@ -366,6 +367,8 @@ export default function DietPlansPage() {
     const [libraryQuery, setLibraryQuery] = useState('');
     const [libraryLoading, setLibraryLoading] = useState(false);
     const [dietLibraryItems, setDietLibraryItems] = useState<DietLibraryItem[]>([]);
+    const loadSeqRef = useRef(0);
+    const librarySeqRef = useRef(0);
 
     const [statusFilter, setStatusFilter] = useState<PlanStatusFilter>('ALL');
 
@@ -381,22 +384,32 @@ export default function DietPlansPage() {
     }, [mealGroups]);
 
     const fetchData = useCallback(async () => {
+        const requestSeq = ++loadSeqRef.current;
         setRefreshing(true);
         try {
             const [plansRes, membersRes] = await Promise.all([
                 api.get('/fitness/diets', { params: { include_archived: true, include_all_creators: true, ...branchParams } }),
                 api.get('/hr/members', { params: branchParams }).catch(() => ({ data: { data: [] } })),
             ]);
+            if (requestSeq !== loadSeqRef.current) {
+                return;
+            }
             setPlans(plansRes.data.data || []);
             setMembers(membersRes.data.data || []);
         } catch {
+            if (requestSeq !== loadSeqRef.current) {
+                return;
+            }
             showToast(txt.failedLoadPlans ?? 'Failed to load diet plans.', 'error');
         }
-        setLoading(false);
-        setRefreshing(false);
+        if (requestSeq === loadSeqRef.current) {
+            setLoading(false);
+            setRefreshing(false);
+        }
     }, [branchParams, showToast, txt.failedLoadPlans]);
 
     const fetchDietLibrary = useCallback(async (query?: string) => {
+        const requestSeq = ++librarySeqRef.current;
         setLibraryLoading(true);
         try {
             const response = await api.get('/fitness/diet-library', {
@@ -405,28 +418,33 @@ export default function DietPlansPage() {
                     query: query?.trim() || undefined,
                 },
             });
+            if (requestSeq !== librarySeqRef.current) {
+                return;
+            }
             setDietLibraryItems(response.data?.data || []);
         } catch {
+            if (requestSeq !== librarySeqRef.current) {
+                return;
+            }
             setDietLibraryItems([]);
             showToast(txt.failedLoadLibrary ?? 'Failed to load diet library items.', 'error');
         }
-        setLibraryLoading(false);
+        if (requestSeq === librarySeqRef.current) {
+            setLibraryLoading(false);
+        }
     }, [showToast, txt.failedLoadLibrary]);
 
     useEffect(() => {
-        setTimeout(() => fetchData(), 0);
+        void fetchData();
     }, [fetchData]);
 
     useEffect(() => {
-        const timeoutId = window.setTimeout(() => {
-            setExpandedTemplatePlanId(null);
-            setExpandedAssignedPlanId(null);
-            setAssignModalOpen(false);
-            setAssigningPlan(null);
-            setBulkAssignMemberIds([]);
-            setMemberSearch('');
-        }, 0);
-        return () => window.clearTimeout(timeoutId);
+        setExpandedTemplatePlanId(null);
+        setExpandedAssignedPlanId(null);
+        setAssignModalOpen(false);
+        setAssigningPlan(null);
+        setBulkAssignMemberIds([]);
+        setMemberSearch('');
     }, [selectedBranchId]);
 
     const resetForm = () => {
@@ -460,9 +478,7 @@ export default function DietPlansPage() {
     }, [plans]);
 
     const filteredMembers = useMemo(() => {
-        const q = memberSearch.trim().toLowerCase();
-        if (!q) return members;
-        return members.filter(m => m.full_name.toLowerCase().includes(q) || m.email.toLowerCase().includes(q));
+        return members.filter((member) => matchesSearchQuery(memberSearch, [member.full_name, member.email]));
     }, [memberSearch, members]);
 
     const memberNameById = useMemo(() => {

@@ -41,6 +41,7 @@ export default function FacilityAdminPage() {
     const { branches, selectedBranchId, setSelectedBranchId } = useBranch();
     const [assets, setAssets] = useState<AssetItem[]>([]);
     const [loading, setLoading] = useState(true);
+    const [loadError, setLoadError] = useState<string | null>(null);
     const [isSavingAsset, setIsSavingAsset] = useState(false);
     const [assetForm, setAssetForm] = useState(EMPTY_ASSET);
     const [assetTypeFilter, setAssetTypeFilter] = useState<AssetTypeFilter>('ALL');
@@ -112,6 +113,7 @@ export default function FacilityAdminPage() {
 
     const loadData = useCallback(async () => {
         setLoading(true);
+        setLoadError(null);
         try {
             const params = {
                 ...getBranchParams(selectedBranchId),
@@ -120,6 +122,7 @@ export default function FacilityAdminPage() {
             const response = await api.get('/facility/assets', { params });
             setAssets(response.data?.data || []);
         } catch {
+            setLoadError(locale === 'ar' ? 'فشل في تحميل بيانات المرافق.' : 'Failed to load facility data.');
             showToast(locale === 'ar' ? 'فشل في تحميل بيانات المرافق.' : 'Failed to load facility data.', 'error');
         } finally {
             setLoading(false);
@@ -193,6 +196,14 @@ export default function FacilityAdminPage() {
 
     return (
         <div className="max-w-6xl mx-auto space-y-6">
+            {loadError ? (
+                <div className="flex items-center justify-between gap-3 rounded-xl border border-destructive/30 bg-destructive/10 px-4 py-3 text-sm text-destructive">
+                    <span>{loadError}</span>
+                    <button type="button" className="btn-ghost !px-2 !py-1 text-xs" onClick={() => void loadData()}>
+                        {locale === 'ar' ? 'إعادة المحاولة' : 'Retry'}
+                    </button>
+                </div>
+            ) : null}
             <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
                 <div>
                     <p className="section-chip mb-2">{txt.assets}</p>

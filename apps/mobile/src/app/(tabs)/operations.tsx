@@ -5,7 +5,7 @@ import { Pressable, StyleSheet, Text, View } from "react-native";
 import { Card, InlineStat, MutedText, QueryState, Screen, SectionTitle } from "@/components/ui";
 import { parseAdminAuditSummaryEnvelope, parseAdminInventorySummaryEnvelope, parseAdminOperationsSummaryEnvelope } from "@/lib/api";
 import { localizeAuditAction, localizeLeaveStatus, localizePaymentMethod, localizeTicketStatus } from "@/lib/mobile-format";
-import { getCurrentRole, isAdminControlRole } from "@/lib/mobile-role";
+import { canViewAdminAudit, getCurrentRole, isAdminControlRole, isCashierRole } from "@/lib/mobile-role";
 import { usePreferences } from "@/lib/preferences";
 import { useSession } from "@/lib/session";
 
@@ -50,19 +50,19 @@ function StaffOperationsTab() {
 
   const transactionsQuery = useQuery({
     queryKey: ["mobile-staff-transactions"],
-    enabled: role === "CASHIER",
+    enabled: isCashierRole(role),
     queryFn: async () => (await authorizedRequest<TransactionRow[]>("/mobile/staff/transactions/recent")).data,
   });
 
   const leavesQuery = useQuery({
     queryKey: ["mobile-my-leaves"],
-    enabled: role !== "CASHIER",
+    enabled: !isCashierRole(role),
     queryFn: async () => (await authorizedRequest<LeaveRequest[]>("/hr/leaves/me")).data,
   });
 
   return (
     <Screen title={copy.operationsScreen.title} subtitle={copy.operationsScreen.subtitle}>
-      {role === "CASHIER" ? (
+      {isCashierRole(role) ? (
         <Card>
           <SectionTitle>{copy.operationsScreen.recentTransactions}</SectionTitle>
             <QueryState
@@ -166,7 +166,7 @@ function AdminOperationsTab() {
   const { authorizedRequest, bootstrap, selectedBranchId } = useSession();
   const { copy, direction, fontSet, isRTL, locale, theme } = usePreferences();
   const role = getCurrentRole(bootstrap);
-  const canViewAudit = role === "ADMIN";
+  const canViewAudit = canViewAdminAudit(role);
 
   const operationsQuery = useQuery({
     queryKey: ["mobile-admin-operations-summary", role, selectedBranchId ?? "all"],

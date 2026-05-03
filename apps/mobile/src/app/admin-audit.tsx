@@ -4,7 +4,7 @@ import { StyleSheet, Text, View } from "react-native";
 import { Card, InlineStat, MutedText, QueryState, Screen, SectionTitle } from "@/components/ui";
 import { parseAdminAuditSummaryEnvelope } from "@/lib/api";
 import { localizeAuditAction } from "@/lib/mobile-format";
-import { getCurrentRole } from "@/lib/mobile-role";
+import { canViewAdminAudit, getCurrentRole } from "@/lib/mobile-role";
 import { usePreferences } from "@/lib/preferences";
 import { useSession } from "@/lib/session";
 
@@ -15,14 +15,14 @@ export default function AdminAuditScreen() {
 
   const auditQuery = useQuery({
     queryKey: ["mobile-admin-audit-summary", role, selectedBranchId ?? "all"],
-    enabled: role === "ADMIN",
+    enabled: canViewAdminAudit(role),
     queryFn: async () => {
       const suffix = selectedBranchId ? `?branch_id=${encodeURIComponent(selectedBranchId)}` : "";
       return parseAdminAuditSummaryEnvelope(await authorizedRequest(`/mobile/admin/audit/summary${suffix}`)).data;
     },
   });
 
-  if (role !== "ADMIN") {
+  if (!canViewAdminAudit(role)) {
     return (
       <Screen title={copy.adminControl.auditSummary} subtitle={copy.adminControl.auditAdminOnly} showSubtitle>
         <Card>

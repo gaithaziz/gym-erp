@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { api } from '@/lib/api';
 import { useFeedback } from '@/components/FeedbackProvider';
 import Modal from '@/components/Modal';
@@ -76,6 +76,7 @@ export default function WorkoutDietLibraryPage() {
         noDietItems: 'لم يتم العثور على عناصر في مكتبة التغذية.',
         noDescription: 'بدون وصف',
         toPlan: 'إلى خطة',
+        retry: 'إعادة المحاولة',
         editWorkoutTitle: 'تعديل عنصر مكتبة التمارين',
         addWorkoutTitle: 'إضافة عنصر إلى مكتبة التمارين',
         namePlaceholder: 'الاسم',
@@ -128,6 +129,7 @@ export default function WorkoutDietLibraryPage() {
         noDietItems: 'No diet library items found.',
         noDescription: 'No description',
         toPlan: 'To Plan',
+        retry: 'Retry',
         editWorkoutTitle: 'Edit Workout Library Item',
         addWorkoutTitle: 'Add Workout Library Item',
         namePlaceholder: 'Name',
@@ -168,6 +170,8 @@ export default function WorkoutDietLibraryPage() {
     const [scope, setScope] = useState<LibraryScope>('all');
     const [query, setQuery] = useState('');
     const [loading, setLoading] = useState(true);
+    const [loadError, setLoadError] = useState<string | null>(null);
+    const loadSeqRef = useRef(0);
 
     const [workoutItems, setWorkoutItems] = useState<WorkoutLibraryItem[]>([]);
     const [dietItems, setDietItems] = useState<DietLibraryItem[]>([]);
@@ -184,28 +188,41 @@ export default function WorkoutDietLibraryPage() {
         const res = await api.get('/fitness/exercise-library', {
             params: { scope, query: query.trim() || undefined },
         });
-        setWorkoutItems(res.data?.data || []);
+        return res.data?.data || [];
     }, [scope, query]);
 
     const fetchDietItems = useCallback(async () => {
         const res = await api.get('/fitness/diet-library', {
             params: { scope, query: query.trim() || undefined },
         });
-        setDietItems(res.data?.data || []);
+        return res.data?.data || [];
     }, [scope, query]);
 
     const fetchData = useCallback(async () => {
+        const seq = ++loadSeqRef.current;
         setLoading(true);
+        setLoadError(null);
         try {
-            await Promise.all([fetchWorkoutItems(), fetchDietItems()]);
+            const [workouts, diets] = await Promise.all([fetchWorkoutItems(), fetchDietItems()]);
+            if (loadSeqRef.current !== seq) {
+                return;
+            }
+            setWorkoutItems(workouts);
+            setDietItems(diets);
         } catch {
-            showToast(txt.loadFailed, 'error');
+            if (loadSeqRef.current === seq) {
+                setLoadError(txt.loadFailed);
+                showToast(txt.loadFailed, 'error');
+            }
+        } finally {
+            if (loadSeqRef.current === seq) {
+                setLoading(false);
+            }
         }
-        setLoading(false);
     }, [fetchDietItems, fetchWorkoutItems, showToast, txt.loadFailed]);
 
     useEffect(() => {
-        setTimeout(() => fetchData(), 0);
+        void fetchData();
     }, [fetchData]);
 
     const openCreate = () => {
@@ -265,7 +282,7 @@ export default function WorkoutDietLibraryPage() {
             }
             setShowWorkoutModal(false);
             setWorkoutForm(emptyWorkoutForm);
-            fetchWorkoutItems();
+            void fetchData();
             showToast(txt.workoutSaved, 'success');
         } catch {
             showToast(txt.workoutSaveFailed, 'error');
@@ -288,7 +305,7 @@ export default function WorkoutDietLibraryPage() {
             }
             setShowDietModal(false);
             setDietForm(emptyDietForm);
-            fetchDietItems();
+            void fetchData();
             showToast(txt.dietSaved, 'success');
         } catch {
             showToast(txt.dietSaveFailed, 'error');
@@ -305,7 +322,7 @@ export default function WorkoutDietLibraryPage() {
         if (!confirmed) return;
         try {
             await api.delete(`/fitness/exercise-library/${id}`);
-            fetchWorkoutItems();
+            void fetchData();
             showToast(txt.workoutDeleted, 'success');
         } catch {
             showToast(txt.workoutDeleteFailed, 'error');
@@ -322,7 +339,7 @@ export default function WorkoutDietLibraryPage() {
         if (!confirmed) return;
         try {
             await api.delete(`/fitness/diet-library/${id}`);
-            fetchDietItems();
+            void fetchData();
             showToast(txt.dietDeleted, 'success');
         } catch {
             showToast(txt.dietDeleteFailed, 'error');
@@ -388,10 +405,20 @@ export default function WorkoutDietLibraryPage() {
                     type="text"
                     className="input-dark md:max-w-sm"
                     placeholder={txt.searchPlaceholder}
+                    aria-label={txt.searchPlaceholder}
                     value={query}
                     onChange={e => setQuery(e.target.value)}
                 />
             </div>
+
+            {loadError && !loading ? (
+                <div className="flex items-center justify-between gap-3 rounded-sm border border-destructive/30 bg-destructive/10 px-4 py-3 text-sm text-destructive">
+                    <span>{loadError}</span>
+                    <button type="button" className="btn-ghost !px-2 !py-1 text-xs" onClick={() => void fetchData()}>
+                        {txt.retry}
+                    </button>
+                </div>
+            ) : null}
 
             {loading ? (
                 <div className="flex h-40 items-center justify-center">
@@ -474,14 +501,14 @@ export default function WorkoutDietLibraryPage() {
 
             <Modal isOpen={showWorkoutModal} onClose={() => setShowWorkoutModal(false)} title={workoutForm.id ? txt.editWorkoutTitle : txt.addWorkoutTitle} maxWidthClassName="max-w-2xl">
                 <form onSubmit={saveWorkoutItem} className="space-y-4">
-                    <input type="text" required className="input-dark" placeholder={txt.namePlaceholder} value={workoutForm.name} onChange={e => setWorkoutForm(prev => ({ ...prev, name: e.target.value }))} />
+                    <input type="text" required className="input-dark" placeholder={txt.namePlaceholder} aria-label={txt.namePlaceholder} value={workoutForm.name} onChange={e => setWorkoutForm(prev => ({ ...prev, name: e.target.value }))} />
                     <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-                        <input type="text" className="input-dark" placeholder={txt.categoryPlaceholder} value={workoutForm.category} onChange={e => setWorkoutForm(prev => ({ ...prev, category: e.target.value }))} />
-                        <input type="text" className="input-dark" placeholder={txt.muscleGroupPlaceholder} value={workoutForm.muscle_group} onChange={e => setWorkoutForm(prev => ({ ...prev, muscle_group: e.target.value }))} />
-                        <input type="text" className="input-dark" placeholder={txt.equipmentPlaceholder} value={workoutForm.equipment} onChange={e => setWorkoutForm(prev => ({ ...prev, equipment: e.target.value }))} />
+                        <input type="text" className="input-dark" placeholder={txt.categoryPlaceholder} aria-label={txt.categoryPlaceholder} value={workoutForm.category} onChange={e => setWorkoutForm(prev => ({ ...prev, category: e.target.value }))} />
+                        <input type="text" className="input-dark" placeholder={txt.muscleGroupPlaceholder} aria-label={txt.muscleGroupPlaceholder} value={workoutForm.muscle_group} onChange={e => setWorkoutForm(prev => ({ ...prev, muscle_group: e.target.value }))} />
+                        <input type="text" className="input-dark" placeholder={txt.equipmentPlaceholder} aria-label={txt.equipmentPlaceholder} value={workoutForm.equipment} onChange={e => setWorkoutForm(prev => ({ ...prev, equipment: e.target.value }))} />
                     </div>
-                    <input type="text" className="input-dark" placeholder={txt.tagsPlaceholder} value={workoutForm.tags} onChange={e => setWorkoutForm(prev => ({ ...prev, tags: e.target.value }))} />
-                    <input type="url" className="input-dark" placeholder={txt.defaultVideoPlaceholder} value={workoutForm.default_video_url} onChange={e => setWorkoutForm(prev => ({ ...prev, default_video_url: e.target.value }))} />
+                    <input type="text" className="input-dark" placeholder={txt.tagsPlaceholder} aria-label={txt.tagsPlaceholder} value={workoutForm.tags} onChange={e => setWorkoutForm(prev => ({ ...prev, tags: e.target.value }))} />
+                    <input type="url" className="input-dark" placeholder={txt.defaultVideoPlaceholder} aria-label={txt.defaultVideoPlaceholder} value={workoutForm.default_video_url} onChange={e => setWorkoutForm(prev => ({ ...prev, default_video_url: e.target.value }))} />
                     {isAdmin && (
                         <label className="flex items-center gap-2 text-sm text-muted-foreground">
                             <input type="checkbox" checked={workoutForm.is_global} onChange={e => setWorkoutForm(prev => ({ ...prev, is_global: e.target.checked }))} />
@@ -497,9 +524,9 @@ export default function WorkoutDietLibraryPage() {
 
             <Modal isOpen={showDietModal} onClose={() => setShowDietModal(false)} title={dietForm.id ? txt.editDietTitle : txt.addDietTitle} maxWidthClassName="max-w-2xl">
                 <form onSubmit={saveDietItem} className="space-y-4">
-                    <input type="text" required className="input-dark" placeholder={txt.namePlaceholder} value={dietForm.name} onChange={e => setDietForm(prev => ({ ...prev, name: e.target.value }))} />
-                    <input type="text" className="input-dark" placeholder={txt.descriptionPlaceholder} value={dietForm.description} onChange={e => setDietForm(prev => ({ ...prev, description: e.target.value }))} />
-                    <textarea required rows={6} className="input-dark resize-none" placeholder={txt.contentPlaceholder} value={dietForm.content} onChange={e => setDietForm(prev => ({ ...prev, content: e.target.value }))} />
+                    <input type="text" required className="input-dark" placeholder={txt.namePlaceholder} aria-label={txt.namePlaceholder} value={dietForm.name} onChange={e => setDietForm(prev => ({ ...prev, name: e.target.value }))} />
+                    <input type="text" className="input-dark" placeholder={txt.descriptionPlaceholder} aria-label={txt.descriptionPlaceholder} value={dietForm.description} onChange={e => setDietForm(prev => ({ ...prev, description: e.target.value }))} />
+                    <textarea required rows={6} className="input-dark resize-none" placeholder={txt.contentPlaceholder} aria-label={txt.contentPlaceholder} value={dietForm.content} onChange={e => setDietForm(prev => ({ ...prev, content: e.target.value }))} />
                     {isAdmin && (
                         <label className="flex items-center gap-2 text-sm text-muted-foreground">
                             <input type="checkbox" checked={dietForm.is_global} onChange={e => setDietForm(prev => ({ ...prev, is_global: e.target.checked }))} />

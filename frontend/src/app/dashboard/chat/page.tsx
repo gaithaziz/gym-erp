@@ -12,7 +12,8 @@ import { useFeedback } from '@/components/FeedbackProvider';
 import { useLocale } from '@/context/LocaleContext';
 import { useBranch } from '@/context/BranchContext';
 import { getBranchParams } from '@/lib/branch';
-import { isBranchAdminRole } from '@/lib/roles';
+import { matchesSearchQuery } from '@/lib/search';
+import { canUseChatRole, isBranchAdminRole } from '@/lib/roles';
 import { BranchSelector } from '@/components/BranchSelector';
 
 interface ChatUser {
@@ -182,7 +183,7 @@ export default function ChatPage() {
     const initialThread = searchParams.get('thread');
 
     const isAdmin = isBranchAdminRole(user?.role);
-    const isAllowedRole = ['ADMIN', 'MANAGER', 'COACH', 'CUSTOMER'].includes(user?.role || '');
+    const isAllowedRole = canUseChatRole(user?.role);
 
     const [threads, setThreads] = useState<ChatThread[]>([]);
     const [selectedThreadId, setSelectedThreadId] = useState<string | null>(initialThread);
@@ -602,13 +603,7 @@ export default function ChatPage() {
     const coachContacts = contacts.filter((contact) => contact.role === 'COACH');
     const customerContacts = contacts.filter((contact) => contact.role === 'CUSTOMER');
     const availableContacts = user?.role === 'CUSTOMER' ? coachContacts : customerContacts;
-    const filteredContacts = availableContacts.filter((contact) => {
-        const query = contactSearch.trim().toLowerCase();
-        if (!query) return true;
-        const name = (contact.full_name || '').toLowerCase();
-        const email = contact.email.toLowerCase();
-        return name.includes(query) || email.includes(query);
-    });
+    const filteredContacts = availableContacts.filter((contact) => matchesSearchQuery(contactSearch, [contact.full_name, contact.email]));
 
     const txt = {
         unavailable: locale === 'ar' ? 'المحادثة غير متاحة لدورك.' : 'Chat is unavailable for your role.',

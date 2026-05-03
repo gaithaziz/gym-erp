@@ -6,9 +6,10 @@ import { Pressable, StyleSheet, Text, View } from "react-native";
 import { Card, InlineStat, MutedText, PrimaryButton, QueryState, Screen, SecondaryButton, SecondaryLink, SectionTitle, SkeletonBlock, ValueText } from "@/components/ui";
 import { parseAdminHomeEnvelope, parseEnvelope, parseHomeEnvelope, parseMyReservationsEnvelope, parseStaffHomeEnvelope, type ClassReservation, type MobileGamificationStats } from "@/lib/api";
 import { localeTag, localizeAuditAction, localizeFinanceCategory, localizeFinanceTransactionType, localizePaymentMethod, localizeRole, localizeSubscriptionStatus, localizeTicketStatus, localizeWeekday } from "@/lib/mobile-format";
-import { getCurrentRole, isAdminControlRole, isCustomerRole } from "@/lib/mobile-role";
+import { getCurrentRole, isAdminControlRole, isCashierRole, isCoachRole, isCustomerRole, isReceptionDeskRole } from "@/lib/mobile-role";
 import { usePreferences } from "@/lib/preferences";
 import { useSession } from "@/lib/session";
+import type { Role } from "@gym-erp/contracts";
 
 const COACH_HOME_ACTIONS = [
   { id: "shift_qr", route: "/(tabs)/qr" },
@@ -712,10 +713,10 @@ function localizeStaffHomeItemSubtitle(id: unknown, subtitle: unknown, labels: {
   return typeof subtitle === "string" ? subtitle : null;
 }
 
-function getStaffActivityTitle(role: string | undefined, copy: ReturnType<typeof usePreferences>["copy"]) {
-  if (role === "COACH") return copy.staffHome.coachActivity;
-  if (role === "CASHIER") return copy.financeScreen.recentTransactions;
-  if (role === "RECEPTION" || role === "FRONT_DESK") return copy.staffHome.receptionActivity;
+function getStaffActivityTitle(role: Role | null | undefined, copy: ReturnType<typeof usePreferences>["copy"]) {
+  if (isCoachRole(role)) return copy.staffHome.coachActivity;
+  if (isCashierRole(role)) return copy.financeScreen.recentTransactions;
+  if (isReceptionDeskRole(role)) return copy.staffHome.receptionActivity;
   return copy.staffHome.activity;
 }
 

@@ -80,6 +80,7 @@ export default function StaffPage() {
     const initialBranchId = selectedBranchId !== 'all' ? selectedBranchId : branches[0]?.id || '';
     const [staff, setStaff] = useState<StaffMember[]>([]);
     const [loading, setLoading] = useState(true);
+    const [loadError, setLoadError] = useState<string | null>(null);
     const [isAddOpen, setIsAddOpen] = useState(false);
     const [addWizardStep, setAddWizardStep] = useState<1 | 2>(1);
     const [addForm, setAddForm] = useState(() => getDefaultAddForm(initialBranchId));
@@ -328,29 +329,31 @@ export default function StaffPage() {
 
     const fetchStaff = useCallback(async () => {
         setLoading(true);
+        setLoadError(null);
         try {
             const res = await api.get('/hr/staff', { params: getBranchParams(selectedBranchId) });
             setStaff(res.data.data);
-        } catch (err) { console.error(err); }
-        setLoading(false);
-    }, [selectedBranchId]);
+        } catch (err) {
+            console.error(err);
+            setLoadError(locale === 'ar' ? 'فشل تحميل الموظفين.' : 'Failed to load staff.');
+        } finally {
+            setLoading(false);
+        }
+    }, [locale, selectedBranchId]);
 
-    useEffect(() => { setTimeout(() => fetchStaff(), 0); }, [fetchStaff]);
+    useEffect(() => { void fetchStaff(); }, [fetchStaff]);
 
     useEffect(() => {
         if (!isAddOpen) return;
-        const timeoutId = window.setTimeout(() => {
-            setAddForm((current) => {
-                if (current.home_branch_id && branches.some((branch) => branch.id === current.home_branch_id)) {
-                    return current;
-                }
-                return {
-                    ...current,
-                    home_branch_id: initialBranchId,
-                };
-            });
-        }, 0);
-        return () => window.clearTimeout(timeoutId);
+        setAddForm((current) => {
+            if (current.home_branch_id && branches.some((branch) => branch.id === current.home_branch_id)) {
+                return current;
+            }
+            return {
+                ...current,
+                home_branch_id: initialBranchId,
+            };
+        });
     }, [branches, initialBranchId, isAddOpen]);
 
     const closeAddWizard = () => {
@@ -495,7 +498,7 @@ export default function StaffPage() {
         }
     };
 
-    if (loading) return (
+    if (loading && !loadError) return (
         <div className="flex h-64 items-center justify-center">
             <div className="h-8 w-8 animate-spin rounded-full border-4 border-[#FF6B00] border-t-transparent" />
         </div>
@@ -503,6 +506,14 @@ export default function StaffPage() {
 
     return (
         <div className="space-y-8">
+            {loadError ? (
+                <div className="flex items-center justify-between gap-3 rounded-xl border border-destructive/30 bg-destructive/10 px-4 py-3 text-sm text-destructive">
+                    <span>{loadError}</span>
+                    <button type="button" className="btn-ghost !px-2 !py-1 text-xs" onClick={() => void fetchStaff()}>
+                        {locale === 'ar' ? 'إعادة المحاولة' : 'Retry'}
+                    </button>
+                </div>
+            ) : null}
             <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
                 <div>
                     <h1 className="text-2xl font-bold text-foreground">{txt.title}</h1>

@@ -6,7 +6,7 @@ import { useFeedback } from '@/components/FeedbackProvider';
 import { normalizeApiError, reportSystemTabError } from '@/lib/systemTelemetry';
 import { getAccessToken, getRefreshToken, setTokens } from '@/lib/tokenStorage';
 import { usePathname, useRouter, useSearchParams } from 'next/navigation';
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Mail, Search, UserCog } from 'lucide-react';
 import { useLocale } from '@/context/LocaleContext';
 import { useBranch } from '@/context/BranchContext';
@@ -88,6 +88,7 @@ export default function GlobalUserSearchPage() {
     const [gyms, setGyms] = useState<GymOption[]>([]);
     const [impersonationTarget, setImpersonationTarget] = useState<UserResult | null>(null);
     const [supportReason, setSupportReason] = useState('');
+    const fetchSeqRef = useRef(0);
 
     const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
     const branchFilter = selectedBranchId === 'all' ? '' : selectedBranchId;
@@ -163,6 +164,7 @@ export default function GlobalUserSearchPage() {
     }, []);
 
     const fetchUsers = useCallback(async (opts?: { silent?: boolean }) => {
+        const requestSeq = ++fetchSeqRef.current;
         const silent = opts?.silent ?? false;
         if (silent) {
             setRefreshing(true);
@@ -182,6 +184,7 @@ export default function GlobalUserSearchPage() {
                     activity_status: activityFilter || undefined,
                 },
             });
+            if (requestSeq !== fetchSeqRef.current) return;
             const payload = resp.data?.data as UsersPayload | undefined;
             if (payload && Array.isArray(payload.items)) {
                 setResults(payload.items);
@@ -195,6 +198,7 @@ export default function GlobalUserSearchPage() {
             setTotal(legacy.length);
             setLastUpdated(new Date());
         } catch (err) {
+            if (requestSeq !== fetchSeqRef.current) return;
             const message = normalizeApiError(err);
             setError(message);
             setResults([]);
@@ -210,8 +214,10 @@ export default function GlobalUserSearchPage() {
                 limit: PAGE_SIZE,
             });
         } finally {
-            setLoading(false);
-            setRefreshing(false);
+            if (requestSeq === fetchSeqRef.current) {
+                setLoading(false);
+                setRefreshing(false);
+            }
         }
     }, [activityFilter, branchFilter, debouncedQuery, gymFilter, page, roleFilter, showToast]);
 
@@ -356,6 +362,7 @@ export default function GlobalUserSearchPage() {
                                 value={queryInput}
                                 onChange={(e) => setQueryInput(e.target.value)}
                                 placeholder={locale === 'ar' ? 'ابحث بالبريد الإلكتروني أو الاسم...' : 'Search by email or name...'}
+                                aria-label={locale === 'ar' ? 'ابحث بالبريد الإلكتروني أو الاسم' : 'Search by email or name'}
                                 className="input-dark w-full pl-10"
                             />
                         </div>
@@ -608,6 +615,7 @@ export default function GlobalUserSearchPage() {
                                 rows={4}
                                 className="input-dark w-full"
                                 placeholder={locale === 'ar' ? 'اختياري: اكتب سبب هذه الجلسة' : 'Optional: describe why support access is needed'}
+                                aria-label={locale === 'ar' ? 'سبب الدعم' : 'Support reason'}
                             />
                         </div>
                         <div className="flex justify-end gap-3">

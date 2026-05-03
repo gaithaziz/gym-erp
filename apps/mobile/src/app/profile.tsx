@@ -195,9 +195,9 @@ export default function ProfileScreen() {
 
           <Card>
             <SectionTitle>{copy.more.profile}</SectionTitle>
-            <Input value={fullName} onChangeText={setFullName} placeholder={copy.profileScreen.fullName} />
-            <Input value={phone} onChangeText={setPhone} placeholder={copy.profileScreen.phone} keyboardType="phone-pad" />
-            <TextArea value={bio} onChangeText={setBio} placeholder={copy.profileScreen.bio} />
+            <Input value={fullName} onChangeText={setFullName} placeholder={copy.profileScreen.fullName} accessibilityLabel={copy.profileScreen.fullName} />
+            <Input value={phone} onChangeText={setPhone} placeholder={copy.profileScreen.phone} accessibilityLabel={copy.profileScreen.phone} keyboardType="phone-pad" />
+            <TextArea value={bio} onChangeText={setBio} placeholder={copy.profileScreen.bio} accessibilityLabel={copy.profileScreen.bio} />
             <PrimaryButton onPress={() => profileMutation.mutate()} disabled={profileMutation.isPending}>
               {profileMutation.isPending ? copy.profileScreen.savingProfile : copy.profileScreen.saveProfile}
             </PrimaryButton>
@@ -205,8 +205,8 @@ export default function ProfileScreen() {
 
           <Card>
             <SectionTitle>{copy.profileScreen.changePassword}</SectionTitle>
-            <Input value={currentPassword} onChangeText={setCurrentPassword} placeholder={copy.profileScreen.currentPassword} secureTextEntry />
-            <Input value={newPassword} onChangeText={setNewPassword} placeholder={copy.profileScreen.newPassword} secureTextEntry />
+            <Input value={currentPassword} onChangeText={setCurrentPassword} placeholder={copy.profileScreen.currentPassword} accessibilityLabel={copy.profileScreen.currentPassword} secureTextEntry />
+            <Input value={newPassword} onChangeText={setNewPassword} placeholder={copy.profileScreen.newPassword} accessibilityLabel={copy.profileScreen.newPassword} secureTextEntry />
             <PrimaryButton onPress={() => passwordMutation.mutate()} disabled={passwordMutation.isPending || !currentPassword || !newPassword}>
               {passwordMutation.isPending ? copy.profileScreen.changingPassword : copy.profileScreen.changePassword}
             </PrimaryButton>

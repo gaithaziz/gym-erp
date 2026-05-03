@@ -1,7 +1,8 @@
 'use client';
 
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { api } from '@/lib/api';
+import { useDebouncedValue } from '@/lib/useDebouncedValue';
 import { ArrowUpCircle, CheckCircle2, Plus, RotateCcw, Search, Wallet } from 'lucide-react';
 import { useFeedback } from '@/components/FeedbackProvider';
 import { BranchSelector } from '@/components/BranchSelector';
@@ -106,6 +107,9 @@ export default function StaffDebtPage() {
     const [selectedUserId, setSelectedUserId] = useState<string | null>(null);
     const [detail, setDetail] = useState<StaffDebtDetail | null>(null);
     const [search, setSearch] = useState('');
+    const debouncedSearch = useDebouncedValue(search, 300);
+    const listFetchSeqRef = useRef(0);
+    const detailFetchSeqRef = useRef(0);
     const [form, setForm] = useState({
         amount: '',
         month: defaultMonth,
@@ -225,14 +229,16 @@ export default function StaffDebtPage() {
     );
 
     const fetchList = useCallback(async () => {
+        const requestSeq = ++listFetchSeqRef.current;
         setListLoading(true);
         try {
             const res = await api.get('/hr/staff-debt', {
                 params: {
                     ...getBranchParams(selectedBranchId),
-                    ...(search.trim() ? { search: search.trim() } : {}),
+                    ...(debouncedSearch.trim() ? { search: debouncedSearch.trim() } : {}),
                 },
             });
+            if (requestSeq !== listFetchSeqRef.current) return;
             const payload = res.data?.data || {};
             setItems(payload.items || []);
             setSummary(payload.summary || {
@@ -243,24 +249,32 @@ export default function StaffDebtPage() {
                 entries_count: 0,
             });
         } catch (err) {
+            if (requestSeq !== listFetchSeqRef.current) return;
             console.error(err);
             showToast(txt.failedLoad, 'error');
         } finally {
-            setListLoading(false);
-            setLoading(false);
+            if (requestSeq === listFetchSeqRef.current) {
+                setListLoading(false);
+                setLoading(false);
+            }
         }
-    }, [search, selectedBranchId, showToast, txt.failedLoad]);
+    }, [debouncedSearch, selectedBranchId, showToast, txt.failedLoad]);
 
     const fetchDetail = useCallback(async (userId: string) => {
+        const requestSeq = ++detailFetchSeqRef.current;
         setDetailLoading(true);
         try {
             const res = await api.get(`/hr/staff-debt/staff/${userId}`);
+            if (requestSeq !== detailFetchSeqRef.current) return;
             setDetail(res.data?.data || null);
         } catch (err) {
+            if (requestSeq !== detailFetchSeqRef.current) return;
             console.error(err);
             showToast(txt.failedDetail, 'error');
         } finally {
-            setDetailLoading(false);
+            if (requestSeq === detailFetchSeqRef.current) {
+                setDetailLoading(false);
+            }
         }
     }, [showToast, txt.failedDetail]);
 
@@ -319,7 +333,7 @@ export default function StaffDebtPage() {
             const res = await api.get('/hr/staff-debt/export', {
                 params: {
                     ...getBranchParams(selectedBranchId),
-                    ...(search.trim() ? { search: search.trim() } : {}),
+                    ...(debouncedSearch.trim() ? { search: debouncedSearch.trim() } : {}),
                 },
                 responseType: 'blob',
             });
@@ -335,7 +349,7 @@ export default function StaffDebtPage() {
             const res = await api.get('/hr/staff-debt/export-pdf', {
                 params: {
                     ...getBranchParams(selectedBranchId),
-                    ...(search.trim() ? { search: search.trim() } : {}),
+                    ...(debouncedSearch.trim() ? { search: debouncedSearch.trim() } : {}),
                 },
                 responseType: 'blob',
             });
@@ -394,6 +408,7 @@ export default function StaffDebtPage() {
                     <div className="relative w-full sm:w-72">
                         <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
                         <input
+                            aria-label={txt.search}
                             className="input-dark pl-9"
                             placeholder={txt.search}
                             value={search}
@@ -534,6 +549,7 @@ export default function StaffDebtPage() {
                                         <div>
                                             <label className="mb-1 block text-xs font-medium text-muted-foreground">{txt.amount}</label>
                                             <input
+                                                aria-label={txt.amount}
                                                 className="input-dark"
                                                 type="number"
                                                 step="0.01"
@@ -546,6 +562,7 @@ export default function StaffDebtPage() {
                                         <div>
                                             <label className="mb-1 block text-xs font-medium text-muted-foreground">{txt.month}</label>
                                             <input
+                                                aria-label={txt.month}
                                                 className="input-dark"
                                                 type="number"
                                                 min="1"
@@ -557,6 +574,7 @@ export default function StaffDebtPage() {
                                         <div>
                                             <label className="mb-1 block text-xs font-medium text-muted-foreground">{txt.year}</label>
                                             <input
+                                                aria-label={txt.year}
                                                 className="input-dark"
                                                 type="number"
                                                 min="2000"
@@ -568,6 +586,7 @@ export default function StaffDebtPage() {
                                     <div>
                                         <label className="mb-1 block text-xs font-medium text-muted-foreground">{txt.notes}</label>
                                         <textarea
+                                            aria-label={txt.notes}
                                             className="input-dark min-h-[88px]"
                                             value={form.notes}
                                             onChange={(e) => setForm((current) => ({ ...current, notes: e.target.value }))}

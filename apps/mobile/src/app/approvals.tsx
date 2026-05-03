@@ -7,7 +7,7 @@ import type { MobileLeaveApprovalItem, MobileRenewalApprovalItem } from "@gym-er
 import { Card, Input, MutedText, PrimaryButton, QueryState, Screen, SectionTitle, SecondaryButton, TextArea } from "@/components/ui";
 import { parseAdminApprovalsEnvelope, parseApprovalActionResultEnvelope } from "@/lib/api";
 import { localeTag, localizePaymentMethod } from "@/lib/mobile-format";
-import { getCurrentRole, isAdminControlRole } from "@/lib/mobile-role";
+import { getCurrentRole, isAdminControlRole, isCoachRole } from "@/lib/mobile-role";
 import { usePreferences } from "@/lib/preferences";
 import { useSession } from "@/lib/session";
 
@@ -118,7 +118,7 @@ export default function ApprovalsScreen() {
   });
 
 
-  if (!adminControl && role !== "COACH") {
+  if (!adminControl && !isCoachRole(role)) {
     return (
       <Screen title={copy.adminControl.approvalQueue} subtitle={copy.adminControl.subtitle} showSubtitle>
         <Card>

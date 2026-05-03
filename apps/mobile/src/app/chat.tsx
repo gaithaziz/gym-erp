@@ -21,9 +21,11 @@ import { Card, Input, MediaPreview, MutedText, QueryState, Screen } from "@/comp
 import { classifyChatAttachment, isImageMime, resolveMediaUri } from "@/lib/chat-media";
 import { pickImageOrVideoFromLibrary, type PickedMedia } from "@/lib/media-picker";
 import { localeTag, localizeMessageType, localizeRole } from "@/lib/mobile-format";
-import { getCurrentRole, isAdminControlRole } from "@/lib/mobile-role";
+import { getCurrentRole, isAdminControlRole, isCoachRole } from "@/lib/mobile-role";
+import { matchesSearchQuery } from "@/lib/search";
 import { usePreferences } from "@/lib/preferences";
 import { useSession } from "@/lib/session";
+import type { Role } from "@gym-erp/contracts";
 
 import { useAudioPlayer, useAudioPlayerStatus, useAudioRecorder, useAudioRecorderState, RecordingPresets, requestRecordingPermissionsAsync, setAudioModeAsync } from "expo-audio";
 
@@ -68,11 +70,11 @@ function formatDuration(totalSeconds: number | null | undefined) {
   return `${minutes}:${String(seconds).padStart(2, "0")}`;
 }
 
-function formatThreadName(thread: Thread | null | undefined, role: string | null, copy: ReturnType<typeof usePreferences>["copy"]) {
+function formatThreadName(thread: Thread | null | undefined, role: Role | null, copy: ReturnType<typeof usePreferences>["copy"]) {
   if (!thread) return copy.common.chat;
   const customerName = thread.customer.full_name || copy.common.customer;
   const coachName = thread.coach.full_name || copy.common.coach;
-  if (role === "COACH") return customerName;
+  if (isCoachRole(role)) return customerName;
   if (role === "CUSTOMER") return coachName;
   return `${customerName} - ${coachName}`;
 }
@@ -385,6 +387,22 @@ export default function ChatScreen() {
   }, [contactsQuery, readOnly, showNewChatPanel]);
 
   useEffect(() => {
+    setSelectedCoachId(null);
+    setSelectedThreadId(null);
+    setShowNewChatPanel(false);
+    setContactDropdownOpen(false);
+    setThreadDropdownOpen(false);
+    setContactSearch("");
+    setThreadSearch("");
+    setMessageText("");
+    setFeedback(null);
+    setPendingPhotoUpload(null);
+    setPendingPhotoCaption("");
+    setPendingVoiceUpload(null);
+    setOpenPhotoUri(null);
+  }, [selectedBranchId]);
+
+  useEffect(() => {
     if (!readOnly && params.contactId && typeof params.contactId === "string") {
       setSelectedCoachId(params.contactId);
       setShowNewChatPanel(true);
@@ -393,15 +411,7 @@ export default function ChatScreen() {
 
   const deferredContactSearch = useDeferredValue(contactSearch);
   const filteredContacts = useMemo(() => {
-    const query = deferredContactSearch.trim().toLowerCase();
-    if (!query) {
-      return contacts;
-    }
-    return contacts.filter((contact) => {
-      const name = (contact.full_name || "").toLowerCase();
-      const email = contact.email.toLowerCase();
-      return name.includes(query) || email.includes(query);
-    });
+    return contacts.filter((contact) => matchesSearchQuery(deferredContactSearch, [contact.full_name, contact.email]));
   }, [contacts, deferredContactSearch]);
 
   const threadsQuery = useQuery({
@@ -411,18 +421,10 @@ export default function ChatScreen() {
   const threads = useMemo(() => threadsQuery.data ?? [], [threadsQuery.data]);
   const deferredThreadSearch = useDeferredValue(threadSearch);
   const filteredThreads = useMemo(() => {
-    const query = deferredThreadSearch.trim().toLowerCase();
-    if (!query) {
-      return threads;
-    }
-    return threads.filter((thread) => {
-      const name = (
-        role === "COACH" ? thread.customer.full_name || "" : thread.coach.full_name || ""
-      ).toLowerCase();
-      const emailish = role === "COACH" ? thread.customer.full_name || "" : thread.coach.full_name || "";
-      const preview = thread.last_message?.text_content?.toLowerCase() || "";
-      return name.includes(query) || emailish.toLowerCase().includes(query) || preview.includes(query);
-    });
+    return threads.filter((thread) => matchesSearchQuery(deferredThreadSearch, [
+      isCoachRole(role) ? thread.customer.full_name : thread.coach.full_name,
+      thread.last_message?.text_content,
+    ]));
   }, [deferredThreadSearch, role, threads]);
 
   useEffect(() => {
@@ -430,7 +432,7 @@ export default function ChatScreen() {
       setSelectedThreadId(null);
       return;
     }
-    if (role === "COACH" && params.memberId && typeof params.memberId === "string") {
+    if (isCoachRole(role) && params.memberId && typeof params.memberId === "string") {
       const matchingThread = threads.find((thread) => thread.customer.id === params.memberId);
       if (matchingThread) {
         setSelectedThreadId(matchingThread.id);
@@ -483,7 +485,7 @@ export default function ChatScreen() {
       }
       return authorizedRequest<{ id: string }>("/mobile/chat/threads", {
         method: "POST",
-        body: JSON.stringify(role === "COACH" ? { customer_id: selectedCoachId } : { coach_id: selectedCoachId }),
+        body: JSON.stringify(isCoachRole(role) ? { customer_id: selectedCoachId } : { coach_id: selectedCoachId }),
       });
     },
     onSuccess: async (payload) => {
@@ -763,6 +765,7 @@ export default function ChatScreen() {
                       value={threadSearch}
                       onChangeText={setThreadSearch}
                       placeholder={copy.chatScreen.searchThreadsPlaceholder}
+                      accessibilityLabel={copy.chatScreen.searchThreadsPlaceholder}
                       style={styles.threadDropdownSearch}
                     />
                     <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.coachList}>
@@ -854,7 +857,7 @@ export default function ChatScreen() {
                         <Ionicons name={threadDropdownOpen ? "chevron-up" : "chevron-down"} size={18} color={theme.primary} />
                       </Pressable>
                       <View style={styles.headerActionsStack}>
-                        {role === "COACH" && selectedThread?.customer.id ? (
+                        {isCoachRole(role) && selectedThread?.customer.id ? (
                           <Pressable
                             onPress={() => router.push({ pathname: "/(tabs)/members", params: { memberId: selectedThread.customer.id! } })}
                             style={[styles.threadActionButton, { backgroundColor: theme.cardAlt, borderColor: theme.border }]}
@@ -1021,6 +1024,7 @@ export default function ChatScreen() {
                         value={messageText}
                         onChangeText={setMessageText}
                         placeholder={copy.chatScreen.messagePlaceholder}
+                        accessibilityLabel={copy.chatScreen.messagePlaceholder}
                         multiline
                         onContentSizeChange={(event) => {
                           const nextHeight = Math.max(44, Math.min(120, event.nativeEvent.contentSize.height + 14));
@@ -1192,6 +1196,7 @@ export default function ChatScreen() {
                           }}
                           onFocus={() => setContactDropdownOpen(true)}
                           placeholder={copy.chatScreen.searchContactsPlaceholder}
+                          accessibilityLabel={copy.chatScreen.searchContactsPlaceholder}
                         />
                         <Pressable
                           onPress={() => setContactDropdownOpen((current) => !current)}

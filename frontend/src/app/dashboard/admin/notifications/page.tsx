@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { MessageSquare, RefreshCw, Save, Trash2 } from 'lucide-react';
 
 import { api } from '@/lib/api';
@@ -68,6 +68,7 @@ export default function WhatsAppAutomationPage() {
     const [deletingEventType, setDeletingEventType] = useState<string | null>(null);
     const [creating, setCreating] = useState(false);
     const [logsPage, setLogsPage] = useState(1);
+    const loadSeqRef = useRef(0);
     const [newRule, setNewRule] = useState({
         event_type: '',
         trigger_name: '',
@@ -173,18 +174,27 @@ export default function WhatsAppAutomationPage() {
     }, [logs.length]);
 
     const loadAll = useCallback(async () => {
+        const requestSeq = ++loadSeqRef.current;
         setLoading(true);
         try {
             const [rulesRes, logsRes] = await Promise.all([
                 api.get('/admin/notifications/automation-rules'),
                 api.get('/admin/notifications/whatsapp-logs', { params: { limit: 12 } }),
             ]);
+            if (requestSeq !== loadSeqRef.current) {
+                return;
+            }
             setRules(rulesRes.data.data || []);
             setLogs(logsRes.data.data || []);
         } catch {
+            if (requestSeq !== loadSeqRef.current) {
+                return;
+            }
             showToast(txt.loadFailed, 'error');
         } finally {
-            setLoading(false);
+            if (requestSeq === loadSeqRef.current) {
+                setLoading(false);
+            }
         }
     }, [showToast, txt.loadFailed]);
 
@@ -342,6 +352,7 @@ export default function WhatsAppAutomationPage() {
                         <div>
                             <label className="block text-xs font-medium text-muted-foreground mb-1.5">{txt.eventType}</label>
                             <input
+                                aria-label={txt.eventType}
                                 value={newRule.event_type}
                                 className="input-dark"
                                 placeholder={txt.ruleNamePlaceholder}
@@ -351,6 +362,7 @@ export default function WhatsAppAutomationPage() {
                         <div>
                             <label className="block text-xs font-medium text-muted-foreground mb-1.5">{txt.triggerName}</label>
                             <input
+                                aria-label={txt.triggerName}
                                 value={newRule.trigger_name}
                                 className="input-dark"
                                 placeholder={txt.humanReadableTrigger}
@@ -360,6 +372,7 @@ export default function WhatsAppAutomationPage() {
                         <div>
                             <label className="block text-xs font-medium text-muted-foreground mb-1.5">{txt.templateKey}</label>
                             <input
+                                aria-label={txt.templateKey}
                                 value={newRule.template_key}
                                 className="input-dark"
                                 placeholder={templateKeyPlaceholder}
@@ -370,6 +383,7 @@ export default function WhatsAppAutomationPage() {
                     <div>
                         <label className="block text-xs font-medium text-muted-foreground mb-1.5">{txt.messageTemplate}</label>
                         <textarea
+                            aria-label={txt.messageTemplate}
                             value={newRule.message_template}
                             className="input-dark min-h-20"
                             onChange={(e) => setNewRule((prev) => ({ ...prev, message_template: e.target.value }))}
@@ -390,6 +404,7 @@ export default function WhatsAppAutomationPage() {
                     <div className="flex items-center justify-between">
                         <label className="inline-flex items-center gap-2 text-xs text-muted-foreground">
                             <input
+                                aria-label={txt.enabledOnCreate}
                                 type="checkbox"
                                 checked={newRule.is_enabled}
                                 onChange={(e) => setNewRule((prev) => ({ ...prev, is_enabled: e.target.checked }))}
@@ -412,6 +427,7 @@ export default function WhatsAppAutomationPage() {
                             </div>
                             <label className="inline-flex items-center gap-2 text-xs text-muted-foreground">
                                 <input
+                                    aria-label={txt.enabled}
                                     type="checkbox"
                                     checked={rule.is_enabled}
                                     onChange={(e) => updateRule(rule.event_type, { is_enabled: e.target.checked })}
@@ -423,6 +439,7 @@ export default function WhatsAppAutomationPage() {
                             <div>
                                 <label className="block text-xs font-medium text-muted-foreground mb-1.5">{txt.triggerName}</label>
                                 <input
+                                    aria-label={txt.triggerName}
                                     value={rule.trigger_name}
                                     className="input-dark"
                                     onChange={(e) => updateRule(rule.event_type, { trigger_name: e.target.value })}
@@ -431,6 +448,7 @@ export default function WhatsAppAutomationPage() {
                             <div>
                                 <label className="block text-xs font-medium text-muted-foreground mb-1.5">{txt.templateKey}</label>
                                 <input
+                                    aria-label={txt.templateKey}
                                     value={rule.template_key}
                                     className="input-dark"
                                     onChange={(e) => updateRule(rule.event_type, { template_key: e.target.value })}
@@ -440,6 +458,7 @@ export default function WhatsAppAutomationPage() {
                         <div>
                             <label className="block text-xs font-medium text-muted-foreground mb-1.5">{txt.messageTemplate}</label>
                             <textarea
+                                aria-label={txt.messageTemplate}
                                 value={rule.message_template || ''}
                                 className="input-dark min-h-24"
                                 onChange={(e) => updateRule(rule.event_type, { message_template: e.target.value })}
@@ -528,4 +547,3 @@ export default function WhatsAppAutomationPage() {
         </div>
     );
 }
-

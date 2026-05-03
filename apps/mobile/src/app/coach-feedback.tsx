@@ -6,7 +6,7 @@ import { Pressable, Text, View } from "react-native";
 import { Card, MediaPreview, MutedText, QueryState, Screen, SectionTitle, SecondaryButton } from "@/components/ui";
 import { parseCoachFeedbackEnvelope } from "@/lib/api";
 import { localeTag } from "@/lib/mobile-format";
-import { getCurrentRole } from "@/lib/mobile-role";
+import { canReviewCoachSessions, getCurrentRole, isCoachRole } from "@/lib/mobile-role";
 import { usePreferences } from "@/lib/preferences";
 import { useSession } from "@/lib/session";
 
@@ -18,8 +18,8 @@ export default function CoachFeedbackScreen() {
   const [expandedSessionId, setExpandedSessionId] = useState<string | null>(null);
   const locale = localeTag(isRTL);
   const role = getCurrentRole(bootstrap);
-  const canReviewSessions = role === "ADMIN" || role === "COACH";
-  const canAdjustPlans = role === "COACH";
+  const canReviewSessions = canReviewCoachSessions(role);
+  const canAdjustPlans = isCoachRole(role);
   const feedbackQuery = useQuery({
     queryKey: ["mobile-coach-feedback", selectedBranchId ?? "all"],
     queryFn: async () => {

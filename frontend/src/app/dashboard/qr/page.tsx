@@ -409,10 +409,12 @@ export default function QRCodePage() {
                         value={detectedScan?.kioskId || ''}
                         onChange={(e) => setDetectedScan((prev) => (prev ? { ...prev, kioskId: e.target.value } : prev))}
                         placeholder={txt.scanAutofill}
+                        aria-label={txt.scanAutofill}
                         className="input-dark sm:col-span-2 font-mono"
                     />
                     <select
                         className="input-dark font-mono"
+                        aria-label={txt.detectedQr}
                         value={detectedScan?.kind || manualMode}
                         onChange={(e) => setDetectedScan((prev) => (prev ? { ...prev, kind: e.target.value as ScanKind } : prev))}
                         disabled={!detectedScan}
@@ -443,9 +445,10 @@ export default function QRCodePage() {
                         value={manualKioskId}
                         onChange={(e) => setManualKioskId(e.target.value)}
                         placeholder={txt.enterKioskManually}
+                        aria-label={txt.enterKioskManually}
                         className="input-dark sm:col-span-2 font-mono"
                     />
-                    <select className="input-dark font-mono" value={manualMode} onChange={(e) => setManualMode(e.target.value as ScanKind)}>
+                    <select className="input-dark font-mono" aria-label={txt.manualFallback} value={manualMode} onChange={(e) => setManualMode(e.target.value as ScanKind)}>
                         <option value="client_entry">{txt.clientEntry}</option>
                         <option value="staff_check_in">{txt.staffIn}</option>
                         <option value="staff_check_out">{txt.staffOut}</option>

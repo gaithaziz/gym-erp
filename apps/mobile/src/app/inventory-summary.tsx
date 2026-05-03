@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useMemo, useState, type ComponentProps } from "react";
+import { useEffect, useMemo, useState, type ComponentProps } from "react";
 import { Pressable, StyleSheet, Text, View } from "react-native";
 import type { MobileInventoryProduct } from "@gym-erp/contracts";
 
@@ -8,6 +8,7 @@ import { parseAdminInventorySummaryEnvelope, parseInventoryProductEnvelope, pars
 import { getCurrentRole, isAdminControlRole } from "@/lib/mobile-role";
 import { usePreferences } from "@/lib/preferences";
 import { useSession } from "@/lib/session";
+import { useDebouncedValue } from "@/lib/useDebouncedValue";
 
 const CATEGORIES = ["SUPPLEMENT", "DRINK", "MERCHANDISE", "SNACK", "OTHER"] as const;
 const STATUS_FILTERS = ["active", "inactive", "all"] as const;
@@ -41,6 +42,7 @@ export default function InventorySummaryScreen() {
   const adminControl = isAdminControlRole(role);
   const queryClient = useQueryClient();
   const [search, setSearch] = useState("");
+  const debouncedSearch = useDebouncedValue(search, 300);
   const [statusFilter, setStatusFilter] = useState<(typeof STATUS_FILTERS)[number]>("all");
   const [categoryFilter, setCategoryFilter] = useState<"ALL" | (typeof CATEGORIES)[number]>("ALL");
   const [selectedId, setSelectedId] = useState<string | null>(null);
@@ -59,8 +61,8 @@ export default function InventorySummaryScreen() {
   const productQueryString = useMemo(() => {
     const params = new URLSearchParams();
     params.set("status_filter", statusFilter);
-    if (search.trim()) {
-      params.set("search", search.trim());
+    if (debouncedSearch.trim()) {
+      params.set("search", debouncedSearch.trim());
     }
     if (categoryFilter !== "ALL") {
       params.set("category", categoryFilter);
@@ -69,13 +71,22 @@ export default function InventorySummaryScreen() {
       params.set("branch_id", selectedBranchId);
     }
     return params.toString();
-  }, [categoryFilter, search, selectedBranchId, statusFilter]);
+  }, [categoryFilter, debouncedSearch, selectedBranchId, statusFilter]);
 
   const productsQuery = useQuery({
     queryKey: ["mobile-admin-inventory-products", productQueryString, role],
     enabled: adminControl,
     queryFn: async () => parseInventoryProductsEnvelope(await authorizedRequest(`/mobile/admin/inventory/products?${productQueryString}`)).data,
   });
+
+  useEffect(() => {
+    setSearch("");
+    setStatusFilter("all");
+    setCategoryFilter("ALL");
+    setSelectedId(null);
+    setForm(EMPTY_FORM);
+    setFeedback(null);
+  }, [selectedBranchId]);
 
   async function invalidateInventory() {
     await Promise.all([
@@ -157,7 +168,7 @@ export default function InventorySummaryScreen() {
 
       <Card>
         <SectionTitle>{copy.adminControl.inventory}</SectionTitle>
-        <Input value={search} onChangeText={setSearch} placeholder={copy.adminControl.searchProducts} />
+        <Input value={search} onChangeText={setSearch} placeholder={copy.adminControl.searchProducts} accessibilityLabel={copy.adminControl.searchProducts} />
         <ChipRow items={STATUS_FILTERS.map((item) => ({ id: item, label: statusLabel(item, copy) }))} activeId={statusFilter} onSelect={(id) => setStatusFilter(id as typeof statusFilter)} />
         <ChipRow
           items={["ALL", ...CATEGORIES].map((item) => ({ id: item, label: item === "ALL" ? copy.adminControl.allProducts : productCategoryLabel(item, copy) }))}

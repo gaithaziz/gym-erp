@@ -11,6 +11,7 @@ import { API_BASE_URL, parseClassSessionsEnvelope, parseCoachPlansEnvelope } fro
 import { pickImageOrVideoFromLibrary } from "@/lib/media-picker";
 import { localizePlanStatus } from "@/lib/mobile-format";
 import { getCurrentRole } from "@/lib/mobile-role";
+import { matchesSearchQuery } from "@/lib/search";
 import { usePreferences } from "@/lib/preferences";
 import { useSession } from "@/lib/session";
 import { getPlanSectionNames, resolveSelectedSection } from "@/lib/workout-plan-selection";
@@ -1103,11 +1104,13 @@ function CustomerPlansTab() {
     ).catch(() => undefined);
   }, [activeDraftQuery.data?.id, currentEntry?.id, exerciseForm, setRows, sessionDuration, sessionNotes, sessionRpe, painLevel, effortFeedback, sessionAttachment]);
 
+  const restTimerActive = restSeconds > 0;
+
   useEffect(() => {
-    if (restSeconds <= 0) return;
+    if (!restTimerActive) return;
     const timer = setInterval(() => setRestSeconds((current) => Math.max(0, current - 1)), 1000);
     return () => clearInterval(timer);
-  }, [restSeconds]);
+  }, [restTimerActive]);
 
   const workoutActionPending =
     startMutation.isPending || completeMutation.isPending || skipMutation.isPending || previousMutation.isPending || finishMutation.isPending || abandonMutation.isPending;
@@ -1618,6 +1621,27 @@ function CoachPlansTab() {
       return parseClassSessionsEnvelope(await authorizedRequest(`/classes/sessions${suffix}`)).data;
     },
   });
+
+  useEffect(() => {
+    setCreatingWorkout(false);
+    setCreatingDiet(false);
+    setSelectedWorkoutId(null);
+    setSelectedDietId(null);
+    setWorkoutDropdownOpen(false);
+    setDietDropdownOpen(false);
+    setWorkoutSearch("");
+    setDietSearch("");
+    setExerciseVideoPreview(null);
+    setPlanActionNotice(null);
+    setWorkoutName("");
+    setWorkoutDescription("");
+    setWorkoutExpectedSessions("12");
+    setExerciseRows([{ id: createRowId(), section_name: "Warm-up", exercise_name: "", sets: 3, reps: 10, order: 0 }]);
+    setDietName("");
+    setDietDescription("");
+    setDietContent("");
+    setDietDays([defaultDietDay()]);
+  }, [selectedBranchId]);
 
   const workoutPlans = useMemo(() => coachPlansQuery.data?.workouts ?? [], [coachPlansQuery.data?.workouts]);
   const dietPlans = useMemo(() => coachPlansQuery.data?.diets ?? [], [coachPlansQuery.data?.diets]);
@@ -2355,11 +2379,7 @@ type SearchablePlanOption = {
 };
 
 function matchesPlanSearch(plan: SearchablePlanOption, search: string, templateLabel: string) {
-  const needle = search.trim().toLowerCase();
-  if (!needle) return true;
-  return [plan.name, plan.member_name, plan.status, plan.is_template ? templateLabel : null]
-    .filter(Boolean)
-    .some((value) => String(value).toLowerCase().includes(needle));
+  return matchesSearchQuery(search, [plan.name, plan.member_name, plan.status, plan.is_template ? templateLabel : null]);
 }
 
 function SearchablePlanDropdown({

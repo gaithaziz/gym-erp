@@ -251,6 +251,7 @@ export default function BillingScreen() {
               value={customerNote}
               onChangeText={setCustomerNote}
               placeholder={copy.billingScreen.customerNotePlaceholder}
+              accessibilityLabel={copy.billingScreen.customerNotePlaceholder}
             />
             {requestError ? <Text style={styles.errorText}>{requestError}</Text> : null}
             <PrimaryButton onPress={() => renewalMutation.mutate()} disabled={renewalMutation.isPending}>

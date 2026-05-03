@@ -90,6 +90,7 @@ export default function AttendancePage() {
     const [totalLogs, setTotalLogs] = useState(0);
     const [page, setPage] = useState(1);
     const [loading, setLoading] = useState(true);
+    const [loadError, setLoadError] = useState<string | null>(null);
     const [editingId, setEditingId] = useState<string | null>(null);
     const [editIn, setEditIn] = useState('');
     const [editOut, setEditOut] = useState('');
@@ -114,6 +115,7 @@ export default function AttendancePage() {
             return;
         }
         setLoading(true);
+        setLoadError(null);
         try {
             const params: Record<string, string | number> = {
                 limit: PAGE_SIZE,
@@ -130,12 +132,14 @@ export default function AttendancePage() {
             setLogs(res.data.data);
             setTotalLogs(Number(res.headers['x-total-count'] || 0));
         } catch {
+            setLoadError(txt.loadFailed);
             showToast(txt.loadFailed, 'error');
+        } finally {
+            setLoading(false);
         }
-        setLoading(false);
     }, [PAGE_SIZE, datePreset, endDate, page, showToast, startDate, txt.loadFailed, txt.startAfterEnd, selectedBranchId]);
 
-    useEffect(() => { setTimeout(() => fetchLogs(), 0); }, [fetchLogs]);
+    useEffect(() => { void fetchLogs(); }, [fetchLogs]);
 
     const filteredLogs = logs;
     const totalPages = Math.max(1, Math.ceil(totalLogs / PAGE_SIZE));
@@ -245,7 +249,7 @@ export default function AttendancePage() {
         w.document.close();
     };
 
-    if (loading) return (
+    if (loading && !loadError) return (
         <div className="flex h-64 items-center justify-center">
             <div className="h-8 w-8 animate-spin rounded-full border-4 border-[#FF6B00] border-t-transparent" />
         </div>
@@ -253,6 +257,14 @@ export default function AttendancePage() {
 
     return (
         <div className="space-y-8">
+            {loadError ? (
+                <div className="flex items-center justify-between gap-3 rounded-xl border border-destructive/30 bg-destructive/10 px-4 py-3 text-sm text-destructive">
+                    <span>{loadError}</span>
+                    <button type="button" className="btn-ghost !px-2 !py-1 text-xs" onClick={() => void fetchLogs()}>
+                        {locale === 'ar' ? 'إعادة المحاولة' : 'Retry'}
+                    </button>
+                </div>
+            ) : null}
             <div>
                 <h1 className="text-2xl font-bold text-foreground">{txt.attendanceTimesheet}</h1>
                 <p className="text-sm text-muted-foreground mt-1">{txt.attendanceSubtitle}</p>

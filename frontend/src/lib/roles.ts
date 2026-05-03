@@ -1,5 +1,23 @@
 export const BRANCH_ADMIN_ROLES = ['ADMIN', 'MANAGER'] as const;
 export const GLOBAL_ADMIN_ROLES = ['SUPER_ADMIN'] as const;
+export const MEMBER_MANAGEMENT_ROLES = ['ADMIN', 'MANAGER', 'RECEPTION', 'FRONT_DESK'] as const;
+export const PACKAGE_MANAGEMENT_ROLES = ['ADMIN', 'MANAGER'] as const;
+export const COACH_FEEDBACK_ROLES = ['ADMIN', 'MANAGER', 'COACH'] as const;
+export const COACH_PACKAGE_ROLES = ['ADMIN', 'MANAGER', 'COACH', 'CUSTOMER'] as const;
+export const COACH_PLAN_ROLES = ['ADMIN', 'MANAGER', 'COACH'] as const;
+export const COACH_MESSAGE_ROLES = ['ADMIN', 'COACH'] as const;
+export const CHAT_ACCESS_ROLES = ['COACH', 'CUSTOMER', ...BRANCH_ADMIN_ROLES] as const;
+export const SUPPORT_FEED_ROLES = ['CUSTOMER', ...BRANCH_ADMIN_ROLES, 'RECEPTION', 'FRONT_DESK'] as const;
+export const LOST_FOUND_FEED_ROLES = [...BRANCH_ADMIN_ROLES, 'FRONT_DESK', 'RECEPTION', 'COACH', 'EMPLOYEE', 'CASHIER', 'CUSTOMER'] as const;
 
 export const isBranchAdminRole = (role?: string | null) => Boolean(role && BRANCH_ADMIN_ROLES.includes(role as (typeof BRANCH_ADMIN_ROLES)[number]));
 export const isGlobalAdminRole = (role?: string | null) => Boolean(role && GLOBAL_ADMIN_ROLES.includes(role as (typeof GLOBAL_ADMIN_ROLES)[number]));
+export const canManageMembersRole = (role?: string | null) => Boolean(role && MEMBER_MANAGEMENT_ROLES.includes(role as (typeof MEMBER_MANAGEMENT_ROLES)[number]));
+export const canManagePackagesRole = (role?: string | null) => Boolean(role && PACKAGE_MANAGEMENT_ROLES.includes(role as (typeof PACKAGE_MANAGEMENT_ROLES)[number]));
+export const canReviewCoachSessionsRole = (role?: string | null) => Boolean(role && COACH_FEEDBACK_ROLES.includes(role as (typeof COACH_FEEDBACK_ROLES)[number]));
+export const canUseCoachPackagesRole = (role?: string | null) => Boolean(role && COACH_PACKAGE_ROLES.includes(role as (typeof COACH_PACKAGE_ROLES)[number]));
+export const canAssignCoachPlansRole = (role?: string | null) => Boolean(role && COACH_PLAN_ROLES.includes(role as (typeof COACH_PLAN_ROLES)[number]));
+export const canMessageCoachClientsRole = (role?: string | null) => Boolean(role && COACH_MESSAGE_ROLES.includes(role as (typeof COACH_MESSAGE_ROLES)[number]));
+export const canUseChatRole = (role?: string | null) => Boolean(role && CHAT_ACCESS_ROLES.includes(role as (typeof CHAT_ACCESS_ROLES)[number]));
+export const canAccessSupportFeedRole = (role?: string | null) => Boolean(role && SUPPORT_FEED_ROLES.includes(role as (typeof SUPPORT_FEED_ROLES)[number]));
+export const canAccessLostFoundFeedRole = (role?: string | null) => Boolean(role && LOST_FOUND_FEED_ROLES.includes(role as (typeof LOST_FOUND_FEED_ROLES)[number]));

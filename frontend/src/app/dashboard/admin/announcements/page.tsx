@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { BellPlus, RefreshCw, Save, Send } from 'lucide-react';
 import { api } from '@/lib/api';
 import { useAuth } from '@/context/AuthContext';
@@ -40,10 +40,12 @@ export default function AdminAnnouncementsPage() {
     const [localBranches, setLocalBranches] = useState<typeof branches>([]);
     const [branchFetchAttempted, setBranchFetchAttempted] = useState(false);
     const [loading, setLoading] = useState(true);
+    const [loadError, setLoadError] = useState<string | null>(null);
     const [isSaving, setIsSaving] = useState(false);
     const [form, setForm] = useState(DEFAULT_FORM);
     const [announcementBranchId, setAnnouncementBranchId] = useState('all');
     const resolvedBranches = branches.length ? branches : localBranches;
+    const loadSeqRef = useRef(0);
 
     useEffect(() => {
         if (form.target_scope !== 'BRANCH') {
@@ -143,14 +145,26 @@ export default function AdminAnnouncementsPage() {
         };
 
     const loadItems = useCallback(async () => {
+        const requestSeq = ++loadSeqRef.current;
         setLoading(true);
+        setLoadError(null);
         try {
             const response = await api.get('/admin/announcements');
+            if (requestSeq !== loadSeqRef.current) {
+                return;
+            }
             setItems(response.data?.data || []);
         } catch {
-            showToast(locale === 'ar' ? 'فشل في تحميل الإعلانات.' : 'Failed to load announcements.', 'error');
+            if (requestSeq !== loadSeqRef.current) {
+                return;
+            }
+            const message = locale === 'ar' ? 'فشل في تحميل الإعلانات.' : 'Failed to load announcements.';
+            setLoadError(message);
+            showToast(message, 'error');
         } finally {
-            setLoading(false);
+            if (requestSeq === loadSeqRef.current) {
+                setLoading(false);
+            }
         }
     }, [locale, showToast]);
 
@@ -224,11 +238,11 @@ export default function AdminAnnouncementsPage() {
                 <div className="grid gap-4 md:grid-cols-2">
                     <div>
                         <label className="mb-1.5 block text-xs font-medium text-muted-foreground">{txt.titleLabel}</label>
-                        <input className="input-dark" value={form.title} onChange={(event) => setForm((current) => ({ ...current, title: event.target.value }))} />
+                        <input aria-label={txt.titleLabel} className="input-dark" value={form.title} onChange={(event) => setForm((current) => ({ ...current, title: event.target.value }))} />
                     </div>
                     <div>
                         <label className="mb-1.5 block text-xs font-medium text-muted-foreground">{txt.audience}</label>
-                        <select className="input-dark" value={form.audience} onChange={(event) => setForm((current) => ({ ...current, audience: event.target.value as Announcement['audience'] }))}>
+                        <select aria-label={txt.audience} className="input-dark" value={form.audience} onChange={(event) => setForm((current) => ({ ...current, audience: event.target.value as Announcement['audience'] }))}>
                             <option value="ALL">{txt.all}</option>
                             <option value="CUSTOMERS">{txt.customers}</option>
                             <option value="COACHES">{txt.coaches}</option>
@@ -240,6 +254,7 @@ export default function AdminAnnouncementsPage() {
                     <div>
                         <label className="mb-1.5 block text-xs font-medium text-muted-foreground">{txt.targetScope}</label>
                         <select
+                            aria-label={txt.targetScope}
                             className="input-dark"
                             value={form.target_scope}
                             onChange={(event) => {
@@ -272,10 +287,10 @@ export default function AdminAnnouncementsPage() {
                 </div>
                 <div>
                     <label className="mb-1.5 block text-xs font-medium text-muted-foreground">{txt.bodyLabel}</label>
-                    <textarea className="input-dark min-h-32" value={form.body} onChange={(event) => setForm((current) => ({ ...current, body: event.target.value }))} />
+                    <textarea aria-label={txt.bodyLabel} className="input-dark min-h-32" value={form.body} onChange={(event) => setForm((current) => ({ ...current, body: event.target.value }))} />
                 </div>
                 <label className="flex items-center gap-2 text-sm text-muted-foreground">
-                    <input type="checkbox" checked={form.push_enabled} onChange={(event) => setForm((current) => ({ ...current, push_enabled: event.target.checked }))} />
+                    <input aria-label={txt.pushEnabled} type="checkbox" checked={form.push_enabled} onChange={(event) => setForm((current) => ({ ...current, push_enabled: event.target.checked }))} />
                     {txt.pushEnabled}
                 </label>
                 <div className="flex justify-end">
@@ -288,7 +303,17 @@ export default function AdminAnnouncementsPage() {
 
             <div className="space-y-4">
                 {loading ? (
-                    <div className="kpi-card p-6 text-sm text-muted-foreground">Loading...</div>
+                    <div className="kpi-card p-6 text-sm text-muted-foreground">
+                        {locale === 'ar' ? 'جارٍ تحميل الإعلانات...' : 'Loading announcements...'}
+                    </div>
+                ) : loadError ? (
+                    <div className="kpi-card p-6 space-y-3 border border-red-500/20 bg-red-500/5">
+                        <p className="text-sm font-semibold text-foreground">{loadError}</p>
+                        <button type="button" onClick={() => void loadItems()} className="btn-secondary">
+                            <RefreshCw size={16} />
+                            {txt.refresh}
+                        </button>
+                    </div>
                 ) : items.length ? (
                     items.map((item) => (
                         <div key={item.id} className="kpi-card p-6">

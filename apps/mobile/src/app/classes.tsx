@@ -13,7 +13,7 @@ import {
   type ClassSession,
 } from "@/lib/api";
 import { usePreferences } from "@/lib/preferences";
-import { getCurrentRole, isCustomerRole } from "@/lib/mobile-role";
+import { canManageClasses, getCurrentRole, isCoachRole, isCustomerRole } from "@/lib/mobile-role";
 import { useSession } from "@/lib/session";
 
 type StaffUser = {
@@ -162,7 +162,7 @@ export default function ClassesScreen() {
     return <CustomerClassesScreen />;
   }
 
-  if (role === "ADMIN" || role === "MANAGER" || role === "COACH") {
+  if (canManageClasses(role)) {
     return <StaffClassesScreen />;
   }
 
@@ -321,8 +321,8 @@ function StaffClassesScreen() {
   const { copy, fontSet, isRTL, theme } = usePreferences();
   const queryClient = useQueryClient();
   const role = getCurrentRole(bootstrap);
-  const isCoach = role === "COACH";
-  const canAssignCoach = role !== "COACH";
+  const isCoach = isCoachRole(role);
+  const canAssignCoach = !isCoachRole(role);
   const classesCopy = copy.coachClasses;
   const locale = isRTL ? "ar" : "en";
   const scrollRef = useRef<ScrollView | null>(null);

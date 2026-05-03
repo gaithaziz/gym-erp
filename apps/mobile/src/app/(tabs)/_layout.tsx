@@ -4,7 +4,7 @@ import { Platform } from "react-native";
 
 import { usePreferences } from "@/lib/preferences";
 import { useSession } from "@/lib/session";
-import { getCurrentRole, hasModule, isCustomerRole } from "@/lib/mobile-role";
+import { getCurrentRole, hasModule, isCashierRole, isCoachRole, isCustomerRole, isReceptionDeskRole } from "@/lib/mobile-role";
 
 export default function TabsLayout() {
   const { copy, fontSet, isRTL, locale, theme } = usePreferences();
@@ -19,10 +19,10 @@ export default function TabsLayout() {
     return !hasModule(bootstrap, moduleName as never);
   }
 
-  const supportTitle = role === "COACH" ? copy.common.chat : copy.common.support;
-  const financeTitle = role === "CASHIER" ? copy.staffTabs.pos : copy.staffTabs.finance;
-  const operationsTitle = role === "CASHIER" ? copy.staffTabs.transactions : copy.staffTabs.tasks;
-  const qrTitle = role === "RECEPTION" || role === "FRONT_DESK" ? copy.staffTabs.checkIn : copy.tabs.qr;
+  const supportTitle = isCoachRole(role) ? copy.common.chat : copy.common.support;
+  const financeTitle = isCashierRole(role) ? copy.staffTabs.pos : copy.staffTabs.finance;
+  const operationsTitle = isCashierRole(role) ? copy.staffTabs.transactions : copy.staffTabs.tasks;
+  const qrTitle = isReceptionDeskRole(role) ? copy.staffTabs.checkIn : copy.tabs.qr;
 
   return (
     <Tabs
@@ -91,7 +91,7 @@ export default function TabsLayout() {
         options={{
           href: hidden("support") ? null : undefined,
           title: supportTitle,
-          tabBarIcon: ({ color, size }) => <Ionicons name={role === "COACH" ? "chatbubble-ellipses-outline" : "help-buoy-outline"} size={size} color={color} />,
+          tabBarIcon: ({ color, size }) => <Ionicons name={isCoachRole(role) ? "chatbubble-ellipses-outline" : "help-buoy-outline"} size={size} color={color} />,
         }}
       />
       <Tabs.Screen

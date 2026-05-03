@@ -40,7 +40,7 @@ import { api } from '@/lib/api';
 import { useChatThreads } from '@/hooks/useChatThreads';
 import { useLocale } from '@/context/LocaleContext';
 import { useBranch } from '@/context/BranchContext';
-import { BRANCH_ADMIN_ROLES } from '@/lib/roles';
+import { BRANCH_ADMIN_ROLES, canAccessLostFoundFeedRole, canAccessSupportFeedRole, canUseChatRole } from '@/lib/roles';
 import type { TranslationKey } from '@/lib/i18n/types';
 import { POLICY_VERSION, getLegacyPolicySignatureKey, getLocalePolicySignatureKey, getPolicySignatureKey, type PolicySignature } from '@/lib/gymPolicy';
 
@@ -69,12 +69,12 @@ export default function DashboardLayout({
         user?.role === 'CUSTOMER' &&
         (Boolean(user?.is_subscription_blocked) ||
             BLOCKED_SUBSCRIPTION_STATUSES.has(user?.subscription_status || 'NONE'));
-    const canUseChat = [...BRANCH_ADMIN_ROLES, 'COACH', 'CUSTOMER'].includes(user?.role || '') && !isBlockedCustomer;
+    const canUseChat = canUseChatRole(user?.role) && !isBlockedCustomer;
     const isBlockedRouteAllowed = BLOCKED_ALLOWED_ROUTES.some((route) => pathname.startsWith(route));
     const isSupportPage = pathname.startsWith('/dashboard/admin/support') || pathname.startsWith('/dashboard/support');
     const isLostFoundPage = pathname.startsWith('/dashboard/lost-found');
-    const canAccessSupportFeed = ['CUSTOMER', ...BRANCH_ADMIN_ROLES, 'RECEPTION', 'FRONT_DESK'].includes(user?.role || '');
-    const canAccessLostFoundFeed = [...BRANCH_ADMIN_ROLES, 'FRONT_DESK', 'RECEPTION', 'COACH', 'EMPLOYEE', 'CASHIER', 'CUSTOMER'].includes(user?.role || '');
+    const canAccessSupportFeed = canAccessSupportFeedRole(user?.role);
+    const canAccessLostFoundFeed = canAccessLostFoundFeedRole(user?.role);
     const { threads: chatThreads, mutate: mutateChatThreads } = useChatThreads({ enabled: !!user && canUseChat, limit: 100, branchId: selectedBranchId });
     const chatNewConversations = canUseChat
         ? chatThreads.filter((t) => (t.unread_count || 0) > 0).length
@@ -176,18 +176,15 @@ export default function DashboardLayout({
 
     // Close sidebar on route change (mobile)
     useEffect(() => {
-        const timer = setTimeout(() => setSidebarOpen(false), 0);
-        return () => clearTimeout(timer);
+        setSidebarOpen(false);
     }, [pathname]);
 
     useEffect(() => {
         if (!user) return;
         if (!getAccessToken()) {
-            const timeoutId = window.setTimeout(() => {
-                setSupportHasNew(false);
-                setLostFoundHasNew(false);
-            }, 0);
-            return () => window.clearTimeout(timeoutId);
+            setSupportHasNew(false);
+            setLostFoundHasNew(false);
+            return;
         }
 
         const seenKeySupport = `last_seen_support_${user.id}`;

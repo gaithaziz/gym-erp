@@ -6,7 +6,7 @@ import { Pressable, StyleSheet, Text, View } from "react-native";
 import { Card, MutedText, PrimaryButton, QueryState, Screen, SectionTitle, TextArea } from "@/components/ui";
 import { parseEnvelope, type MobileFeedbackHistory } from "@/lib/api";
 import { localeTag } from "@/lib/mobile-format";
-import { getCurrentRole, isAdminControlRole, isCustomerRole } from "@/lib/mobile-role";
+import { canReviewCoachSessions, getCurrentRole, isCustomerRole } from "@/lib/mobile-role";
 import { usePreferences } from "@/lib/preferences";
 import { useSession } from "@/lib/session";
 
@@ -20,7 +20,7 @@ export default function FeedbackScreen() {
   const locale = localeTag(isRTL);
   const role = getCurrentRole(bootstrap);
   const customer = isCustomerRole(role);
-  const canReviewStaffQueue = role === "COACH" || isAdminControlRole(role);
+  const canReviewStaffQueue = canReviewCoachSessions(role);
   const [category, setCategory] = useState<(typeof GYM_FEEDBACK_CATEGORIES)[number]>("GENERAL");
   const [rating, setRating] = useState(5);
   const [comment, setComment] = useState("");
@@ -93,7 +93,7 @@ export default function FeedbackScreen() {
             <ChoiceChip key={item} label={String(item)} active={item === rating} onPress={() => setRating(item)} compact />
           ))}
         </View>
-        <TextArea value={comment} onChangeText={setComment} placeholder={copy.feedbackScreen.commentPlaceholder} />
+        <TextArea value={comment} onChangeText={setComment} placeholder={copy.feedbackScreen.commentPlaceholder} accessibilityLabel={copy.feedbackScreen.commentPlaceholder} />
         <PrimaryButton onPress={() => gymFeedbackMutation.mutate()} disabled={gymFeedbackMutation.isPending}>
           {gymFeedbackMutation.isPending ? copy.feedbackScreen.submittingFeedback : copy.feedbackScreen.submitGymFeedback}
         </PrimaryButton>

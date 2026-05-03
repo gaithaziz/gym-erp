@@ -1,15 +1,17 @@
 import { Ionicons } from "@expo/vector-icons";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useFocusEffect, useLocalSearchParams, useRouter } from "expo-router";
-import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
+import { useCallback, useDeferredValue, useEffect, useMemo, useState, type ReactNode } from "react";
 import { Pressable, StyleSheet, Text, View } from "react-native";
 
 import { Card, InlineStat, Input, MutedText, QueryState, Screen, SecondaryButton, SectionTitle } from "@/components/ui";
 import { parseAdminPeopleSummaryEnvelope, parseStaffMemberDetailEnvelope } from "@/lib/api";
 import { localeTag, localizeAccessStatus, localizePlanStatus, localizeRole, localizeSubscriptionStatus } from "@/lib/mobile-format";
-import { getCurrentRole, hasCapability, isAdminControlRole } from "@/lib/mobile-role";
+import { canRegisterMembers, getCurrentRole, hasCapability, isAdminControlRole, isCoachRole } from "@/lib/mobile-role";
+import { matchesSearchQuery } from "@/lib/search";
 import { usePreferences } from "@/lib/preferences";
 import { useSession } from "@/lib/session";
+import { useDebouncedValue } from "@/lib/useDebouncedValue";
 import type { MobileStaffMemberDetail } from "@gym-erp/contracts";
 
 type StaffMemberSummary = {
@@ -53,6 +55,7 @@ export default function MembersTab() {
   const role = getCurrentRole(bootstrap);
   const queryClient = useQueryClient();
   const [search, setSearch] = useState("");
+  const debouncedSearch = useDebouncedValue(search, 300);
   const [memberDropdownOpen, setMemberDropdownOpen] = useState(false);
   const [selectedMemberId, setSelectedMemberId] = useState<string | null>(null);
   const [notice, setNotice] = useState<Notice | null>(null);
@@ -64,7 +67,7 @@ export default function MembersTab() {
   const canSupport = hasCapability(bootstrap, "view_support");
   const canAssignWorkout = hasCapability(bootstrap, "manage_member_plans");
   const canAssignDiet = hasCapability(bootstrap, "manage_member_diets");
-  const canRegister = role === "ADMIN" || role === "MANAGER" || role === "RECEPTION" || role === "FRONT_DESK";
+  const canRegister = canRegisterMembers(role);
 
   const adminSummaryQuery = useQuery({
     queryKey: ["mobile-admin-people-summary", role, selectedBranchId ?? "all"],
@@ -76,11 +79,11 @@ export default function MembersTab() {
   });
 
   const membersQuery = useQuery({
-    queryKey: ["mobile-staff-members", search, selectedBranchId],
+    queryKey: ["mobile-staff-members", debouncedSearch.trim(), selectedBranchId],
     queryFn: async () => {
       const params = new URLSearchParams();
-      if (search.trim()) {
-        params.set("q", search.trim());
+      if (debouncedSearch.trim()) {
+        params.set("q", debouncedSearch.trim());
       }
       if (selectedBranchId) {
         params.set("branch_id", selectedBranchId);
@@ -106,6 +109,11 @@ export default function MembersTab() {
       setSelectedMemberId(params.memberId);
     }
   }, [params.memberId]);
+
+  useEffect(() => {
+    setSelectedMemberId(null);
+    setMemberDropdownOpen(false);
+  }, [selectedBranchId]);
 
   useEffect(() => {
     if (!params.memberId && !selectedMemberId && members[0]?.id) {
@@ -152,7 +160,7 @@ export default function MembersTab() {
     enabled: canAssignWorkout,
     queryFn: async () => {
       const params = new URLSearchParams();
-      if (role !== "COACH") {
+      if (!isCoachRole(role)) {
         params.set("include_all_creators", "true");
         params.set("templates_only", "true");
       }
@@ -169,7 +177,7 @@ export default function MembersTab() {
     enabled: canAssignDiet,
     queryFn: async () => {
       const params = new URLSearchParams();
-      if (role !== "COACH") {
+      if (!isCoachRole(role)) {
         params.set("include_all_creators", "true");
         params.set("templates_only", "true");
       }
@@ -228,7 +236,7 @@ export default function MembersTab() {
   };
 
   return (
-    <Screen title={copy.membersScreen.title} subtitle={copy.membersScreen.subtitle} showSubtitle={role === "COACH"}>
+    <Screen title={copy.membersScreen.title} subtitle={copy.membersScreen.subtitle} showSubtitle={isCoachRole(role)}>
       {adminControl ? (
         <>
           <QueryState loading={adminSummaryQuery.isLoading} loadingVariant="stats" skeletonCount={4} error={adminSummaryQuery.error instanceof Error ? adminSummaryQuery.error.message : null} />
@@ -374,7 +382,7 @@ export default function MembersTab() {
               ) : null}
               {canCheckIn ? <ActionPill icon="scan-outline" label={copy.membersScreen.checkInMember} onPress={openCheckIn} /> : null}
               {canSupport ? <ActionPill icon="help-buoy-outline" label={copy.membersScreen.openSupport} onPress={openSupport} /> : null}
-              {role === "COACH" ? <ActionPill icon="clipboard-outline" label={copy.membersScreen.viewFeedbackQueue} onPress={() => router.push("/coach-feedback")} /> : null}
+              {isCoachRole(role) ? <ActionPill icon="clipboard-outline" label={copy.membersScreen.viewFeedbackQueue} onPress={() => router.push("/coach-feedback")} /> : null}
             </View>
           </Card>
 
@@ -559,11 +567,10 @@ function AssignmentCard({
   const { direction, fontSet, isRTL, theme } = usePreferences();
   const [open, setOpen] = useState(false);
   const [search, setSearch] = useState("");
+  const deferredSearch = useDeferredValue(search);
   const filteredPlans = useMemo(() => {
-    const needle = search.trim().toLowerCase();
-    if (!needle) return plans;
-    return plans.filter((plan) => [plan.name, plan.status].some((value) => value.toLowerCase().includes(needle)));
-  }, [plans, search]);
+    return plans.filter((plan) => matchesSearchQuery(deferredSearch, [plan.name, plan.status]));
+  }, [deferredSearch, plans]);
   const visiblePlans = filteredPlans.slice(0, 8);
 
   return (
@@ -598,7 +605,7 @@ function AssignmentCard({
 
           {open ? (
             <View style={styles.assignmentDropdown}>
-              <Input value={search} onChangeText={setSearch} placeholder={searchPlaceholder} />
+            <Input value={search} onChangeText={setSearch} placeholder={searchPlaceholder} accessibilityLabel={searchPlaceholder} />
               {visiblePlans.length === 0 ? <MutedText>{noResultsMessage}</MutedText> : null}
               {visiblePlans.map((plan) => (
                 <PlanAssignRow

@@ -249,7 +249,7 @@ export default function StaffSummaryPage() {
         }
     }, [branchParams, endDate, id, showToast, startDate, txt.adminOnly, txt.failedSummary, txt.missingId, txt.notFound, txt.startAfterEnd]);
 
-    useEffect(() => { setTimeout(() => fetchSummary(), 0); }, [fetchSummary]);
+    useEffect(() => { void fetchSummary(); }, [fetchSummary]);
 
     useEffect(() => {
         setAttendancePage(1);

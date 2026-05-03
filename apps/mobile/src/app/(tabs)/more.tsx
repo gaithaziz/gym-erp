@@ -1,7 +1,7 @@
 import { useRouter } from "expo-router";
 
 import { useSession } from "@/lib/session";
-import { getCurrentRole, hasCapability, isAdminControlRole, isCustomerRole, isStaffRole } from "@/lib/mobile-role";
+import { canAccessLostFound, canReviewCoachSessions, canViewAdminAudit, canViewLeaves, getCurrentRole, hasCapability, isAdminControlRole, isCoachRole, isCustomerRole, isStaffRole } from "@/lib/mobile-role";
 import { usePreferences } from "@/lib/preferences";
 import { Card, MutedText, PrimaryButton, Screen, SecondaryLink, SectionTitle } from "@/components/ui";
 
@@ -33,16 +33,16 @@ export default function MoreTab() {
       {adminControl ? <SecondaryLink href="/(tabs)/operations">{copy.adminControl.operationsSummary}</SecondaryLink> : null}
       {adminControl ? <SecondaryLink href="/(tabs)/finance">{copy.adminControl.financeSummary}</SecondaryLink> : null}
       {adminControl ? <SecondaryLink href="/approvals">{copy.adminControl.approvalQueue}</SecondaryLink> : null}
-      {isStaffRole(role) ? <SecondaryLink href="/classes">{role === "COACH" ? copy.coachClasses.title : copy.classesScreen.title}</SecondaryLink> : null}
-      {role === "ADMIN" ? <SecondaryLink href="/admin-audit">{copy.adminControl.auditSummary}</SecondaryLink> : null}
+      {isStaffRole(role) ? <SecondaryLink href="/classes">{isCoachRole(role) ? copy.coachClasses.title : copy.classesScreen.title}</SecondaryLink> : null}
+      {canViewAdminAudit(role) ? <SecondaryLink href="/admin-audit">{copy.adminControl.auditSummary}</SecondaryLink> : null}
       {adminControl ? <SecondaryLink href="/inventory-summary">{copy.adminControl.inventorySummary}</SecondaryLink> : null}
       <SecondaryLink href="/notifications">{copy.more.notifications}</SecondaryLink>
       <SecondaryLink href="/diagnostics">Diagnostics</SecondaryLink>
       {hasCapability(bootstrap, "view_support") ? <SecondaryLink href="/(tabs)/support">{copy.more.support}</SecondaryLink> : null}
       {hasCapability(bootstrap, "view_chat") ? <SecondaryLink href="/chat">{copy.more.chat}</SecondaryLink> : null}
-      {(customer || role === "RECEPTION" || role === "FRONT_DESK" || role === "EMPLOYEE") ? <SecondaryLink href="/lost-found">{copy.more.lostFound}</SecondaryLink> : null}
-      {role === "COACH" || role === "EMPLOYEE" || role === "RECEPTION" || role === "FRONT_DESK" || role === "CASHIER" ? <SecondaryLink href="/leaves">{copy.operationsScreen.myLeaves}</SecondaryLink> : null}
-      {role === "COACH" || adminControl ? <SecondaryLink href="/coach-feedback">{copy.common.feedbackHistory}</SecondaryLink> : null}
+      {canAccessLostFound(role, customer) ? <SecondaryLink href="/lost-found">{copy.more.lostFound}</SecondaryLink> : null}
+      {canViewLeaves(role) ? <SecondaryLink href="/leaves">{copy.operationsScreen.myLeaves}</SecondaryLink> : null}
+      {canReviewCoachSessions(role) || adminControl ? <SecondaryLink href="/coach-feedback">{copy.common.feedbackHistory}</SecondaryLink> : null}
       <SecondaryLink href="/profile">{copy.more.profile}</SecondaryLink>
       {customer ? <SecondaryLink href="/feedback">{copy.more.feedback}</SecondaryLink> : null}
 

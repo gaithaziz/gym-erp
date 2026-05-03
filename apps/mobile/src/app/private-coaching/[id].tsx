@@ -4,7 +4,7 @@ import { StyleSheet, Text, View } from "react-native";
 
 import { Card, MutedText, PrimaryButton, QueryState, Screen, SectionTitle } from "@/components/ui";
 import { parseEnvelope } from "@/lib/api";
-import { getCurrentRole } from "@/lib/mobile-role";
+import { getCurrentRole, isCoachRole, isCustomerRole } from "@/lib/mobile-role";
 import { localeTag } from "@/lib/mobile-format";
 import { usePreferences } from "@/lib/preferences";
 import { useSession } from "@/lib/session";
@@ -124,7 +124,7 @@ export default function PrivateCoachingLedgerScreen() {
             <MutedText>
               {copy.privateCoachingScreen.remainingLabel}: {packageItem.remaining_sessions} / {packageItem.total_sessions}
             </MutedText>
-            {(role === "COACH" || role === "CUSTOMER") && packageItem.is_active ? (
+            {(isCoachRole(role) || isCustomerRole(role)) && packageItem.is_active ? (
               <PrimaryButton onPress={() => useSessionMutation.mutate()} disabled={useSessionMutation.isPending}>
                 {useSessionMutation.isPending ? copy.privateCoachingScreen.usingSession : copy.privateCoachingScreen.useSession}
               </PrimaryButton>

@@ -94,10 +94,9 @@ export default function SubscriptionBlockedPage() {
 
     useEffect(() => {
         const tick = () => setNowTs(Date.now());
-        const timeoutId = window.setTimeout(tick, 0);
+        tick();
         const intervalId = window.setInterval(tick, 60_000);
         return () => {
-            window.clearTimeout(timeoutId);
             window.clearInterval(intervalId);
         };
     }, []);
