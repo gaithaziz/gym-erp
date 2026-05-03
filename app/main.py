@@ -1,320 +1,173 @@
-import asyncio
 import logging
-from datetime import datetime, timedelta, timezone
-from zoneinfo import ZoneInfo
-
-from fastapi import FastAPI, HTTPException, status
-from fastapi import Request
-from fastapi.exceptions import RequestValidationError
-from sqlalchemy.exc import IntegrityError
-from sqlalchemy import select, text
-from app.config import settings
-from app.auth import router as auth_router
-from app.auth.security import get_password_hash
-from app.routers.access import router as access_router
-from app.routers.hr import router as hr_router
-from app.routers.finance import router as finance_router
-from app.routers.fitness import router as fitness_router
-from app.routers.analytics import router as analytics_router
-from app.routers.gamification import router as gamification_router
-from app.routers.inventory import router as inventory_router
-from app.routers.users import router as users_router
-from app.routers.audit import router as audit_router
-from app.routers.notifications import router as notifications_router
-from app.routers.chat import router as chat_router
-from app.routers.lost_found import router as lost_found_router
-from app.routers.support import router as support_router
-from app.routers.membership import router as membership_router
-from app.routers.coaching import router as coaching_router
-from app.routers.branch_hours import router as branch_hours_router
-from app.routers.announcements import router as announcements_router
-from app.routers.facility import router as facility_router
-from app.routers.staff_debt import router as staff_debt_router
-from app.routers.mobile import router as mobile_router
-from app.routers.classes import router as classes_router
-from app.routers.system_admin import router as system_admin_router
-from app.core import exceptions
-from fastapi.staticfiles import StaticFiles
 import os
 import uuid
-from app.database import AsyncSessionLocal, engine, set_rls_context
-from app.models.classes import ClassReservation, ClassSession, ClassTemplate
-from app.models.enums import Role
-from app.models.user import User
-from app.services.payroll_automation_service import PayrollAutomationService
-from app.services.tenancy_service import TenancyService
+from contextlib import asynccontextmanager
+from collections.abc import AsyncGenerator
 
+from fastapi import FastAPI, HTTPException, Request, status
+from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import Response
+from fastapi.staticfiles import StaticFiles
+from sqlalchemy import text
+from sqlalchemy.exc import IntegrityError
+
+from app.auth import router as auth_router
+from app.config import settings
+from app.core import exceptions
 from app.core.middleware import MaintenanceMiddleware
+from app.core.schedulers import start_background_schedulers, stop_background_schedulers
+from app.core.startup import ensure_demo_classes_seed, ensure_local_admin_user
+from app.database import AsyncSessionLocal
+from app.routers.access import router as access_router
+from app.routers.analytics import router as analytics_router
+from app.routers.announcements import router as announcements_router
+from app.routers.audit import router as audit_router
+from app.routers.branch_hours import router as branch_hours_router
+from app.routers.chat import router as chat_router
+from app.routers.classes import router as classes_router
+from app.routers.coaching import router as coaching_router
+from app.routers.facility import router as facility_router
+from app.routers.finance import router as finance_router
+from app.routers.fitness import router as fitness_router
+from app.routers.gamification import router as gamification_router
+from app.routers.hr import router as hr_router
+from app.routers.inventory import router as inventory_router
+from app.routers.lost_found import router as lost_found_router
+from app.routers.membership import router as membership_router
+from app.routers.mobile import router as mobile_router
+from app.routers.notifications import router as notifications_router
+from app.routers.staff_debt import router as staff_debt_router
+from app.routers.support import router as support_router
+from app.routers.system_admin import router as system_admin_router
+from app.routers.users import router as users_router
 
 logger = logging.getLogger(__name__)
-PAYROLL_SCHEDULER_LOCK_KEY = 995311042
-payroll_scheduler_task: asyncio.Task | None = None
-LOCAL_ADMIN_EMAIL = "admin@gym-erp.com"
-LOCAL_ADMIN_PASSWORD = "GymPass123!"
-
-app = FastAPI(
-    title=settings.PROJECT_NAME,
-    version=settings.VERSION,
-    openapi_url=f"{settings.API_V1_STR}/openapi.json"
-)
-
-# Mount static files for profile pictures
-os.makedirs("static", exist_ok=True)
-app.mount("/static", StaticFiles(directory="static"), name="static")
-
-# CORS must be added before other middleware
-configured_origins = [str(origin).rstrip("/") for origin in settings.BACKEND_CORS_ORIGINS]
-default_origins = [
-    "http://localhost:3000",
-    "http://127.0.0.1:3000",
-    "http://localhost:8000",
-    "http://127.0.0.1:8000",
-]
-allow_origins = configured_origins if settings.APP_ENV == "production" else list(dict.fromkeys([*default_origins, *configured_origins]))
-allow_methods = ["*"] if settings.CORS_ALLOW_ALL_METHODS else settings.CORS_ALLOW_METHODS
-allow_headers = ["*"] if settings.CORS_ALLOW_ALL_HEADERS else settings.CORS_ALLOW_HEADERS
-
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=allow_origins,
-    allow_credentials=True,
-    allow_methods=allow_methods,
-    allow_headers=allow_headers,
-)
-
-app.add_middleware(MaintenanceMiddleware)
 
 
-@app.middleware("http")
-async def attach_request_id(request: Request, call_next):
-    request_id = request.headers.get("X-Request-ID") or str(uuid.uuid4())
-    request.state.request_id = request_id
-    response = await call_next(request)
-    response.headers["X-Request-ID"] = request_id
-    return response
-
-# Exception Handlers
-app.add_exception_handler(RequestValidationError, exceptions.validation_exception_handler)  # type: ignore
-app.add_exception_handler(IntegrityError, exceptions.integrity_exception_handler)  # type: ignore
-
-# Routers
-app.include_router(auth_router.router, prefix=f"{settings.API_V1_STR}/auth", tags=["Auth"])
-app.include_router(access_router, prefix=f"{settings.API_V1_STR}/access", tags=["Access"])
-app.include_router(hr_router, prefix=f"{settings.API_V1_STR}/hr", tags=["HR"])
-app.include_router(finance_router, prefix=f"{settings.API_V1_STR}/finance", tags=["Finance"])
-app.include_router(fitness_router, prefix=f"{settings.API_V1_STR}/fitness", tags=["Fitness"])
-app.include_router(analytics_router, prefix=f"{settings.API_V1_STR}/analytics", tags=["Analytics"])
-app.include_router(gamification_router, prefix=f"{settings.API_V1_STR}/gamification", tags=["Gamification"])
-app.include_router(inventory_router, prefix=f"{settings.API_V1_STR}/inventory", tags=["Inventory"])
-app.include_router(users_router, prefix=f"{settings.API_V1_STR}/users", tags=["Users"])
-app.include_router(system_admin_router, prefix=f"{settings.API_V1_STR}/system", tags=["System Admin"])
-app.include_router(audit_router, prefix=f"{settings.API_V1_STR}/audit", tags=["Audit"])
-app.include_router(notifications_router, prefix=f"{settings.API_V1_STR}/admin/notifications", tags=["Notifications"])
-app.include_router(chat_router, prefix=f"{settings.API_V1_STR}/chat", tags=["Chat"])
-app.include_router(lost_found_router, prefix=f"{settings.API_V1_STR}/lost-found", tags=["LostFound"])
-app.include_router(support_router, prefix=f"{settings.API_V1_STR}/support", tags=["Support"])
-app.include_router(membership_router, prefix=f"{settings.API_V1_STR}/membership", tags=["Membership"])
-app.include_router(coaching_router, prefix=f"{settings.API_V1_STR}/coaching", tags=["Coaching"])
-app.include_router(branch_hours_router, prefix=f"{settings.API_V1_STR}", tags=["Branch Hours"])
-app.include_router(announcements_router, prefix=f"{settings.API_V1_STR}", tags=["Announcements"])
-app.include_router(facility_router, prefix=f"{settings.API_V1_STR}/facility", tags=["Facility"])
-app.include_router(staff_debt_router, prefix=f"{settings.API_V1_STR}/hr", tags=["HR"])
-app.include_router(mobile_router, prefix=f"{settings.API_V1_STR}/mobile", tags=["Mobile"])
-app.include_router(classes_router, prefix=f"{settings.API_V1_STR}/classes", tags=["Classes"])
-
-@app.get("/health")
-async def health_check():
-    return {"status": "ok"}
-
-
-@app.get("/healthz")
-async def healthz():
+@asynccontextmanager
+async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
+    _validate_security_settings()
+    await ensure_local_admin_user()
+    await ensure_demo_classes_seed()
+    app.state.scheduler_tasks = start_background_schedulers()
     try:
-        async with AsyncSessionLocal() as db:
-            await db.execute(text("SELECT 1"))
-    except Exception as exc:
-        logger.exception("Health check failed")
-        raise HTTPException(
-            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail="database unavailable",
-        ) from exc
-    return {"status": "ok", "database": "ok"}
-
-@app.get("/")
-async def root():
-    return {"message": "Welcome to the Gym ERP API", "docs": "/docs"}
-
-@app.get("/favicon.ico", include_in_schema=False)
-async def favicon():
-    from fastapi.responses import Response
-    return Response(content=b"", media_type="image/x-icon")
+        yield
+    finally:
+        await stop_background_schedulers(app.state.scheduler_tasks)
+        app.state.scheduler_tasks = []
 
 
-def _payroll_scheduler_tz() -> ZoneInfo:
-    tz_name = settings.PAYROLL_AUTO_TZ or settings.GYM_TIMEZONE
-    try:
-        return ZoneInfo(tz_name)
-    except Exception:
-        logger.warning("Invalid payroll scheduler timezone '%s'; falling back to UTC", tz_name)
-        return ZoneInfo("UTC")
-
-
-def _seconds_until_next_run(now_utc: datetime) -> float:
-    tz = _payroll_scheduler_tz()
-    now_local = now_utc.astimezone(tz)
-    target_local = now_local.replace(
-        hour=settings.PAYROLL_AUTO_HOUR_LOCAL,
-        minute=settings.PAYROLL_AUTO_MINUTE_LOCAL,
-        second=0,
-        microsecond=0,
+def create_app() -> FastAPI:
+    fastapi_app = FastAPI(
+        title=settings.PROJECT_NAME,
+        version=settings.VERSION,
+        openapi_url=f"{settings.API_V1_STR}/openapi.json",
+        lifespan=lifespan,
     )
-    if now_local >= target_local:
-        target_local += timedelta(days=1)
-    return max((target_local.astimezone(timezone.utc) - now_utc).total_seconds(), 1.0)
+    configure_static(fastapi_app)
+    configure_middleware(fastapi_app)
+    configure_exception_handlers(fastapi_app)
+    register_routers(fastapi_app)
+    register_health_routes(fastapi_app)
+    return fastapi_app
 
 
-async def _run_payroll_scheduler_once() -> None:
-    async with AsyncSessionLocal() as db:
-        locked = bool((await db.execute(text("SELECT pg_try_advisory_lock(:key)"), {"key": PAYROLL_SCHEDULER_LOCK_KEY})).scalar())
-        if not locked:
-            logger.info("Payroll scheduler lock busy; skipping this cycle")
-            return
-        try:
-            summary = await PayrollAutomationService.run(db, reason="scheduled_daily")
-            logger.info(
-                "Payroll scheduler run complete: users=%s periods=%s created=%s updated=%s skipped_paid=%s errors=%s",
-                summary["users_scanned"],
-                summary["periods_scanned"],
-                summary["created"],
-                summary["updated"],
-                summary["skipped_paid"],
-                len(summary["errors"]),
-            )
-        finally:
-            await db.execute(text("SELECT pg_advisory_unlock(:key)"), {"key": PAYROLL_SCHEDULER_LOCK_KEY})
-            await db.commit()
+def configure_static(app: FastAPI) -> None:
+    os.makedirs("static", exist_ok=True)
+    app.mount("/static", StaticFiles(directory="static"), name="static")
 
 
-async def _payroll_scheduler_loop() -> None:
-    while True:
-        delay = _seconds_until_next_run(datetime.now(timezone.utc))
-        await asyncio.sleep(delay)
-        try:
-            await _run_payroll_scheduler_once()
-        except asyncio.CancelledError:
-            raise
-        except Exception:
-            logger.exception("Payroll scheduler iteration failed")
+def configure_middleware(app: FastAPI) -> None:
+    configured_origins = [str(origin).rstrip("/") for origin in settings.BACKEND_CORS_ORIGINS]
+    default_origins = [
+        "http://localhost:3000",
+        "http://127.0.0.1:3000",
+        "http://localhost:8000",
+        "http://127.0.0.1:8000",
+    ]
+    allow_origins = (
+        configured_origins
+        if settings.APP_ENV == "production"
+        else list(dict.fromkeys([*default_origins, *configured_origins]))
+    )
+    allow_methods = ["*"] if settings.CORS_ALLOW_ALL_METHODS else settings.CORS_ALLOW_METHODS
+    allow_headers = ["*"] if settings.CORS_ALLOW_ALL_HEADERS else settings.CORS_ALLOW_HEADERS
+
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=allow_origins,
+        allow_credentials=True,
+        allow_methods=allow_methods,
+        allow_headers=allow_headers,
+    )
+    app.add_middleware(MaintenanceMiddleware)
+
+    @app.middleware("http")
+    async def attach_request_id(request: Request, call_next):
+        request_id = request.headers.get("X-Request-ID") or str(uuid.uuid4())
+        request.state.request_id = request_id
+        response = await call_next(request)
+        response.headers["X-Request-ID"] = request_id
+        return response
 
 
-async def _ensure_local_admin_user() -> None:
-    if settings.APP_ENV != "development":
-        return
-
-    async with AsyncSessionLocal() as db:
-        await set_rls_context(db, role="SUPER_ADMIN")
-        gym, branch = await TenancyService.ensure_default_gym_and_branch(db)
-        # Re-set with gym_id to be extra safe
-        await set_rls_context(db, role="SUPER_ADMIN", gym_id=str(gym.id), branch_id=str(branch.id))
-        existing = (await db.execute(select(User).where(User.email == LOCAL_ADMIN_EMAIL))).scalar_one_or_none()
-        if existing is None:
-            db.add(
-                User(
-                    gym_id=gym.id,
-                    email=LOCAL_ADMIN_EMAIL,
-                    hashed_password=get_password_hash(LOCAL_ADMIN_PASSWORD),
-                    full_name="System Admin",
-                    role=Role.ADMIN,
-                    is_active=True,
-                    home_branch_id=branch.id,
-                )
-            )
-            logger.info("Created local development admin user: %s", LOCAL_ADMIN_EMAIL)
-        else:
-            existing.gym_id = gym.id
-            existing.hashed_password = get_password_hash(LOCAL_ADMIN_PASSWORD)
-            existing.full_name = existing.full_name or "System Admin"
-            existing.role = Role.ADMIN
-            existing.is_active = True
-            existing.home_branch_id = branch.id
-            logger.info("Reset local development admin password for: %s", LOCAL_ADMIN_EMAIL)
-
-        await db.commit()
-        existing = (await db.execute(select(User).where(User.email == LOCAL_ADMIN_EMAIL))).scalar_one()
-        await TenancyService.ensure_user_branch_access(db, user_id=existing.id, gym_id=gym.id, branch_id=branch.id)
-        await db.commit()
+def configure_exception_handlers(app: FastAPI) -> None:
+    app.add_exception_handler(RequestValidationError, exceptions.validation_exception_handler)  # type: ignore
+    app.add_exception_handler(IntegrityError, exceptions.integrity_exception_handler)  # type: ignore
 
 
-async def _ensure_demo_classes_seed() -> None:
-    if settings.APP_ENV != "development":
-        return
+def register_routers(app: FastAPI) -> None:
+    app.include_router(auth_router.router, prefix=f"{settings.API_V1_STR}/auth", tags=["Auth"])
+    app.include_router(access_router, prefix=f"{settings.API_V1_STR}/access", tags=["Access"])
+    app.include_router(hr_router, prefix=f"{settings.API_V1_STR}/hr", tags=["HR"])
+    app.include_router(finance_router, prefix=f"{settings.API_V1_STR}/finance", tags=["Finance"])
+    app.include_router(fitness_router, prefix=f"{settings.API_V1_STR}/fitness", tags=["Fitness"])
+    app.include_router(analytics_router, prefix=f"{settings.API_V1_STR}/analytics", tags=["Analytics"])
+    app.include_router(gamification_router, prefix=f"{settings.API_V1_STR}/gamification", tags=["Gamification"])
+    app.include_router(inventory_router, prefix=f"{settings.API_V1_STR}/inventory", tags=["Inventory"])
+    app.include_router(users_router, prefix=f"{settings.API_V1_STR}/users", tags=["Users"])
+    app.include_router(system_admin_router, prefix=f"{settings.API_V1_STR}/system", tags=["System Admin"])
+    app.include_router(audit_router, prefix=f"{settings.API_V1_STR}/audit", tags=["Audit"])
+    app.include_router(notifications_router, prefix=f"{settings.API_V1_STR}/admin/notifications", tags=["Notifications"])
+    app.include_router(chat_router, prefix=f"{settings.API_V1_STR}/chat", tags=["Chat"])
+    app.include_router(lost_found_router, prefix=f"{settings.API_V1_STR}/lost-found", tags=["LostFound"])
+    app.include_router(support_router, prefix=f"{settings.API_V1_STR}/support", tags=["Support"])
+    app.include_router(membership_router, prefix=f"{settings.API_V1_STR}/membership", tags=["Membership"])
+    app.include_router(coaching_router, prefix=f"{settings.API_V1_STR}/coaching", tags=["Coaching"])
+    app.include_router(branch_hours_router, prefix=f"{settings.API_V1_STR}", tags=["Branch Hours"])
+    app.include_router(announcements_router, prefix=f"{settings.API_V1_STR}", tags=["Announcements"])
+    app.include_router(facility_router, prefix=f"{settings.API_V1_STR}/facility", tags=["Facility"])
+    app.include_router(staff_debt_router, prefix=f"{settings.API_V1_STR}/hr", tags=["HR"])
+    app.include_router(mobile_router, prefix=f"{settings.API_V1_STR}/mobile", tags=["Mobile"])
+    app.include_router(classes_router, prefix=f"{settings.API_V1_STR}/classes", tags=["Classes"])
 
-    async with AsyncSessionLocal() as db:
-        has_templates = (await db.execute(select(ClassTemplate.id).limit(1))).scalar_one_or_none()
-        if has_templates is not None:
-            return
 
-    from app.seed_demo_data import seed_demo_data
+def register_health_routes(app: FastAPI) -> None:
+    @app.get("/health")
+    async def health_check():
+        return {"status": "ok"}
 
-    logger.info("Seeding demo classes and related sample data for development")
-    await seed_demo_data()
-
-
-from app.services.subscription_automation_service import SubscriptionAutomationService
-
-subscription_scheduler_task: asyncio.Task | None = None
-
-async def _subscription_scheduler_loop() -> None:
-    while True:
-        # Run every 6 hours for gym subscription checks
+    @app.get("/healthz")
+    async def healthz():
         try:
             async with AsyncSessionLocal() as db:
-                summary = await SubscriptionAutomationService.run(db)
-                if summary["locked"] > 0 or summary["unlocked"] > 0:
-                    logger.info(f"Subscription scheduler: locked={summary['locked']}, unlocked={summary['unlocked']}")
-        except Exception:
-            logger.exception("Subscription scheduler iteration failed")
-        
-        await asyncio.sleep(60 * 60 * 6) # 6 hours
+                await db.execute(text("SELECT 1"))
+        except Exception as exc:
+            logger.exception("Health check failed")
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail="database unavailable",
+            ) from exc
+        return {"status": "ok", "database": "ok"}
 
-@app.on_event("startup")
-async def startup_schedulers() -> None:
-    global payroll_scheduler_task, subscription_scheduler_task
-    _validate_security_settings()
-    await _ensure_local_admin_user()
-    await _ensure_demo_classes_seed()
-    
-    # Subscription Scheduler
-    subscription_scheduler_task = asyncio.create_task(_subscription_scheduler_loop())
-    
-    # Payroll Scheduler
-    if not settings.PAYROLL_AUTO_ENABLED:
-        logger.info("Payroll auto scheduler disabled by config")
-        return
-    if payroll_scheduler_task and not payroll_scheduler_task.done():
-        return
-    payroll_scheduler_task = asyncio.create_task(_payroll_scheduler_loop())
-    logger.info(
-        "Payroll scheduler started (hour=%s minute=%s tz=%s)",
-        settings.PAYROLL_AUTO_HOUR_LOCAL,
-        settings.PAYROLL_AUTO_MINUTE_LOCAL,
-        settings.PAYROLL_AUTO_TZ or settings.GYM_TIMEZONE,
-    )
+    @app.get("/")
+    async def root():
+        return {"message": "Welcome to the Gym ERP API", "docs": "/docs"}
 
-
-@app.on_event("shutdown")
-async def shutdown_schedulers() -> None:
-    global payroll_scheduler_task, subscription_scheduler_task
-    for task in [payroll_scheduler_task, subscription_scheduler_task]:
-        if task and not task.done():
-            task.cancel()
-            try:
-                await task
-            except asyncio.CancelledError:
-                pass
-    payroll_scheduler_task = None
-    subscription_scheduler_task = None
+    @app.get("/favicon.ico", include_in_schema=False)
+    async def favicon():
+        return Response(content=b"", media_type="image/x-icon")
 
 
 def _validate_security_settings() -> None:
@@ -331,3 +184,6 @@ def _validate_security_settings() -> None:
 
     if errors:
         raise RuntimeError("; ".join(errors))
+
+
+app = create_app()

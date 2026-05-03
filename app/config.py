@@ -23,6 +23,11 @@ class Settings(BaseSettings):
     PAYROLL_AUTO_HOUR_LOCAL: int = 2
     PAYROLL_AUTO_MINUTE_LOCAL: int = 0
     PAYROLL_AUTO_TZ: Optional[str] = None
+    SUBSCRIPTION_AUTO_ENABLED: bool = True
+    SUBSCRIPTION_AUTO_INTERVAL_HOURS: int = 6
+    RESET_LOCAL_ADMIN_ON_STARTUP: bool = True
+    DEMO_SEED_ON_STARTUP: bool = True
+    BACKGROUND_TASKS_ENABLED_IN_TESTS: bool = False
     GYM_NAME: str = "Gym ERP"
     GYM_LOGO_URL: Optional[str] = None
     GYM_PRIMARY_COLOR: str = "#0F766E"

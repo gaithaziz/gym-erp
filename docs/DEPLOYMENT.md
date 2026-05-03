@@ -30,13 +30,19 @@ POSTGRES_HOST=db
 POSTGRES_PORT=5432
 SECRET_KEY=change_me_to_a_long_random_secret
 KIOSK_SIGNING_KEY=change_me_to_a_long_random_kiosk_secret
-BACKEND_CORS_ORIGINS=["http://localhost:3000","http://127.0.0.1:3000"]
+BACKEND_CORS_ORIGINS=["https://your-frontend-domain.example"]
 NEXT_PUBLIC_KIOSK_ID=kiosk-01
+RESET_LOCAL_ADMIN_ON_STARTUP=false
+DEMO_SEED_ON_STARTUP=false
 ```
 
 Optional overrides:
 
 ```env
+PAYROLL_AUTO_ENABLED=true
+SUBSCRIPTION_AUTO_ENABLED=true
+SUBSCRIPTION_AUTO_INTERVAL_HOURS=6
+BACKGROUND_TASKS_ENABLED_IN_TESTS=false
 BACKEND_EXPOSE_PORT=8000
 FRONTEND_EXPOSE_PORT=3000
 POSTGRES_EXPOSE_PORT=5432
@@ -45,6 +51,8 @@ BACKEND_INTERNAL_URL=http://backend:8000
 BACKEND_IMAGE=ghcr.io/your-org/gym-erp-backend:tag
 FRONTEND_IMAGE=ghcr.io/your-org/gym-erp-frontend:tag
 ```
+
+Before production deploy, replace every `change_me...` value with a strong secret and set `BACKEND_CORS_ORIGINS` to the real HTTPS frontend origin. Do not use localhost CORS values for public production traffic.
 
 ## Deploy Anywhere
 If the target machine has the repo checkout:
@@ -67,6 +75,7 @@ This stack brings up:
 - `frontend` on port `3000`
 
 The backend waits for the database and retries migrations automatically during container startup.
+Payroll and subscription schedulers are enabled by default in production. Both use Postgres advisory locks so only one backend process performs each scheduled run at a time.
 
 ## Validation
 After startup:

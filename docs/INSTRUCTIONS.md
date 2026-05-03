@@ -48,7 +48,7 @@ You only need to seed once for a given Docker volume. Normal `npm run down` and 
 
 Local development login notes:
 - `admin@gym-erp.com` / `GymPass123!`
-  - In `development`, backend startup resets this local admin password automatically.
+  - In `development`, backend startup resets this local admin password automatically when `RESET_LOCAL_ADMIN_ON_STARTUP=true` (the default).
 - `admin.demo@gym-erp.com` / `DemoPass123!`
 - `alice@client.com` / `GymPass123!`
 
